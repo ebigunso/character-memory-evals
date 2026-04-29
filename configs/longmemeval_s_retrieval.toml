@@ -1,0 +1,24 @@
+run_id = "longmemeval_s_v0_1_hybrid"
+dataset = "longmemeval_s"
+
+[backend]
+namespace_prefix = "bench:lme"
+reset_namespace_before_each_question = true
+
+[retrieval]
+top_k_episodes = 10
+top_k_observations = 50
+include_derived_memories = false
+include_threads = false
+include_entities = true
+include_debug_rationale = true
+
+[ingest]
+index_observations = true
+index_episode_summaries = true
+create_threads = false
+store_gold_labels = false
+
+[metrics]
+ks_session = [5, 10]
+ks_turn = [10, 50]

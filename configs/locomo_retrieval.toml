@@ -1,0 +1,26 @@
+run_id = "locomo_v0_1_hybrid"
+dataset = "locomo"
+
+[backend]
+namespace_prefix = "bench:locomo"
+reset_namespace_before_each_sample = true
+
+[retrieval]
+top_k_episodes = 10
+top_k_observations = 20
+include_derived_memories = true
+include_threads = true
+include_entities = true
+include_debug_rationale = true
+
+[ingest]
+index_observations = true
+index_episode_summaries = true
+index_session_summaries = true
+index_generated_observations = true
+include_image_captions = false
+store_gold_labels = false
+
+[metrics]
+ks_dialog = [5, 10]
+ks_session = [5, 10]

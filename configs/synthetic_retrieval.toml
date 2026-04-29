@@ -1,0 +1,14 @@
+run_id = "synthetic_smoke"
+dataset = "synthetic"
+
+[backend]
+namespace_prefix = "bench:synthetic"
+reset_namespace_before_each_question = true
+
+[retrieval]
+top_k_episodes = 5
+top_k_observations = 10
+include_derived_memories = true
+include_threads = true
+include_entities = true
+include_debug_rationale = true
