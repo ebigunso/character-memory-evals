@@ -51,3 +51,55 @@ Prevention:
 
 Evidence:
 - User correction on 2026-04-30: "split tasks into smaller steps to have the sub-agents finish them in reasonable amounts of time."
+
+## 2026-04-30 — Wait Longer Before Closing Background Agents  [tags: delegation, orchestration, patience]
+
+Context:
+- Plan: `docs/coding-agent/plans/completed/character-memory-evals-bootstrap-plan.md`
+- Task/Wave: follow-up correction
+- Roles involved: Orchestrator | Worker | Reviewer
+
+Symptom:
+- The orchestrator closed background agents too quickly after short waits and checkpoint prompts.
+
+Root cause:
+- I optimized for main-thread progress and treated missing short-window responses as a reason to take over, instead of allowing enough time for background agents to complete compile, review, or repo-analysis work.
+
+Fix applied:
+- Future subagent management will use longer wait windows before force-closing agents, with checkpoint prompts used to redirect or narrow work rather than as an immediate prelude to shutdown.
+
+Prevention:
+- Repo rule candidate:
+  - audience: orchestrator
+  - proposed rule: Wait substantially longer before force-closing background agents unless they are clearly blocked, conflicting with newer user direction, or performing unsafe work.
+- Dispatch/plan guardrail:
+  - For compile, review, or repository exploration tasks, prefer multi-minute waits and explicit checkpoint prompts before considering closure.
+
+Evidence:
+- User correction on 2026-04-30: "You were generally too impatient about background agents in this session. You should wait much longer before forcefully closing them."
+
+## 2026-04-30 — Separate Benchmark Runtime Defaults From CI Defaults  [tags: planning, validation, adapters, defaults]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/character-memory-public-api-eval-adapter-plan.md`
+- Task/Wave: planning follow-up
+- Roles involved: Orchestrator | Researcher
+
+Symptom:
+- The active plan preserved mock-backed defaults too broadly, which could let users accidentally run benchmark evals against mocks.
+
+Root cause:
+- I conflated service-free validation defaults with user-facing benchmark runtime defaults.
+
+Fix applied:
+- The plan now makes live Character Memory the default for benchmark CLI runs while keeping mock paths explicit and guarded for tests/smoke validation.
+
+Prevention:
+- Repo rule candidate:
+  - audience: orchestrator
+  - proposed rule: Distinguish benchmark runtime defaults from CI/test defaults; real eval commands should fail loudly instead of silently falling back to mocks.
+- Dispatch/plan guardrail:
+  - When mocks are retained for validation, require explicit mock opt-in flags and visible mock/smoke output labeling.
+
+Evidence:
+- User correction on 2026-04-30: "Can you also make the default run be a live eval run, instead of a mock based solution?"
