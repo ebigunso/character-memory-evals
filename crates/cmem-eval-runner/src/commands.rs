@@ -92,6 +92,7 @@ struct SummarizeArgs {
 
 async fn run_synthetic(args: RunArgs) -> Result<()> {
     let config = read_config(&args.config)?;
+    config.validate()?;
     let fixture: SyntheticFixture = read_json(&args.dataset)?;
     let selected = args.selected_adapter();
     args.validate_adapter_selection()?;
@@ -137,6 +138,7 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
                 top_k_episodes: config.retrieval.top_k_episodes,
                 top_k_observations: config.retrieval.top_k_observations,
                 include_derived_memories: config.retrieval.include_derived_memories,
+                include_debug_rationale: config.retrieval.include_debug_rationale,
             })
             .await?;
         let mut metrics = score_basic(
@@ -166,6 +168,7 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
 
 async fn run_longmemeval(args: RunArgs) -> Result<()> {
     let config = read_config(&args.config)?;
+    config.validate()?;
     let instances = cmem_eval_longmemeval::load_path(&args.dataset)?;
     let selected = args.selected_adapter();
     args.validate_adapter_selection()?;
@@ -191,9 +194,15 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
                 top_k_episodes: config.retrieval.top_k_episodes,
                 top_k_observations: config.retrieval.top_k_observations,
                 include_derived_memories: config.retrieval.include_derived_memories,
+                include_debug_rationale: config.retrieval.include_debug_rationale,
             })
             .await?;
-        let mut metrics = cmem_eval_longmemeval::scoring::score(&instance, &pack.items);
+        let mut metrics = cmem_eval_longmemeval::scoring::score(
+            &instance,
+            &pack.items,
+            &config.metrics.ks_session,
+            &config.metrics.ks_turn,
+        );
         if let Some(metrics) = metrics.as_object_mut() {
             insert_integrity_metrics(metrics, &pack.items);
         }
@@ -219,6 +228,7 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
 
 async fn run_locomo(args: RunArgs) -> Result<()> {
     let config = read_config(&args.config)?;
+    config.validate()?;
     let samples = cmem_eval_locomo::load_path(&args.dataset)?;
     let selected = args.selected_adapter();
     args.validate_adapter_selection()?;
@@ -248,9 +258,16 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                     top_k_episodes: config.retrieval.top_k_episodes,
                     top_k_observations: config.retrieval.top_k_observations,
                     include_derived_memories: config.retrieval.include_derived_memories,
+                    include_debug_rationale: config.retrieval.include_debug_rationale,
                 })
                 .await?;
-            let mut metrics = cmem_eval_locomo::scoring::score(&sample, qa, &pack.items);
+            let mut metrics = cmem_eval_locomo::scoring::score(
+                &sample,
+                qa,
+                &pack.items,
+                &config.metrics.ks_dialog,
+                &config.metrics.ks_session,
+            );
             if let Some(metrics) = metrics.as_object_mut() {
                 insert_integrity_metrics(metrics, &pack.items);
             }

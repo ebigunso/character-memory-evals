@@ -13,6 +13,10 @@ model = "text-embedding-3-large"
 top_k_episodes = 5
 top_k_observations = 10
 include_derived_memories = true
-include_threads = true
-include_entities = true
+include_threads = false
+include_entities = false
 include_debug_rationale = true
+
+[ingest]
+index_observations = true
+index_episode_summaries = true

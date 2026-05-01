@@ -1,3 +1,4 @@
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -26,7 +27,28 @@ pub struct BenchmarkRunConfig {
     #[serde(default)]
     pub ingest: IngestConfig,
     #[serde(default)]
-    pub metrics: serde_json::Value,
+    pub metrics: MetricsConfig,
+}
+
+impl BenchmarkRunConfig {
+    pub fn validate(&self) -> Result<()> {
+        self.metrics.validate()?;
+        self.ingest.validate()?;
+        self.retrieval.validate()?;
+        match self.dataset.as_str() {
+            "longmemeval_s" => {
+                require_non_empty("metrics.ks_session", &self.metrics.ks_session)?;
+                require_non_empty("metrics.ks_turn", &self.metrics.ks_turn)?;
+            }
+            "locomo" => {
+                require_non_empty("metrics.ks_dialog", &self.metrics.ks_dialog)?;
+                require_non_empty("metrics.ks_session", &self.metrics.ks_session)?;
+            }
+            "synthetic" => {}
+            other => bail!("unsupported dataset in config: {other}"),
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -121,6 +143,24 @@ impl Default for RetrievalConfig {
     }
 }
 
+impl RetrievalConfig {
+    pub fn validate(&self) -> Result<()> {
+        if self.top_k_episodes == 0 {
+            bail!("retrieval.top_k_episodes must be greater than zero");
+        }
+        if self.top_k_observations == 0 {
+            bail!("retrieval.top_k_observations must be greater than zero");
+        }
+        if self.include_threads {
+            bail!("retrieval.include_threads is not supported by the current eval adapter");
+        }
+        if self.include_entities {
+            bail!("retrieval.include_entities is not supported by the current eval adapter");
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IngestConfig {
     #[serde(default)]
@@ -137,6 +177,63 @@ pub struct IngestConfig {
     pub index_generated_observations: bool,
     #[serde(default)]
     pub include_image_captions: bool,
+}
+
+impl IngestConfig {
+    pub fn validate(&self) -> Result<()> {
+        if self.store_gold_labels {
+            bail!("ingest.store_gold_labels=true is prohibited; gold labels are scorer-only");
+        }
+        if !self.index_observations {
+            bail!("ingest.index_observations=false is not supported by the current eval runner");
+        }
+        if !self.index_episode_summaries {
+            bail!(
+                "ingest.index_episode_summaries=false is not supported by the current eval runner"
+            );
+        }
+        if self.create_threads {
+            bail!("ingest.create_threads is not supported by the current eval runner");
+        }
+        if self.index_session_summaries {
+            bail!("ingest.index_session_summaries is not supported by the current eval runner");
+        }
+        if self.index_generated_observations {
+            bail!(
+                "ingest.index_generated_observations is not supported by the current eval runner"
+            );
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MetricsConfig {
+    #[serde(default = "default_ks_session")]
+    pub ks_session: Vec<usize>,
+    #[serde(default = "default_ks_turn")]
+    pub ks_turn: Vec<usize>,
+    #[serde(default = "default_ks_dialog")]
+    pub ks_dialog: Vec<usize>,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            ks_session: default_ks_session(),
+            ks_turn: default_ks_turn(),
+            ks_dialog: default_ks_dialog(),
+        }
+    }
+}
+
+impl MetricsConfig {
+    pub fn validate(&self) -> Result<()> {
+        validate_ks("metrics.ks_session", &self.ks_session)?;
+        validate_ks("metrics.ks_turn", &self.ks_turn)?;
+        validate_ks("metrics.ks_dialog", &self.ks_dialog)?;
+        Ok(())
+    }
 }
 
 fn default_top_k_episodes() -> usize {
@@ -157,6 +254,33 @@ fn default_embedding_model() -> String {
 
 fn default_openai_api_key_env() -> String {
     "OPENAI_API_KEY".to_string()
+}
+
+fn default_ks_session() -> Vec<usize> {
+    vec![5, 10]
+}
+
+fn default_ks_turn() -> Vec<usize> {
+    vec![10, 50]
+}
+
+fn default_ks_dialog() -> Vec<usize> {
+    vec![5, 10]
+}
+
+fn validate_ks(name: &str, values: &[usize]) -> Result<()> {
+    require_non_empty(name, values)?;
+    if values.contains(&0) {
+        bail!("{name} must contain only values greater than zero");
+    }
+    Ok(())
+}
+
+fn require_non_empty(name: &str, values: &[usize]) -> Result<()> {
+    if values.is_empty() {
+        bail!("{name} must not be empty");
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -191,5 +315,97 @@ mod tests {
         assert!(config.retrieval.include_threads);
         assert!(config.retrieval.include_entities);
         assert!(config.retrieval.include_debug_rationale);
+    }
+
+    #[test]
+    fn parses_typed_metric_ks() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "longmemeval_s",
+            "metrics": {
+                "ks_session": [1, 3],
+                "ks_turn": [7]
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(config.metrics.ks_session, vec![1, 3]);
+        assert_eq!(config.metrics.ks_turn, vec![7]);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_empty_metric_ks() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "longmemeval_s",
+            "metrics": {
+                "ks_session": [],
+                "ks_turn": [10]
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("ks_session")
+        );
+    }
+
+    #[test]
+    fn rejects_gold_label_storage() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true,
+                "store_gold_labels": true
+            }
+        }))
+        .unwrap();
+
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("store_gold_labels")
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_noop_retrieval_flags() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "retrieval": {
+                "include_threads": true
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("include_threads")
+        );
     }
 }

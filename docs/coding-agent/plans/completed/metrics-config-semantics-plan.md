@@ -1,6 +1,6 @@
 # Plan: Metrics And Config Semantics
 
-- status: draft
+- status: done
 - generated: 2026-05-02
 - last_updated: 2026-05-02
 - work_type: code
@@ -182,6 +182,18 @@
   - Summary: Split shared metrics/config work from dataset-specific and live-runtime plans.
   - Validation evidence: Review findings 2, 3, and 8.
   - Notes: No UI scope.
+- 2026-05-02 execution started.
+  - Summary: Started Plan 2 under orchestration harness after completing and committing Plan 1.
+  - Validation evidence: Researcher `019de5d2-433a-7c33-b7db-871a856c8674`.
+  - Notes: No UI scope.
+- 2026-05-02 implementation through Task_4 completed.
+  - Summary: Added typed metric-k config and validation, rejected prohibited/no-op config states, wired configured metric k values into LongMemEval/LoCoMo scorers, mapped debug rationale into retrieval input, and added metric support metadata for null integrity states.
+  - Validation evidence: `cargo test -p cmem-eval-core`; `cargo test -p cmem-eval-longmemeval`; `cargo test -p cmem-eval-locomo`; `cargo test -p cmem-eval-runner`; `cargo test --workspace`; synthetic mock smoke command; `cargo fmt -p cmem-eval-core -p cmem-eval-longmemeval -p cmem-eval-locomo -p cmem-eval-runner --check`; `cargo clippy --workspace --all-targets -- -D warnings`; `cargo check -p cmem-eval-runner --features real-character-memory`.
+  - Notes: No UI scope.
+- 2026-05-02 review completed.
+  - Summary: Harness reviewer approved Plan 2 changes with no findings.
+  - Validation evidence: Reviewer `019de5e9-35c6-7542-ab90-b5af7be73558` APPROVED.
+  - Notes: Residual follow-ups suggested for dataset/config mismatch validation and unknown TOML fields.
 
 ## Decision Log
 - 2026-05-02 Decision:

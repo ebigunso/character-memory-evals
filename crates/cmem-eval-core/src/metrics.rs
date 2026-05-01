@@ -122,6 +122,35 @@ pub fn aggregate_numeric_metrics(rows: &[Map<String, Value>]) -> Value {
     Value::Object(out)
 }
 
+pub fn metric_support_summary(rows: &[Map<String, Value>]) -> Value {
+    let mut by_key: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new();
+    for row in rows {
+        for (key, value) in row {
+            let entry = by_key.entry(key.clone()).or_default();
+            entry.0 += 1;
+            if value.is_number() {
+                entry.1 += 1;
+            } else if value.is_null() {
+                entry.2 += 1;
+            }
+        }
+    }
+
+    let mut out = Map::new();
+    for (key, (rows_present, numeric_rows, null_rows)) in by_key {
+        out.insert(
+            key,
+            serde_json::json!({
+                "rows_present": rows_present,
+                "numeric_rows": numeric_rows,
+                "null_rows": null_rows,
+                "unsupported": rows_present > 0 && numeric_rows == 0 && null_rows == rows_present,
+            }),
+        );
+    }
+    Value::Object(out)
+}
+
 pub fn insert_integrity_metrics(out: &mut Map<String, Value>, retrieved: &[crate::RetrievedItem]) {
     let without_external_id = retrieved
         .iter()
@@ -194,5 +223,19 @@ mod tests {
 
         assert_eq!(out["returned_items_without_external_id"], 1);
         assert!(out["suppressed_or_deleted_items_returned"].is_null());
+    }
+
+    #[test]
+    fn metric_support_preserves_all_null_metrics() {
+        let rows = vec![
+            Map::from_iter([("unsupported_metric".to_string(), Value::Null)]),
+            Map::from_iter([("unsupported_metric".to_string(), Value::Null)]),
+        ];
+
+        let support = metric_support_summary(&rows);
+        assert_eq!(support["unsupported_metric"]["rows_present"], 2);
+        assert_eq!(support["unsupported_metric"]["numeric_rows"], 0);
+        assert_eq!(support["unsupported_metric"]["null_rows"], 2);
+        assert_eq!(support["unsupported_metric"]["unsupported"], true);
     }
 }

@@ -1,4 +1,4 @@
-use crate::{RetrievedItem, aggregate_numeric_metrics};
+use crate::{RetrievedItem, aggregate_numeric_metrics, metric_support_summary};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -33,6 +33,8 @@ pub struct RunSummary {
     pub config: Value,
     pub num_questions: usize,
     pub metrics: Value,
+    #[serde(default)]
+    pub metric_support: Value,
     pub latency: Value,
 }
 
@@ -109,6 +111,7 @@ pub fn summarize_rows(
         config,
         num_questions: rows.len(),
         metrics: aggregate_numeric_metrics(&metric_rows),
+        metric_support: metric_support_summary(&metric_rows),
         latency: serde_json::json!({
             "latency_ms": {
                 "mean": crate::mean(&latency_values),
@@ -158,5 +161,37 @@ mod tests {
         let value = serde_json::to_value(row).unwrap();
         assert_eq!(value["question_id"], "q");
         assert_eq!(value["adapter"]["mode"], "mock_smoke");
+    }
+
+    #[test]
+    fn summary_preserves_null_metric_support() {
+        let row = PerQuestionResult {
+            run_id: "r".into(),
+            dataset: "synthetic".into(),
+            adapter: RunAdapterMetadata::mock_smoke(),
+            question_id: "q".into(),
+            question_type: None,
+            question: "question".into(),
+            gold_episode_ids: vec![],
+            gold_observation_ids: vec![],
+            retrieved: vec![],
+            metrics: serde_json::json!({"suppressed_or_deleted_items_returned": null}),
+            latency_ms: 1,
+            context_char_count: 0,
+            context_word_count: 0,
+        };
+
+        let summary = summarize_rows(
+            "r".into(),
+            "synthetic".into(),
+            RunAdapterMetadata::mock_smoke(),
+            serde_json::json!({}),
+            &[row],
+        );
+
+        assert_eq!(
+            summary.metric_support["suppressed_or_deleted_items_returned"]["unsupported"],
+            true
+        );
     }
 }

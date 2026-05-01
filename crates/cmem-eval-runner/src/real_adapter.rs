@@ -211,7 +211,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             .expect("namespace state inserted");
 
         let mut context = RetrievalContext::new(input.query);
-        context.include_trace = true;
+        context.include_trace = input.include_debug_rationale;
         context.candidate_limits = RetrievalCandidateLimits {
             max_vector_candidates: input.top_k_episodes + input.top_k_observations + 16,
             max_graph_roots: (input.top_k_episodes + input.top_k_observations).max(1),

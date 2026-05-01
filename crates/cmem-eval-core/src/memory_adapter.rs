@@ -34,6 +34,7 @@ pub struct RetrieveInput {
     pub top_k_episodes: usize,
     pub top_k_observations: usize,
     pub include_derived_memories: bool,
+    pub include_debug_rationale: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -255,6 +256,7 @@ mod tests {
                 top_k_episodes: 5,
                 top_k_observations: 5,
                 include_derived_memories: false,
+                include_debug_rationale: false,
             })
             .await
             .unwrap();
