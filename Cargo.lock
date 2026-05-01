@@ -388,11 +388,14 @@ name = "cmem-eval-runner"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "character_memory",
+ "chrono",
  "clap",
  "cmem-eval-core",
  "cmem-eval-locomo",
  "cmem-eval-longmemeval",
+ "config",
  "serde",
  "serde_json",
  "tempfile",
@@ -400,6 +403,7 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

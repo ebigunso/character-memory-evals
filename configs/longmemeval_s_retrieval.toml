@@ -5,6 +5,10 @@ dataset = "longmemeval_s"
 namespace_prefix = "bench:lme"
 reset_namespace_before_each_question = true
 
+[backend.embedding]
+provider = "openai"
+model = "text-embedding-3-large"
+
 [retrieval]
 top_k_episodes = 10
 top_k_observations = 50

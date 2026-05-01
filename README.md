@@ -2,7 +2,7 @@
 
 Evaluation harness for the Character Memory memory substrate. This repository measures retrieval quality, continuity-context construction, context-size reduction, latency, and provenance-oriented integrity signals.
 
-The default path is deterministic and service-free through a mock `MemoryAdapter`, so loaders, metrics, JSONL output, and the synthetic benchmark can be validated before Qdrant/Oxigraph or the forthcoming Character Memory public API are available.
+Benchmark CLI runs default to the live Character Memory adapter. Mock runs are available only as explicit smoke/test runs so benchmark output is not accidentally generated from the mock adapter.
 
 ## Commands
 
@@ -13,6 +13,18 @@ cargo run -p cmem-eval-runner -- run synthetic \
   --config ./configs/synthetic_retrieval.toml \
   --out ./runs/synthetic.jsonl \
   --summary-out ./runs/synthetic_summary.json
+```
+
+For service-free smoke validation, opt into mock output explicitly:
+
+```bash
+cargo run -p cmem-eval-runner -- run synthetic \
+  --dataset ./fixtures/synthetic_small.json \
+  --config ./configs/synthetic_retrieval.toml \
+  --out ./runs/synthetic.jsonl \
+  --summary-out ./runs/synthetic_summary.json \
+  --adapter mock \
+  --allow-mock-benchmark
 ```
 
 LongMemEval-S and LoCoMo expect local dataset files:
@@ -35,4 +47,4 @@ Gold evidence labels are used only for scoring. They are not copied into `Episod
 
 ## Character Memory API
 
-The eval-side adapter contract is in `cmem-eval-core::memory_adapter`. It is written as the target public API boundary for Character Memory: external IDs, namespaces, ranks, scores, rationale, and context text must survive round trip. Until that upstream public API lands, the runner uses the mock adapter by default.
+The eval-side adapter contract is in `cmem-eval-core::memory_adapter`. It is written as the target public API boundary for Character Memory: external IDs, namespaces, ranks, scores, rationale, and context text must survive round trip. Live runs require the `real-character-memory` feature and backend settings; the initial embedding default is OpenAI `text-embedding-3-large`.

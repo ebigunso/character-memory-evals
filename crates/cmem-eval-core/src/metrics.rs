@@ -122,6 +122,38 @@ pub fn aggregate_numeric_metrics(rows: &[Map<String, Value>]) -> Value {
     Value::Object(out)
 }
 
+pub fn insert_integrity_metrics(out: &mut Map<String, Value>, retrieved: &[crate::RetrievedItem]) {
+    let without_external_id = retrieved
+        .iter()
+        .filter(|item| item.external_id.is_none())
+        .count();
+    let derived_without_provenance = retrieved
+        .iter()
+        .filter(|item| item.kind == "derived_memory" && item.episode_external_id.is_none())
+        .count();
+
+    out.insert(
+        "returned_items_without_external_id".to_string(),
+        Value::from(without_external_id),
+    );
+    out.insert(
+        "returned_derived_memories_without_provenance".to_string(),
+        Value::from(derived_without_provenance),
+    );
+    out.insert(
+        "returned_items_with_authoritative_validation".to_string(),
+        Value::Null,
+    );
+    out.insert(
+        "suppressed_or_deleted_items_returned".to_string(),
+        Value::Null,
+    );
+    out.insert(
+        "superseded_items_returned_as_current".to_string(),
+        Value::Null,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,5 +173,26 @@ mod tests {
     #[test]
     fn skips_empty_gold() {
         assert!(retrieval_metrics(&["a".to_string()], &[], 10).is_none());
+    }
+
+    #[test]
+    fn inserts_integrity_metrics_with_nulls_for_unsupported_states() {
+        let mut out = Map::new();
+        insert_integrity_metrics(
+            &mut out,
+            &[crate::RetrievedItem {
+                kind: "observation".to_string(),
+                internal_id: "i".to_string(),
+                external_id: None,
+                episode_external_id: Some("e".to_string()),
+                score: None,
+                rank: 1,
+                rationale: vec![],
+                text: None,
+            }],
+        );
+
+        assert_eq!(out["returned_items_without_external_id"], 1);
+        assert!(out["suppressed_or_deleted_items_returned"].is_null());
     }
 }

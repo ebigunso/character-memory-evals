@@ -5,6 +5,10 @@ dataset = "synthetic"
 namespace_prefix = "bench:synthetic"
 reset_namespace_before_each_question = true
 
+[backend.embedding]
+provider = "openai"
+model = "text-embedding-3-large"
+
 [retrieval]
 top_k_episodes = 5
 top_k_observations = 10

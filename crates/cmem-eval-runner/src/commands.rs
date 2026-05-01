@@ -2,13 +2,17 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmem_eval_core::{
     BenchmarkRunConfig, EpisodeInput, MemoryAdapter, MockMemoryAdapter, ObservationInput,
-    PerQuestionResult, RetrieveInput, Timer, insert_retrieval_metrics, read_jsonl, summarize_rows,
-    write_jsonl, write_summary,
+    PerQuestionResult, RetrieveInput, RunAdapterMetadata, Timer, insert_integrity_metrics,
+    insert_retrieval_metrics, read_jsonl, summarize_rows, write_jsonl, write_summary,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::fs;
 use std::path::PathBuf;
+
+#[cfg(feature = "real-character-memory")]
+#[path = "real_adapter.rs"]
+mod real_adapter;
 
 #[derive(Debug, Parser)]
 #[command(name = "cmem-eval")]
@@ -66,11 +70,13 @@ struct RunArgs {
     out: PathBuf,
     #[arg(long = "summary-out")]
     summary_out: PathBuf,
-    #[arg(long, value_enum, default_value_t = AdapterKind::Mock)]
-    adapter: AdapterKind,
+    #[arg(long, value_enum)]
+    adapter: Option<AdapterKind>,
+    #[arg(long)]
+    allow_mock_benchmark: bool,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum AdapterKind {
     Mock,
     Real,
@@ -87,7 +93,10 @@ struct SummarizeArgs {
 async fn run_synthetic(args: RunArgs) -> Result<()> {
     let config = read_config(&args.config)?;
     let fixture: SyntheticFixture = read_json(&args.dataset)?;
-    let adapter = adapter(args.adapter)?;
+    let selected = args.selected_adapter();
+    args.validate_adapter_selection()?;
+    let adapter_metadata = selected.metadata();
+    let adapter = adapter(selected, &config).await?;
     let mut rows = Vec::new();
 
     for question in fixture.questions {
@@ -130,14 +139,16 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
                 include_derived_memories: config.retrieval.include_derived_memories,
             })
             .await?;
-        let metrics = score_basic(
+        let mut metrics = score_basic(
             &pack.items,
             &question.gold_episode_ids,
             &question.gold_observation_ids,
         );
+        insert_integrity_metrics(&mut metrics, &pack.items);
         rows.push(PerQuestionResult {
             run_id: config.run_id.clone(),
             dataset: config.dataset.clone(),
+            adapter: adapter_metadata.clone(),
             question_id: question.question_id,
             question_type: None,
             question: question.question,
@@ -156,7 +167,10 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
 async fn run_longmemeval(args: RunArgs) -> Result<()> {
     let config = read_config(&args.config)?;
     let instances = cmem_eval_longmemeval::load_path(&args.dataset)?;
-    let adapter = adapter(args.adapter)?;
+    let selected = args.selected_adapter();
+    args.validate_adapter_selection()?;
+    let adapter_metadata = selected.metadata();
+    let adapter = adapter(selected, &config).await?;
     let mut rows = Vec::new();
     for instance in instances {
         let namespace = instance.namespace();
@@ -179,11 +193,15 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
                 include_derived_memories: config.retrieval.include_derived_memories,
             })
             .await?;
-        let metrics = cmem_eval_longmemeval::scoring::score(&instance, &pack.items);
+        let mut metrics = cmem_eval_longmemeval::scoring::score(&instance, &pack.items);
+        if let Some(metrics) = metrics.as_object_mut() {
+            insert_integrity_metrics(metrics, &pack.items);
+        }
         let gold_observation_ids = instance.gold_turn_ids();
         rows.push(PerQuestionResult {
             run_id: config.run_id.clone(),
             dataset: config.dataset.clone(),
+            adapter: adapter_metadata.clone(),
             question_id: instance.question_id,
             question_type: instance.question_type,
             question: instance.question,
@@ -202,11 +220,17 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
 async fn run_locomo(args: RunArgs) -> Result<()> {
     let config = read_config(&args.config)?;
     let samples = cmem_eval_locomo::load_path(&args.dataset)?;
-    let adapter = adapter(args.adapter)?;
+    let selected = args.selected_adapter();
+    args.validate_adapter_selection()?;
+    let adapter_metadata = selected.metadata();
+    let adapter = adapter(selected, &config).await?;
     let mut rows = Vec::new();
     for sample in samples {
         let namespace = sample.namespace();
-        let mapped = cmem_eval_locomo::ingest::to_memory_inputs(&sample, false);
+        let mapped = cmem_eval_locomo::ingest::to_memory_inputs(
+            &sample,
+            config.ingest.include_image_captions,
+        );
         adapter.reset_namespace(&namespace).await?;
         for episode in mapped.episodes {
             adapter.remember_episode(episode).await?;
@@ -226,10 +250,14 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                     include_derived_memories: config.retrieval.include_derived_memories,
                 })
                 .await?;
-            let metrics = cmem_eval_locomo::scoring::score(&sample, qa, &pack.items);
+            let mut metrics = cmem_eval_locomo::scoring::score(&sample, qa, &pack.items);
+            if let Some(metrics) = metrics.as_object_mut() {
+                insert_integrity_metrics(metrics, &pack.items);
+            }
             rows.push(PerQuestionResult {
                 run_id: config.run_id.clone(),
                 dataset: config.dataset.clone(),
+                adapter: adapter_metadata.clone(),
                 question_id: qa.question_id.clone(),
                 question_type: qa.question_type.clone(),
                 question: qa.question.clone(),
@@ -254,6 +282,7 @@ fn summarize(args: SummarizeArgs) -> Result<()> {
     let summary = summarize_rows(
         first.run_id.clone(),
         first.dataset.clone(),
+        first.adapter.clone(),
         serde_json::json!({}),
         &rows,
     );
@@ -274,6 +303,9 @@ fn write_outputs(
     let summary = summarize_rows(
         config.run_id.clone(),
         config.dataset.clone(),
+        rows.first()
+            .map(|row| row.adapter.clone())
+            .unwrap_or_else(RunAdapterMetadata::live),
         serde_json::to_value(&config)?,
         &rows,
     );
@@ -281,12 +313,48 @@ fn write_outputs(
     write_summary(&args.summary_out, &summary)
 }
 
-fn adapter(kind: AdapterKind) -> Result<Box<dyn MemoryAdapter>> {
+async fn adapter(kind: AdapterKind, config: &BenchmarkRunConfig) -> Result<Box<dyn MemoryAdapter>> {
     match kind {
         AdapterKind::Mock => Ok(Box::<MockMemoryAdapter>::default()),
-        AdapterKind::Real => bail!(
-            "real Character Memory adapter target is reserved for the forthcoming public API; use --adapter mock for deterministic local runs"
-        ),
+        AdapterKind::Real => real_adapter(config).await,
+    }
+}
+
+#[cfg(feature = "real-character-memory")]
+async fn real_adapter(config: &BenchmarkRunConfig) -> Result<Box<dyn MemoryAdapter>> {
+    Ok(Box::new(
+        real_adapter::CharacterMemoryAdapter::new(config).await?,
+    ))
+}
+
+#[cfg(not(feature = "real-character-memory"))]
+async fn real_adapter(_config: &BenchmarkRunConfig) -> Result<Box<dyn MemoryAdapter>> {
+    bail!(
+        "live Character Memory adapter is the default for benchmark runs, but this binary was built without `real-character-memory`; rebuild with `cargo run -p cmem-eval-runner --features real-character-memory -- ...`. Use `--adapter mock --allow-mock-benchmark` only for smoke tests."
+    )
+}
+
+impl RunArgs {
+    fn selected_adapter(&self) -> AdapterKind {
+        self.adapter.unwrap_or(AdapterKind::Real)
+    }
+
+    fn validate_adapter_selection(&self) -> Result<()> {
+        if self.selected_adapter() == AdapterKind::Mock && !self.allow_mock_benchmark {
+            bail!(
+                "mock adapter is test/smoke-only; pass `--allow-mock-benchmark` to make mock output explicit, or omit `--adapter` for the default live Character Memory run"
+            );
+        }
+        Ok(())
+    }
+}
+
+impl AdapterKind {
+    fn metadata(self) -> RunAdapterMetadata {
+        match self {
+            AdapterKind::Mock => RunAdapterMetadata::mock_smoke(),
+            AdapterKind::Real => RunAdapterMetadata::live(),
+        }
     }
 }
 
@@ -381,7 +449,8 @@ mod tests {
             config: PathBuf::from("../../configs/synthetic_retrieval.toml"),
             out: out.clone(),
             summary_out: summary.clone(),
-            adapter: AdapterKind::Mock,
+            adapter: Some(AdapterKind::Mock),
+            allow_mock_benchmark: true,
         })
         .await
         .unwrap();

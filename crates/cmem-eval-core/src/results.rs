@@ -10,6 +10,8 @@ use std::path::Path;
 pub struct PerQuestionResult {
     pub run_id: String,
     pub dataset: String,
+    #[serde(default)]
+    pub adapter: RunAdapterMetadata,
     pub question_id: String,
     pub question_type: Option<String>,
     pub question: String,
@@ -26,10 +28,47 @@ pub struct PerQuestionResult {
 pub struct RunSummary {
     pub run_id: String,
     pub dataset: String,
+    #[serde(default)]
+    pub adapter: RunAdapterMetadata,
     pub config: Value,
     pub num_questions: usize,
     pub metrics: Value,
     pub latency: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RunAdapterMetadata {
+    pub adapter: String,
+    pub mode: String,
+    pub is_mock: bool,
+}
+
+impl RunAdapterMetadata {
+    pub fn live() -> Self {
+        Self {
+            adapter: "real".to_string(),
+            mode: "live".to_string(),
+            is_mock: false,
+        }
+    }
+
+    pub fn mock_smoke() -> Self {
+        Self {
+            adapter: "mock".to_string(),
+            mode: "mock_smoke".to_string(),
+            is_mock: true,
+        }
+    }
+}
+
+impl Default for RunAdapterMetadata {
+    fn default() -> Self {
+        Self {
+            adapter: "unknown".to_string(),
+            mode: "unknown".to_string(),
+            is_mock: false,
+        }
+    }
 }
 
 pub fn write_jsonl(path: &Path, rows: &[PerQuestionResult]) -> Result<()> {
@@ -51,6 +90,7 @@ pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
 pub fn summarize_rows(
     run_id: String,
     dataset: String,
+    adapter: RunAdapterMetadata,
     config: Value,
     rows: &[PerQuestionResult],
 ) -> RunSummary {
@@ -65,6 +105,7 @@ pub fn summarize_rows(
     RunSummary {
         run_id,
         dataset,
+        adapter,
         config,
         num_questions: rows.len(),
         metrics: aggregate_numeric_metrics(&metric_rows),
@@ -102,6 +143,7 @@ mod tests {
         let row = PerQuestionResult {
             run_id: "r".into(),
             dataset: "synthetic".into(),
+            adapter: RunAdapterMetadata::mock_smoke(),
             question_id: "q".into(),
             question_type: None,
             question: "question".into(),
@@ -115,5 +157,6 @@ mod tests {
         };
         let value = serde_json::to_value(row).unwrap();
         assert_eq!(value["question_id"], "q");
+        assert_eq!(value["adapter"]["mode"], "mock_smoke");
     }
 }

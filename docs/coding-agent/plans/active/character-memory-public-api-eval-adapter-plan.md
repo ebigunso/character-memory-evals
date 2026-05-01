@@ -319,6 +319,10 @@
   - Summary: Changed benchmark runtime default from mock to live real adapter and added explicit mock CLI safeguard.
   - Validation evidence: Researcher report `019ddc7f-2af5-75a2-bdfd-fb404ef0ffae`.
   - Notes: Service-free validation remains explicit mock/test mode.
+- 2026-04-30 implementation started through Task_3.
+  - Summary: Added typed backend/retrieval/ingest config, adapter metadata, live default CLI selection, explicit mock guard, initial feature-gated real adapter, deterministic UUID mapping, LoCoMo caption config wiring, and integrity metrics.
+  - Validation evidence: `cargo test -p cmem-eval-core`; `cargo test -p cmem-eval-runner`; `cargo test --workspace`; `cargo check -p cmem-eval-runner --features real-character-memory`; `cargo test -p cmem-eval-runner --features real-character-memory real_adapter`; explicit mock synthetic smoke command; `cargo clippy --workspace --all-targets -- -D warnings`; package-scoped `cargo fmt -p ... --check`.
+  - Notes: Full `cargo fmt --all --check` is blocked by unrelated dirty sibling `CharacterMemory` files.
 
 ## Decision Log
 - 2026-04-30 Decision:
