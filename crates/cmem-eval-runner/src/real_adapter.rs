@@ -375,6 +375,10 @@ struct DeterministicEmbeddingProvider {
 
 #[async_trait]
 impl EmbeddingProvider for DeterministicEmbeddingProvider {
+    fn vector_size(&self) -> usize {
+        self.vector_size
+    }
+
     async fn generate_embedding<'a>(
         &self,
         text: &'a str,

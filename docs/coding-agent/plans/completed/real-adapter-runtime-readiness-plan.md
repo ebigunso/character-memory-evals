@@ -1,6 +1,6 @@
 # Plan: Real Adapter Runtime Readiness
 
-- status: draft
+- status: done
 - generated: 2026-05-02
 - last_updated: 2026-05-02
 - work_type: code
@@ -165,6 +165,18 @@
   - Summary: Split live adapter/runtime readiness from cleanup, export, config, and LoCoMo fidelity work.
   - Validation evidence: Review findings 1 and related readiness review.
   - Notes: No UI scope.
+- 2026-05-02 execution started.
+  - Summary: Started Plan 1 under orchestration harness; dispatched focused researcher before implementation file exploration.
+  - Validation evidence: Researcher `019de582-209e-7730-aa29-847e31690162` partial report.
+  - Notes: No UI scope.
+- 2026-05-02 implementation through Task_3 completed.
+  - Summary: Added CLI guard/default tests, updated deterministic embedding provider for current Character Memory API, documented live feature/runtime requirements, and committed live-feature dependency resolution in the lockfile.
+  - Validation evidence: `cargo test -p cmem-eval-runner`; `cargo check -p cmem-eval-runner --features real-character-memory`; `cargo test -p cmem-eval-runner --features real-character-memory --no-run`; `cargo test -p cmem-eval-runner --features real-character-memory real_adapter`; `cargo run -p cmem-eval-runner -- run synthetic --dataset ./fixtures/synthetic_small.json --config ./configs/synthetic_retrieval.toml --out ./runs/synthetic.jsonl --summary-out ./runs/synthetic_summary.json --adapter mock --allow-mock-benchmark`.
+  - Notes: No UI scope.
+- 2026-05-02 review completed.
+  - Summary: Harness reviewer approved Plan 1 changes with residual live-service risks.
+  - Validation evidence: Reviewer `019de5c7-ec1d-77e0-87ad-7f5f742eefee` APPROVED; `cargo fmt -p cmem-eval-runner --check`; `cargo clippy -p cmem-eval-runner --all-targets -- -D warnings`; `git diff --check`.
+  - Notes: First reviewer `019de5b7-cda1-7333-b2d6-24eb2245ca50` timed out; second narrow reviewer completed.
 
 ## Decision Log
 - 2026-05-02 Decision:

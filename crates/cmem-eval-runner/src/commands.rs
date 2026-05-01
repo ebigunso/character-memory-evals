@@ -457,4 +457,66 @@ mod tests {
         assert!(out.exists());
         assert!(summary.exists());
     }
+
+    #[test]
+    fn omitted_adapter_selects_real() {
+        let args = RunArgs {
+            dataset: PathBuf::from("dataset.json"),
+            config: PathBuf::from("config.toml"),
+            out: PathBuf::from("out.jsonl"),
+            summary_out: PathBuf::from("summary.json"),
+            adapter: None,
+            allow_mock_benchmark: false,
+        };
+
+        assert_eq!(args.selected_adapter(), AdapterKind::Real);
+        args.validate_adapter_selection().unwrap();
+    }
+
+    #[test]
+    fn mock_adapter_requires_explicit_benchmark_guard() {
+        let args = RunArgs {
+            dataset: PathBuf::from("dataset.json"),
+            config: PathBuf::from("config.toml"),
+            out: PathBuf::from("out.jsonl"),
+            summary_out: PathBuf::from("summary.json"),
+            adapter: Some(AdapterKind::Mock),
+            allow_mock_benchmark: false,
+        };
+
+        let err = args.validate_adapter_selection().unwrap_err().to_string();
+        assert!(err.contains("mock adapter is test/smoke-only"));
+    }
+
+    #[test]
+    fn guarded_mock_adapter_is_allowed_for_smoke_runs() {
+        let args = RunArgs {
+            dataset: PathBuf::from("dataset.json"),
+            config: PathBuf::from("config.toml"),
+            out: PathBuf::from("out.jsonl"),
+            summary_out: PathBuf::from("summary.json"),
+            adapter: Some(AdapterKind::Mock),
+            allow_mock_benchmark: true,
+        };
+
+        assert_eq!(args.selected_adapter(), AdapterKind::Mock);
+        args.validate_adapter_selection().unwrap();
+    }
+
+    #[tokio::test]
+    #[cfg(not(feature = "real-character-memory"))]
+    async fn feature_disabled_real_adapter_fails_actionably() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic"
+        }))
+        .unwrap();
+
+        let err = match adapter(AdapterKind::Real, &config).await {
+            Ok(_) => panic!("feature-disabled real adapter unexpectedly succeeded"),
+            Err(err) => err.to_string(),
+        };
+        assert!(err.contains("real-character-memory"));
+        assert!(err.contains("--adapter mock --allow-mock-benchmark"));
+    }
 }
