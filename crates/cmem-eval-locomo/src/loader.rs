@@ -1,5 +1,6 @@
 use crate::{LoCoMoQa, LoCoMoSample, LoCoMoSession, LoCoMoTurn};
 use anyhow::{Context, Result};
+use chrono::{DateTime, NaiveDateTime, SecondsFormat, Utc};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -91,6 +92,7 @@ fn parse_session_with_context(
     timestamp: Option<String>,
     summary: Option<String>,
 ) -> LoCoMoSession {
+    let raw_timestamp = timestamp;
     let turns_value = value
         .get("turns")
         .or_else(|| value.get("dialog"))
@@ -118,10 +120,39 @@ fn parse_session_with_context(
         .unwrap_or_default();
     LoCoMoSession {
         session_id: session_id.to_string(),
-        timestamp,
+        timestamp: normalize_timestamp(raw_timestamp.as_deref()),
+        raw_timestamp,
         summary,
         turns,
     }
+}
+
+fn normalize_timestamp(value: Option<&str>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        if let Ok(timestamp) = DateTime::parse_from_rfc3339(trimmed) {
+            return Some(
+                timestamp
+                    .with_timezone(&Utc)
+                    .to_rfc3339_opts(SecondsFormat::Secs, true),
+            );
+        }
+        Some(
+            parse_official_locomo_timestamp(trimmed)
+                .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Secs, true))
+                .unwrap_or_else(|| trimmed.to_string()),
+        )
+    })
+}
+
+fn parse_official_locomo_timestamp(value: &str) -> Option<DateTime<Utc>> {
+    NaiveDateTime::parse_from_str(value, "%I:%M %P on %-d %B, %Y")
+        .or_else(|_| NaiveDateTime::parse_from_str(value, "%I:%M %p on %-d %B, %Y"))
+        .ok()
+        .map(|timestamp| DateTime::<Utc>::from_naive_utc_and_offset(timestamp, Utc))
 }
 
 fn parse_qa(value: Option<&Value>, sample_id: &str) -> Vec<LoCoMoQa> {
@@ -240,8 +271,12 @@ mod tests {
         assert_eq!(rows[0].sessions.len(), 2);
         assert_eq!(rows[0].sessions[0].session_id, "session_2");
         assert_eq!(
-            rows[0].sessions[0].timestamp.as_deref(),
+            rows[0].sessions[0].raw_timestamp.as_deref(),
             Some("1:00 pm on 2 May, 2023")
+        );
+        assert_eq!(
+            rows[0].sessions[0].timestamp.as_deref(),
+            Some("2023-05-02T13:00:00Z")
         );
         assert_eq!(
             rows[0].sessions[0].turns[0].blip_caption.as_deref(),
@@ -259,5 +294,45 @@ mod tests {
         assert_eq!(rows[0].qa[0].qa_index, 1);
         assert_eq!(rows[0].qa[0].question_type.as_deref(), Some("3"));
         assert_eq!(rows[0].qa[0].answer.as_deref(), Some("2022"));
+    }
+
+    #[test]
+    fn normalizes_official_timestamp_to_rfc3339_utc() {
+        let rows = load_value(serde_json::json!([{
+            "sample_id": "p1",
+            "conversation": {
+                "session_1_date_time": "1:56 pm on 8 May, 2023",
+                "session_1": [{"dia_id": "D1:1", "speaker": "A", "text": "hello"}]
+            },
+            "qa": []
+        }]))
+        .unwrap();
+
+        assert_eq!(
+            rows[0].sessions[0].raw_timestamp.as_deref(),
+            Some("1:56 pm on 8 May, 2023")
+        );
+        assert_eq!(
+            rows[0].sessions[0].timestamp.as_deref(),
+            Some("2023-05-08T13:56:00Z")
+        );
+    }
+
+    #[test]
+    fn preserves_unrecognized_non_empty_timestamp_for_adapter_error_context() {
+        let rows = load_value(serde_json::json!([{
+            "sample_id": "p1",
+            "conversation": {
+                "session_1_date_time": "not a timestamp",
+                "session_1": [{"dia_id": "D1:1", "speaker": "A", "text": "hello"}]
+            },
+            "qa": []
+        }]))
+        .unwrap();
+
+        assert_eq!(
+            rows[0].sessions[0].timestamp.as_deref(),
+            Some("not a timestamp")
+        );
     }
 }

@@ -35,6 +35,7 @@ impl BenchmarkRunConfig {
         self.metrics.validate()?;
         self.ingest.validate()?;
         self.retrieval.validate()?;
+        self.backend.validate()?;
         match self.dataset.as_str() {
             "longmemeval_s" => {
                 require_non_empty("metrics.ks_session", &self.metrics.ks_session)?;
@@ -86,12 +87,62 @@ impl Default for BackendConfig {
     }
 }
 
+impl BackendConfig {
+    pub fn validate(&self) -> Result<()> {
+        self.cleanup.validate()?;
+        if self.cleanup.enabled {
+            let Some(namespace_prefix) = self
+                .namespace_prefix
+                .as_deref()
+                .map(str::trim)
+                .filter(|prefix| !prefix.is_empty())
+            else {
+                bail!("backend.cleanup.enabled=true requires backend.namespace_prefix");
+            };
+            let cleanup_prefix = self
+                .cleanup
+                .require_collection_prefix
+                .as_deref()
+                .expect("cleanup validation already required a prefix");
+            if sanitized_collection_prefix(namespace_prefix)
+                != sanitized_collection_prefix(cleanup_prefix)
+            {
+                bail!(
+                    "backend.cleanup.require_collection_prefix must match backend.namespace_prefix"
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct CleanupConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub require_collection_prefix: Option<String>,
+}
+
+impl CleanupConfig {
+    pub fn validate(&self) -> Result<()> {
+        if self.enabled {
+            let Some(prefix) = self
+                .require_collection_prefix
+                .as_deref()
+                .map(str::trim)
+                .filter(|prefix| !prefix.is_empty())
+            else {
+                bail!(
+                    "backend.cleanup.enabled=true requires backend.cleanup.require_collection_prefix"
+                );
+            };
+            if sanitized_collection_prefix(prefix).len() < 3 {
+                bail!("backend.cleanup.require_collection_prefix is too broad");
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -283,6 +334,19 @@ fn require_non_empty(name: &str, values: &[usize]) -> Result<()> {
     Ok(())
 }
 
+fn sanitized_collection_prefix(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +470,82 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("include_threads")
+        );
+    }
+
+    #[test]
+    fn rejects_cleanup_without_required_prefix() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "backend": {
+                "cleanup": {
+                    "enabled": true
+                }
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("require_collection_prefix")
+        );
+    }
+
+    #[test]
+    fn accepts_cleanup_with_required_prefix() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "backend": {
+                "namespace_prefix": "bench:synthetic",
+                "cleanup": {
+                    "enabled": true,
+                    "require_collection_prefix": "bench:synthetic"
+                }
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_cleanup_prefix_that_does_not_match_namespace_prefix() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "backend": {
+                "namespace_prefix": "bench:synthetic",
+                "cleanup": {
+                    "enabled": true,
+                    "require_collection_prefix": "other"
+                }
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("namespace_prefix")
         );
     }
 }

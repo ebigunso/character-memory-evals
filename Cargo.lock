@@ -436,6 +436,7 @@ dependencies = [
  "cmem-eval-locomo",
  "cmem-eval-longmemeval",
  "config",
+ "qdrant-client",
  "serde",
  "serde_json",
  "tempfile",

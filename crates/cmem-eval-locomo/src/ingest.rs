@@ -33,7 +33,9 @@ pub fn to_memory_inputs(sample: &LoCoMoSample, include_image_captions: bool) -> 
             participants,
             metadata: serde_json::json!({
                 "source": "locomo",
-                "include_image_captions": include_image_captions
+                "include_image_captions": include_image_captions,
+                "raw_timestamp": session.raw_timestamp.clone(),
+                "normalized_timestamp": session.timestamp.clone()
             }),
         });
         for turn in &session.turns {
@@ -47,7 +49,9 @@ pub fn to_memory_inputs(sample: &LoCoMoSample, include_image_captions: bool) -> 
                 metadata: serde_json::json!({
                     "source": "locomo",
                     "img_url": turn.image_urls,
-                    "query": turn.query
+                    "query": turn.query,
+                    "raw_timestamp": session.raw_timestamp.clone(),
+                    "normalized_timestamp": session.timestamp.clone()
                 }),
             });
         }
@@ -133,5 +137,29 @@ mod tests {
         assert!(metadata.contains("https://example.test/a.jpg"));
         assert!(metadata.contains("mural"));
         assert!(!metadata.contains("evidence"));
+    }
+
+    #[test]
+    fn preserves_raw_and_normalized_timestamps_without_evidence() {
+        let rows = load_value(serde_json::json!([{
+            "sample_id": "p1",
+            "conversation": {
+                "session_1_date_time": "1:56 pm on 8 May, 2023",
+                "session_1": [{"dia_id": "D1:1", "speaker": "A", "text": "hello"}]
+            },
+            "qa": [{"question": "q", "answer": "a", "evidence": ["D1:1"]}]
+        }]))
+        .unwrap();
+
+        let mapped = to_memory_inputs(&rows[0], false);
+        assert_eq!(
+            mapped.episodes[0].started_at.as_deref(),
+            Some("2023-05-08T13:56:00Z")
+        );
+        let metadata = serde_json::to_string(&mapped.observations[0].metadata).unwrap();
+        assert!(metadata.contains("1:56 pm on 8 May, 2023"));
+        assert!(metadata.contains("2023-05-08T13:56:00Z"));
+        assert!(!metadata.contains("evidence"));
+        assert!(!metadata.contains("answer"));
     }
 }

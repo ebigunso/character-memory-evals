@@ -5,6 +5,10 @@ dataset = "locomo"
 namespace_prefix = "bench:locomo"
 reset_namespace_before_each_sample = true
 
+[backend.cleanup]
+enabled = false
+require_collection_prefix = "bench:locomo"
+
 [backend.embedding]
 provider = "openai"
 model = "text-embedding-3-large"

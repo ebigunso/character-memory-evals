@@ -1,5 +1,6 @@
 use crate::{LongMemEvalInstance, LongMemEvalSession, LongMemEvalTurn};
 use anyhow::{Context, Result};
+use chrono::{DateTime, NaiveDateTime, SecondsFormat, Utc};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -55,8 +56,13 @@ fn parse_sessions(
                     .unwrap_or_else(|| format!("session_{}", idx + 1));
                 LongMemEvalSession {
                     session_id,
-                    date: string_field(item, &["date", "timestamp"])
+                    raw_date: string_field(item, &["date", "timestamp"])
                         .or_else(|| dates.get(idx).cloned()),
+                    date: normalize_timestamp(
+                        string_field(item, &["date", "timestamp"])
+                            .or_else(|| dates.get(idx).cloned())
+                            .as_deref(),
+                    ),
                     turns: parse_turns(item),
                 }
             })
@@ -65,12 +71,46 @@ fn parse_sessions(
             .iter()
             .map(|(session_id, item)| LongMemEvalSession {
                 session_id: session_id.clone(),
-                date: string_field(item, &["date", "timestamp"]),
+                raw_date: string_field(item, &["date", "timestamp"]),
+                date: normalize_timestamp(string_field(item, &["date", "timestamp"]).as_deref()),
                 turns: parse_turns(item),
             })
             .collect(),
         _ => Vec::new(),
     }
+}
+
+fn normalize_timestamp(value: Option<&str>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        if let Ok(timestamp) = DateTime::parse_from_rfc3339(trimmed) {
+            return Some(
+                timestamp
+                    .with_timezone(&Utc)
+                    .to_rfc3339_opts(SecondsFormat::Secs, true),
+            );
+        }
+        Some(
+            parse_official_longmemeval_timestamp(trimmed)
+                .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Secs, true))
+                .unwrap_or_else(|| trimmed.to_string()),
+        )
+    })
+}
+
+fn parse_official_longmemeval_timestamp(value: &str) -> Option<DateTime<Utc>> {
+    let normalized = if let Some((date, rest)) = value.split_once(" (") {
+        let (_, time) = rest.split_once(") ")?;
+        format!("{date} {time}")
+    } else {
+        value.to_string()
+    };
+    NaiveDateTime::parse_from_str(&normalized, "%Y/%m/%d %H:%M")
+        .ok()
+        .map(|timestamp| DateTime::<Utc>::from_naive_utc_and_offset(timestamp, Utc))
 }
 
 fn parse_turns(value: &Value) -> Vec<LongMemEvalTurn> {
@@ -133,5 +173,43 @@ mod tests {
         let rows = load_value(value).unwrap();
         assert_eq!(rows[0].namespace(), "lme:q1");
         assert_eq!(rows[0].gold_turn_ids(), vec!["s1:turn:1"]);
+    }
+
+    #[test]
+    fn normalizes_official_dates_to_rfc3339_utc() {
+        let rows = load_value(serde_json::json!([{
+            "question_id": "q1",
+            "question": "Where is the answer?",
+            "haystack_session_ids": ["s1"],
+            "haystack_dates": ["2023/05/30 (Tue) 23:40"],
+            "haystack_sessions": [[
+                {"role": "user", "content": "hello", "has_answer": true}
+            ]],
+            "answer_session_ids": ["s1"]
+        }]))
+        .unwrap();
+
+        assert_eq!(
+            rows[0].sessions[0].raw_date.as_deref(),
+            Some("2023/05/30 (Tue) 23:40")
+        );
+        assert_eq!(
+            rows[0].sessions[0].date.as_deref(),
+            Some("2023-05-30T23:40:00Z")
+        );
+    }
+
+    #[test]
+    fn preserves_unrecognized_non_empty_date_for_adapter_error_context() {
+        let rows = load_value(serde_json::json!([{
+            "question_id": "q1",
+            "question": "Where is the answer?",
+            "haystack_session_ids": ["s1"],
+            "haystack_dates": ["not a timestamp"],
+            "haystack_sessions": [[{"role": "user", "content": "hello"}]]
+        }]))
+        .unwrap();
+
+        assert_eq!(rows[0].sessions[0].date.as_deref(), Some("not a timestamp"));
     }
 }

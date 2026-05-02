@@ -28,7 +28,11 @@ pub fn to_memory_inputs(instance: &LongMemEvalInstance) -> LongMemEvalMemoryInpu
             started_at: session.date.clone(),
             ended_at: session.date.clone(),
             participants,
-            metadata: serde_json::json!({"source": "longmemeval_s"}),
+            metadata: serde_json::json!({
+                "source": "longmemeval_s",
+                "raw_date": session.raw_date.clone(),
+                "normalized_date": session.date.clone()
+            }),
         });
         for turn in &session.turns {
             observations.push(ObservationInput {
@@ -38,7 +42,11 @@ pub fn to_memory_inputs(instance: &LongMemEvalInstance) -> LongMemEvalMemoryInpu
                 speaker: turn.speaker.clone(),
                 text: turn.text.clone(),
                 observed_at: session.date.clone(),
-                metadata: serde_json::json!({"source": "longmemeval_s"}),
+                metadata: serde_json::json!({
+                    "source": "longmemeval_s",
+                    "raw_date": session.raw_date.clone(),
+                    "normalized_date": session.date.clone()
+                }),
             });
         }
     }
@@ -66,6 +74,29 @@ mod tests {
         .unwrap();
         let mapped = to_memory_inputs(&rows[0]);
         let metadata = serde_json::to_string(&mapped.observations[0].metadata).unwrap();
+        assert!(!metadata.contains("has_answer"));
+        assert!(!metadata.contains("answer_session"));
+    }
+
+    #[test]
+    fn preserves_raw_and_normalized_dates_without_gold_labels() {
+        let rows = load_value(serde_json::json!([{
+            "question_id": "q1",
+            "question": "q",
+            "haystack_session_ids": ["s1"],
+            "haystack_dates": ["2023/05/30 (Tue) 23:40"],
+            "haystack_sessions": [[{"role": "user", "content": "answer", "has_answer": true}]],
+            "answer_session_ids": ["s1"]
+        }]))
+        .unwrap();
+        let mapped = to_memory_inputs(&rows[0]);
+        assert_eq!(
+            mapped.episodes[0].started_at.as_deref(),
+            Some("2023-05-30T23:40:00Z")
+        );
+        let metadata = serde_json::to_string(&mapped.observations[0].metadata).unwrap();
+        assert!(metadata.contains("2023/05/30 (Tue) 23:40"));
+        assert!(metadata.contains("2023-05-30T23:40:00Z"));
         assert!(!metadata.contains("has_answer"));
         assert!(!metadata.contains("answer_session"));
     }

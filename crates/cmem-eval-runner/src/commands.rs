@@ -99,6 +99,7 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
     let adapter_metadata = selected.metadata();
     let adapter = adapter(selected, &config).await?;
     let mut rows = Vec::new();
+    let mut namespaces_to_cleanup = Vec::new();
 
     for question in fixture.questions {
         let namespace = format!("synthetic:{}", question.question_id);
@@ -132,7 +133,7 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
         }
         let pack = adapter
             .retrieve(RetrieveInput {
-                namespace,
+                namespace: namespace.clone(),
                 query: question.question.clone(),
                 query_date: None,
                 top_k_episodes: config.retrieval.top_k_episodes,
@@ -162,8 +163,10 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
             context_char_count: pack.context_char_count,
             context_word_count: pack.context_word_count,
         });
+        namespaces_to_cleanup.push(namespace);
     }
-    write_outputs(args, config, rows)
+    write_outputs(args, config.clone(), rows)?;
+    cleanup_namespaces_after_artifacts(&*adapter, &config, &namespaces_to_cleanup).await
 }
 
 async fn run_longmemeval(args: RunArgs) -> Result<()> {
@@ -175,6 +178,7 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
     let adapter_metadata = selected.metadata();
     let adapter = adapter(selected, &config).await?;
     let mut rows = Vec::new();
+    let mut namespaces_to_cleanup = Vec::new();
     for instance in instances {
         let namespace = instance.namespace();
         let timer = Timer::start();
@@ -188,7 +192,7 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
         }
         let pack = adapter
             .retrieve(RetrieveInput {
-                namespace,
+                namespace: namespace.clone(),
                 query: instance.question.clone(),
                 query_date: instance.question_date.clone(),
                 top_k_episodes: config.retrieval.top_k_episodes,
@@ -222,8 +226,10 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
             context_char_count: pack.context_char_count,
             context_word_count: pack.context_word_count,
         });
+        namespaces_to_cleanup.push(namespace);
     }
-    write_outputs(args, config, rows)
+    write_outputs(args, config.clone(), rows)?;
+    cleanup_namespaces_after_artifacts(&*adapter, &config, &namespaces_to_cleanup).await
 }
 
 async fn run_locomo(args: RunArgs) -> Result<()> {
@@ -235,6 +241,7 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
     let adapter_metadata = selected.metadata();
     let adapter = adapter(selected, &config).await?;
     let mut rows = Vec::new();
+    let mut namespaces_to_cleanup = Vec::new();
     for sample in samples {
         let namespace = sample.namespace();
         let mapped = cmem_eval_locomo::ingest::to_memory_inputs(
@@ -287,8 +294,23 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                 context_word_count: pack.context_word_count,
             });
         }
+        namespaces_to_cleanup.push(namespace);
     }
-    write_outputs(args, config, rows)
+    write_outputs(args, config.clone(), rows)?;
+    cleanup_namespaces_after_artifacts(&*adapter, &config, &namespaces_to_cleanup).await
+}
+
+async fn cleanup_namespaces_after_artifacts(
+    adapter: &dyn MemoryAdapter,
+    config: &BenchmarkRunConfig,
+    namespaces: &[String],
+) -> Result<()> {
+    if config.backend.cleanup.enabled {
+        for namespace in namespaces {
+            adapter.reset_namespace(namespace).await?;
+        }
+    }
+    Ok(())
 }
 
 fn summarize(args: SummarizeArgs) -> Result<()> {

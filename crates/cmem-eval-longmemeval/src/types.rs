@@ -34,6 +34,7 @@ impl LongMemEvalInstance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LongMemEvalSession {
     pub session_id: String,
+    pub raw_date: Option<String>,
     pub date: Option<String>,
     pub turns: Vec<LongMemEvalTurn>,
 }

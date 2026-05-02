@@ -1,6 +1,6 @@
 # Plan: Timestamp Normalization And Cleanup Safety
 
-- status: draft
+- status: completed
 - generated: 2026-05-02
 - last_updated: 2026-05-02
 - work_type: code
@@ -210,6 +210,18 @@
   - Summary: Split timestamp tolerance and cleanup safety into a live-runtime safety plan.
   - Validation evidence: Review findings 5 and 6.
   - Notes: No UI scope.
+- 2026-05-02 implementation started.
+  - Summary: Orchestrator began timestamp normalization and cleanup safety implementation; researcher dispatched for cleanup dependency/API guidance.
+  - Validation evidence: pending.
+  - Notes: Timestamp policy is to normalize known benchmark formats in dataset crates to RFC3339 UTC and keep the live adapter strict with clearer errors for any remaining invalid timestamp.
+- 2026-05-02 review fix applied.
+  - Summary: Reviewer found cleanup could run before JSONL/summary artifacts were flushed; cleanup is now deferred until after successful artifact writes.
+  - Validation evidence: `cargo fmt --all --check`, `cargo test -p cmem-eval-runner`, and `cargo test -p cmem-eval-runner --features real-character-memory real_adapter` passed after fix.
+  - Notes: If a run fails before artifact write, backend state is preserved for inspection/retry.
+- 2026-05-02 completed.
+  - Summary: Official benchmark timestamp formats normalize to RFC3339 UTC; live adapter remains strict; cleanup is fail-closed and deferred until result artifacts are written.
+  - Validation evidence: `cargo test -p cmem-eval-longmemeval`; `cargo test -p cmem-eval-locomo`; `cargo test -p cmem-eval-core`; `cargo test --workspace`; `cargo fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings`; `cargo test -p cmem-eval-runner --features real-character-memory real_adapter`; `cargo check -p cmem-eval-runner --features real-character-memory`; synthetic mock smoke.
+  - Notes: Reviewer re-review approved after cleanup ordering fix.
 
 ## Decision Log
 - 2026-05-02 Decision:

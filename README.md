@@ -61,6 +61,25 @@ cargo run -p cmem-eval-runner --features real-character-memory -- run locomo \
 
 Gold evidence labels are used only for scoring. They are not copied into `EpisodeInput`, `ObservationInput`, or adapter metadata.
 
+## Timestamp And Cleanup Policy
+
+Official benchmark timestamps are normalized before live ingestion. LongMemEval-S
+dates such as `2023/05/30 (Tue) 23:40` and LoCoMo dates such as
+`1:56 pm on 8 May, 2023` are treated as benchmark-local naive timestamps and
+serialized as UTC RFC3339 values, for example `2023-05-30T23:40:00Z`. The raw
+timestamp remains in eval metadata for debugging, but the live adapter stays
+strict: any non-RFC3339 timestamp that reaches it fails with context instead of
+being guessed at the backend boundary.
+
+Backend cleanup is disabled by default. When `[backend.cleanup] enabled = true`,
+the runner deletes only live Qdrant collections it created for completed eval
+namespaces, and only when `require_collection_prefix` matches the configured
+`namespace_prefix` after Qdrant-name sanitization. Cleanup never deletes files
+under `runs/`, `reports/`, `datasets/`, or other result artifacts. Leaving
+cleanup disabled preserves backend collections for inspection; enabling it makes
+repeat runs practical after the JSONL and summary artifacts have been written
+successfully.
+
 ## Character Memory API
 
 The eval-side adapter contract is in `cmem-eval-core::memory_adapter`. It is written as the target public API boundary for Character Memory: external IDs, namespaces, ranks, scores, rationale, and context text must survive round trip. Live runs require the `real-character-memory` feature and backend settings; the initial embedding default is OpenAI `text-embedding-3-large`.

@@ -10,6 +10,7 @@ use cmem_eval_core::{
     BenchmarkRunConfig, EpisodeInput, MemoryAdapter, ObservationInput, RetrieveInput,
     RetrievedContextPack, RetrievedItem,
 };
+use qdrant_client::Qdrant;
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
@@ -25,6 +26,7 @@ pub struct CharacterMemoryAdapter {
 
 struct NamespaceState {
     memory: CharacterMemory,
+    collection_name: String,
     episode_ids: HashMap<String, MemoryId>,
     observation_ids: HashMap<String, MemoryId>,
     reverse_episode_ids: HashMap<MemoryId, String>,
@@ -56,6 +58,7 @@ impl CharacterMemoryAdapter {
 
         Ok(NamespaceState {
             memory,
+            collection_name,
             episode_ids: HashMap::new(),
             observation_ids: HashMap::new(),
             reverse_episode_ids: HashMap::new(),
@@ -64,13 +67,7 @@ impl CharacterMemoryAdapter {
     }
 
     fn settings(&self) -> Result<Settings> {
-        let qdrant = self
-            .config
-            .backend
-            .qdrant_connection_string
-            .clone()
-            .or_else(|| env::var("QDRANT_CONNECTION_STRING").ok())
-            .context("QDRANT_CONNECTION_STRING is required for live Character Memory runs")?;
+        let qdrant = self.qdrant_connection_string()?;
         let oxigraph = self
             .config
             .backend
@@ -107,6 +104,15 @@ impl CharacterMemoryAdapter {
         Settings::new(external_config).map_err(Into::into)
     }
 
+    fn qdrant_connection_string(&self) -> Result<String> {
+        self.config
+            .backend
+            .qdrant_connection_string
+            .clone()
+            .or_else(|| env::var("QDRANT_CONNECTION_STRING").ok())
+            .context("QDRANT_CONNECTION_STRING is required for live Character Memory runs")
+    }
+
     fn collection_name(&self, namespace: &str) -> String {
         let prefix = self
             .config
@@ -115,19 +121,50 @@ impl CharacterMemoryAdapter {
             .as_deref()
             .unwrap_or("cmem_eval");
         format!(
-            "{}_{}_{}",
+            "{}_{}_{}_{}",
             sanitize_collection_segment(prefix),
+            sanitize_collection_segment(&self.config.run_id),
             sanitize_collection_segment(namespace),
             Uuid::new_v4().simple()
         )
+    }
+
+    async fn cleanup_collection_if_enabled(&self, collection_name: &str) -> Result<()> {
+        if !self.config.backend.cleanup.enabled {
+            return Ok(());
+        }
+        validate_cleanup_target(
+            collection_name,
+            self.config
+                .backend
+                .cleanup
+                .require_collection_prefix
+                .as_deref(),
+        )?;
+        let qdrant = self.qdrant_connection_string()?;
+        Qdrant::from_url(&qdrant)
+            .build()?
+            .delete_collection(collection_name)
+            .await
+            .with_context(|| format!("delete Qdrant collection {collection_name}"))?;
+        Ok(())
     }
 }
 
 #[async_trait]
 impl MemoryAdapter for CharacterMemoryAdapter {
     async fn reset_namespace(&self, namespace: &str) -> Result<()> {
-        let mut namespaces = self.namespaces.lock().await;
-        namespaces.remove(namespace);
+        let collection_name = {
+            let namespaces = self.namespaces.lock().await;
+            namespaces
+                .get(namespace)
+                .map(|state| state.collection_name.clone())
+        };
+        if let Some(collection_name) = collection_name {
+            self.cleanup_collection_if_enabled(&collection_name).await?;
+            let mut namespaces = self.namespaces.lock().await;
+            namespaces.remove(namespace);
+        }
         Ok(())
     }
 
@@ -351,9 +388,32 @@ fn parse_timestamp(value: Option<&str>) -> Result<Option<DateTime<Utc>>> {
         .map(|value| {
             DateTime::parse_from_rfc3339(value)
                 .map(|timestamp| timestamp.with_timezone(&Utc))
-                .with_context(|| format!("parse RFC3339 timestamp {value}"))
+                .with_context(|| {
+                    format!(
+                        "parse RFC3339 timestamp {value}; dataset loaders should normalize official benchmark timestamps before live adapter ingestion"
+                    )
+                })
         })
         .transpose()
+}
+
+fn validate_cleanup_target(collection_name: &str, required_prefix: Option<&str>) -> Result<()> {
+    let Some(required_prefix) = required_prefix
+        .map(str::trim)
+        .filter(|prefix| !prefix.is_empty())
+    else {
+        bail!("cleanup is enabled but no required collection prefix was configured");
+    };
+    let sanitized_prefix = sanitize_collection_segment(required_prefix);
+    if sanitized_prefix.len() < 3 {
+        bail!("cleanup required collection prefix is too broad");
+    }
+    if !collection_name.starts_with(&sanitized_prefix) {
+        bail!(
+            "refusing to cleanup collection {collection_name}; it does not start with required eval prefix {sanitized_prefix}"
+        );
+    }
+    Ok(())
 }
 
 fn sanitize_collection_segment(value: &str) -> String {
@@ -446,5 +506,45 @@ mod tests {
         }]);
         assert!(text.contains("observation:s1:turn:1"));
         assert!(text.contains("hello"));
+    }
+
+    #[test]
+    fn parses_rfc3339_timestamp_and_ignores_empty() {
+        assert!(parse_timestamp(None).unwrap().is_none());
+        assert!(parse_timestamp(Some("")).unwrap().is_none());
+        assert_eq!(
+            parse_timestamp(Some("2023-05-30T23:40:00Z"))
+                .unwrap()
+                .unwrap()
+                .to_rfc3339(),
+            "2023-05-30T23:40:00+00:00"
+        );
+    }
+
+    #[test]
+    fn rejects_unormalized_timestamp_with_actionable_context() {
+        let err = parse_timestamp(Some("2023/05/30 (Tue) 23:40"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("dataset loaders should normalize"));
+    }
+
+    #[test]
+    fn cleanup_target_requires_eval_prefix_match() {
+        validate_cleanup_target("bench_lme_longmemeval_s_v0_1_lme_q1_abc", Some("bench:lme"))
+            .unwrap();
+
+        let err = validate_cleanup_target("prod_collection", Some("bench:lme"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("refusing to cleanup"));
+    }
+
+    #[test]
+    fn cleanup_target_rejects_missing_prefix() {
+        let err = validate_cleanup_target("bench_lme_q1", None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no required collection prefix"));
     }
 }

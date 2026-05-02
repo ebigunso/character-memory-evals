@@ -36,6 +36,7 @@ impl LoCoMoSample {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoCoMoSession {
     pub session_id: String,
+    pub raw_timestamp: Option<String>,
     pub timestamp: Option<String>,
     pub summary: Option<String>,
     pub turns: Vec<LoCoMoTurn>,
