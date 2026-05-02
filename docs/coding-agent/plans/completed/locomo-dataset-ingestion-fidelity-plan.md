@@ -1,6 +1,6 @@
 # Plan: LoCoMo Dataset Ingestion Fidelity
 
-- status: draft
+- status: done
 - generated: 2026-05-02
 - last_updated: 2026-05-02
 - work_type: code
@@ -154,6 +154,18 @@
   - Summary: Split LoCoMo caption/indexing fidelity into a dataset-owned plan.
   - Validation evidence: Review findings 4 and 9.
   - Notes: No UI scope.
+- 2026-05-02 execution started.
+  - Summary: Started Plan 3 after completing and committing Plan 2; dispatched focused LoCoMo researcher.
+  - Validation evidence: Researcher `019de5f0-16f5-7d73-a229-e26190c35e02`.
+  - Notes: No UI scope.
+- 2026-05-02 implementation through Task_3 completed.
+  - Summary: Extended LoCoMo types for participants, image URLs, captions, search queries, and QA indexes; parsed official keyed conversation shape; made caption text affect indexed observation text only when enabled; added official-shape and caption on/off tests.
+  - Validation evidence: `cargo test -p cmem-eval-locomo`; `cargo clippy -p cmem-eval-locomo --all-targets -- -D warnings`; `cargo test --workspace`; `cargo fmt -p cmem-eval-locomo --check`; synthetic mock smoke command.
+  - Notes: No UI scope.
+- 2026-05-02 review completed.
+  - Summary: Harness reviewer approved Plan 3 changes with no findings.
+  - Validation evidence: Reviewer `019de5ff-9090-7b12-89c2-ce4497dc99b0` APPROVED.
+  - Notes: Residual risk around additional caption field variants beyond released fixture shape.
 
 ## Decision Log
 - 2026-05-02 Decision:

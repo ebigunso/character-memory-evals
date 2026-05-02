@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoCoMoSample {
     pub sample_id: String,
+    pub speaker_a: Option<String>,
+    pub speaker_b: Option<String>,
     pub sessions: Vec<LoCoMoSession>,
     pub qa: Vec<LoCoMoQa>,
     pub raw: serde_json::Value,
@@ -44,11 +46,15 @@ pub struct LoCoMoTurn {
     pub dialog_id: String,
     pub speaker: Option<String>,
     pub text: String,
+    pub image_urls: Vec<String>,
+    pub blip_caption: Option<String>,
+    pub query: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoCoMoQa {
     pub question_id: String,
+    pub qa_index: usize,
     pub question_type: Option<String>,
     pub question: String,
     pub answer: Option<String>,
