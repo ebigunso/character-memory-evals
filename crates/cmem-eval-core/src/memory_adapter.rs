@@ -26,6 +26,87 @@ pub struct ObservationInput {
     pub metadata: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GraphEnrichmentInput {
+    pub namespace: String,
+    #[serde(default)]
+    pub entities: Vec<EntityInput>,
+    #[serde(default)]
+    pub threads: Vec<MemoryThreadInput>,
+    #[serde(default)]
+    pub derived_memories: Vec<DerivedMemoryInput>,
+    #[serde(default)]
+    pub links: Vec<MemoryLinkInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityInput {
+    pub external_id: String,
+    pub entity_type: String,
+    pub name: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    pub canonical_key: Option<String>,
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryThreadInput {
+    pub external_id: String,
+    pub title: String,
+    pub summary: String,
+    #[serde(default = "default_thread_status")]
+    pub status: String,
+    pub last_touched_at: Option<String>,
+    #[serde(default = "default_salience_score")]
+    pub salience_score: f32,
+    pub canonical_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DerivedMemoryInput {
+    pub external_id: String,
+    pub derived_type: String,
+    pub text: String,
+    #[serde(default)]
+    pub source_episode_external_ids: Vec<String>,
+    #[serde(default)]
+    pub source_observation_external_ids: Vec<String>,
+    #[serde(default)]
+    pub thread_external_ids: Vec<String>,
+    #[serde(default)]
+    pub entity_external_ids: Vec<String>,
+    #[serde(default = "default_confidence")]
+    pub confidence: f32,
+    #[serde(default = "default_salience_score")]
+    pub salience_score: f32,
+    #[serde(default = "default_stability")]
+    pub stability: String,
+    #[serde(default = "default_true")]
+    pub is_current: bool,
+    #[serde(default)]
+    pub supersedes_external_ids: Vec<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryLinkInput {
+    pub external_id: String,
+    pub from: MemoryEndpointInput,
+    pub relation: String,
+    pub to: MemoryEndpointInput,
+    #[serde(default = "default_confidence")]
+    pub confidence: f32,
+    pub rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEndpointInput {
+    pub object_type: String,
+    pub external_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetrieveInput {
     pub namespace: String,
@@ -34,6 +115,8 @@ pub struct RetrieveInput {
     pub top_k_episodes: usize,
     pub top_k_observations: usize,
     pub include_derived_memories: bool,
+    pub include_threads: bool,
+    pub include_entities: bool,
     pub include_debug_rationale: bool,
 }
 
@@ -76,6 +159,7 @@ pub trait MemoryAdapter: Send + Sync {
     async fn reset_namespace(&self, namespace: &str) -> Result<()>;
     async fn remember_episode(&self, input: EpisodeInput) -> Result<String>;
     async fn remember_observation(&self, input: ObservationInput) -> Result<String>;
+    async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<()>;
     async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack>;
 }
 
@@ -88,6 +172,7 @@ pub struct MockMemoryAdapter {
 struct NamespaceState {
     episodes: Vec<EpisodeInput>,
     observations: Vec<ObservationInput>,
+    derived_memories: Vec<DerivedMemoryInput>,
 }
 
 #[async_trait]
@@ -118,6 +203,13 @@ impl MemoryAdapter for MockMemoryAdapter {
             .observations
             .push(input);
         Ok(internal_id)
+    }
+
+    async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<()> {
+        let mut state = self.state.lock().expect("mock memory mutex poisoned");
+        let namespace = state.entry(input.namespace).or_default();
+        namespace.derived_memories.extend(input.derived_memories);
+        Ok(())
     }
 
     async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
@@ -167,6 +259,28 @@ impl MemoryAdapter for MockMemoryAdapter {
             });
         }
 
+        if input.include_derived_memories {
+            let mut derived_memories = ns.derived_memories.clone();
+            derived_memories.sort_by(|a, b| {
+                score_text(&input.query, &b.text)
+                    .partial_cmp(&score_text(&input.query, &a.text))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            for memory in derived_memories.into_iter().take(input.top_k_observations) {
+                let score = score_text(&input.query, &memory.text);
+                items.push(RetrievedItem {
+                    kind: "derived_memory".to_string(),
+                    internal_id: format!("mock:derived_memory:{}", memory.external_id),
+                    external_id: Some(memory.external_id),
+                    episode_external_id: memory.source_episode_external_ids.first().cloned(),
+                    score: Some(score),
+                    rank: 0,
+                    rationale: vec!["mock_lexical_overlap".to_string()],
+                    text: Some(memory.text),
+                });
+            }
+        }
+
         items.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
@@ -192,6 +306,26 @@ impl MemoryAdapter for MockMemoryAdapter {
             context_word_count,
         })
     }
+}
+
+fn default_thread_status() -> String {
+    "active".to_string()
+}
+
+fn default_stability() -> String {
+    "medium".to_string()
+}
+
+fn default_confidence() -> f32 {
+    1.0
+}
+
+fn default_salience_score() -> f32 {
+    0.5
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn score_text(query: &str, text: &str) -> f64 {
@@ -256,6 +390,8 @@ mod tests {
                 top_k_episodes: 5,
                 top_k_observations: 5,
                 include_derived_memories: false,
+                include_threads: false,
+                include_entities: false,
                 include_debug_rationale: false,
             })
             .await
@@ -263,6 +399,52 @@ mod tests {
 
         assert!(pack.items.iter().any(|item| {
             item.kind == "observation" && item.external_id.as_deref() == Some("s1:turn:1")
+        }));
+    }
+
+    #[tokio::test]
+    async fn mock_adapter_retrieves_derived_memories_when_enabled() {
+        let adapter = MockMemoryAdapter::default();
+        adapter
+            .remember_enrichment(GraphEnrichmentInput {
+                namespace: "n".into(),
+                derived_memories: vec![DerivedMemoryInput {
+                    external_id: "dm1".into(),
+                    derived_type: "reflection".into(),
+                    text: "The user prefers chat native design.".into(),
+                    source_episode_external_ids: vec!["s1".into()],
+                    source_observation_external_ids: vec![],
+                    thread_external_ids: vec![],
+                    entity_external_ids: vec![],
+                    confidence: 1.0,
+                    salience_score: 0.5,
+                    stability: "medium".into(),
+                    is_current: true,
+                    supersedes_external_ids: vec![],
+                    metadata: serde_json::json!({}),
+                }],
+                ..GraphEnrichmentInput::default()
+            })
+            .await
+            .unwrap();
+
+        let pack = adapter
+            .retrieve(RetrieveInput {
+                namespace: "n".into(),
+                query: "chat native".into(),
+                query_date: None,
+                top_k_episodes: 5,
+                top_k_observations: 5,
+                include_derived_memories: true,
+                include_threads: false,
+                include_entities: false,
+                include_debug_rationale: false,
+            })
+            .await
+            .unwrap();
+
+        assert!(pack.items.iter().any(|item| {
+            item.kind == "derived_memory" && item.external_id.as_deref() == Some("dm1")
         }));
     }
 }

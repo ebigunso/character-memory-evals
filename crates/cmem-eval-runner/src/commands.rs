@@ -1,4 +1,4 @@
-use crate::official_exports;
+use crate::{enrichment, official_exports};
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmem_eval_core::{
@@ -194,6 +194,8 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
                 top_k_episodes: config.retrieval.top_k_episodes,
                 top_k_observations: config.retrieval.top_k_observations,
                 include_derived_memories: config.retrieval.include_derived_memories,
+                include_threads: config.retrieval.include_threads,
+                include_entities: config.retrieval.include_entities,
                 include_debug_rationale: config.retrieval.include_debug_rationale,
             })
             .await?;
@@ -232,6 +234,7 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
     args.validate_adapter_selection()?;
     let adapter_metadata = selected.metadata();
     let adapter = adapter(selected, &config).await?;
+    let enrichment_by_namespace = load_enrichment_by_namespace(&config)?;
     let mut rows = Vec::new();
     let mut namespaces_to_cleanup = Vec::new();
     for instance in instances {
@@ -245,6 +248,7 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
         for observation in mapped.observations {
             adapter.remember_observation(observation).await?;
         }
+        remember_configured_enrichment(&*adapter, &enrichment_by_namespace, &namespace).await?;
         let pack = adapter
             .retrieve(RetrieveInput {
                 namespace: namespace.clone(),
@@ -253,6 +257,8 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
                 top_k_episodes: config.retrieval.top_k_episodes,
                 top_k_observations: config.retrieval.top_k_observations,
                 include_derived_memories: config.retrieval.include_derived_memories,
+                include_threads: config.retrieval.include_threads,
+                include_entities: config.retrieval.include_entities,
                 include_debug_rationale: config.retrieval.include_debug_rationale,
             })
             .await?;
@@ -295,6 +301,7 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
     args.validate_adapter_selection()?;
     let adapter_metadata = selected.metadata();
     let adapter = adapter(selected, &config).await?;
+    let enrichment_by_namespace = load_enrichment_by_namespace(&config)?;
     let mut rows = Vec::new();
     let mut namespaces_to_cleanup = Vec::new();
     for sample in samples {
@@ -302,6 +309,8 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
         let mapped = cmem_eval_locomo::ingest::to_memory_inputs(
             &sample,
             config.ingest.include_image_captions,
+            config.ingest.index_session_summaries,
+            config.ingest.index_generated_observations,
         );
         adapter.reset_namespace(&namespace).await?;
         for episode in mapped.episodes {
@@ -310,6 +319,14 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
         for observation in mapped.observations {
             adapter.remember_observation(observation).await?;
         }
+        let mut namespace_enrichment = enrichment::empty_namespace(namespace.clone());
+        namespace_enrichment.derived_memories = mapped.derived_memories;
+        if let Some(configured) = enrichment_by_namespace.get(&namespace).cloned() {
+            enrichment::merge_enrichment(&mut namespace_enrichment, configured)?;
+        } else {
+            enrichment::validate_enrichment(&namespace_enrichment)?;
+        }
+        adapter.remember_enrichment(namespace_enrichment).await?;
         for qa in &sample.qa {
             let timer = Timer::start();
             let pack = adapter
@@ -320,6 +337,8 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                     top_k_episodes: config.retrieval.top_k_episodes,
                     top_k_observations: config.retrieval.top_k_observations,
                     include_derived_memories: config.retrieval.include_derived_memories,
+                    include_threads: config.retrieval.include_threads,
+                    include_entities: config.retrieval.include_entities,
                     include_debug_rationale: config.retrieval.include_debug_rationale,
                 })
                 .await?;
@@ -353,6 +372,32 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
     }
     write_outputs(args, config.clone(), rows)?;
     cleanup_namespaces_after_artifacts(&*adapter, &config, &namespaces_to_cleanup).await
+}
+
+fn load_enrichment_by_namespace(
+    config: &BenchmarkRunConfig,
+) -> Result<std::collections::HashMap<String, cmem_eval_core::GraphEnrichmentInput>> {
+    config
+        .ingest
+        .enrichment_path
+        .as_ref()
+        .map(|path| enrichment::load_enrichment_path(std::path::Path::new(path)))
+        .transpose()
+        .map(|value| value.unwrap_or_default())
+}
+
+async fn remember_configured_enrichment(
+    adapter: &dyn MemoryAdapter,
+    enrichment_by_namespace: &std::collections::HashMap<
+        String,
+        cmem_eval_core::GraphEnrichmentInput,
+    >,
+    namespace: &str,
+) -> Result<()> {
+    if let Some(enrichment) = enrichment_by_namespace.get(namespace).cloned() {
+        adapter.remember_enrichment(enrichment).await?;
+    }
+    Ok(())
 }
 
 fn export_official(args: ExportOfficialCommand) -> Result<()> {

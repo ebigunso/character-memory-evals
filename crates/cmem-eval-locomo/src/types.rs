@@ -39,6 +39,7 @@ pub struct LoCoMoSession {
     pub raw_timestamp: Option<String>,
     pub timestamp: Option<String>,
     pub summary: Option<String>,
+    pub generated_observations: Vec<String>,
     pub turns: Vec<LoCoMoTurn>,
 }
 
@@ -66,4 +67,5 @@ pub struct LoCoMoQa {
 pub struct LoCoMoMemoryInputs {
     pub episodes: Vec<cmem_eval_core::EpisodeInput>,
     pub observations: Vec<cmem_eval_core::ObservationInput>,
+    pub derived_memories: Vec<cmem_eval_core::DerivedMemoryInput>,
 }

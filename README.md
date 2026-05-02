@@ -61,6 +61,40 @@ cargo run -p cmem-eval-runner --features real-character-memory -- run locomo \
 
 Gold evidence labels are used only for scoring. They are not copied into `EpisodeInput`, `ObservationInput`, or adapter metadata.
 
+## Precomputed Graph Enrichment
+
+The runner can inject graph-shaped memory objects after raw episodes and
+observations are stored. This is meant for enrichment prepared by a separate
+LLM/Codex pass over source conversation text, avoiding runtime LLM calls inside
+the eval harness.
+
+Enable an artifact with `[ingest] enrichment_path = "..."`. The file is JSONL;
+each row is scoped to one eval namespace, such as `lme:<question_id>` or
+`locomo:<sample_id>`:
+
+```json
+{"namespace":"lme:example","entities":[{"external_id":"user","entity_type":"user","name":"User"}],"threads":[{"external_id":"thread:travel","title":"Travel plans","summary":"The user is planning travel.","status":"active"}],"derived_memories":[{"external_id":"dm:travel:1","derived_type":"claim","text":"The user is considering a May trip.","source_episode_external_ids":["session_1"],"thread_external_ids":["thread:travel"],"entity_external_ids":["user"]}],"links":[{"external_id":"link:dm-thread","from":{"object_type":"derived_memory","external_id":"dm:travel:1"},"relation":"part_of_thread","to":{"object_type":"memory_thread","external_id":"thread:travel"}}]}
+```
+
+Supported object types are `episode`, `observation`, `entity`,
+`memory_thread`, and `derived_memory`. Supported enum values follow the public
+Character Memory API snake-case names, for example `user_preference`,
+`relationship_note`, `open_loop`, `character_signal`, and `project_note` for
+derived memories.
+
+Enrichment must be generated only from haystack/source conversation data. The
+loader rejects common gold-label keys such as `answer`, `evidence`,
+`answer_session_ids`, `has_answer`, `gold_*`, and `label` anywhere in the JSON.
+Derived memories must include source episode or observation external IDs so
+provenance survives round trip.
+
+LoCoMo also has benchmark-provided session summaries and generated observations.
+The default LoCoMo config indexes those as provenanced derived memories with
+`index_session_summaries = true` and `index_generated_observations = true`.
+LongMemEval-S does not include equivalent generated memory fields, so additional
+entities, threads, links, and derived memories should come from an enrichment
+JSONL artifact.
+
 ## Official Exports
 
 Internal benchmark runs write eval JSONL first. Official-compatible artifacts are

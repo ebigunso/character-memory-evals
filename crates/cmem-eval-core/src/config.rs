@@ -202,12 +202,6 @@ impl RetrievalConfig {
         if self.top_k_observations == 0 {
             bail!("retrieval.top_k_observations must be greater than zero");
         }
-        if self.include_threads {
-            bail!("retrieval.include_threads is not supported by the current eval adapter");
-        }
-        if self.include_entities {
-            bail!("retrieval.include_entities is not supported by the current eval adapter");
-        }
         Ok(())
     }
 }
@@ -228,6 +222,8 @@ pub struct IngestConfig {
     pub index_generated_observations: bool,
     #[serde(default)]
     pub include_image_captions: bool,
+    #[serde(default)]
+    pub enrichment_path: Option<String>,
 }
 
 impl IngestConfig {
@@ -243,16 +239,8 @@ impl IngestConfig {
                 "ingest.index_episode_summaries=false is not supported by the current eval runner"
             );
         }
-        if self.create_threads {
-            bail!("ingest.create_threads is not supported by the current eval runner");
-        }
-        if self.index_session_summaries {
-            bail!("ingest.index_session_summaries is not supported by the current eval runner");
-        }
-        if self.index_generated_observations {
-            bail!(
-                "ingest.index_generated_observations is not supported by the current eval runner"
-            );
+        if self.create_threads && self.enrichment_path.is_none() {
+            bail!("ingest.create_threads requires ingest.enrichment_path");
         }
         Ok(())
     }
@@ -450,12 +438,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_noop_retrieval_flags() {
+    fn accepts_graph_retrieval_flags() {
         let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
             "dataset": "synthetic",
             "retrieval": {
-                "include_threads": true
+                "include_threads": true,
+                "include_entities": true
             },
             "ingest": {
                 "index_observations": true,
@@ -464,13 +453,7 @@ mod tests {
         }))
         .unwrap();
 
-        assert!(
-            config
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("include_threads")
-        );
+        config.validate().unwrap();
     }
 
     #[test]

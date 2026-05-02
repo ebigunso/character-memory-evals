@@ -16,7 +16,7 @@ model = "text-embedding-3-large"
 [retrieval]
 top_k_episodes = 10
 top_k_observations = 50
-include_derived_memories = false
+include_derived_memories = true
 include_threads = false
 include_entities = false
 include_debug_rationale = true
@@ -26,6 +26,8 @@ index_observations = true
 index_episode_summaries = true
 create_threads = false
 store_gold_labels = false
+# Optional precomputed enrichment JSONL produced from haystack/source text only.
+# enrichment_path = "./datasets/enriched/longmemeval_s_enrichment.jsonl"
 
 [metrics]
 ks_session = [5, 10]

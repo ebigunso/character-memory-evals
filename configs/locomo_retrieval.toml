@@ -24,10 +24,12 @@ include_debug_rationale = true
 [ingest]
 index_observations = true
 index_episode_summaries = true
-index_session_summaries = false
-index_generated_observations = false
+index_session_summaries = true
+index_generated_observations = true
 include_image_captions = false
 store_gold_labels = false
+# Optional additional precomputed enrichment JSONL produced from conversation text only.
+# enrichment_path = "./datasets/enriched/locomo_enrichment.jsonl"
 
 [metrics]
 ks_dialog = [5, 10]

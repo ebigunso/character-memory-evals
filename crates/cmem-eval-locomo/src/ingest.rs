@@ -1,10 +1,16 @@
 use crate::{LoCoMoMemoryInputs, LoCoMoSample};
-use cmem_eval_core::{EpisodeInput, ObservationInput};
+use cmem_eval_core::{DerivedMemoryInput, EpisodeInput, ObservationInput};
 
-pub fn to_memory_inputs(sample: &LoCoMoSample, include_image_captions: bool) -> LoCoMoMemoryInputs {
+pub fn to_memory_inputs(
+    sample: &LoCoMoSample,
+    include_image_captions: bool,
+    index_session_summaries: bool,
+    index_generated_observations: bool,
+) -> LoCoMoMemoryInputs {
     let namespace = sample.namespace();
     let mut episodes = Vec::new();
     let mut observations = Vec::new();
+    let mut derived_memories = Vec::new();
     for session in &sample.sessions {
         let participants = {
             let mut values = session
@@ -55,10 +61,68 @@ pub fn to_memory_inputs(sample: &LoCoMoSample, include_image_captions: bool) -> 
                 }),
             });
         }
+        if index_session_summaries {
+            if let Some(summary) = session
+                .summary
+                .as_deref()
+                .map(str::trim)
+                .filter(|summary| !summary.is_empty())
+            {
+                derived_memories.push(DerivedMemoryInput {
+                    external_id: format!("{}:derived:session_summary", session.session_id),
+                    derived_type: "reflection".to_string(),
+                    text: summary.to_string(),
+                    source_episode_external_ids: vec![session.session_id.clone()],
+                    source_observation_external_ids: vec![],
+                    thread_external_ids: vec![],
+                    entity_external_ids: vec![],
+                    confidence: 1.0,
+                    salience_score: 0.6,
+                    stability: "medium".to_string(),
+                    is_current: true,
+                    supersedes_external_ids: vec![],
+                    metadata: serde_json::json!({
+                        "source": "locomo",
+                        "source_field": "session_summary"
+                    }),
+                });
+            }
+        }
+        if index_generated_observations {
+            for (idx, observation) in session.generated_observations.iter().enumerate() {
+                let observation = observation.trim();
+                if observation.is_empty() {
+                    continue;
+                }
+                derived_memories.push(DerivedMemoryInput {
+                    external_id: format!(
+                        "{}:derived:generated_observation:{}",
+                        session.session_id,
+                        idx + 1
+                    ),
+                    derived_type: "claim".to_string(),
+                    text: observation.to_string(),
+                    source_episode_external_ids: vec![session.session_id.clone()],
+                    source_observation_external_ids: vec![],
+                    thread_external_ids: vec![],
+                    entity_external_ids: vec![],
+                    confidence: 1.0,
+                    salience_score: 0.6,
+                    stability: "medium".to_string(),
+                    is_current: true,
+                    supersedes_external_ids: vec![],
+                    metadata: serde_json::json!({
+                        "source": "locomo",
+                        "source_field": "observation"
+                    }),
+                });
+            }
+        }
     }
     LoCoMoMemoryInputs {
         episodes,
         observations,
+        derived_memories,
     }
 }
 
@@ -94,7 +158,7 @@ mod tests {
             "qa": [{"question_id": "q1", "question": "q", "evidence": ["d1"]}]
         }]))
         .unwrap();
-        let mapped = to_memory_inputs(&rows[0], false);
+        let mapped = to_memory_inputs(&rows[0], false, false, false);
         let metadata = serde_json::to_string(&mapped.observations[0].metadata).unwrap();
         assert!(!metadata.contains("evidence"));
         assert!(!mapped.observations[0].text.contains("d1"));
@@ -121,10 +185,10 @@ mod tests {
         }]))
         .unwrap();
 
-        let without_caption = to_memory_inputs(&rows[0], false);
+        let without_caption = to_memory_inputs(&rows[0], false, false, false);
         assert_eq!(without_caption.observations[0].text, "look at this");
 
-        let with_caption = to_memory_inputs(&rows[0], true);
+        let with_caption = to_memory_inputs(&rows[0], true, false, false);
         assert!(
             with_caption.observations[0]
                 .text
@@ -151,7 +215,7 @@ mod tests {
         }]))
         .unwrap();
 
-        let mapped = to_memory_inputs(&rows[0], false);
+        let mapped = to_memory_inputs(&rows[0], false, false, false);
         assert_eq!(
             mapped.episodes[0].started_at.as_deref(),
             Some("2023-05-08T13:56:00Z")
@@ -161,5 +225,33 @@ mod tests {
         assert!(metadata.contains("2023-05-08T13:56:00Z"));
         assert!(!metadata.contains("evidence"));
         assert!(!metadata.contains("answer"));
+    }
+
+    #[test]
+    fn session_summaries_and_generated_observations_become_derived_memories() {
+        let rows = load_value(serde_json::json!([{
+            "sample_id": "p1",
+            "conversation": {
+                "session_1": [{"dia_id": "D1:1", "speaker": "A", "text": "hello"}]
+            },
+            "session_summary": {
+                "session_1": "They discussed a trip."
+            },
+            "observation": {
+                "session_1": ["A likes quiet cafes."]
+            },
+            "qa": [{"question": "q", "answer": "a", "evidence": ["D1:1"]}]
+        }]))
+        .unwrap();
+
+        let mapped = to_memory_inputs(&rows[0], false, true, true);
+        assert_eq!(mapped.derived_memories.len(), 2);
+        assert_eq!(
+            mapped.derived_memories[0].source_episode_external_ids,
+            vec!["session_1"]
+        );
+        let serialized = serde_json::to_string(&mapped.derived_memories).unwrap();
+        assert!(!serialized.contains("evidence"));
+        assert!(!serialized.contains("answer"));
     }
 }

@@ -1,4 +1,5 @@
 mod commands;
+mod enrichment;
 mod official_exports;
 
 use anyhow::Result;

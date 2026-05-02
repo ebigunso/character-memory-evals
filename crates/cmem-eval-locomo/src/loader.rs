@@ -45,7 +45,7 @@ fn parse_sessions(raw: &Value) -> Vec<LoCoMoSession> {
         .get("conversation")
         .or_else(|| raw.get("conversations"))
         .unwrap_or(&Value::Null);
-    match source {
+    let mut sessions = match source {
         Value::Array(items) => items
             .iter()
             .enumerate()
@@ -71,7 +71,9 @@ fn parse_sessions(raw: &Value) -> Vec<LoCoMoSession> {
             })
             .collect(),
         _ => Vec::new(),
-    }
+    };
+    apply_benchmark_derived_fields(raw, &mut sessions);
+    sessions
 }
 
 fn parse_session(value: &Value, idx: usize) -> LoCoMoSession {
@@ -123,7 +125,37 @@ fn parse_session_with_context(
         timestamp: normalize_timestamp(raw_timestamp.as_deref()),
         raw_timestamp,
         summary,
+        generated_observations: generated_observations(value),
         turns,
+    }
+}
+
+fn apply_benchmark_derived_fields(raw: &Value, sessions: &mut [LoCoMoSession]) {
+    if let Some(summary_map) = raw.get("session_summary").and_then(Value::as_object) {
+        for session in sessions.iter_mut() {
+            if session.summary.is_none() {
+                session.summary = summary_map
+                    .get(&session.session_id)
+                    .or_else(|| {
+                        session_number(&session.session_id)
+                            .and_then(|n| summary_map.get(&n.to_string()))
+                    })
+                    .and_then(scalar_or_joined_strings);
+            }
+        }
+    }
+    if let Some(observation_map) = raw.get("observation").and_then(Value::as_object) {
+        for session in sessions.iter_mut() {
+            let observations = observation_map
+                .get(&session.session_id)
+                .or_else(|| {
+                    session_number(&session.session_id)
+                        .and_then(|n| observation_map.get(&n.to_string()))
+                })
+                .map(generated_observations_from_value)
+                .unwrap_or_default();
+            session.generated_observations.extend(observations);
+        }
     }
 }
 
@@ -189,6 +221,36 @@ fn evidence_ids(value: Option<&Value>) -> Vec<String> {
         Some(value) => scalar_value(value).into_iter().collect(),
         _ => Vec::new(),
     }
+}
+
+fn generated_observations(value: &Value) -> Vec<String> {
+    ["observation", "observations", "generated_observations"]
+        .iter()
+        .find_map(|key| value.get(*key).map(generated_observations_from_value))
+        .unwrap_or_default()
+}
+
+fn generated_observations_from_value(value: &Value) -> Vec<String> {
+    match value {
+        Value::Array(items) => items.iter().filter_map(scalar_or_joined_strings).collect(),
+        Value::Object(map) => map.values().filter_map(scalar_or_joined_strings).collect(),
+        value => scalar_or_joined_strings(value).into_iter().collect(),
+    }
+}
+
+fn scalar_or_joined_strings(value: &Value) -> Option<String> {
+    scalar_value(value).or_else(|| {
+        value
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(scalar_value)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .filter(|text| !text.trim().is_empty())
+    })
 }
 
 fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
@@ -294,6 +356,33 @@ mod tests {
         assert_eq!(rows[0].qa[0].qa_index, 1);
         assert_eq!(rows[0].qa[0].question_type.as_deref(), Some("3"));
         assert_eq!(rows[0].qa[0].answer.as_deref(), Some("2022"));
+    }
+
+    #[test]
+    fn parses_session_summaries_and_generated_observations() {
+        let rows = load_value(serde_json::json!([{
+            "sample_id": "p1",
+            "conversation": {
+                "session_1": [{"dia_id": "D1:1", "speaker": "A", "text": "hello"}]
+            },
+            "session_summary": {
+                "session_1": "They discussed a trip."
+            },
+            "observation": {
+                "session_1": ["A likes quiet cafes."]
+            },
+            "qa": []
+        }]))
+        .unwrap();
+
+        assert_eq!(
+            rows[0].sessions[0].summary.as_deref(),
+            Some("They discussed a trip.")
+        );
+        assert_eq!(
+            rows[0].sessions[0].generated_observations,
+            vec!["A likes quiet cafes."]
+        );
     }
 
     #[test]

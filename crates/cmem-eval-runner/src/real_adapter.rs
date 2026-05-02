@@ -1,17 +1,18 @@
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use character_memory::{
-    CharacterMemory, ContinuitySectionLimits, EmbeddingProvider, EpisodeDraft, MemoryId,
-    MemoryObjectDraft, ObjectType, ObservationDraft, RememberDraft, RetrievalCandidateLimits,
-    RetrievalContext, Settings,
+    CharacterMemory, ContinuitySectionLimits, DerivedMemoryDraft, DerivedType, EmbeddingProvider,
+    EntityDraft, EntityType, EpisodeDraft, MemoryId, MemoryLinkDraft, MemoryObjectDraft,
+    MemoryThreadDraft, ObjectType, ObservationDraft, RelationType, RememberDraft,
+    RetrievalCandidateLimits, RetrievalContext, Settings, Stability, ThreadStatus,
 };
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{
-    BenchmarkRunConfig, EpisodeInput, MemoryAdapter, ObservationInput, RetrieveInput,
-    RetrievedContextPack, RetrievedItem,
+    BenchmarkRunConfig, EpisodeInput, GraphEnrichmentInput, MemoryAdapter, MemoryEndpointInput,
+    ObservationInput, RetrieveInput, RetrievedContextPack, RetrievedItem,
 };
 use qdrant_client::Qdrant;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -29,8 +30,12 @@ struct NamespaceState {
     collection_name: String,
     episode_ids: HashMap<String, MemoryId>,
     observation_ids: HashMap<String, MemoryId>,
+    entity_ids: HashMap<String, MemoryId>,
+    thread_ids: HashMap<String, MemoryId>,
+    derived_memory_ids: HashMap<String, MemoryId>,
     reverse_episode_ids: HashMap<MemoryId, String>,
     reverse_observation_ids: HashMap<MemoryId, (String, String)>,
+    reverse_derived_memory_ids: HashMap<MemoryId, String>,
 }
 
 impl CharacterMemoryAdapter {
@@ -61,8 +66,12 @@ impl CharacterMemoryAdapter {
             collection_name,
             episode_ids: HashMap::new(),
             observation_ids: HashMap::new(),
+            entity_ids: HashMap::new(),
+            thread_ids: HashMap::new(),
+            derived_memory_ids: HashMap::new(),
             reverse_episode_ids: HashMap::new(),
             reverse_observation_ids: HashMap::new(),
+            reverse_derived_memory_ids: HashMap::new(),
         })
     }
 
@@ -237,6 +246,149 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         Ok(id.to_string())
     }
 
+    async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<()> {
+        let mut namespaces = self.namespaces.lock().await;
+        let state = namespaces
+            .get_mut(&input.namespace)
+            .ok_or_else(|| anyhow!("namespace has no remembered episodes: {}", input.namespace))?;
+
+        let mut objects = Vec::new();
+        let mut links = Vec::new();
+        let mut pending_entities = HashMap::new();
+        let mut pending_threads = HashMap::new();
+        let mut pending_derived = HashMap::new();
+
+        for entity in &input.entities {
+            pending_entities.insert(
+                entity.external_id.clone(),
+                deterministic_id(&input.namespace, "entity", &entity.external_id),
+            );
+        }
+        for thread in &input.threads {
+            pending_threads.insert(
+                thread.external_id.clone(),
+                deterministic_id(&input.namespace, "memory_thread", &thread.external_id),
+            );
+        }
+        for memory in &input.derived_memories {
+            pending_derived.insert(
+                memory.external_id.clone(),
+                deterministic_id(&input.namespace, "derived_memory", &memory.external_id),
+            );
+        }
+
+        for entity in input.entities {
+            let id = pending_entities[&entity.external_id];
+            let mut draft = EntityDraft::new(parse_entity_type(&entity.entity_type)?, entity.name);
+            draft.id = Some(id);
+            draft.aliases = entity.aliases;
+            draft.canonical_key = entity.canonical_key;
+            draft.summary = entity.summary;
+            objects.push(MemoryObjectDraft::Entity(draft));
+        }
+
+        for thread in input.threads {
+            let id = pending_threads[&thread.external_id];
+            let mut draft = MemoryThreadDraft::new(thread.title, thread.summary);
+            draft.id = Some(id);
+            draft.status = parse_thread_status(&thread.status)?;
+            draft.last_touched_at = parse_timestamp(thread.last_touched_at.as_deref())?;
+            draft.salience_score = thread.salience_score;
+            draft.canonical_key = thread.canonical_key;
+            objects.push(MemoryObjectDraft::MemoryThread(draft));
+        }
+
+        for memory in input.derived_memories {
+            let id = pending_derived[&memory.external_id];
+            let mut draft =
+                DerivedMemoryDraft::new(parse_derived_type(&memory.derived_type)?, memory.text);
+            draft.id = Some(id);
+            draft.derived_from_episode_ids = resolve_ids(
+                "episode",
+                &memory.source_episode_external_ids,
+                &state.episode_ids,
+                &HashMap::new(),
+            )?;
+            draft.derived_from_observation_ids = resolve_ids(
+                "observation",
+                &memory.source_observation_external_ids,
+                &state.observation_ids,
+                &HashMap::new(),
+            )?;
+            draft.thread_ids = resolve_ids(
+                "memory_thread",
+                &memory.thread_external_ids,
+                &state.thread_ids,
+                &pending_threads,
+            )?;
+            draft.entity_ids = resolve_ids(
+                "entity",
+                &memory.entity_external_ids,
+                &state.entity_ids,
+                &pending_entities,
+            )?;
+            draft.confidence = memory.confidence;
+            draft.salience_score = memory.salience_score;
+            draft.stability = parse_stability(&memory.stability)?;
+            draft.is_current = memory.is_current;
+            draft.supersedes = resolve_ids(
+                "derived_memory",
+                &memory.supersedes_external_ids,
+                &state.derived_memory_ids,
+                &pending_derived,
+            )?;
+            objects.push(MemoryObjectDraft::DerivedMemory(draft));
+        }
+
+        for link in input.links {
+            let (from_type, from_id) = resolve_endpoint(
+                &link.from,
+                state,
+                &pending_entities,
+                &pending_threads,
+                &pending_derived,
+            )?;
+            let (to_type, to_id) = resolve_endpoint(
+                &link.to,
+                state,
+                &pending_entities,
+                &pending_threads,
+                &pending_derived,
+            )?;
+            let mut draft = MemoryLinkDraft::new(
+                from_type,
+                from_id,
+                parse_relation_type(&link.relation)?,
+                to_type,
+                to_id,
+            );
+            draft.id = Some(deterministic_id(
+                &input.namespace,
+                "memory_link",
+                &link.external_id,
+            ));
+            draft.confidence = link.confidence;
+            draft.rationale = link.rationale;
+            links.push(draft);
+        }
+
+        if objects.is_empty() && links.is_empty() {
+            return Ok(());
+        }
+
+        state
+            .memory
+            .remember(RememberDraft::new(objects).with_links(links))
+            .await?;
+        state.entity_ids.extend(pending_entities);
+        state.thread_ids.extend(pending_threads);
+        for (external_id, id) in pending_derived {
+            state.derived_memory_ids.insert(external_id.clone(), id);
+            state.reverse_derived_memory_ids.insert(id, external_id);
+        }
+        Ok(())
+    }
+
     async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
         let mut namespaces = self.namespaces.lock().await;
         if !namespaces.contains_key(&input.namespace) {
@@ -271,6 +423,12 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         context.object_type_defaults = vec![ObjectType::Episode, ObjectType::Observation];
         if input.include_derived_memories {
             context.object_type_defaults.push(ObjectType::DerivedMemory);
+        }
+        if input.include_threads {
+            context.object_type_defaults.push(ObjectType::MemoryThread);
+        }
+        if input.include_entities {
+            context.object_type_defaults.push(ObjectType::Entity);
         }
 
         let outcome = state.memory.retrieve(context).await?;
@@ -344,6 +502,43 @@ fn flatten_outcome(
         });
     }
 
+    let mut seen_derived = HashSet::new();
+    for derived in outcome
+        .pack
+        .derived_memories
+        .into_iter()
+        .chain(outcome.pack.preferences)
+        .chain(outcome.pack.relationship_notes)
+        .chain(outcome.pack.open_loops)
+        .chain(outcome.pack.commitments)
+        .chain(outcome.pack.character_signals)
+    {
+        if !seen_derived.insert(derived.memory.id) {
+            continue;
+        }
+        let (score, rank) = trace_by_id
+            .get(&derived.memory.id)
+            .copied()
+            .unwrap_or((None, items.len() + 1));
+        items.push(RetrievedItem {
+            kind: "derived_memory".to_string(),
+            internal_id: derived.memory.id.to_string(),
+            external_id: state
+                .reverse_derived_memory_ids
+                .get(&derived.memory.id)
+                .cloned(),
+            episode_external_id: derived
+                .source_episode_ids
+                .first()
+                .and_then(|id| state.reverse_episode_ids.get(id))
+                .cloned(),
+            score,
+            rank,
+            rationale: vec![outcome.rationale.summary.clone()],
+            text: Some(derived.memory.text),
+        });
+    }
+
     items.sort_by_key(|item| item.rank);
     let context_text = render_context_text(&items);
     let context_char_count = context_text.chars().count();
@@ -395,6 +590,99 @@ fn parse_timestamp(value: Option<&str>) -> Result<Option<DateTime<Utc>>> {
                 })
         })
         .transpose()
+}
+
+fn resolve_ids(
+    kind: &str,
+    external_ids: &[String],
+    persisted: &HashMap<String, MemoryId>,
+    pending: &HashMap<String, MemoryId>,
+) -> Result<Vec<MemoryId>> {
+    external_ids
+        .iter()
+        .map(|external_id| {
+            persisted
+                .get(external_id)
+                .or_else(|| pending.get(external_id))
+                .copied()
+                .ok_or_else(|| {
+                    anyhow!("{kind} enrichment references unknown external_id {external_id}")
+                })
+        })
+        .collect()
+}
+
+fn resolve_endpoint(
+    endpoint: &MemoryEndpointInput,
+    state: &NamespaceState,
+    pending_entities: &HashMap<String, MemoryId>,
+    pending_threads: &HashMap<String, MemoryId>,
+    pending_derived: &HashMap<String, MemoryId>,
+) -> Result<(ObjectType, MemoryId)> {
+    let object_type = parse_object_type(&endpoint.object_type)?;
+    if object_type == ObjectType::MemoryLink {
+        bail!("memory links cannot be endpoints in enrichment links");
+    }
+    let id = match object_type {
+        ObjectType::Episode => state.episode_ids.get(&endpoint.external_id).copied(),
+        ObjectType::Observation => state.observation_ids.get(&endpoint.external_id).copied(),
+        ObjectType::Entity => state
+            .entity_ids
+            .get(&endpoint.external_id)
+            .or_else(|| pending_entities.get(&endpoint.external_id))
+            .copied(),
+        ObjectType::MemoryThread => state
+            .thread_ids
+            .get(&endpoint.external_id)
+            .or_else(|| pending_threads.get(&endpoint.external_id))
+            .copied(),
+        ObjectType::DerivedMemory => state
+            .derived_memory_ids
+            .get(&endpoint.external_id)
+            .or_else(|| pending_derived.get(&endpoint.external_id))
+            .copied(),
+        ObjectType::MemoryLink => None,
+    }
+    .ok_or_else(|| {
+        anyhow!(
+            "link endpoint {:?} references unknown external_id {}",
+            object_type,
+            endpoint.external_id
+        )
+    })?;
+    Ok((object_type, id))
+}
+
+fn parse_entity_type(value: &str) -> Result<EntityType> {
+    parse_snake_enum(value, "entity_type")
+}
+
+fn parse_derived_type(value: &str) -> Result<DerivedType> {
+    parse_snake_enum(value, "derived_type")
+}
+
+fn parse_thread_status(value: &str) -> Result<ThreadStatus> {
+    parse_snake_enum(value, "thread.status")
+}
+
+fn parse_stability(value: &str) -> Result<Stability> {
+    parse_snake_enum(value, "derived_memory.stability")
+}
+
+fn parse_relation_type(value: &str) -> Result<RelationType> {
+    parse_snake_enum(value, "link.relation")
+}
+
+fn parse_object_type(value: &str) -> Result<ObjectType> {
+    parse_snake_enum(value, "endpoint.object_type")
+}
+
+fn parse_snake_enum<T>(value: &str, field: &str) -> Result<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    serde_json::from_value(serde_json::Value::String(value.to_string()))
+        .with_context(|| format!("parse {field} value {value:?}"))
 }
 
 fn validate_cleanup_target(collection_name: &str, required_prefix: Option<&str>) -> Result<()> {
