@@ -1,4 +1,5 @@
 mod commands;
+mod official_exports;
 
 use anyhow::Result;
 use clap::Parser;

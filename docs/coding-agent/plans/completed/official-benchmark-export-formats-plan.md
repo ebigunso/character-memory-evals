@@ -1,6 +1,6 @@
 # Plan: Official Benchmark Export Formats
 
-- status: draft
+- status: completed
 - generated: 2026-05-02
 - last_updated: 2026-05-02
 - work_type: mixed
@@ -186,13 +186,21 @@
   - Summary: Split official-compatible exports into a separate mixed code/docs plan.
   - Validation evidence: Review finding 7 and active plan export acceptance criteria.
   - Notes: No UI scope.
+- 2026-05-02 implementation started.
+  - Summary: Orchestrator began post-processing export command implementation; researcher confirmed internal rows lack generated answers, so QA exports require explicit predictions and LoCoMo answer text remains unavailable without a dataset join.
+  - Validation evidence: `cargo test -p cmem-eval-runner official_exports`; `cargo test -p cmem-eval-locomo`; `cargo fmt --all --check`; `cargo test --workspace`; `cargo clippy --workspace --all-targets -- -D warnings`; CLI smoke for `export-official longmemeval retrieval`.
+  - Notes: Export commands do not modify benchmark run behavior or invoke LLM/judge services.
+- 2026-05-02 completed.
+  - Summary: Added official export post-processing commands for LongMemEval retrieval, LongMemEval QA with explicit predictions, and LoCoMo sample/QA retrieval-context exports.
+  - Validation evidence: Reviewer approved after plan evidence update; no remaining code/docs findings.
+  - Notes: `official_exports.rs` is included in the plan commit.
 
 ## Decision Log
 - 2026-05-02 Decision:
   - Trigger / new insight: Official export compatibility is a downstream artifact concern, not the same as retrieval scoring.
   - Plan delta (what changed): Created a dedicated export plan.
   - Tradeoffs considered: Post-processing exports minimize risk to internal run JSONL.
-  - User approval: pending.
+  - User approval: yes.
 - 2026-05-02 Decision:
   - Trigger / new insight: User needs to preserve and analyze logs/results from separate LongMemEval-S and LoCoMo runs.
   - Plan delta (what changed): Resolved export CLI to grouped `export-official` dataset subcommands; QA exports require explicit predictions and never fabricate hypotheses.

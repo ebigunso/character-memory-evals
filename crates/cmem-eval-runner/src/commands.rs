@@ -1,3 +1,4 @@
+use crate::official_exports;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmem_eval_core::{
@@ -26,6 +27,7 @@ impl Cli {
     pub async fn run(self) -> Result<()> {
         match self.command {
             Command::Run(run) => run.run().await,
+            Command::ExportOfficial(args) => export_official(args),
             Command::Summarize(args) => summarize(args),
         }
     }
@@ -34,6 +36,7 @@ impl Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Run(RunCommand),
+    ExportOfficial(ExportOfficialCommand),
     Summarize(SummarizeArgs),
 }
 
@@ -58,6 +61,58 @@ enum RunDataset {
     LongmemevalS(RunArgs),
     Locomo(RunArgs),
     Synthetic(RunArgs),
+}
+
+#[derive(Debug, Args)]
+struct ExportOfficialCommand {
+    #[command(subcommand)]
+    dataset: ExportOfficialDataset,
+}
+
+#[derive(Debug, Subcommand)]
+enum ExportOfficialDataset {
+    Longmemeval(LongMemEvalExportCommand),
+    Locomo(LoCoMoExportArgs),
+}
+
+#[derive(Debug, Args)]
+struct LongMemEvalExportCommand {
+    #[command(subcommand)]
+    export: LongMemEvalExportKind,
+}
+
+#[derive(Debug, Subcommand)]
+enum LongMemEvalExportKind {
+    Retrieval(OfficialExportArgs),
+    Qa(QaExportArgs),
+}
+
+#[derive(Debug, Args)]
+struct OfficialExportArgs {
+    #[arg(long)]
+    input: PathBuf,
+    #[arg(long)]
+    out: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct QaExportArgs {
+    #[arg(long)]
+    input: PathBuf,
+    #[arg(long)]
+    predictions: PathBuf,
+    #[arg(long)]
+    out: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct LoCoMoExportArgs {
+    #[arg(long)]
+    input: PathBuf,
+    #[arg(long)]
+    out: PathBuf,
+    #[arg(long)]
+    predictions: Option<PathBuf>,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -298,6 +353,31 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
     }
     write_outputs(args, config.clone(), rows)?;
     cleanup_namespaces_after_artifacts(&*adapter, &config, &namespaces_to_cleanup).await
+}
+
+fn export_official(args: ExportOfficialCommand) -> Result<()> {
+    match args.dataset {
+        ExportOfficialDataset::Longmemeval(args) => match args.export {
+            LongMemEvalExportKind::Retrieval(args) => {
+                let rows = read_jsonl(&args.input)?;
+                official_exports::write_longmemeval_retrieval(&args.out, &rows)
+            }
+            LongMemEvalExportKind::Qa(args) => {
+                let rows = read_jsonl(&args.input)?;
+                let predictions = official_exports::read_predictions_jsonl(&args.predictions)?;
+                official_exports::write_longmemeval_qa(&args.out, &rows, &predictions)
+            }
+        },
+        ExportOfficialDataset::Locomo(args) => {
+            let rows = read_jsonl(&args.input)?;
+            let predictions = args
+                .predictions
+                .as_ref()
+                .map(|path| official_exports::read_predictions_jsonl(path))
+                .transpose()?;
+            official_exports::write_locomo(&args.out, &rows, predictions.as_ref())
+        }
+    }
 }
 
 async fn cleanup_namespaces_after_artifacts(

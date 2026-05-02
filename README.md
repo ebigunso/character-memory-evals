@@ -61,6 +61,46 @@ cargo run -p cmem-eval-runner --features real-character-memory -- run locomo \
 
 Gold evidence labels are used only for scoring. They are not copied into `EpisodeInput`, `ObservationInput`, or adapter metadata.
 
+## Official Exports
+
+Internal benchmark runs write eval JSONL first. Official-compatible artifacts are
+post-processing outputs so runs, logs, summaries, and exports can be preserved
+independently.
+
+LongMemEval retrieval export writes JSONL rows with `question_id` and
+`retrieval_results.ranked_items`:
+
+```bash
+cargo run -p cmem-eval-runner -- export-official longmemeval retrieval \
+  --input ./runs/longmemeval_s_v0_1.jsonl \
+  --out ./runs/longmemeval_s_v0_1_retrieval_official.jsonl
+```
+
+LongMemEval QA export requires explicit predictions and never fabricates empty
+hypotheses. Prediction JSONL must contain `question_id` plus `hypothesis`
+or `prediction`:
+
+```bash
+cargo run -p cmem-eval-runner -- export-official longmemeval qa \
+  --input ./runs/longmemeval_s_v0_1.jsonl \
+  --predictions ./runs/longmemeval_s_predictions.jsonl \
+  --out ./runs/longmemeval_s_v0_1_qa_official.jsonl
+```
+
+LoCoMo export preserves sample/QA identity recovered from stable internal IDs
+like `<sample_id>:qa:<index>`, category, question, optional prediction/context
+fields, and retrieved dialog/session IDs:
+
+```bash
+cargo run -p cmem-eval-runner -- export-official locomo \
+  --input ./runs/locomo_v0_1.jsonl \
+  --predictions ./runs/locomo_predictions.jsonl \
+  --out ./runs/locomo_v0_1_official.jsonl
+```
+
+LoCoMo official answer text is not stored in internal run JSONL, so the export
+sets `answer` to `null` unless a later dataset-join export path is added.
+
 ## Timestamp And Cleanup Policy
 
 Official benchmark timestamps are normalized before live ingestion. LongMemEval-S
