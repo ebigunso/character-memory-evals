@@ -181,72 +181,113 @@ impl MemoryAdapter for CharacterMemoryAdapter {
     }
 
     async fn remember_episode(&self, input: EpisodeInput) -> Result<String> {
+        let mut ids = self.remember_episodes(vec![input]).await?;
+        Ok(ids.remove(0))
+    }
+
+    async fn remember_episodes(&self, inputs: Vec<EpisodeInput>) -> Result<Vec<String>> {
+        if inputs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let namespace = shared_input_namespace(
+            "episode batch",
+            inputs
+                .first()
+                .expect("non-empty inputs already checked")
+                .namespace
+                .as_str(),
+            inputs.iter().map(|input| input.namespace.as_str()),
+        )?;
         let mut namespaces = self.namespaces.lock().await;
-        if !namespaces.contains_key(&input.namespace) {
-            let state = self.create_namespace_state(&input.namespace).await?;
-            namespaces.insert(input.namespace.clone(), state);
+        if !namespaces.contains_key(&namespace) {
+            let state = self.create_namespace_state(&namespace).await?;
+            namespaces.insert(namespace.clone(), state);
         }
         let state = namespaces
-            .get_mut(&input.namespace)
+            .get_mut(&namespace)
             .expect("namespace state inserted");
-        let id = deterministic_id(&input.namespace, "episode", &input.external_id);
-        let mut draft = EpisodeDraft::new(input.summary);
-        draft.id = Some(id);
-        draft.source_conversation_id = Some(input.external_id.clone());
-        draft.raw_ref = Some(format!(
-            "eval://{}/episode/{}",
-            input.namespace, input.external_id
-        ));
-        draft.started_at = parse_timestamp(input.started_at.as_deref())?;
-        draft.ended_at = parse_timestamp(input.ended_at.as_deref())?;
+        let mut objects = Vec::with_capacity(inputs.len());
+        let mut ids = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            let id = deterministic_id(&input.namespace, "episode", &input.external_id);
+            let mut draft = EpisodeDraft::new(input.summary);
+            draft.id = Some(id);
+            draft.source_conversation_id = Some(input.external_id.clone());
+            draft.raw_ref = Some(format!(
+                "eval://{}/episode/{}",
+                input.namespace, input.external_id
+            ));
+            draft.started_at = parse_timestamp(input.started_at.as_deref())?;
+            draft.ended_at = parse_timestamp(input.ended_at.as_deref())?;
+            objects.push(MemoryObjectDraft::Episode(draft));
+            ids.push((input.external_id, id));
+        }
 
-        state
-            .memory
-            .remember(RememberDraft::new([MemoryObjectDraft::Episode(draft)]))
-            .await?;
-        state.episode_ids.insert(input.external_id.clone(), id);
-        state
-            .reverse_episode_ids
-            .insert(id, input.external_id.clone());
+        state.memory.remember(RememberDraft::new(objects)).await?;
+        for (external_id, id) in &ids {
+            state.episode_ids.insert(external_id.clone(), *id);
+            state.reverse_episode_ids.insert(*id, external_id.clone());
+        }
 
-        Ok(id.to_string())
+        Ok(ids.into_iter().map(|(_, id)| id.to_string()).collect())
     }
 
     async fn remember_observation(&self, input: ObservationInput) -> Result<String> {
+        let mut ids = self.remember_observations(vec![input]).await?;
+        Ok(ids.remove(0))
+    }
+
+    async fn remember_observations(&self, inputs: Vec<ObservationInput>) -> Result<Vec<String>> {
+        if inputs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let namespace = shared_input_namespace(
+            "observation batch",
+            inputs
+                .first()
+                .expect("non-empty inputs already checked")
+                .namespace
+                .as_str(),
+            inputs.iter().map(|input| input.namespace.as_str()),
+        )?;
         let mut namespaces = self.namespaces.lock().await;
         let state = namespaces
-            .get_mut(&input.namespace)
-            .ok_or_else(|| anyhow!("namespace has no remembered episodes: {}", input.namespace))?;
-        let episode_id = *state
-            .episode_ids
-            .get(&input.episode_external_id)
-            .ok_or_else(|| {
-                anyhow!(
-                    "observation {} references unknown episode external_id {}",
-                    input.external_id,
-                    input.episode_external_id
-                )
-            })?;
-        let id = deterministic_id(&input.namespace, "observation", &input.external_id);
-        let mut draft = ObservationDraft::new(episode_id, input.text);
-        draft.id = Some(id);
-        draft.raw_ref = Some(format!(
-            "eval://{}/observation/{}",
-            input.namespace, input.external_id
-        ));
-        draft.observed_at = parse_timestamp(input.observed_at.as_deref())?;
+            .get_mut(&namespace)
+            .ok_or_else(|| anyhow!("namespace has no remembered episodes: {namespace}"))?;
+        let mut objects = Vec::with_capacity(inputs.len());
+        let mut ids = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            let episode_id = *state
+                .episode_ids
+                .get(&input.episode_external_id)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "observation {} references unknown episode external_id {}",
+                        input.external_id,
+                        input.episode_external_id
+                    )
+                })?;
+            let id = deterministic_id(&input.namespace, "observation", &input.external_id);
+            let mut draft = ObservationDraft::new(episode_id, input.text);
+            draft.id = Some(id);
+            draft.raw_ref = Some(format!(
+                "eval://{}/observation/{}",
+                input.namespace, input.external_id
+            ));
+            draft.observed_at = parse_timestamp(input.observed_at.as_deref())?;
+            objects.push(MemoryObjectDraft::Observation(draft));
+            ids.push((input.external_id, input.episode_external_id, id));
+        }
 
-        state
-            .memory
-            .remember(RememberDraft::new([MemoryObjectDraft::Observation(draft)]))
-            .await?;
-        state.observation_ids.insert(input.external_id.clone(), id);
-        state.reverse_observation_ids.insert(
-            id,
-            (input.external_id.clone(), input.episode_external_id.clone()),
-        );
+        state.memory.remember(RememberDraft::new(objects)).await?;
+        for (external_id, episode_external_id, id) in &ids {
+            state.observation_ids.insert(external_id.clone(), *id);
+            state
+                .reverse_observation_ids
+                .insert(*id, (external_id.clone(), episode_external_id.clone()));
+        }
 
-        Ok(id.to_string())
+        Ok(ids.into_iter().map(|(_, _, id)| id.to_string()).collect())
     }
 
     async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<()> {
@@ -805,6 +846,19 @@ fn deterministic_id(namespace: &str, kind: &str, external_id: &str) -> MemoryId 
         &UUID_NAMESPACE,
         format!("{namespace}\0{kind}\0{external_id}").as_bytes(),
     )
+}
+
+fn shared_input_namespace<'a>(
+    label: &str,
+    expected: &'a str,
+    namespaces: impl IntoIterator<Item = &'a str>,
+) -> Result<String> {
+    for namespace in namespaces {
+        if namespace != expected {
+            bail!("{label} contains multiple namespaces: {expected} and {namespace}");
+        }
+    }
+    Ok(expected.to_string())
 }
 
 fn parse_timestamp(value: Option<&str>) -> Result<Option<DateTime<Utc>>> {

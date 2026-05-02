@@ -167,32 +167,32 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
         let question_label = question.question_id.clone();
         progress.item_started(question_idx + 1, &question_label);
         adapter.reset_namespace(&namespace).await?;
+        let mut episodes = Vec::with_capacity(question.sessions.len());
+        let mut observations = Vec::new();
         for session in &question.sessions {
-            adapter
-                .remember_episode(EpisodeInput {
-                    external_id: session.session_id.clone(),
-                    namespace: namespace.clone(),
-                    summary: episode_summary(&session.session_id, &session.turns),
-                    started_at: session.date.clone(),
-                    ended_at: session.date.clone(),
-                    participants: participants(&session.turns),
-                    metadata: serde_json::json!({"source": "synthetic"}),
-                })
-                .await?;
+            episodes.push(EpisodeInput {
+                external_id: session.session_id.clone(),
+                namespace: namespace.clone(),
+                summary: episode_summary(&session.session_id, &session.turns),
+                started_at: session.date.clone(),
+                ended_at: session.date.clone(),
+                participants: participants(&session.turns),
+                metadata: serde_json::json!({"source": "synthetic"}),
+            });
             for (idx, turn) in session.turns.iter().enumerate() {
-                adapter
-                    .remember_observation(ObservationInput {
-                        external_id: format!("{}:turn:{}", session.session_id, idx + 1),
-                        episode_external_id: session.session_id.clone(),
-                        namespace: namespace.clone(),
-                        speaker: turn.role.clone(),
-                        text: turn.content.clone(),
-                        observed_at: session.date.clone(),
-                        metadata: serde_json::json!({"source": "synthetic"}),
-                    })
-                    .await?;
+                observations.push(ObservationInput {
+                    external_id: format!("{}:turn:{}", session.session_id, idx + 1),
+                    episode_external_id: session.session_id.clone(),
+                    namespace: namespace.clone(),
+                    speaker: turn.role.clone(),
+                    text: turn.content.clone(),
+                    observed_at: session.date.clone(),
+                    metadata: serde_json::json!({"source": "synthetic"}),
+                });
             }
         }
+        adapter.remember_episodes(episodes).await?;
+        adapter.remember_observations(observations).await?;
         progress.phase_done(
             question_idx + 1,
             &question_label,
@@ -294,30 +294,20 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
         let mapped = cmem_eval_longmemeval::ingest::to_memory_inputs(&instance);
         let episode_count = mapped.episodes.len();
         let observation_count = mapped.observations.len();
-        for (episode_idx, episode) in mapped.episodes.into_iter().enumerate() {
-            adapter.remember_episode(episode).await?;
-            if should_log_progress(episode_idx + 1, episode_count) {
-                progress.phase_progress(
-                    instance_idx + 1,
-                    &question_label,
-                    "ingest-episodes",
-                    episode_idx + 1,
-                    episode_count,
-                );
-            }
-        }
-        for (observation_idx, observation) in mapped.observations.into_iter().enumerate() {
-            adapter.remember_observation(observation).await?;
-            if should_log_progress(observation_idx + 1, observation_count) {
-                progress.phase_progress(
-                    instance_idx + 1,
-                    &question_label,
-                    "ingest-observations",
-                    observation_idx + 1,
-                    observation_count,
-                );
-            }
-        }
+        adapter.remember_episodes(mapped.episodes).await?;
+        progress.phase_done(
+            instance_idx + 1,
+            &question_label,
+            "ingest-episodes",
+            &format!("count={episode_count}"),
+        );
+        adapter.remember_observations(mapped.observations).await?;
+        progress.phase_done(
+            instance_idx + 1,
+            &question_label,
+            "ingest-observations",
+            &format!("count={observation_count}"),
+        );
         progress.phase_done(
             instance_idx + 1,
             &question_label,
@@ -425,30 +415,20 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
         let episode_count = mapped.episodes.len();
         let observation_count = mapped.observations.len();
         let derived_count = mapped.derived_memories.len();
-        for (episode_idx, episode) in mapped.episodes.into_iter().enumerate() {
-            adapter.remember_episode(episode).await?;
-            if should_log_progress(episode_idx + 1, episode_count) {
-                progress.phase_progress(
-                    sample_idx + 1,
-                    &sample_label,
-                    "ingest-episodes",
-                    episode_idx + 1,
-                    episode_count,
-                );
-            }
-        }
-        for (observation_idx, observation) in mapped.observations.into_iter().enumerate() {
-            adapter.remember_observation(observation).await?;
-            if should_log_progress(observation_idx + 1, observation_count) {
-                progress.phase_progress(
-                    sample_idx + 1,
-                    &sample_label,
-                    "ingest-observations",
-                    observation_idx + 1,
-                    observation_count,
-                );
-            }
-        }
+        adapter.remember_episodes(mapped.episodes).await?;
+        progress.phase_done(
+            sample_idx + 1,
+            &sample_label,
+            "ingest-episodes",
+            &format!("count={episode_count}"),
+        );
+        adapter.remember_observations(mapped.observations).await?;
+        progress.phase_done(
+            sample_idx + 1,
+            &sample_label,
+            "ingest-observations",
+            &format!("count={observation_count}"),
+        );
         progress.phase_done(
             sample_idx + 1,
             &sample_label,
@@ -466,6 +446,9 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
         }
         adapter.remember_enrichment(namespace_enrichment).await?;
         progress.phase_done(sample_idx + 1, &sample_label, "enrichment", "done");
+        let full_history = locomo_full_history_text(&sample);
+        let full_history_metrics = full_history_context_metrics(Some(&full_history));
+        let evidence_session_index = sample.evidence_session_index();
         for (qa_idx, qa) in sample.qa.iter().enumerate() {
             let timer = Timer::start();
             progress.qa_started(sample_idx + 1, &sample_label, qa_idx + 1, sample.qa.len());
@@ -489,14 +472,14 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                 sample.qa.len(),
                 pack.items.len(),
             );
-            let full_history = locomo_full_history_text(&sample);
-            let context = context_metrics(&pack, Some(&full_history));
+            let context = context_metrics_with_full_history(&pack, full_history_metrics);
             let composition = composition_metrics(&pack.items);
             let integrity = integrity_details_with_telemetry(&pack.items, &pack.telemetry);
             let latency_ms = timer.elapsed_ms();
-            let mut metrics = cmem_eval_locomo::scoring::score(
-                &sample,
+            let gold_episode_ids = evidence_session_index.evidence_sessions(qa);
+            let mut metrics = cmem_eval_locomo::scoring::score_with_gold_sessions(
                 qa,
+                &gold_episode_ids,
                 &pack.items,
                 &config.metrics.ks_dialog,
                 &config.metrics.ks_session,
@@ -518,7 +501,7 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                 question_id: qa.question_id.clone(),
                 question_type: qa.question_type.clone(),
                 question: qa.question.clone(),
-                gold_episode_ids: sample.evidence_sessions(qa),
+                gold_episode_ids,
                 gold_observation_ids: qa.evidence_dialog_ids.clone(),
                 retrieved: pack.items,
                 metrics,
@@ -608,27 +591,6 @@ impl RunProgress {
             phase,
             label,
             detail,
-            self.elapsed_ms()
-        );
-    }
-
-    fn phase_progress(
-        &self,
-        index: usize,
-        label: &str,
-        phase: &str,
-        completed: usize,
-        total: usize,
-    ) {
-        eprintln!(
-            "[cmem-eval][{}][item {}/{}][{} {}/{}] id={} elapsed_ms={}",
-            self.dataset,
-            index,
-            self.total_items,
-            phase,
-            completed,
-            total,
-            label,
             self.elapsed_ms()
         );
     }
@@ -729,10 +691,6 @@ impl RunProgress {
     }
 }
 
-fn should_log_progress(completed: usize, total: usize) -> bool {
-    completed == total || completed == 1 || completed % 25 == 0
-}
-
 async fn remember_configured_enrichment(
     adapter: &dyn MemoryAdapter,
     enrichment_by_namespace: &std::collections::HashMap<
@@ -770,19 +728,38 @@ fn context_metrics(
     pack: &cmem_eval_core::RetrievedContextPack,
     full_history_text: Option<&str>,
 ) -> ResultContextMetrics {
+    context_metrics_with_full_history(pack, full_history_context_metrics(full_history_text))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FullHistoryContextMetrics {
+    chars: Option<usize>,
+    words: Option<usize>,
+    estimated_tokens: Option<usize>,
+}
+
+fn full_history_context_metrics(full_history_text: Option<&str>) -> FullHistoryContextMetrics {
+    FullHistoryContextMetrics {
+        chars: full_history_text.map(|text| text.chars().count()),
+        words: full_history_text.map(estimate_word_count),
+        estimated_tokens: full_history_text.map(estimate_token_count),
+    }
+}
+
+fn context_metrics_with_full_history(
+    pack: &cmem_eval_core::RetrievedContextPack,
+    full_history: FullHistoryContextMetrics,
+) -> ResultContextMetrics {
     let retrieved_context_estimated_tokens = estimate_token_count(&pack.context_text);
-    let full_history_chars = full_history_text.map(|text| text.chars().count());
-    let full_history_words = full_history_text.map(estimate_word_count);
-    let full_history_estimated_tokens = full_history_text.map(estimate_token_count);
     let compression_ratio = match (
-        full_history_estimated_tokens,
+        full_history.estimated_tokens,
         retrieved_context_estimated_tokens,
     ) {
         (Some(full), retrieved) if retrieved > 0 => Some(full as f64 / retrieved as f64),
         _ => None,
     };
     let reduction_rate = match (
-        full_history_estimated_tokens,
+        full_history.estimated_tokens,
         retrieved_context_estimated_tokens,
     ) {
         (Some(full), retrieved) if full > 0 => Some(1.0 - retrieved as f64 / full as f64),
@@ -792,9 +769,9 @@ fn context_metrics(
         retrieved_context_chars: pack.context_char_count,
         retrieved_context_words: pack.context_word_count,
         retrieved_context_estimated_tokens,
-        full_history_chars,
-        full_history_words,
-        full_history_estimated_tokens,
+        full_history_chars: full_history.chars,
+        full_history_words: full_history.words,
+        full_history_estimated_tokens: full_history.estimated_tokens,
         compression_ratio,
         reduction_rate,
     }

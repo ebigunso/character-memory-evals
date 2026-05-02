@@ -103,3 +103,25 @@ Prevention:
 
 Evidence:
 - User correction on 2026-04-30: "Can you also make the default run be a live eval run, instead of a mock based solution?"
+
+## 2026-05-03 — Parallelize Approved Harness Implementation Work  [tags: delegation, orchestration, parallelism, workflow]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/eval-harness-performance-boosts-plan.md`
+- Task/Wave: implementation start
+- Roles involved: Orchestrator | Worker
+
+Symptom:
+- The orchestrator began implementing an approved multi-task harness plan locally without first dispatching eligible disjoint work to subagents.
+
+Root cause:
+- I treated the implementation as a tightly coupled local edit because the first two files were already in progress, but the approved plan had independent LoCoMo caching work that could run safely in parallel.
+
+Fix applied:
+- Continue current real-adapter changes locally to avoid conflicts, and dispatch disjoint Task_4 LoCoMo caching work to a Worker.
+
+Prevention:
+- Before starting implementation on an approved harness plan, identify the immediate local task and at least one disjoint parallel worker task; if none exists, state why parallelism is not useful.
+
+Evidence:
+- User correction on 2026-05-03: "Use sub-agents where possible to parellelize work!"
