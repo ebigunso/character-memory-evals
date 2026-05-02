@@ -1,6 +1,6 @@
 # Plan: Integrate Character Memory Public API Into Eval Adapter
 
-- status: draft
+- status: completed
 - generated: 2026-04-30
 - last_updated: 2026-04-30
 - work_type: code
@@ -323,13 +323,17 @@
   - Summary: Added typed backend/retrieval/ingest config, adapter metadata, live default CLI selection, explicit mock guard, initial feature-gated real adapter, deterministic UUID mapping, LoCoMo caption config wiring, and integrity metrics.
   - Validation evidence: `cargo test -p cmem-eval-core`; `cargo test -p cmem-eval-runner`; `cargo test --workspace`; `cargo check -p cmem-eval-runner --features real-character-memory`; `cargo test -p cmem-eval-runner --features real-character-memory real_adapter`; explicit mock synthetic smoke command; `cargo clippy --workspace --all-targets -- -D warnings`; package-scoped `cargo fmt -p ... --check`.
   - Notes: Full `cargo fmt --all --check` is blocked by unrelated dirty sibling `CharacterMemory` files.
+- 2026-05-02 completed through focused plan set.
+  - Summary: Closed this umbrella plan after completing and reviewing the focused runtime, metrics/config, LoCoMo fidelity, timestamp/cleanup, and official export plans.
+  - Validation evidence: Completed plan commits `a862fd7`, `b190f4b`, `fc0487f`, `f27a2de`, and `527a4c2`; latest export plan validation included `cargo fmt --all --check`, `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, and focused official export tests.
+  - Notes: The umbrella tasks are represented by the completed focused plans in `docs/coding-agent/plans/completed/`.
 
 ## Decision Log
 - 2026-04-30 Decision:
   - Trigger / new insight: Character Memory public facade is active enough for eval integration.
   - Plan delta (what changed): Replace hard-stub `--adapter real` with feature-gated real adapter tasks.
   - Tradeoffs considered: Eval owns mapping/rendering/isolation conventions; native namespace/reset/context renderer remain library-side.
-  - User approval: pending.
+  - User approval: yes.
 - 2026-04-30 Decision:
   - Trigger / new insight: User selected config-selectable embeddings, requested cleanup capability, and specified official benchmark script compatibility as the context/output target.
   - Plan delta (what changed): Added OpenAI default model, deterministic smoke mode, cleanup policy, and official LongMemEval/LoCoMo export requirements.
