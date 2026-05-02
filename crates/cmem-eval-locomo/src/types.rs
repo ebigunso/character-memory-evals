@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoCoMoSample {
@@ -16,16 +17,43 @@ impl LoCoMoSample {
     }
 
     pub fn evidence_sessions(&self, qa: &LoCoMoQa) -> Vec<String> {
-        let mut sessions = self
-            .sessions
+        self.evidence_session_index().evidence_sessions(qa)
+    }
+
+    pub fn evidence_session_index(&self) -> LoCoMoEvidenceSessionIndex {
+        LoCoMoEvidenceSessionIndex::new(self)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LoCoMoEvidenceSessionIndex {
+    dialog_to_sessions: HashMap<String, Vec<String>>,
+}
+
+impl LoCoMoEvidenceSessionIndex {
+    pub fn new(sample: &LoCoMoSample) -> Self {
+        let mut dialog_to_sessions: HashMap<String, Vec<String>> = HashMap::new();
+        for session in &sample.sessions {
+            for turn in &session.turns {
+                dialog_to_sessions
+                    .entry(turn.dialog_id.clone())
+                    .or_default()
+                    .push(session.session_id.clone());
+            }
+        }
+        for sessions in dialog_to_sessions.values_mut() {
+            sessions.sort();
+            sessions.dedup();
+        }
+        Self { dialog_to_sessions }
+    }
+
+    pub fn evidence_sessions(&self, qa: &LoCoMoQa) -> Vec<String> {
+        let mut sessions = qa
+            .evidence_dialog_ids
             .iter()
-            .filter(|session| {
-                session
-                    .turns
-                    .iter()
-                    .any(|turn| qa.evidence_dialog_ids.contains(&turn.dialog_id))
-            })
-            .map(|session| session.session_id.clone())
+            .filter_map(|dialog_id| self.dialog_to_sessions.get(dialog_id))
+            .flat_map(|sessions| sessions.iter().cloned())
             .collect::<Vec<_>>();
         sessions.sort();
         sessions.dedup();

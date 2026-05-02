@@ -9,6 +9,17 @@ pub fn score(
     ks_dialog: &[usize],
     ks_session: &[usize],
 ) -> Value {
+    let gold_sessions = sample.evidence_sessions(qa);
+    score_with_gold_sessions(qa, &gold_sessions, items, ks_dialog, ks_session)
+}
+
+pub fn score_with_gold_sessions(
+    qa: &LoCoMoQa,
+    gold_sessions: &[String],
+    items: &[RetrievedItem],
+    ks_dialog: &[usize],
+    ks_session: &[usize],
+) -> Value {
     let dialog_ids = items
         .iter()
         .filter(|item| item.kind == "observation")
@@ -19,13 +30,12 @@ pub fn score(
         .filter(|item| item.kind == "episode")
         .filter_map(|item| item.external_id.clone())
         .collect::<Vec<_>>();
-    let gold_sessions = sample.evidence_sessions(qa);
     let mut out = Map::new();
     for k in ks_dialog {
         insert_retrieval_metrics(&mut out, "dialog", &dialog_ids, &qa.evidence_dialog_ids, *k);
     }
     for k in ks_session {
-        insert_retrieval_metrics(&mut out, "session", &session_ids, &gold_sessions, *k);
+        insert_retrieval_metrics(&mut out, "session", &session_ids, gold_sessions, *k);
     }
     Value::Object(out)
 }

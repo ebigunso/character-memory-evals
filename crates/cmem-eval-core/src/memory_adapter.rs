@@ -194,7 +194,21 @@ pub struct RetrievedExternalRef {
 pub trait MemoryAdapter: Send + Sync {
     async fn reset_namespace(&self, namespace: &str) -> Result<()>;
     async fn remember_episode(&self, input: EpisodeInput) -> Result<String>;
+    async fn remember_episodes(&self, inputs: Vec<EpisodeInput>) -> Result<Vec<String>> {
+        let mut ids = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            ids.push(self.remember_episode(input).await?);
+        }
+        Ok(ids)
+    }
     async fn remember_observation(&self, input: ObservationInput) -> Result<String>;
+    async fn remember_observations(&self, inputs: Vec<ObservationInput>) -> Result<Vec<String>> {
+        let mut ids = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            ids.push(self.remember_observation(input).await?);
+        }
+        Ok(ids)
+    }
     async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<()>;
     async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack>;
 }
@@ -437,6 +451,81 @@ mod tests {
         assert!(pack.items.iter().any(|item| {
             item.kind == "observation" && item.external_id.as_deref() == Some("s1:turn:1")
         }));
+    }
+
+    #[tokio::test]
+    async fn mock_adapter_batch_ingest_matches_single_item_retrieval() {
+        let adapter = MockMemoryAdapter::default();
+        adapter
+            .remember_episodes(vec![
+                EpisodeInput {
+                    external_id: "s1".into(),
+                    namespace: "n".into(),
+                    summary: "Conversation about chat native design".into(),
+                    started_at: None,
+                    ended_at: None,
+                    participants: vec!["user".into()],
+                    metadata: serde_json::json!({}),
+                },
+                EpisodeInput {
+                    external_id: "s2".into(),
+                    namespace: "n".into(),
+                    summary: "Conversation about unrelated travel".into(),
+                    started_at: None,
+                    ended_at: None,
+                    participants: vec!["user".into()],
+                    metadata: serde_json::json!({}),
+                },
+            ])
+            .await
+            .unwrap();
+        adapter
+            .remember_observations(vec![
+                ObservationInput {
+                    external_id: "s1:turn:1".into(),
+                    episode_external_id: "s1".into(),
+                    namespace: "n".into(),
+                    speaker: Some("user".into()),
+                    text: "Keep the first version chat native".into(),
+                    observed_at: None,
+                    metadata: serde_json::json!({}),
+                },
+                ObservationInput {
+                    external_id: "s2:turn:1".into(),
+                    episode_external_id: "s2".into(),
+                    namespace: "n".into(),
+                    speaker: Some("user".into()),
+                    text: "Book a train ticket".into(),
+                    observed_at: None,
+                    metadata: serde_json::json!({}),
+                },
+            ])
+            .await
+            .unwrap();
+
+        let pack = adapter
+            .retrieve(RetrieveInput {
+                namespace: "n".into(),
+                query: "chat native first version".into(),
+                query_date: None,
+                top_k_episodes: 5,
+                top_k_observations: 5,
+                include_derived_memories: false,
+                include_threads: false,
+                include_entities: false,
+                include_debug_rationale: false,
+            })
+            .await
+            .unwrap();
+
+        assert!(pack.items.iter().any(|item| {
+            item.kind == "observation" && item.external_id.as_deref() == Some("s1:turn:1")
+        }));
+        assert!(
+            pack.items
+                .iter()
+                .any(|item| item.kind == "episode" && item.external_id.as_deref() == Some("s1"))
+        );
     }
 
     #[tokio::test]

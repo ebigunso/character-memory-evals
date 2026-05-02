@@ -1,6 +1,6 @@
 # Plan: Eval Harness Performance Boosts
 
-- status: approved
+- status: done
 - generated: 2026-05-03
 - last_updated: 2026-05-03
 - work_type: code
@@ -263,6 +263,31 @@ Interpretation:
   - Summary: Harness-side batching and LoCoMo caching plan created from performance scan.
   - Validation evidence: Plan integrity checked for owns/dependencies/validation ownership.
   - Notes: Upstream OpenAI embedding batching and namespace storage changes are non-goals.
+
+- 2026-05-03 Wave 1 completed: [Task_1, Task_4]
+  - Summary: Added batch ingest adapter defaults and LoCoMo per-sample evidence/context caching.
+  - Validation evidence: `cargo test -p cmem-eval-core`, `cargo test -p cmem-eval-locomo`, and `cargo test -p cmem-eval-runner` passed.
+  - Notes: Worker was used for LoCoMo cache work; orchestrator integrated and validated the changes.
+
+- 2026-05-03 Wave 2 completed: [Task_2]
+  - Summary: Real adapter now batches episode and observation writes through multi-object `RememberDraft`s.
+  - Validation evidence: `cargo test -p cmem-eval-runner --features real-character-memory` passed.
+  - Notes: Batch map updates occur after successful Character Memory persistence.
+
+- 2026-05-03 Wave 3 completed: [Task_3]
+  - Summary: Synthetic, LongMemEval-S, and LoCoMo runners now use batch episode/observation ingest.
+  - Validation evidence: `cargo test -p cmem-eval-runner` and synthetic smoke passed.
+  - Notes: Progress output reports batch phase counts instead of per-object write progress.
+
+- 2026-05-03 Wave 4 completed: [Task_5]
+  - Summary: Mock batch ingest regression coverage was added; existing dataset ingest gold-label exclusion tests remain passing.
+  - Validation evidence: `cargo test -p cmem-eval-core`, `cargo test -p cmem-eval-longmemeval`, `cargo test -p cmem-eval-locomo`, and `cargo test -p cmem-eval-runner` passed.
+  - Notes: Result schema remains unchanged.
+
+- 2026-05-03 Wave 5 completed: [Task_6]
+  - Summary: Full validation and reviewer gate completed.
+  - Validation evidence: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo clippy --workspace --all-targets --features real-character-memory -- -D warnings`, `cargo test --workspace --features real-character-memory`, and synthetic smoke passed.
+  - Notes: Reviewer status APPROVED with no findings.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
