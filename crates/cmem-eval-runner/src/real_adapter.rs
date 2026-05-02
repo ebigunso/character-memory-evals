@@ -579,12 +579,14 @@ fn flatten_outcome(
 
 fn telemetry_from_outcome(outcome: &character_memory::RetrieveOutcome) -> RetrievalTelemetry {
     let trace = outcome.trace.as_ref();
+    let returned_ids = returned_object_ids(outcome);
     let suppressed_or_deleted_returned_count = trace.map(|trace| {
         trace
             .lifecycle_filter_decisions
             .iter()
             .filter(|decision| {
-                decision.action == LifecycleFilterAction::Included
+                returned_ids.contains(&decision.object.id)
+                    && decision.action == LifecycleFilterAction::Included
                     && (matches!(
                         decision.retention_state,
                         Some(RetentionState::Suppressed | RetentionState::Deleted)
@@ -601,7 +603,8 @@ fn telemetry_from_outcome(outcome: &character_memory::RetrieveOutcome) -> Retrie
             .lifecycle_filter_decisions
             .iter()
             .filter(|decision| {
-                decision.action == LifecycleFilterAction::Included
+                returned_ids.contains(&decision.object.id)
+                    && decision.action == LifecycleFilterAction::Included
                     && (decision.is_current == Some(false)
                         || !decision.superseded_by.is_empty()
                         || matches!(
@@ -627,7 +630,8 @@ fn telemetry_from_outcome(outcome: &character_memory::RetrieveOutcome) -> Retrie
                 .lifecycle_filter_decisions
                 .iter()
                 .filter(|decision| {
-                    decision.action == LifecycleFilterAction::Omitted
+                    !returned_ids.contains(&decision.object.id)
+                        && decision.action == LifecycleFilterAction::Omitted
                         && decision.reason == LifecycleFilterReason::GraphObjectMissing
                 })
                 .count()
@@ -637,7 +641,8 @@ fn telemetry_from_outcome(outcome: &character_memory::RetrieveOutcome) -> Retrie
             .lifecycle_filter_decisions
             .iter()
             .filter(|decision| {
-                decision.action == LifecycleFilterAction::Included
+                returned_ids.contains(&decision.object.id)
+                    && decision.action == LifecycleFilterAction::Included
                     && decision.reason == LifecycleFilterReason::GraphObjectMissing
             })
             .count()
@@ -689,6 +694,71 @@ fn telemetry_from_outcome(outcome: &character_memory::RetrieveOutcome) -> Retrie
             })
             .collect(),
     }
+}
+
+fn returned_object_ids(outcome: &character_memory::RetrieveOutcome) -> HashSet<MemoryId> {
+    outcome
+        .pack
+        .active_threads
+        .iter()
+        .map(|thread| thread.id)
+        .chain(
+            outcome
+                .pack
+                .relevant_episodes
+                .iter()
+                .map(|episode| episode.id),
+        )
+        .chain(
+            outcome
+                .pack
+                .salient_observations
+                .iter()
+                .map(|observation| observation.id),
+        )
+        .chain(
+            outcome
+                .pack
+                .derived_memories
+                .iter()
+                .map(|derived| derived.memory.id),
+        )
+        .chain(
+            outcome
+                .pack
+                .preferences
+                .iter()
+                .map(|derived| derived.memory.id),
+        )
+        .chain(
+            outcome
+                .pack
+                .relationship_notes
+                .iter()
+                .map(|derived| derived.memory.id),
+        )
+        .chain(
+            outcome
+                .pack
+                .open_loops
+                .iter()
+                .map(|derived| derived.memory.id),
+        )
+        .chain(
+            outcome
+                .pack
+                .commitments
+                .iter()
+                .map(|derived| derived.memory.id),
+        )
+        .chain(
+            outcome
+                .pack
+                .character_signals
+                .iter()
+                .map(|derived| derived.memory.id),
+        )
+        .collect()
 }
 
 trait SnakeCaseDebug {
@@ -931,6 +1001,10 @@ fn stable_hash(text: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use character_memory::{
+        CURRENT_SCHEMA_VERSION, ContinuityContextPack, Episode, LifecycleFilterDecision,
+        MemoryObjectRef, Modality, RetrievalRationale, RetrievalTrace, RetrieveOutcome,
+    };
 
     #[test]
     fn deterministic_ids_are_stable_and_namespaced() {
@@ -954,6 +1028,44 @@ mod tests {
         }]);
         assert!(text.contains("observation:s1:turn:1"));
         assert!(text.contains("hello"));
+    }
+
+    #[test]
+    fn telemetry_leakage_counts_only_final_returned_items() {
+        let returned_id = deterministic_id("n", "episode", "returned");
+        let omitted_id = deterministic_id("n", "episode", "omitted");
+        let outcome = RetrieveOutcome {
+            pack: ContinuityContextPack {
+                relevant_episodes: vec![episode(returned_id)],
+                ..ContinuityContextPack::empty()
+            },
+            rationale: RetrievalRationale::new("test"),
+            trace: Some(RetrievalTrace {
+                lifecycle_filter_decisions: vec![
+                    LifecycleFilterDecision {
+                        object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
+                        retention_state: Some(RetentionState::Suppressed),
+                        is_current: None,
+                        superseded_by: Vec::new(),
+                        action: LifecycleFilterAction::Included,
+                        reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+                    },
+                    LifecycleFilterDecision {
+                        object: MemoryObjectRef::new(ObjectType::Episode, omitted_id),
+                        retention_state: Some(RetentionState::Suppressed),
+                        is_current: None,
+                        superseded_by: Vec::new(),
+                        action: LifecycleFilterAction::Included,
+                        reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+                    },
+                ],
+                ..RetrievalTrace::empty()
+            }),
+        };
+
+        let telemetry = telemetry_from_outcome(&outcome);
+
+        assert_eq!(telemetry.suppressed_or_deleted_returned_count, Some(1));
     }
 
     #[test]
@@ -994,5 +1106,24 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("no required collection prefix"));
+    }
+
+    fn episode(id: MemoryId) -> Episode {
+        let now = Utc::now();
+        Episode {
+            id,
+            object_type: ObjectType::Episode,
+            modality: Modality::Chat,
+            source_conversation_id: Some("external".to_string()),
+            started_at: None,
+            ended_at: None,
+            participant_entity_ids: Vec::new(),
+            summary: "summary".to_string(),
+            raw_ref: Some("external".to_string()),
+            salience_score: 0.5,
+            retention_state: RetentionState::Active,
+            created_at: now,
+            schema_version: CURRENT_SCHEMA_VERSION.to_string(),
+        }
     }
 }

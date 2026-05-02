@@ -489,16 +489,6 @@ pub fn integrity_details_with_telemetry(
     let mut details = integrity_details(retrieved);
     let returned_count = retrieved.len();
     if telemetry.trace_available {
-        details.context_validation_pass_rate = telemetry
-            .graph_verified_count
-            .map(|count| count.min(returned_count) as f64)
-            .map(|count| {
-                if returned_count == 0 {
-                    1.0
-                } else {
-                    count / returned_count as f64
-                }
-            });
         details.suppressed_memory_leakage_rate = telemetry
             .suppressed_or_deleted_returned_count
             .map(|count| leakage_rate(count, returned_count));
@@ -515,6 +505,13 @@ pub fn integrity_details_with_telemetry(
             (Some(returned), Some(omitted)) => Some(leakage_rate(returned, returned + omitted)),
             _ => None,
         };
+        details.context_validation_pass_rate = context_validation_pass_rate(
+            returned_count,
+            telemetry.graph_verified_count,
+            telemetry.suppressed_or_deleted_returned_count,
+            telemetry.superseded_current_returned_count,
+            telemetry.graph_object_missing_returned_count,
+        );
     }
     details
 }
@@ -564,6 +561,28 @@ fn leakage_rate(count: usize, denominator: usize) -> f64 {
     } else {
         count as f64 / denominator as f64
     }
+}
+
+fn context_validation_pass_rate(
+    returned_count: usize,
+    graph_verified_count: Option<usize>,
+    suppressed_or_deleted_returned_count: Option<usize>,
+    superseded_current_returned_count: Option<usize>,
+    graph_object_missing_returned_count: Option<usize>,
+) -> Option<f64> {
+    let graph_verified_count = graph_verified_count?;
+    let suppressed_or_deleted_returned_count = suppressed_or_deleted_returned_count?;
+    let superseded_current_returned_count = superseded_current_returned_count?;
+    let graph_object_missing_returned_count = graph_object_missing_returned_count?;
+    if returned_count == 0 {
+        return Some(1.0);
+    }
+    let graph_unverified = returned_count.saturating_sub(graph_verified_count.min(returned_count));
+    let invalid_count = graph_unverified
+        + suppressed_or_deleted_returned_count
+        + superseded_current_returned_count
+        + graph_object_missing_returned_count;
+    Some(1.0 - invalid_count.min(returned_count) as f64 / returned_count as f64)
 }
 
 fn rate(count: usize, denominator: usize) -> Value {
@@ -661,6 +680,46 @@ mod tests {
         assert_eq!(out["suppressed_or_deleted_items_returned"], 0);
         assert_eq!(out["superseded_items_returned_as_current"], 0);
         assert!(out["cross_store_id_validation_pass_rate"].is_null());
+    }
+
+    #[test]
+    fn context_validation_rate_accounts_for_lifecycle_leakage() {
+        let retrieved = vec![
+            crate::RetrievedItem {
+                kind: "observation".to_string(),
+                internal_id: "o1".to_string(),
+                external_id: Some("o1".to_string()),
+                episode_external_id: Some("e1".to_string()),
+                score: None,
+                rank: 1,
+                rationale: vec!["matched".to_string()],
+                text: None,
+            },
+            crate::RetrievedItem {
+                kind: "observation".to_string(),
+                internal_id: "o2".to_string(),
+                external_id: Some("o2".to_string()),
+                episode_external_id: Some("e1".to_string()),
+                score: None,
+                rank: 2,
+                rationale: vec!["matched".to_string()],
+                text: None,
+            },
+        ];
+        let telemetry = crate::RetrievalTelemetry {
+            trace_available: true,
+            graph_verified_count: Some(2),
+            suppressed_or_deleted_returned_count: Some(1),
+            superseded_current_returned_count: Some(0),
+            graph_object_missing_omitted_count: Some(0),
+            graph_object_missing_returned_count: Some(0),
+            ..crate::RetrievalTelemetry::default()
+        };
+
+        let integrity = integrity_details_with_telemetry(&retrieved, &telemetry);
+
+        assert_eq!(integrity.context_validation_pass_rate, Some(0.5));
+        assert_eq!(integrity.suppressed_memory_leakage_rate, Some(0.5));
     }
 
     #[test]
