@@ -135,6 +135,61 @@ cargo run -p cmem-eval-runner -- export-official locomo \
 LoCoMo official answer text is not stored in internal run JSONL, so the export
 sets `answer` to `null` unless a later dataset-join export path is added.
 
+## Metric Registry
+
+Internal run JSONL records retrieval-only metrics directly and reserves
+reader/QA fields for later external prediction and judge outputs. Scalar
+metrics live under `metrics` so summaries can aggregate them; structured
+details live under `context`, `composition`, `telemetry`, `integrity`, and
+`reader`.
+
+Always-available retrieval metrics:
+
+```text
+recall_any@k
+recall_all@k
+recall_fraction@k
+mrr@k
+ndcg@k
+```
+
+LongMemEval-S uses `session_*` and `turn_*` prefixes. LoCoMo uses `dialog_*`
+and `session_*` prefixes.
+
+Context efficiency metrics are heuristic estimates:
+
+```text
+retrieved_context_estimated_tokens
+full_history_estimated_tokens
+context_compression_ratio
+context_reduction_rate
+```
+
+`full_history_estimated_tokens` is estimated from the source transcript that the
+harness ingests for the current question/sample. Token counts use the local
+character/word estimator, not a model tokenizer.
+
+Trace-dependent metrics require:
+
+```toml
+[retrieval]
+include_debug_rationale = true
+```
+
+When trace data is available, rows can also include route and integrity evidence
+such as `vector_candidate_count`, `graph_relations_count`,
+`graph_verified_count`, `section_assignment_count`,
+`suppressed_or_deleted_returned_count`, and
+`superseded_current_returned_count`. When trace data is unavailable, affected
+route/integrity metrics are emitted as `null` and are reflected in
+`metric_support` / `registry_coverage`; the harness does not write false zeroes
+for unsupported checks.
+
+QA metrics such as accuracy, F1, exact match, abstention accuracy, and
+unsupported-answer rate remain `null` in retrieval-only runs. Use the official
+export commands with external predictions/judgments when evaluating answer
+quality.
+
 ## Timestamp And Cleanup Policy
 
 Official benchmark timestamps are normalized before live ingestion. LongMemEval-S

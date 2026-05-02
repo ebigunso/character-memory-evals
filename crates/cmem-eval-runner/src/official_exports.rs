@@ -356,6 +356,11 @@ mod tests {
             latency_ms: 1,
             context_char_count: 0,
             context_word_count: 0,
+            context: cmem_eval_core::ResultContextMetrics::default(),
+            telemetry: cmem_eval_core::RetrievalTelemetry::default(),
+            composition: cmem_eval_core::ResultCompositionMetrics::default(),
+            integrity: cmem_eval_core::ResultIntegrityDetails::default(),
+            reader: cmem_eval_core::ReaderResult::default(),
         }
     }
 }

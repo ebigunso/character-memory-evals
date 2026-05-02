@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,6 +138,42 @@ pub struct RetrievedContextPack {
     pub context_text: String,
     pub context_char_count: usize,
     pub context_word_count: usize,
+    #[serde(default)]
+    pub telemetry: RetrievalTelemetry,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct RetrievalTelemetry {
+    #[serde(default)]
+    pub trace_available: bool,
+    #[serde(default)]
+    pub vector_candidate_count: Option<usize>,
+    #[serde(default)]
+    pub graph_relation_count: Option<usize>,
+    #[serde(default)]
+    pub graph_verified_count: Option<usize>,
+    #[serde(default)]
+    pub stale_candidate_omission_count: Option<usize>,
+    #[serde(default)]
+    pub lifecycle_omission_count: Option<usize>,
+    #[serde(default)]
+    pub lifecycle_filter_decision_count: Option<usize>,
+    #[serde(default)]
+    pub suppressed_or_deleted_returned_count: Option<usize>,
+    #[serde(default)]
+    pub superseded_current_returned_count: Option<usize>,
+    #[serde(default)]
+    pub graph_object_missing_omitted_count: Option<usize>,
+    #[serde(default)]
+    pub graph_object_missing_returned_count: Option<usize>,
+    #[serde(default)]
+    pub section_assignment_count: Option<usize>,
+    #[serde(default)]
+    pub section_assignment_counts: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub stale_candidate_omission_reasons: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub lifecycle_omission_reasons: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -304,6 +340,7 @@ impl MemoryAdapter for MockMemoryAdapter {
             context_text,
             context_char_count,
             context_word_count,
+            telemetry: RetrievalTelemetry::default(),
         })
     }
 }

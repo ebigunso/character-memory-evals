@@ -3,8 +3,11 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmem_eval_core::{
     BenchmarkRunConfig, EpisodeInput, MemoryAdapter, MockMemoryAdapter, ObservationInput,
-    PerQuestionResult, RetrieveInput, RunAdapterMetadata, Timer, insert_integrity_metrics,
-    insert_retrieval_metrics, read_jsonl, summarize_rows, write_jsonl, write_summary,
+    PerQuestionResult, ReaderResult, ResultContextMetrics, RetrieveInput, RunAdapterMetadata,
+    Timer, composition_metrics, estimate_token_count, estimate_word_count,
+    initialize_registry_metrics, insert_composition_metrics, insert_context_metrics,
+    insert_integrity_detail_metrics, insert_retrieval_metrics, insert_telemetry_metrics,
+    integrity_details_with_telemetry, read_jsonl, summarize_rows, write_jsonl, write_summary,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -199,12 +202,24 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
                 include_debug_rationale: config.retrieval.include_debug_rationale,
             })
             .await?;
+        let full_history = synthetic_full_history_text(&question.sessions);
+        let context = context_metrics(&pack, Some(&full_history));
+        let composition = composition_metrics(&pack.items);
+        let integrity = integrity_details_with_telemetry(&pack.items, &pack.telemetry);
+        let latency_ms = timer.elapsed_ms();
         let mut metrics = score_basic(
             &pack.items,
             &question.gold_episode_ids,
             &question.gold_observation_ids,
         );
-        insert_integrity_metrics(&mut metrics, &pack.items);
+        insert_common_metrics(
+            &mut metrics,
+            &context,
+            &composition,
+            &integrity,
+            &pack.telemetry,
+            latency_ms,
+        );
         rows.push(PerQuestionResult {
             run_id: config.run_id.clone(),
             dataset: config.dataset.clone(),
@@ -216,9 +231,14 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
             gold_observation_ids: question.gold_observation_ids,
             retrieved: pack.items,
             metrics: Value::Object(metrics),
-            latency_ms: timer.elapsed_ms(),
-            context_char_count: pack.context_char_count,
-            context_word_count: pack.context_word_count,
+            latency_ms,
+            context_char_count: context.retrieved_context_chars,
+            context_word_count: context.retrieved_context_words,
+            context,
+            telemetry: pack.telemetry,
+            composition,
+            integrity,
+            reader: ReaderResult::default(),
         });
         namespaces_to_cleanup.push(namespace);
     }
@@ -262,6 +282,11 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
                 include_debug_rationale: config.retrieval.include_debug_rationale,
             })
             .await?;
+        let full_history = longmemeval_full_history_text(&instance);
+        let context = context_metrics(&pack, Some(&full_history));
+        let composition = composition_metrics(&pack.items);
+        let integrity = integrity_details_with_telemetry(&pack.items, &pack.telemetry);
+        let latency_ms = timer.elapsed_ms();
         let mut metrics = cmem_eval_longmemeval::scoring::score(
             &instance,
             &pack.items,
@@ -269,7 +294,14 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
             &config.metrics.ks_turn,
         );
         if let Some(metrics) = metrics.as_object_mut() {
-            insert_integrity_metrics(metrics, &pack.items);
+            insert_common_metrics(
+                metrics,
+                &context,
+                &composition,
+                &integrity,
+                &pack.telemetry,
+                latency_ms,
+            );
         }
         let gold_observation_ids = instance.gold_turn_ids();
         rows.push(PerQuestionResult {
@@ -283,9 +315,14 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
             gold_observation_ids,
             retrieved: pack.items,
             metrics,
-            latency_ms: timer.elapsed_ms(),
-            context_char_count: pack.context_char_count,
-            context_word_count: pack.context_word_count,
+            latency_ms,
+            context_char_count: context.retrieved_context_chars,
+            context_word_count: context.retrieved_context_words,
+            context,
+            telemetry: pack.telemetry,
+            composition,
+            integrity,
+            reader: ReaderResult::default(),
         });
         namespaces_to_cleanup.push(namespace);
     }
@@ -342,6 +379,11 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                     include_debug_rationale: config.retrieval.include_debug_rationale,
                 })
                 .await?;
+            let full_history = locomo_full_history_text(&sample);
+            let context = context_metrics(&pack, Some(&full_history));
+            let composition = composition_metrics(&pack.items);
+            let integrity = integrity_details_with_telemetry(&pack.items, &pack.telemetry);
+            let latency_ms = timer.elapsed_ms();
             let mut metrics = cmem_eval_locomo::scoring::score(
                 &sample,
                 qa,
@@ -350,7 +392,14 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                 &config.metrics.ks_session,
             );
             if let Some(metrics) = metrics.as_object_mut() {
-                insert_integrity_metrics(metrics, &pack.items);
+                insert_common_metrics(
+                    metrics,
+                    &context,
+                    &composition,
+                    &integrity,
+                    &pack.telemetry,
+                    latency_ms,
+                );
             }
             rows.push(PerQuestionResult {
                 run_id: config.run_id.clone(),
@@ -363,9 +412,14 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                 gold_observation_ids: qa.evidence_dialog_ids.clone(),
                 retrieved: pack.items,
                 metrics,
-                latency_ms: timer.elapsed_ms(),
-                context_char_count: pack.context_char_count,
-                context_word_count: pack.context_word_count,
+                latency_ms,
+                context_char_count: context.retrieved_context_chars,
+                context_word_count: context.retrieved_context_words,
+                context,
+                telemetry: pack.telemetry,
+                composition,
+                integrity,
+                reader: ReaderResult::default(),
             });
         }
         namespaces_to_cleanup.push(namespace);
@@ -398,6 +452,109 @@ async fn remember_configured_enrichment(
         adapter.remember_enrichment(enrichment).await?;
     }
     Ok(())
+}
+
+fn insert_common_metrics(
+    metrics: &mut Map<String, Value>,
+    context: &ResultContextMetrics,
+    composition: &cmem_eval_core::ResultCompositionMetrics,
+    integrity: &cmem_eval_core::ResultIntegrityDetails,
+    telemetry: &cmem_eval_core::RetrievalTelemetry,
+    latency_ms: u128,
+) {
+    initialize_registry_metrics(metrics);
+    metrics.insert(
+        "retrieval_latency_ms".to_string(),
+        Value::from(latency_ms as f64),
+    );
+    insert_context_metrics(metrics, context);
+    insert_composition_metrics(metrics, composition);
+    insert_integrity_detail_metrics(metrics, integrity);
+    insert_telemetry_metrics(metrics, telemetry);
+}
+
+fn context_metrics(
+    pack: &cmem_eval_core::RetrievedContextPack,
+    full_history_text: Option<&str>,
+) -> ResultContextMetrics {
+    let retrieved_context_estimated_tokens = estimate_token_count(&pack.context_text);
+    let full_history_chars = full_history_text.map(|text| text.chars().count());
+    let full_history_words = full_history_text.map(estimate_word_count);
+    let full_history_estimated_tokens = full_history_text.map(estimate_token_count);
+    let compression_ratio = match (
+        full_history_estimated_tokens,
+        retrieved_context_estimated_tokens,
+    ) {
+        (Some(full), retrieved) if retrieved > 0 => Some(full as f64 / retrieved as f64),
+        _ => None,
+    };
+    let reduction_rate = match (
+        full_history_estimated_tokens,
+        retrieved_context_estimated_tokens,
+    ) {
+        (Some(full), retrieved) if full > 0 => Some(1.0 - retrieved as f64 / full as f64),
+        _ => None,
+    };
+    ResultContextMetrics {
+        retrieved_context_chars: pack.context_char_count,
+        retrieved_context_words: pack.context_word_count,
+        retrieved_context_estimated_tokens,
+        full_history_chars,
+        full_history_words,
+        full_history_estimated_tokens,
+        compression_ratio,
+        reduction_rate,
+    }
+}
+
+fn synthetic_full_history_text(sessions: &[SyntheticSession]) -> String {
+    sessions
+        .iter()
+        .flat_map(|session| {
+            session.turns.iter().map(|turn| {
+                format!(
+                    "{}: {}",
+                    turn.role.as_deref().unwrap_or("unknown"),
+                    turn.content
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn longmemeval_full_history_text(instance: &cmem_eval_longmemeval::LongMemEvalInstance) -> String {
+    instance
+        .sessions
+        .iter()
+        .flat_map(|session| {
+            session.turns.iter().map(|turn| {
+                format!(
+                    "{}: {}",
+                    turn.speaker.as_deref().unwrap_or("unknown"),
+                    turn.text
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn locomo_full_history_text(sample: &cmem_eval_locomo::LoCoMoSample) -> String {
+    sample
+        .sessions
+        .iter()
+        .flat_map(|session| {
+            session.turns.iter().map(|turn| {
+                format!(
+                    "{}: {}",
+                    turn.speaker.as_deref().unwrap_or("unknown"),
+                    turn.text
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn export_official(args: ExportOfficialCommand) -> Result<()> {

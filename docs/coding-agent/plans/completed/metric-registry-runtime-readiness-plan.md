@@ -1,6 +1,6 @@
 # Plan: Metric Registry Runtime Readiness
 
-- status: draft
+- status: completed
 - generated: 2026-05-03
 - last_updated: 2026-05-03
 - work_type: mixed
@@ -309,10 +309,27 @@
 - 2026-05-03 plan drafted.
   - Summary: Planned work required to make retrieval-only real runs collect the required metric registry honestly, while documenting QA/library-blocked metrics.
   - Validation evidence: Researcher mapped current code gaps and available Character Memory telemetry.
+- 2026-05-03 implementation started.
+  - Summary: Committed plan, added core result/telemetry fields, metric registry support reporting, common context/composition/integrity metrics, real-adapter trace telemetry extraction, recommended config `k` values, enrichment paths, and README metric registry notes.
+  - Validation evidence:
+    - `cargo test -p cmem-eval-core`
+    - `cargo test -p cmem-eval-runner`
+    - `cargo test -p cmem-eval-runner --features real-character-memory real_adapter`
+- 2026-05-03 implementation completed.
+  - Summary: Added trace-backed integrity rates where public Character Memory telemetry supports them, preserved unsupported QA/cross-store metrics as null, smoke-tested synthetic output schema, and completed full local review/validation.
+  - Validation evidence:
+    - `cargo test -p cmem-eval-core`
+    - `cargo test -p cmem-eval-runner`
+    - `cargo test -p cmem-eval-runner --features real-character-memory real_adapter`
+    - `cargo test -p cmem-eval-runner official_exports`
+    - `cargo run -p cmem-eval-runner -- run synthetic --dataset ./fixtures/synthetic_small.json --config ./configs/synthetic_retrieval.toml --out ./runs/synthetic.jsonl --summary-out ./runs/synthetic_summary.json --adapter mock --allow-mock-benchmark`
+    - `cargo test --workspace`
+    - `cargo clippy --workspace --all-targets --features real-character-memory -- -D warnings`
+    - `cargo fmt --all --check`
 
 ## Decision Log
 - 2026-05-03 Decision:
   - Trigger / new insight: Current harness can run real retrieval evals but cannot yet collect the full metric registry.
   - Plan delta (what changed): Add metric registry readiness work across core result schema, adapter telemetry, runner metrics, configs, docs, and review.
   - Tradeoffs considered: Use heuristic token estimates first; reserve exact tokenization and reader/judge integration for later to avoid delaying retrieval metric runs.
-  - User approval: pending.
+  - User approval: approved, implementation requested.

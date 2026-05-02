@@ -29,8 +29,8 @@ index_generated_observations = true
 include_image_captions = false
 store_gold_labels = false
 # Optional additional precomputed enrichment JSONL produced from conversation text only.
-# enrichment_path = "./datasets/enriched/locomo_enrichment.jsonl"
+enrichment_path = "./datasets/enriched/locomo_enrichment.jsonl"
 
 [metrics]
-ks_dialog = [5, 10]
-ks_session = [5, 10]
+ks_dialog = [5, 10, 20, 50]
+ks_session = [1, 3, 5, 10]

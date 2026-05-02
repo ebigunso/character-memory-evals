@@ -27,8 +27,8 @@ index_episode_summaries = true
 create_threads = false
 store_gold_labels = false
 # Optional precomputed enrichment JSONL produced from haystack/source text only.
-# enrichment_path = "./datasets/enriched/longmemeval_s_enrichment.jsonl"
+enrichment_path = "./datasets/enriched/longmemeval_s_enrichment.jsonl"
 
 [metrics]
-ks_session = [5, 10]
-ks_turn = [10, 50]
+ks_session = [1, 3, 5, 10]
+ks_turn = [5, 10, 20, 50]

@@ -1,4 +1,7 @@
-use crate::{RetrievedItem, aggregate_numeric_metrics, metric_support_summary};
+use crate::{
+    RetrievalTelemetry, RetrievedItem, aggregate_numeric_metrics, metric_support_summary,
+    registry_coverage_summary,
+};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -22,6 +25,16 @@ pub struct PerQuestionResult {
     pub latency_ms: u128,
     pub context_char_count: usize,
     pub context_word_count: usize,
+    #[serde(default)]
+    pub context: ResultContextMetrics,
+    #[serde(default)]
+    pub telemetry: RetrievalTelemetry,
+    #[serde(default)]
+    pub composition: ResultCompositionMetrics,
+    #[serde(default)]
+    pub integrity: ResultIntegrityDetails,
+    #[serde(default)]
+    pub reader: ReaderResult,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -35,7 +48,85 @@ pub struct RunSummary {
     pub metrics: Value,
     #[serde(default)]
     pub metric_support: Value,
+    #[serde(default)]
+    pub registry_coverage: Value,
     pub latency: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct ResultContextMetrics {
+    #[serde(default)]
+    pub retrieved_context_chars: usize,
+    #[serde(default)]
+    pub retrieved_context_words: usize,
+    #[serde(default)]
+    pub retrieved_context_estimated_tokens: usize,
+    #[serde(default)]
+    pub full_history_chars: Option<usize>,
+    #[serde(default)]
+    pub full_history_words: Option<usize>,
+    #[serde(default)]
+    pub full_history_estimated_tokens: Option<usize>,
+    #[serde(default)]
+    pub compression_ratio: Option<f64>,
+    #[serde(default)]
+    pub reduction_rate: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct ResultCompositionMetrics {
+    #[serde(default)]
+    pub total_items: usize,
+    #[serde(default)]
+    pub episodes: usize,
+    #[serde(default)]
+    pub observations: usize,
+    #[serde(default)]
+    pub derived_memories: usize,
+    #[serde(default)]
+    pub memory_threads: usize,
+    #[serde(default)]
+    pub entities: Option<usize>,
+    #[serde(default)]
+    pub items_with_rationale: usize,
+    #[serde(default)]
+    pub rationale_coverage: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct ResultIntegrityDetails {
+    #[serde(default)]
+    pub returned_items_without_external_id: usize,
+    #[serde(default)]
+    pub returned_derived_memories_without_provenance: usize,
+    #[serde(default)]
+    pub suppressed_or_deleted_returned_count: Option<usize>,
+    #[serde(default)]
+    pub superseded_current_returned_count: Option<usize>,
+    #[serde(default)]
+    pub provenance_coverage: Option<f64>,
+    #[serde(default)]
+    pub context_validation_pass_rate: Option<f64>,
+    #[serde(default)]
+    pub suppressed_memory_leakage_rate: Option<f64>,
+    #[serde(default)]
+    pub orphan_vector_leakage_rate: Option<f64>,
+    #[serde(default)]
+    pub superseded_current_leakage_rate: Option<f64>,
+    #[serde(default)]
+    pub cross_store_id_validation_pass_rate: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct ReaderResult {
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub answer: Option<String>,
+    #[serde(default)]
+    pub qa_score: Option<f64>,
+    #[serde(default)]
+    pub qa_metric_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -112,6 +203,7 @@ pub fn summarize_rows(
         num_questions: rows.len(),
         metrics: aggregate_numeric_metrics(&metric_rows),
         metric_support: metric_support_summary(&metric_rows),
+        registry_coverage: registry_coverage_summary(&metric_rows),
         latency: serde_json::json!({
             "latency_ms": {
                 "mean": crate::mean(&latency_values),
@@ -157,6 +249,11 @@ mod tests {
             latency_ms: 1,
             context_char_count: 0,
             context_word_count: 0,
+            context: ResultContextMetrics::default(),
+            telemetry: RetrievalTelemetry::default(),
+            composition: ResultCompositionMetrics::default(),
+            integrity: ResultIntegrityDetails::default(),
+            reader: ReaderResult::default(),
         };
         let value = serde_json::to_value(row).unwrap();
         assert_eq!(value["question_id"], "q");
@@ -179,6 +276,11 @@ mod tests {
             latency_ms: 1,
             context_char_count: 0,
             context_word_count: 0,
+            context: ResultContextMetrics::default(),
+            telemetry: RetrievalTelemetry::default(),
+            composition: ResultCompositionMetrics::default(),
+            integrity: ResultIntegrityDetails::default(),
+            reader: ReaderResult::default(),
         };
 
         let summary = summarize_rows(
@@ -192,6 +294,12 @@ mod tests {
         assert_eq!(
             summary.metric_support["suppressed_or_deleted_items_returned"]["unsupported"],
             true
+        );
+        assert_eq!(summary.registry_coverage["required_metrics_present"], 0);
+        assert!(
+            summary.registry_coverage["missing_required_metrics"]
+                .as_array()
+                .is_some_and(|missing| !missing.is_empty())
         );
     }
 }

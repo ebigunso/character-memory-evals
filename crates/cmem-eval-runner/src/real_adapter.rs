@@ -2,17 +2,18 @@ use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use character_memory::{
     CharacterMemory, ContinuitySectionLimits, DerivedMemoryDraft, DerivedType, EmbeddingProvider,
-    EntityDraft, EntityType, EpisodeDraft, MemoryId, MemoryLinkDraft, MemoryObjectDraft,
-    MemoryThreadDraft, ObjectType, ObservationDraft, RelationType, RememberDraft,
-    RetrievalCandidateLimits, RetrievalContext, Settings, Stability, ThreadStatus,
+    EntityDraft, EntityType, EpisodeDraft, LifecycleFilterAction, LifecycleFilterReason, MemoryId,
+    MemoryLinkDraft, MemoryObjectDraft, MemoryThreadDraft, ObjectType, ObservationDraft,
+    RelationType, RememberDraft, RetentionState, RetrievalCandidateLimits, RetrievalContext,
+    Settings, Stability, ThreadStatus,
 };
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{
     BenchmarkRunConfig, EpisodeInput, GraphEnrichmentInput, MemoryAdapter, MemoryEndpointInput,
-    ObservationInput, RetrieveInput, RetrievedContextPack, RetrievedItem,
+    ObservationInput, RetrievalTelemetry, RetrieveInput, RetrievedContextPack, RetrievedItem,
 };
 use qdrant_client::Qdrant;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -35,6 +36,7 @@ struct NamespaceState {
     derived_memory_ids: HashMap<String, MemoryId>,
     reverse_episode_ids: HashMap<MemoryId, String>,
     reverse_observation_ids: HashMap<MemoryId, (String, String)>,
+    reverse_thread_ids: HashMap<MemoryId, String>,
     reverse_derived_memory_ids: HashMap<MemoryId, String>,
 }
 
@@ -71,6 +73,7 @@ impl CharacterMemoryAdapter {
             derived_memory_ids: HashMap::new(),
             reverse_episode_ids: HashMap::new(),
             reverse_observation_ids: HashMap::new(),
+            reverse_thread_ids: HashMap::new(),
             reverse_derived_memory_ids: HashMap::new(),
         })
     }
@@ -381,7 +384,10 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             .remember(RememberDraft::new(objects).with_links(links))
             .await?;
         state.entity_ids.extend(pending_entities);
-        state.thread_ids.extend(pending_threads);
+        for (external_id, id) in pending_threads {
+            state.thread_ids.insert(external_id.clone(), id);
+            state.reverse_thread_ids.insert(id, external_id);
+        }
         for (external_id, id) in pending_derived {
             state.derived_memory_ids.insert(external_id.clone(), id);
             state.reverse_derived_memory_ids.insert(id, external_id);
@@ -440,6 +446,7 @@ fn flatten_outcome(
     state: &NamespaceState,
     outcome: character_memory::RetrieveOutcome,
 ) -> RetrievedContextPack {
+    let telemetry = telemetry_from_outcome(&outcome);
     let mut trace_by_id: HashMap<MemoryId, (Option<f64>, usize)> = HashMap::new();
     if let Some(trace) = &outcome.trace {
         for candidate in &trace.vector_candidates {
@@ -451,6 +458,23 @@ fn flatten_outcome(
     }
 
     let mut items = Vec::new();
+    for thread in outcome.pack.active_threads {
+        let (score, rank) = trace_by_id
+            .get(&thread.id)
+            .copied()
+            .unwrap_or((None, items.len() + 1));
+        items.push(RetrievedItem {
+            kind: "memory_thread".to_string(),
+            internal_id: thread.id.to_string(),
+            external_id: state.reverse_thread_ids.get(&thread.id).cloned(),
+            episode_external_id: None,
+            score,
+            rank,
+            rationale: vec![outcome.rationale.summary.clone()],
+            text: Some(thread.summary),
+        });
+    }
+
     for episode in outcome.pack.relevant_episodes {
         let external_id = state
             .reverse_episode_ids
@@ -549,6 +573,142 @@ fn flatten_outcome(
         context_text,
         context_char_count,
         context_word_count,
+        telemetry,
+    }
+}
+
+fn telemetry_from_outcome(outcome: &character_memory::RetrieveOutcome) -> RetrievalTelemetry {
+    let trace = outcome.trace.as_ref();
+    let suppressed_or_deleted_returned_count = trace.map(|trace| {
+        trace
+            .lifecycle_filter_decisions
+            .iter()
+            .filter(|decision| {
+                decision.action == LifecycleFilterAction::Included
+                    && (matches!(
+                        decision.retention_state,
+                        Some(RetentionState::Suppressed | RetentionState::Deleted)
+                    ) || matches!(
+                        decision.reason,
+                        LifecycleFilterReason::SuppressedIncludedByPolicy
+                            | LifecycleFilterReason::DeletedIncludedByPolicy
+                    ))
+            })
+            .count()
+    });
+    let superseded_current_returned_count = trace.map(|trace| {
+        trace
+            .lifecycle_filter_decisions
+            .iter()
+            .filter(|decision| {
+                decision.action == LifecycleFilterAction::Included
+                    && (decision.is_current == Some(false)
+                        || !decision.superseded_by.is_empty()
+                        || matches!(
+                            decision.reason,
+                            LifecycleFilterReason::NonCurrentIncludedByPolicy
+                                | LifecycleFilterReason::SupersededIncludedByPolicy
+                        ))
+            })
+            .count()
+    });
+    let graph_object_missing_omitted_count = trace.map(|trace| {
+        trace
+            .stale_candidate_omissions
+            .iter()
+            .filter(|omission| {
+                matches!(
+                    omission.reason,
+                    character_memory::StaleCandidateReason::GraphObjectMissing
+                )
+            })
+            .count()
+            + trace
+                .lifecycle_filter_decisions
+                .iter()
+                .filter(|decision| {
+                    decision.action == LifecycleFilterAction::Omitted
+                        && decision.reason == LifecycleFilterReason::GraphObjectMissing
+                })
+                .count()
+    });
+    let graph_object_missing_returned_count = trace.map(|trace| {
+        trace
+            .lifecycle_filter_decisions
+            .iter()
+            .filter(|decision| {
+                decision.action == LifecycleFilterAction::Included
+                    && decision.reason == LifecycleFilterReason::GraphObjectMissing
+            })
+            .count()
+    });
+    RetrievalTelemetry {
+        trace_available: trace.is_some(),
+        vector_candidate_count: Some(outcome.rationale.vector_candidate_count),
+        graph_relation_count: trace.map(|trace| trace.graph_relations.len()),
+        graph_verified_count: Some(outcome.rationale.graph_verified_count),
+        stale_candidate_omission_count: Some(outcome.rationale.stale_candidate_omission_count),
+        lifecycle_omission_count: Some(outcome.rationale.lifecycle_omission_count),
+        lifecycle_filter_decision_count: trace.map(|trace| trace.lifecycle_filter_decisions.len()),
+        suppressed_or_deleted_returned_count,
+        superseded_current_returned_count,
+        graph_object_missing_omitted_count,
+        graph_object_missing_returned_count,
+        section_assignment_count: trace.map(|trace| trace.section_assignments.len()),
+        section_assignment_counts: trace
+            .map(|trace| {
+                let mut counts = BTreeMap::new();
+                for assignment in &trace.section_assignments {
+                    *counts
+                        .entry(format!("{:?}", assignment.section).to_ascii_snake_case())
+                        .or_insert(0) += 1;
+                }
+                counts
+            })
+            .unwrap_or_default(),
+        stale_candidate_omission_reasons: outcome
+            .rationale
+            .stale_candidate_omission_reasons
+            .iter()
+            .map(|summary| {
+                (
+                    format!("{:?}", summary.reason).to_ascii_snake_case(),
+                    summary.count,
+                )
+            })
+            .collect(),
+        lifecycle_omission_reasons: outcome
+            .rationale
+            .lifecycle_omission_reasons
+            .iter()
+            .map(|summary| {
+                (
+                    format!("{:?}", summary.reason).to_ascii_snake_case(),
+                    summary.count,
+                )
+            })
+            .collect(),
+    }
+}
+
+trait SnakeCaseDebug {
+    fn to_ascii_snake_case(&self) -> String;
+}
+
+impl SnakeCaseDebug for str {
+    fn to_ascii_snake_case(&self) -> String {
+        let mut out = String::new();
+        for (idx, ch) in self.chars().enumerate() {
+            if ch.is_ascii_uppercase() {
+                if idx > 0 {
+                    out.push('_');
+                }
+                out.push(ch.to_ascii_lowercase());
+            } else {
+                out.push(ch);
+            }
+        }
+        out
     }
 }
 
