@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::fs;
 use std::path::PathBuf;
+use std::time::Instant;
 
 #[cfg(feature = "real-character-memory")]
 #[path = "real_adapter.rs"]
@@ -158,10 +159,13 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
     let adapter = adapter(selected, &config).await?;
     let mut rows = Vec::new();
     let mut namespaces_to_cleanup = Vec::new();
+    let progress = RunProgress::new(&config.dataset, fixture.questions.len(), None);
 
-    for question in fixture.questions {
+    for (question_idx, question) in fixture.questions.into_iter().enumerate() {
         let namespace = format!("synthetic:{}", question.question_id);
         let timer = Timer::start();
+        let question_label = question.question_id.clone();
+        progress.item_started(question_idx + 1, &question_label);
         adapter.reset_namespace(&namespace).await?;
         for session in &question.sessions {
             adapter
@@ -189,6 +193,20 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
                     .await?;
             }
         }
+        progress.phase_done(
+            question_idx + 1,
+            &question_label,
+            "ingest",
+            &format!(
+                "sessions={} turns={}",
+                question.sessions.len(),
+                question
+                    .sessions
+                    .iter()
+                    .map(|session| session.turns.len())
+                    .sum::<usize>()
+            ),
+        );
         let pack = adapter
             .retrieve(RetrieveInput {
                 namespace: namespace.clone(),
@@ -202,6 +220,12 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
                 include_debug_rationale: config.retrieval.include_debug_rationale,
             })
             .await?;
+        progress.phase_done(
+            question_idx + 1,
+            &question_label,
+            "retrieve",
+            &format!("items={}", pack.items.len()),
+        );
         let full_history = synthetic_full_history_text(&question.sessions);
         let context = context_metrics(&pack, Some(&full_history));
         let composition = composition_metrics(&pack.items);
@@ -241,8 +265,11 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
             reader: ReaderResult::default(),
         });
         namespaces_to_cleanup.push(namespace);
+        progress.item_finished(question_idx + 1, &question_label, timer.elapsed_ms());
     }
+    progress.write_outputs_started(rows.len());
     write_outputs(args, config.clone(), rows)?;
+    progress.cleanup_started(namespaces_to_cleanup.len());
     cleanup_namespaces_after_artifacts(&*adapter, &config, &namespaces_to_cleanup).await
 }
 
@@ -257,18 +284,48 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
     let enrichment_by_namespace = load_enrichment_by_namespace(&config)?;
     let mut rows = Vec::new();
     let mut namespaces_to_cleanup = Vec::new();
-    for instance in instances {
+    let progress = RunProgress::new(&config.dataset, instances.len(), None);
+    for (instance_idx, instance) in instances.into_iter().enumerate() {
         let namespace = instance.namespace();
         let timer = Timer::start();
+        let question_label = instance.question_id.clone();
+        progress.item_started(instance_idx + 1, &question_label);
         adapter.reset_namespace(&namespace).await?;
         let mapped = cmem_eval_longmemeval::ingest::to_memory_inputs(&instance);
-        for episode in mapped.episodes {
+        let episode_count = mapped.episodes.len();
+        let observation_count = mapped.observations.len();
+        for (episode_idx, episode) in mapped.episodes.into_iter().enumerate() {
             adapter.remember_episode(episode).await?;
+            if should_log_progress(episode_idx + 1, episode_count) {
+                progress.phase_progress(
+                    instance_idx + 1,
+                    &question_label,
+                    "ingest-episodes",
+                    episode_idx + 1,
+                    episode_count,
+                );
+            }
         }
-        for observation in mapped.observations {
+        for (observation_idx, observation) in mapped.observations.into_iter().enumerate() {
             adapter.remember_observation(observation).await?;
+            if should_log_progress(observation_idx + 1, observation_count) {
+                progress.phase_progress(
+                    instance_idx + 1,
+                    &question_label,
+                    "ingest-observations",
+                    observation_idx + 1,
+                    observation_count,
+                );
+            }
         }
+        progress.phase_done(
+            instance_idx + 1,
+            &question_label,
+            "ingest",
+            &format!("episodes={episode_count} observations={observation_count}"),
+        );
         remember_configured_enrichment(&*adapter, &enrichment_by_namespace, &namespace).await?;
+        progress.phase_done(instance_idx + 1, &question_label, "enrichment", "done");
         let pack = adapter
             .retrieve(RetrieveInput {
                 namespace: namespace.clone(),
@@ -282,6 +339,12 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
                 include_debug_rationale: config.retrieval.include_debug_rationale,
             })
             .await?;
+        progress.phase_done(
+            instance_idx + 1,
+            &question_label,
+            "retrieve",
+            &format!("items={}", pack.items.len()),
+        );
         let full_history = longmemeval_full_history_text(&instance);
         let context = context_metrics(&pack, Some(&full_history));
         let composition = composition_metrics(&pack.items);
@@ -325,8 +388,11 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
             reader: ReaderResult::default(),
         });
         namespaces_to_cleanup.push(namespace);
+        progress.item_finished(instance_idx + 1, &question_label, timer.elapsed_ms());
     }
+    progress.write_outputs_started(rows.len());
     write_outputs(args, config.clone(), rows)?;
+    progress.cleanup_started(namespaces_to_cleanup.len());
     cleanup_namespaces_after_artifacts(&*adapter, &config, &namespaces_to_cleanup).await
 }
 
@@ -341,8 +407,14 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
     let enrichment_by_namespace = load_enrichment_by_namespace(&config)?;
     let mut rows = Vec::new();
     let mut namespaces_to_cleanup = Vec::new();
-    for sample in samples {
+    let total_qa = samples.iter().map(|sample| sample.qa.len()).sum::<usize>();
+    let progress = RunProgress::new(&config.dataset, samples.len(), Some(total_qa));
+    let mut completed_qa = 0usize;
+    for (sample_idx, sample) in samples.into_iter().enumerate() {
         let namespace = sample.namespace();
+        let sample_label = sample.sample_id.clone();
+        let sample_timer = Timer::start();
+        progress.item_started(sample_idx + 1, &sample_label);
         let mapped = cmem_eval_locomo::ingest::to_memory_inputs(
             &sample,
             config.ingest.include_image_captions,
@@ -350,12 +422,41 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
             config.ingest.index_generated_observations,
         );
         adapter.reset_namespace(&namespace).await?;
-        for episode in mapped.episodes {
+        let episode_count = mapped.episodes.len();
+        let observation_count = mapped.observations.len();
+        let derived_count = mapped.derived_memories.len();
+        for (episode_idx, episode) in mapped.episodes.into_iter().enumerate() {
             adapter.remember_episode(episode).await?;
+            if should_log_progress(episode_idx + 1, episode_count) {
+                progress.phase_progress(
+                    sample_idx + 1,
+                    &sample_label,
+                    "ingest-episodes",
+                    episode_idx + 1,
+                    episode_count,
+                );
+            }
         }
-        for observation in mapped.observations {
+        for (observation_idx, observation) in mapped.observations.into_iter().enumerate() {
             adapter.remember_observation(observation).await?;
+            if should_log_progress(observation_idx + 1, observation_count) {
+                progress.phase_progress(
+                    sample_idx + 1,
+                    &sample_label,
+                    "ingest-observations",
+                    observation_idx + 1,
+                    observation_count,
+                );
+            }
         }
+        progress.phase_done(
+            sample_idx + 1,
+            &sample_label,
+            "ingest",
+            &format!(
+                "episodes={episode_count} observations={observation_count} generated_derived={derived_count}"
+            ),
+        );
         let mut namespace_enrichment = enrichment::empty_namespace(namespace.clone());
         namespace_enrichment.derived_memories = mapped.derived_memories;
         if let Some(configured) = enrichment_by_namespace.get(&namespace).cloned() {
@@ -364,8 +465,10 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
             enrichment::validate_enrichment(&namespace_enrichment)?;
         }
         adapter.remember_enrichment(namespace_enrichment).await?;
-        for qa in &sample.qa {
+        progress.phase_done(sample_idx + 1, &sample_label, "enrichment", "done");
+        for (qa_idx, qa) in sample.qa.iter().enumerate() {
             let timer = Timer::start();
+            progress.qa_started(sample_idx + 1, &sample_label, qa_idx + 1, sample.qa.len());
             let pack = adapter
                 .retrieve(RetrieveInput {
                     namespace: namespace.clone(),
@@ -379,6 +482,13 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                     include_debug_rationale: config.retrieval.include_debug_rationale,
                 })
                 .await?;
+            progress.qa_retrieved(
+                sample_idx + 1,
+                &sample_label,
+                qa_idx + 1,
+                sample.qa.len(),
+                pack.items.len(),
+            );
             let full_history = locomo_full_history_text(&sample);
             let context = context_metrics(&pack, Some(&full_history));
             let composition = composition_metrics(&pack.items);
@@ -421,10 +531,20 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                 integrity,
                 reader: ReaderResult::default(),
             });
+            completed_qa += 1;
+            progress.qa_finished(
+                sample_idx + 1,
+                &sample_label,
+                completed_qa,
+                timer.elapsed_ms(),
+            );
         }
         namespaces_to_cleanup.push(namespace);
+        progress.item_finished(sample_idx + 1, &sample_label, sample_timer.elapsed_ms());
     }
+    progress.write_outputs_started(rows.len());
     write_outputs(args, config.clone(), rows)?;
+    progress.cleanup_started(namespaces_to_cleanup.len());
     cleanup_namespaces_after_artifacts(&*adapter, &config, &namespaces_to_cleanup).await
 }
 
@@ -438,6 +558,179 @@ fn load_enrichment_by_namespace(
         .map(|path| enrichment::load_enrichment_path(std::path::Path::new(path)))
         .transpose()
         .map(|value| value.unwrap_or_default())
+}
+
+struct RunProgress {
+    dataset: String,
+    total_items: usize,
+    total_qa: Option<usize>,
+    started_at: Instant,
+}
+
+impl RunProgress {
+    fn new(dataset: &str, total_items: usize, total_qa: Option<usize>) -> Self {
+        let progress = Self {
+            dataset: dataset.to_string(),
+            total_items,
+            total_qa,
+            started_at: Instant::now(),
+        };
+        match total_qa {
+            Some(total_qa) => eprintln!(
+                "[cmem-eval][{}][start] items={} qa={} elapsed_ms=0",
+                progress.dataset, total_items, total_qa
+            ),
+            None => eprintln!(
+                "[cmem-eval][{}][start] items={} elapsed_ms=0",
+                progress.dataset, total_items
+            ),
+        }
+        progress
+    }
+
+    fn item_started(&self, index: usize, label: &str) {
+        eprintln!(
+            "[cmem-eval][{}][item {}/{}][start] id={} elapsed_ms={}",
+            self.dataset,
+            index,
+            self.total_items,
+            label,
+            self.elapsed_ms()
+        );
+    }
+
+    fn phase_done(&self, index: usize, label: &str, phase: &str, detail: &str) {
+        eprintln!(
+            "[cmem-eval][{}][item {}/{}][{}] id={} {} elapsed_ms={}",
+            self.dataset,
+            index,
+            self.total_items,
+            phase,
+            label,
+            detail,
+            self.elapsed_ms()
+        );
+    }
+
+    fn phase_progress(
+        &self,
+        index: usize,
+        label: &str,
+        phase: &str,
+        completed: usize,
+        total: usize,
+    ) {
+        eprintln!(
+            "[cmem-eval][{}][item {}/{}][{} {}/{}] id={} elapsed_ms={}",
+            self.dataset,
+            index,
+            self.total_items,
+            phase,
+            completed,
+            total,
+            label,
+            self.elapsed_ms()
+        );
+    }
+
+    fn item_finished(&self, index: usize, label: &str, item_latency_ms: u128) {
+        eprintln!(
+            "[cmem-eval][{}][item {}/{}][done] id={} item_latency_ms={} elapsed_ms={}",
+            self.dataset,
+            index,
+            self.total_items,
+            label,
+            item_latency_ms,
+            self.elapsed_ms()
+        );
+    }
+
+    fn qa_started(
+        &self,
+        sample_index: usize,
+        sample_label: &str,
+        qa_index: usize,
+        sample_qa: usize,
+    ) {
+        eprintln!(
+            "[cmem-eval][{}][item {}/{}][qa {}/{}][start] sample_id={} elapsed_ms={}",
+            self.dataset,
+            sample_index,
+            self.total_items,
+            qa_index,
+            sample_qa,
+            sample_label,
+            self.elapsed_ms()
+        );
+    }
+
+    fn qa_retrieved(
+        &self,
+        sample_index: usize,
+        sample_label: &str,
+        qa_index: usize,
+        sample_qa: usize,
+        retrieved_items: usize,
+    ) {
+        eprintln!(
+            "[cmem-eval][{}][item {}/{}][qa {}/{}][retrieve] sample_id={} items={} elapsed_ms={}",
+            self.dataset,
+            sample_index,
+            self.total_items,
+            qa_index,
+            sample_qa,
+            sample_label,
+            retrieved_items,
+            self.elapsed_ms()
+        );
+    }
+
+    fn qa_finished(
+        &self,
+        sample_index: usize,
+        sample_label: &str,
+        completed_qa: usize,
+        qa_latency_ms: u128,
+    ) {
+        let total_qa = self.total_qa.unwrap_or(completed_qa);
+        eprintln!(
+            "[cmem-eval][{}][item {}/{}][qa-progress {}/{}][done] sample_id={} qa_latency_ms={} elapsed_ms={}",
+            self.dataset,
+            sample_index,
+            self.total_items,
+            completed_qa,
+            total_qa,
+            sample_label,
+            qa_latency_ms,
+            self.elapsed_ms()
+        );
+    }
+
+    fn write_outputs_started(&self, rows: usize) {
+        eprintln!(
+            "[cmem-eval][{}][write_outputs] rows={} elapsed_ms={}",
+            self.dataset,
+            rows,
+            self.elapsed_ms()
+        );
+    }
+
+    fn cleanup_started(&self, namespaces: usize) {
+        eprintln!(
+            "[cmem-eval][{}][cleanup] namespaces={} elapsed_ms={}",
+            self.dataset,
+            namespaces,
+            self.elapsed_ms()
+        );
+    }
+
+    fn elapsed_ms(&self) -> u128 {
+        self.started_at.elapsed().as_millis()
+    }
+}
+
+fn should_log_progress(completed: usize, total: usize) -> bool {
+    completed == total || completed == 1 || completed % 25 == 0
 }
 
 async fn remember_configured_enrichment(
