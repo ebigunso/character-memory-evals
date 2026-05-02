@@ -1,0 +1,17 @@
+/target/
+
+# Dataset files are usually large and should be downloaded or placed manually.
+/datasets/*
+!/datasets/README.md
+!/datasets/.gitkeep
+
+# Benchmark outputs.
+/runs/*
+!/runs/.gitkeep
+
+# Generated report artifacts, unless manually curated.
+/reports/*
+!/reports/.gitkeep
+
+.env
+.env.*

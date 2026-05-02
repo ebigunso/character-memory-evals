@@ -1,0 +1,20 @@
+{
+  "questions": [
+    {
+      "question_id": "q1",
+      "question": "What design direction did the user prefer for the first implementation?",
+      "gold_episode_ids": ["s1"],
+      "gold_observation_ids": ["s1:turn:2"],
+      "sessions": [
+        {
+          "session_id": "s1",
+          "date": "2026-04-29T10:00:00+09:00",
+          "turns": [
+            {"role": "assistant", "content": "We could build all modalities from the start."},
+            {"role": "user", "content": "For the first version, keep it chat-native and YAGNI, but leave room for future multimodal expansion."}
+          ]
+        }
+      ]
+    }
+  ]
+}

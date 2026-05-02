@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/cmem-eval-core",
+  "crates/cmem-eval-longmemeval",
+  "crates/cmem-eval-locomo",
+  "crates/cmem-eval-runner"
+]
+
+[workspace.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+csv = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["serde", "v4", "v5"] }
+
+# Local development target for the forthcoming Character Memory public API.
+character-memory = { package = "character_memory", path = "../CharacterMemory", default-features = false }

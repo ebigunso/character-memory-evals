@@ -1,0 +1,26 @@
+run_id = "synthetic_smoke"
+dataset = "synthetic"
+
+[backend]
+namespace_prefix = "bench:synthetic"
+reset_namespace_before_each_question = true
+
+[backend.cleanup]
+enabled = false
+require_collection_prefix = "bench:synthetic"
+
+[backend.embedding]
+provider = "openai"
+model = "text-embedding-3-large"
+
+[retrieval]
+top_k_episodes = 5
+top_k_observations = 10
+include_derived_memories = true
+include_threads = false
+include_entities = false
+include_debug_rationale = true
+
+[ingest]
+index_observations = true
+index_episode_summaries = true
