@@ -65,6 +65,28 @@ BM25 configs are available for synthetic, LongMemEval-S, and LoCoMo:
 namespace prefix; never reuse active live benchmark output paths for baseline
 runs.
 
+Vector-only retrieval is a live baseline selected in TOML with
+`[retrieval] mode = "vector_only"`. It ingests through Character Memory, then
+the eval runner bypasses Character Memory retrieval and searches the namespace
+Qdrant collection directly with basic vector similarity over benchmark-provided
+raw candidates: episodes and observations. It uses the configured embedding
+provider for query embeddings, requires the `real-character-memory` feature,
+and cannot run with `--adapter mock`.
+
+```bash
+cargo run -p cmem-eval-runner --features real-character-memory -- run synthetic \
+  --dataset ./fixtures/synthetic_small.json \
+  --config ./configs/synthetic_vector.toml \
+  --out ./runs/synthetic_vector.jsonl \
+  --summary-out ./runs/synthetic_vector_summary.json
+```
+
+Vector-only configs are available for synthetic, LongMemEval-S, and LoCoMo:
+`configs/synthetic_vector.toml`, `configs/longmemeval_s_vector.toml`, and
+`configs/locomo_vector.toml`. Use vector-specific run IDs, namespace prefixes,
+and output paths. Do not point vector-only runs at active benchmark Qdrant or
+OpenAI resources unless sharing that load is intentional.
+
 LongMemEval-S and LoCoMo expect local dataset files:
 
 ```bash

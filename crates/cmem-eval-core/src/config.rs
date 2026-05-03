@@ -22,6 +22,7 @@ pub enum RetrievalMode {
     #[default]
     Hybrid,
     Bm25Only,
+    VectorOnly,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -403,12 +404,31 @@ mod tests {
     }
 
     #[test]
+    fn parses_vector_only_retrieval_mode() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "retrieval": {
+                "mode": "vector_only"
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(config.retrieval.mode, RetrievalMode::VectorOnly);
+        config.validate().unwrap();
+    }
+
+    #[test]
     fn rejects_unknown_retrieval_mode() {
         let err = serde_json::from_value::<BenchmarkRunConfig>(serde_json::json!({
             "run_id": "r",
             "dataset": "synthetic",
             "retrieval": {
-                "mode": "vector_only"
+                "mode": "not_a_mode"
             }
         }))
         .unwrap_err()
