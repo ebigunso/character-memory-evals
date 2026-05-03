@@ -4,7 +4,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmem_eval_core::{
     BenchmarkRunConfig, EpisodeInput, MemoryAdapter, MockMemoryAdapter, ObservationInput,
     PerQuestionResult, ReaderResult, ResultContextMetrics, RetrievalMode, RetrieveInput,
-    RunAdapterMetadata, Timer, composition_metrics, estimate_token_count, estimate_word_count,
+    RunAdapterMetadata, Timer, composition_metrics, count_tokens, estimate_word_count,
     initialize_registry_metrics, insert_composition_metrics, insert_context_metrics,
     insert_integrity_detail_metrics, insert_retrieval_metrics, insert_telemetry_metrics,
     integrity_details_with_telemetry, read_jsonl, summarize_rows, write_jsonl, write_summary,
@@ -738,14 +738,14 @@ fn context_metrics(
 struct FullHistoryContextMetrics {
     chars: Option<usize>,
     words: Option<usize>,
-    estimated_tokens: Option<usize>,
+    tokens: Option<usize>,
 }
 
 fn full_history_context_metrics(full_history_text: Option<&str>) -> FullHistoryContextMetrics {
     FullHistoryContextMetrics {
         chars: full_history_text.map(|text| text.chars().count()),
         words: full_history_text.map(estimate_word_count),
-        estimated_tokens: full_history_text.map(estimate_token_count),
+        tokens: full_history_text.map(count_tokens),
     }
 }
 
@@ -753,28 +753,22 @@ fn context_metrics_with_full_history(
     pack: &cmem_eval_core::RetrievedContextPack,
     full_history: FullHistoryContextMetrics,
 ) -> ResultContextMetrics {
-    let retrieved_context_estimated_tokens = estimate_token_count(&pack.context_text);
-    let compression_ratio = match (
-        full_history.estimated_tokens,
-        retrieved_context_estimated_tokens,
-    ) {
+    let retrieved_context_tokens = count_tokens(&pack.context_text);
+    let compression_ratio = match (full_history.tokens, retrieved_context_tokens) {
         (Some(full), retrieved) if retrieved > 0 => Some(full as f64 / retrieved as f64),
         _ => None,
     };
-    let reduction_rate = match (
-        full_history.estimated_tokens,
-        retrieved_context_estimated_tokens,
-    ) {
+    let reduction_rate = match (full_history.tokens, retrieved_context_tokens) {
         (Some(full), retrieved) if full > 0 => Some(1.0 - retrieved as f64 / full as f64),
         _ => None,
     };
     ResultContextMetrics {
         retrieved_context_chars: pack.context_char_count,
         retrieved_context_words: pack.context_word_count,
-        retrieved_context_estimated_tokens,
+        retrieved_context_tokens,
         full_history_chars: full_history.chars,
         full_history_words: full_history.words,
-        full_history_estimated_tokens: full_history.estimated_tokens,
+        full_history_tokens: full_history.tokens,
         compression_ratio,
         reduction_rate,
     }

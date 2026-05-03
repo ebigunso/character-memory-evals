@@ -4,11 +4,11 @@ pub mod memory_adapter;
 pub mod metrics;
 pub mod results;
 pub mod timing;
-pub mod token_estimate;
+pub mod token_count;
 
 pub use config::*;
 pub use memory_adapter::*;
 pub use metrics::*;
 pub use results::*;
 pub use timing::*;
-pub use token_estimate::*;
+pub use token_count::*;
