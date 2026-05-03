@@ -16,6 +16,14 @@ pub enum EvaluationMode {
     FixedReader,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RetrievalMode {
+    #[default]
+    Hybrid,
+    Bm25Only,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BenchmarkRunConfig {
     pub run_id: String,
@@ -167,6 +175,8 @@ impl Default for EmbeddingConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetrievalConfig {
+    #[serde(default)]
+    pub mode: RetrievalMode,
     #[serde(default = "default_top_k_episodes")]
     pub top_k_episodes: usize,
     #[serde(default = "default_top_k_observations")]
@@ -184,6 +194,7 @@ pub struct RetrievalConfig {
 impl Default for RetrievalConfig {
     fn default() -> Self {
         Self {
+            mode: RetrievalMode::default(),
             top_k_episodes: default_top_k_episodes(),
             top_k_observations: default_top_k_observations(),
             include_derived_memories: false,
@@ -364,9 +375,46 @@ mod tests {
         }))
         .unwrap();
 
+        assert_eq!(config.retrieval.mode, RetrievalMode::Hybrid);
         assert!(config.retrieval.include_threads);
         assert!(config.retrieval.include_entities);
         assert!(config.retrieval.include_debug_rationale);
+    }
+
+    #[test]
+    fn parses_bm25_retrieval_mode() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "retrieval": {
+                "mode": "bm25_only",
+                "top_k_episodes": 3,
+                "top_k_observations": 7
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(config.retrieval.mode, RetrievalMode::Bm25Only);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_unknown_retrieval_mode() {
+        let err = serde_json::from_value::<BenchmarkRunConfig>(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "retrieval": {
+                "mode": "vector_only"
+            }
+        }))
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("unknown variant"));
     }
 
     #[test]

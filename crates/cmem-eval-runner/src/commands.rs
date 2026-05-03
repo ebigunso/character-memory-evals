@@ -3,8 +3,8 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmem_eval_core::{
     BenchmarkRunConfig, EpisodeInput, MemoryAdapter, MockMemoryAdapter, ObservationInput,
-    PerQuestionResult, ReaderResult, ResultContextMetrics, RetrieveInput, RunAdapterMetadata,
-    Timer, composition_metrics, estimate_token_count, estimate_word_count,
+    PerQuestionResult, ReaderResult, ResultContextMetrics, RetrievalMode, RetrieveInput,
+    RunAdapterMetadata, Timer, composition_metrics, estimate_token_count, estimate_word_count,
     initialize_registry_metrics, insert_composition_metrics, insert_context_metrics,
     insert_integrity_detail_metrics, insert_retrieval_metrics, insert_telemetry_metrics,
     integrity_details_with_telemetry, read_jsonl, summarize_rows, write_jsonl, write_summary,
@@ -154,7 +154,7 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
     config.validate()?;
     let fixture: SyntheticFixture = read_json(&args.dataset)?;
     let selected = args.selected_adapter();
-    args.validate_adapter_selection()?;
+    args.validate_adapter_selection(&config)?;
     let adapter_metadata = selected.metadata();
     let adapter = adapter(selected, &config).await?;
     let mut rows = Vec::new();
@@ -209,6 +209,7 @@ async fn run_synthetic(args: RunArgs) -> Result<()> {
         );
         let pack = adapter
             .retrieve(RetrieveInput {
+                mode: config.retrieval.mode,
                 namespace: namespace.clone(),
                 query: question.question.clone(),
                 query_date: None,
@@ -278,7 +279,7 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
     config.validate()?;
     let instances = cmem_eval_longmemeval::load_path(&args.dataset)?;
     let selected = args.selected_adapter();
-    args.validate_adapter_selection()?;
+    args.validate_adapter_selection(&config)?;
     let adapter_metadata = selected.metadata();
     let adapter = adapter(selected, &config).await?;
     let enrichment_by_namespace = load_enrichment_by_namespace(&config)?;
@@ -318,6 +319,7 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
         progress.phase_done(instance_idx + 1, &question_label, "enrichment", "done");
         let pack = adapter
             .retrieve(RetrieveInput {
+                mode: config.retrieval.mode,
                 namespace: namespace.clone(),
                 query: instance.question.clone(),
                 query_date: instance.question_date.clone(),
@@ -391,7 +393,7 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
     config.validate()?;
     let samples = cmem_eval_locomo::load_path(&args.dataset)?;
     let selected = args.selected_adapter();
-    args.validate_adapter_selection()?;
+    args.validate_adapter_selection(&config)?;
     let adapter_metadata = selected.metadata();
     let adapter = adapter(selected, &config).await?;
     let enrichment_by_namespace = load_enrichment_by_namespace(&config)?;
@@ -454,6 +456,7 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
             progress.qa_started(sample_idx + 1, &sample_label, qa_idx + 1, sample.qa.len());
             let pack = adapter
                 .retrieve(RetrieveInput {
+                    mode: config.retrieval.mode,
                     namespace: namespace.clone(),
                     query: qa.question.clone(),
                     query_date: None,
@@ -930,10 +933,17 @@ impl RunArgs {
         self.adapter.unwrap_or(AdapterKind::Real)
     }
 
-    fn validate_adapter_selection(&self) -> Result<()> {
+    fn validate_adapter_selection(&self, config: &BenchmarkRunConfig) -> Result<()> {
         if self.selected_adapter() == AdapterKind::Mock && !self.allow_mock_benchmark {
             bail!(
                 "mock adapter is test/smoke-only; pass `--allow-mock-benchmark` to make mock output explicit, or omit `--adapter` for the default live Character Memory run"
+            );
+        }
+        if config.retrieval.mode == RetrievalMode::Bm25Only
+            && self.selected_adapter() != AdapterKind::Mock
+        {
+            bail!(
+                "retrieval.mode=bm25_only is service-free and requires `--adapter mock --allow-mock-benchmark`; refusing to create a live adapter"
             );
         }
         Ok(())
@@ -1061,7 +1071,8 @@ mod tests {
         };
 
         assert_eq!(args.selected_adapter(), AdapterKind::Real);
-        args.validate_adapter_selection().unwrap();
+        args.validate_adapter_selection(&synthetic_config())
+            .unwrap();
     }
 
     #[test]
@@ -1075,7 +1086,10 @@ mod tests {
             allow_mock_benchmark: false,
         };
 
-        let err = args.validate_adapter_selection().unwrap_err().to_string();
+        let err = args
+            .validate_adapter_selection(&synthetic_config())
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("mock adapter is test/smoke-only"));
     }
 
@@ -1091,7 +1105,28 @@ mod tests {
         };
 
         assert_eq!(args.selected_adapter(), AdapterKind::Mock);
-        args.validate_adapter_selection().unwrap();
+        args.validate_adapter_selection(&synthetic_config())
+            .unwrap();
+    }
+
+    #[test]
+    fn bm25_mode_requires_guarded_mock_adapter_before_live_adapter_creation() {
+        let args = RunArgs {
+            dataset: PathBuf::from("dataset.json"),
+            config: PathBuf::from("config.toml"),
+            out: PathBuf::from("out.jsonl"),
+            summary_out: PathBuf::from("summary.json"),
+            adapter: None,
+            allow_mock_benchmark: false,
+        };
+        let config = synthetic_config_with_mode(RetrievalMode::Bm25Only);
+
+        let err = args
+            .validate_adapter_selection(&config)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("retrieval.mode=bm25_only"));
+        assert!(err.contains("refusing to create a live adapter"));
     }
 
     #[tokio::test]
@@ -1109,5 +1144,27 @@ mod tests {
         };
         assert!(err.contains("real-character-memory"));
         assert!(err.contains("--adapter mock --allow-mock-benchmark"));
+    }
+
+    fn synthetic_config() -> BenchmarkRunConfig {
+        synthetic_config_with_mode(RetrievalMode::Hybrid)
+    }
+
+    fn synthetic_config_with_mode(mode: RetrievalMode) -> BenchmarkRunConfig {
+        BenchmarkRunConfig {
+            run_id: "r".into(),
+            dataset: "synthetic".into(),
+            backend: Default::default(),
+            retrieval: cmem_eval_core::RetrievalConfig {
+                mode,
+                ..Default::default()
+            },
+            ingest: cmem_eval_core::IngestConfig {
+                index_observations: true,
+                index_episode_summaries: true,
+                ..Default::default()
+            },
+            metrics: Default::default(),
+        }
     }
 }

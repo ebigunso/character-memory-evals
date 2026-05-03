@@ -1,3 +1,4 @@
+pub mod bm25;
 pub mod config;
 pub mod memory_adapter;
 pub mod metrics;

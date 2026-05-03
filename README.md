@@ -43,6 +43,28 @@ cargo run -p cmem-eval-runner --features real-character-memory -- run synthetic 
   --summary-out ./runs/synthetic_summary.json
 ```
 
+BM25 retrieval is a service-free lexical baseline selected in TOML with
+`[retrieval] mode = "bm25_only"`. It ranks ingested episodes and observations
+inside the eval harness and does not connect to Qdrant, Oxigraph, OpenAI, or
+live Character Memory retrieval. Use BM25-specific run IDs and output paths so
+active benchmark artifacts are not overwritten:
+
+```bash
+cargo run -p cmem-eval-runner -- run synthetic \
+  --dataset ./fixtures/synthetic_small.json \
+  --config ./configs/synthetic_bm25.toml \
+  --out ./runs/synthetic_bm25.jsonl \
+  --summary-out ./runs/synthetic_bm25_summary.json \
+  --adapter mock \
+  --allow-mock-benchmark
+```
+
+BM25 configs are available for synthetic, LongMemEval-S, and LoCoMo:
+`configs/synthetic_bm25.toml`, `configs/longmemeval_s_bm25.toml`, and
+`configs/locomo_bm25.toml`. Keep cleanup disabled or use a BM25-specific
+namespace prefix; never reuse active live benchmark output paths for baseline
+runs.
+
 LongMemEval-S and LoCoMo expect local dataset files:
 
 ```bash
