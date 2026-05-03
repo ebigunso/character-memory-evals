@@ -940,6 +940,13 @@ impl RunArgs {
                 "retrieval.mode=bm25_only is service-free and requires `--adapter mock --allow-mock-benchmark`; refusing to create a live adapter"
             );
         }
+        if config.retrieval.mode == RetrievalMode::VectorOnly
+            && self.selected_adapter() == AdapterKind::Mock
+        {
+            bail!(
+                "retrieval.mode=vector_only is a live Qdrant baseline and cannot run with `--adapter mock`; omit `--adapter` or pass `--adapter real`"
+            );
+        }
         Ok(())
     }
 }
@@ -1121,6 +1128,91 @@ mod tests {
             .to_string();
         assert!(err.contains("retrieval.mode=bm25_only"));
         assert!(err.contains("refusing to create a live adapter"));
+    }
+
+    #[test]
+    fn vector_only_mode_rejects_mock_adapter() {
+        let args = RunArgs {
+            dataset: PathBuf::from("dataset.json"),
+            config: PathBuf::from("config.toml"),
+            out: PathBuf::from("out.jsonl"),
+            summary_out: PathBuf::from("summary.json"),
+            adapter: Some(AdapterKind::Mock),
+            allow_mock_benchmark: true,
+        };
+        let config = synthetic_config_with_mode(RetrievalMode::VectorOnly);
+
+        let err = args
+            .validate_adapter_selection(&config)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("retrieval.mode=vector_only"));
+        assert!(err.contains("cannot run with `--adapter mock`"));
+    }
+
+    #[test]
+    fn vector_only_mode_allows_default_real_adapter() {
+        let args = RunArgs {
+            dataset: PathBuf::from("dataset.json"),
+            config: PathBuf::from("config.toml"),
+            out: PathBuf::from("out.jsonl"),
+            summary_out: PathBuf::from("summary.json"),
+            adapter: None,
+            allow_mock_benchmark: false,
+        };
+        let config = synthetic_config_with_mode(RetrievalMode::VectorOnly);
+
+        assert_eq!(args.selected_adapter(), AdapterKind::Real);
+        args.validate_adapter_selection(&config).unwrap();
+    }
+
+    #[test]
+    fn checked_in_vector_configs_use_raw_candidate_ingestion_only() {
+        for path in [
+            "../../configs/synthetic_vector.toml",
+            "../../configs/longmemeval_s_vector.toml",
+            "../../configs/locomo_vector.toml",
+        ] {
+            let path = PathBuf::from(path);
+            let config = read_config(&path).unwrap_or_else(|err| {
+                panic!(
+                    "read vector config policy fixture {}: {err}",
+                    path.display()
+                );
+            });
+
+            assert_eq!(
+                config.retrieval.mode,
+                RetrievalMode::VectorOnly,
+                "{} must use vector_only mode",
+                path.display()
+            );
+            assert!(
+                !config.retrieval.include_derived_memories,
+                "{}",
+                path.display()
+            );
+            assert!(!config.retrieval.include_threads, "{}", path.display());
+            assert!(!config.retrieval.include_entities, "{}", path.display());
+            assert!(!config.ingest.create_threads, "{}", path.display());
+            assert!(!config.ingest.index_session_summaries, "{}", path.display());
+            assert!(
+                !config.ingest.index_generated_observations,
+                "{}",
+                path.display()
+            );
+            assert!(
+                config.ingest.enrichment_path.is_none(),
+                "{} must not ingest enrichment in vector-only baseline configs",
+                path.display()
+            );
+            config.validate().unwrap_or_else(|err| {
+                panic!(
+                    "validate vector config policy fixture {}: {err}",
+                    path.display()
+                );
+            });
+        }
     }
 
     #[tokio::test]

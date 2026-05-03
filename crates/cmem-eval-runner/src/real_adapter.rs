@@ -14,6 +14,7 @@ use cmem_eval_core::{
     RetrievedItem,
 };
 use qdrant_client::Qdrant;
+use qdrant_client::qdrant::{Condition, Filter, ScoredPoint, SearchPointsBuilder, value::Kind};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
@@ -21,9 +22,14 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 const UUID_NAMESPACE: Uuid = Uuid::from_u128(0x9b6af7a4_9076_49bb_9231_84d1ed632cf1);
+const QDRANT_OBJECT_ID_FIELD: &str = "object_id";
+const QDRANT_OBJECT_TYPE_FIELD: &str = "object_type";
+const QDRANT_CONTENT_TEXT_FIELD: &str = "content_text";
 
 pub struct CharacterMemoryAdapter {
     config: BenchmarkRunConfig,
+    qdrant: Qdrant,
+    openai_http: reqwest::Client,
     namespaces: Arc<Mutex<HashMap<String, NamespaceState>>>,
 }
 
@@ -41,10 +47,36 @@ struct NamespaceState {
     reverse_derived_memory_ids: HashMap<MemoryId, String>,
 }
 
+#[derive(Clone)]
+struct VectorNamespaceSnapshot {
+    collection_name: String,
+    reverse_episode_ids: HashMap<MemoryId, String>,
+    reverse_observation_ids: HashMap<MemoryId, (String, String)>,
+}
+
+#[derive(Debug, Clone)]
+struct VectorHit {
+    kind: &'static str,
+    object_id: MemoryId,
+    score: f64,
+    text: Option<String>,
+}
+
 impl CharacterMemoryAdapter {
     pub async fn new(config: &BenchmarkRunConfig) -> Result<Self> {
+        let qdrant = Qdrant::from_url(
+            &config
+                .backend
+                .qdrant_connection_string
+                .clone()
+                .or_else(|| env::var("QDRANT_CONNECTION_STRING").ok())
+                .context("QDRANT_CONNECTION_STRING is required for live Character Memory runs")?,
+        )
+        .build()?;
         Ok(Self {
             config: config.clone(),
+            qdrant,
+            openai_http: reqwest::Client::new(),
             namespaces: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -154,14 +186,164 @@ impl CharacterMemoryAdapter {
                 .require_collection_prefix
                 .as_deref(),
         )?;
-        let qdrant = self.qdrant_connection_string()?;
-        Qdrant::from_url(&qdrant)
-            .build()?
+        self.qdrant
             .delete_collection(collection_name)
             .await
             .with_context(|| format!("delete Qdrant collection {collection_name}"))?;
         Ok(())
     }
+
+    async fn vector_namespace_snapshot(&self, namespace: &str) -> Result<VectorNamespaceSnapshot> {
+        let mut namespaces = self.namespaces.lock().await;
+        if !namespaces.contains_key(namespace) {
+            let state = self.create_namespace_state(namespace).await?;
+            namespaces.insert(namespace.to_string(), state);
+        }
+        let state = namespaces.get(namespace).expect("namespace state inserted");
+        Ok(VectorNamespaceSnapshot {
+            collection_name: state.collection_name.clone(),
+            reverse_episode_ids: state.reverse_episode_ids.clone(),
+            reverse_observation_ids: state.reverse_observation_ids.clone(),
+        })
+    }
+
+    async fn retrieve_vector_only(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
+        let snapshot = self.vector_namespace_snapshot(&input.namespace).await?;
+        let query_embedding = self.query_embedding(&input.query).await?;
+
+        let mut hits = Vec::new();
+        hits.extend(
+            self.search_vector_kind(
+                &snapshot.collection_name,
+                &query_embedding,
+                "episode",
+                input.top_k_episodes,
+            )
+            .await?,
+        );
+        hits.extend(
+            self.search_vector_kind(
+                &snapshot.collection_name,
+                &query_embedding,
+                "observation",
+                input.top_k_observations,
+            )
+            .await?,
+        );
+
+        Ok(vector_hits_to_context_pack(&snapshot, hits))
+    }
+
+    async fn search_vector_kind(
+        &self,
+        collection_name: &str,
+        query_embedding: &[f32],
+        kind: &'static str,
+        limit: usize,
+    ) -> Result<Vec<VectorHit>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let request =
+            SearchPointsBuilder::new(collection_name, query_embedding.to_vec(), limit as u64)
+                .with_payload(true)
+                .with_vectors(false)
+                .filter(Filter::must([Condition::matches(
+                    QDRANT_OBJECT_TYPE_FIELD,
+                    kind.to_string(),
+                )]))
+                .build();
+        let response =
+            self.qdrant.search_points(request).await.with_context(|| {
+                format!("vector_only Qdrant search {collection_name} kind={kind}")
+            })?;
+        response
+            .result
+            .into_iter()
+            .map(|point| scored_point_to_vector_hit(point, kind))
+            .collect()
+    }
+
+    async fn query_embedding(&self, query: &str) -> Result<Vec<f32>> {
+        match self.config.backend.embedding.provider.as_str() {
+            "deterministic" => {
+                let vector_size = self.config.backend.embedding.vector_size.unwrap_or(3072);
+                Ok(DeterministicEmbeddingProvider { vector_size }.vector_for_text(query))
+            }
+            "openai" => self.openai_query_embedding(query).await,
+            provider => bail!("unsupported vector_only embedding provider: {provider}"),
+        }
+    }
+
+    async fn openai_query_embedding(&self, query: &str) -> Result<Vec<f32>> {
+        let api_key = env::var(&self.config.backend.openai_api_key_env)
+            .or_else(|_| env::var("OPENAI_API_KEY"))
+            .with_context(|| {
+                format!(
+                    "{} is required for vector_only OpenAI query embeddings",
+                    self.config.backend.openai_api_key_env
+                )
+            })?;
+        if api_key.trim().is_empty() {
+            bail!(
+                "{} is required for vector_only OpenAI query embeddings",
+                self.config.backend.openai_api_key_env
+            );
+        }
+
+        let response = self
+            .openai_http
+            .post("https://api.openai.com/v1/embeddings")
+            .bearer_auth(api_key)
+            .json(&OpenAiEmbeddingRequest {
+                model: self.config.backend.embedding.model.clone(),
+                input: query.to_string(),
+            })
+            .send()
+            .await
+            .context("request OpenAI query embedding for vector_only retrieval")?;
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            bail!("OpenAI query embedding request failed with {status}: {body}");
+        }
+        let body: OpenAiEmbeddingResponse = response
+            .json()
+            .await
+            .context("parse OpenAI query embedding response")?;
+        let embedding = body
+            .data
+            .into_iter()
+            .next()
+            .map(|item| item.embedding)
+            .context("OpenAI query embedding response did not contain an embedding")?;
+        if let Some(expected) = self.config.backend.embedding.vector_size {
+            if embedding.len() != expected {
+                bail!(
+                    "OpenAI query embedding length {} did not match configured vector_size {}",
+                    embedding.len(),
+                    expected
+                );
+            }
+        }
+        Ok(embedding)
+    }
+}
+
+#[derive(serde::Serialize)]
+struct OpenAiEmbeddingRequest {
+    model: String,
+    input: String,
+}
+
+#[derive(serde::Deserialize)]
+struct OpenAiEmbeddingResponse {
+    data: Vec<OpenAiEmbeddingData>,
+}
+
+#[derive(serde::Deserialize)]
+struct OpenAiEmbeddingData {
+    embedding: Vec<f32>,
 }
 
 #[async_trait]
@@ -438,10 +620,14 @@ impl MemoryAdapter for CharacterMemoryAdapter {
     }
 
     async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
-        if input.mode == RetrievalMode::Bm25Only {
-            bail!(
-                "retrieval.mode=bm25_only is service-free and must be run with `--adapter mock --allow-mock-benchmark`; the live Character Memory adapter would use Qdrant/Oxigraph"
-            );
+        match input.mode {
+            RetrievalMode::Bm25Only => {
+                bail!(
+                    "retrieval.mode=bm25_only is service-free and must be run with `--adapter mock --allow-mock-benchmark`; the live Character Memory adapter would use Qdrant/Oxigraph"
+                );
+            }
+            RetrievalMode::VectorOnly => return self.retrieve_vector_only(input).await,
+            RetrievalMode::Hybrid => {}
         }
         let mut namespaces = self.namespaces.lock().await;
         if !namespaces.contains_key(&input.namespace) {
@@ -621,6 +807,146 @@ fn flatten_outcome(
         context_char_count,
         context_word_count,
         telemetry,
+    }
+}
+
+fn vector_hits_to_context_pack(
+    snapshot: &VectorNamespaceSnapshot,
+    hits: Vec<VectorHit>,
+) -> RetrievedContextPack {
+    let vector_candidate_count = hits.len();
+    let mut best_by_key: HashMap<(&'static str, MemoryId), VectorHit> = HashMap::new();
+    for hit in hits {
+        let key = (hit.kind, hit.object_id);
+        match best_by_key.get(&key) {
+            Some(existing) if existing.score >= hit.score => {}
+            _ => {
+                best_by_key.insert(key, hit);
+            }
+        }
+    }
+
+    let mut hits = best_by_key.into_values().collect::<Vec<_>>();
+    hits.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.kind.cmp(right.kind))
+            .then_with(|| left.object_id.cmp(&right.object_id))
+    });
+
+    let mut items = Vec::new();
+    for (idx, hit) in hits.into_iter().enumerate() {
+        match hit.kind {
+            "episode" => {
+                let Some(external_id) = snapshot.reverse_episode_ids.get(&hit.object_id).cloned()
+                else {
+                    continue;
+                };
+                items.push(RetrievedItem {
+                    kind: "episode".to_string(),
+                    internal_id: hit.object_id.to_string(),
+                    external_id: Some(external_id),
+                    episode_external_id: None,
+                    score: Some(hit.score),
+                    rank: idx + 1,
+                    rationale: vec!["vector_only".to_string()],
+                    text: hit.text,
+                });
+            }
+            "observation" => {
+                let Some((external_id, episode_external_id)) = snapshot
+                    .reverse_observation_ids
+                    .get(&hit.object_id)
+                    .cloned()
+                else {
+                    continue;
+                };
+                items.push(RetrievedItem {
+                    kind: "observation".to_string(),
+                    internal_id: hit.object_id.to_string(),
+                    external_id: Some(external_id),
+                    episode_external_id: Some(episode_external_id),
+                    score: Some(hit.score),
+                    rank: idx + 1,
+                    rationale: vec!["vector_only".to_string()],
+                    text: hit.text,
+                });
+            }
+            _ => {}
+        }
+    }
+    for (idx, item) in items.iter_mut().enumerate() {
+        item.rank = idx + 1;
+    }
+
+    let context_text = render_context_text(&items);
+    let context_char_count = context_text.chars().count();
+    let context_word_count = context_text.split_whitespace().count();
+
+    RetrievedContextPack {
+        items,
+        context_text,
+        context_char_count,
+        context_word_count,
+        telemetry: RetrievalTelemetry {
+            trace_available: false,
+            vector_candidate_count: Some(vector_candidate_count),
+            graph_relation_count: None,
+            graph_verified_count: None,
+            stale_candidate_omission_count: None,
+            lifecycle_omission_count: None,
+            lifecycle_filter_decision_count: None,
+            suppressed_or_deleted_returned_count: None,
+            superseded_current_returned_count: None,
+            graph_object_missing_omitted_count: None,
+            graph_object_missing_returned_count: None,
+            section_assignment_count: None,
+            section_assignment_counts: BTreeMap::new(),
+            stale_candidate_omission_reasons: BTreeMap::new(),
+            lifecycle_omission_reasons: BTreeMap::new(),
+        },
+    }
+}
+
+fn scored_point_to_vector_hit(
+    point: ScoredPoint,
+    expected_kind: &'static str,
+) -> Result<VectorHit> {
+    let kind = payload_string(&point.payload, QDRANT_OBJECT_TYPE_FIELD)?;
+    if kind != expected_kind {
+        bail!("Qdrant returned object_type={kind} for vector_only {expected_kind} query");
+    }
+    let object_id = payload_string(&point.payload, QDRANT_OBJECT_ID_FIELD)?
+        .parse::<MemoryId>()
+        .with_context(|| format!("parse Qdrant payload {QDRANT_OBJECT_ID_FIELD}"))?;
+    let text = optional_payload_string(&point.payload, QDRANT_CONTENT_TEXT_FIELD);
+    Ok(VectorHit {
+        kind: expected_kind,
+        object_id,
+        score: point.score as f64,
+        text,
+    })
+}
+
+fn payload_string(
+    payload: &HashMap<String, qdrant_client::qdrant::Value>,
+    field: &str,
+) -> Result<String> {
+    match payload.get(field).and_then(|value| value.kind.as_ref()) {
+        Some(Kind::StringValue(value)) => Ok(value.clone()),
+        _ => bail!("missing or invalid Qdrant payload string field: {field}"),
+    }
+}
+
+fn optional_payload_string(
+    payload: &HashMap<String, qdrant_client::qdrant::Value>,
+    field: &str,
+) -> Option<String> {
+    match payload.get(field).and_then(|value| value.kind.as_ref()) {
+        Some(Kind::StringValue(value)) => Some(value.clone()),
+        _ => None,
     }
 }
 
@@ -1088,6 +1414,106 @@ mod tests {
         }]);
         assert!(text.contains("observation:s1:turn:1"));
         assert!(text.contains("hello"));
+    }
+
+    #[test]
+    fn vector_only_context_maps_raw_candidates_and_omits_graph_telemetry() {
+        let episode_id = deterministic_id("n", "episode", "s1");
+        let observation_id = deterministic_id("n", "observation", "s1:turn:1");
+        let unmapped_id = deterministic_id("n", "episode", "unmapped");
+        let snapshot = VectorNamespaceSnapshot {
+            collection_name: "collection".to_string(),
+            reverse_episode_ids: HashMap::from([(episode_id, "s1".to_string())]),
+            reverse_observation_ids: HashMap::from([(
+                observation_id,
+                ("s1:turn:1".to_string(), "s1".to_string()),
+            )]),
+        };
+
+        let pack = vector_hits_to_context_pack(
+            &snapshot,
+            vec![
+                VectorHit {
+                    kind: "episode",
+                    object_id: unmapped_id,
+                    score: 0.99,
+                    text: Some("skip me".to_string()),
+                },
+                VectorHit {
+                    kind: "observation",
+                    object_id: observation_id,
+                    score: 0.95,
+                    text: Some("turn text".to_string()),
+                },
+                VectorHit {
+                    kind: "episode",
+                    object_id: episode_id,
+                    score: 0.90,
+                    text: Some("episode summary".to_string()),
+                },
+            ],
+        );
+
+        assert_eq!(pack.items.len(), 2);
+        assert_eq!(pack.items[0].kind, "observation");
+        assert_eq!(pack.items[0].external_id.as_deref(), Some("s1:turn:1"));
+        assert_eq!(pack.items[0].episode_external_id.as_deref(), Some("s1"));
+        assert_eq!(pack.items[0].rank, 1);
+        assert_eq!(pack.items[1].kind, "episode");
+        assert_eq!(pack.items[1].external_id.as_deref(), Some("s1"));
+        assert_eq!(pack.items[1].rank, 2);
+        assert_eq!(pack.telemetry.vector_candidate_count, Some(3));
+        assert!(!pack.telemetry.trace_available);
+        assert_eq!(pack.telemetry.graph_relation_count, None);
+        assert_eq!(pack.telemetry.graph_verified_count, None);
+        assert!(pack.context_text.contains("turn text"));
+        assert!(pack.context_text.contains("episode summary"));
+    }
+
+    #[test]
+    fn vector_only_context_dedupes_duplicate_surfaces_to_best_score() {
+        let observation_id = deterministic_id("n", "observation", "s1:turn:1");
+        let snapshot = VectorNamespaceSnapshot {
+            collection_name: "collection".to_string(),
+            reverse_episode_ids: HashMap::new(),
+            reverse_observation_ids: HashMap::from([(
+                observation_id,
+                ("s1:turn:1".to_string(), "s1".to_string()),
+            )]),
+        };
+
+        let pack = vector_hits_to_context_pack(
+            &snapshot,
+            vec![
+                VectorHit {
+                    kind: "observation",
+                    object_id: observation_id,
+                    score: 0.5,
+                    text: Some("lower".to_string()),
+                },
+                VectorHit {
+                    kind: "observation",
+                    object_id: observation_id,
+                    score: 0.8,
+                    text: Some("higher".to_string()),
+                },
+            ],
+        );
+
+        assert_eq!(pack.items.len(), 1);
+        assert_eq!(pack.items[0].score, Some(0.8));
+        assert_eq!(pack.items[0].text.as_deref(), Some("higher"));
+    }
+
+    #[test]
+    fn deterministic_query_embeddings_are_stable_and_sized() {
+        let provider = DeterministicEmbeddingProvider { vector_size: 8 };
+        let first = provider.vector_for_text("Alice likes tea");
+        let second = provider.vector_for_text("Alice likes tea");
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 8);
+        assert!(first.iter().any(|value| *value > 0.0));
     }
 
     #[test]
