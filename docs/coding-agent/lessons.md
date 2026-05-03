@@ -125,3 +125,25 @@ Prevention:
 
 Evidence:
 - User correction on 2026-05-03: "Use sub-agents where possible to parellelize work!"
+
+## 2026-05-03 — Stop At Plan Gate When Requested  [tags: planning, orchestration, workflow, correction]
+
+Context:
+- Plan: forthcoming `docs/coding-agent/plans/active/exact-tiktoken-context-metrics-plan.md`
+- Task/Wave: planning
+- Roles involved: Orchestrator | Researcher
+
+Symptom:
+- The orchestrator began preparing implementation steps for the token-counting fix after the user explicitly redirected to use the orchestration harness and plan the fix first.
+
+Root cause:
+- I treated the follow-up as an implementation approval instead of re-running the harness plan gate and waiting for explicit plan approval.
+
+Fix applied:
+- Stop implementation, dispatch the required Researcher pass, and provide an approval-ready plan before making product code changes.
+
+Prevention:
+- For harness-triggered non-trivial follow-ups, create or update the execution plan and wait for user approval before any code edits, even when the technical fix appears straightforward.
+
+Evidence:
+- User correction on 2026-05-03: "Plan a fix first."

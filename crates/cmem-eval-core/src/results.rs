@@ -60,13 +60,13 @@ pub struct ResultContextMetrics {
     #[serde(default)]
     pub retrieved_context_words: usize,
     #[serde(default)]
-    pub retrieved_context_estimated_tokens: usize,
+    pub retrieved_context_tokens: usize,
     #[serde(default)]
     pub full_history_chars: Option<usize>,
     #[serde(default)]
     pub full_history_words: Option<usize>,
     #[serde(default)]
-    pub full_history_estimated_tokens: Option<usize>,
+    pub full_history_tokens: Option<usize>,
     #[serde(default)]
     pub compression_ratio: Option<f64>,
     #[serde(default)]

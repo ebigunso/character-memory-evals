@@ -178,18 +178,20 @@ ndcg@k
 LongMemEval-S uses `session_*` and `turn_*` prefixes. LoCoMo uses `dialog_*`
 and `session_*` prefixes.
 
-Context efficiency metrics are heuristic estimates:
+Context efficiency metrics use exact `tiktoken` counts with the `o200k_base`
+encoding:
 
 ```text
-retrieved_context_estimated_tokens
-full_history_estimated_tokens
+retrieved_context_tokens
+full_history_tokens
 context_compression_ratio
 context_reduction_rate
 ```
 
-`full_history_estimated_tokens` is estimated from the source transcript that the
-harness ingests for the current question/sample. Token counts use the local
-character/word estimator, not a model tokenizer.
+`full_history_tokens` is counted from the source transcript that the harness
+ingests for the current question/sample. Token counts are literal text counts
+over the retrieved context and source history; they do not include chat-message
+framing overhead.
 
 Trace-dependent metrics require:
 

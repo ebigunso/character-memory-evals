@@ -3,8 +3,8 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const REQUIRED_REGISTRY_METRICS: &[&str] = &[
-    "retrieved_context_estimated_tokens",
-    "full_history_estimated_tokens",
+    "retrieved_context_tokens",
+    "full_history_tokens",
     "context_compression_ratio",
     "context_reduction_rate",
     "retrieval_latency_ms",
@@ -227,12 +227,12 @@ pub fn registry_coverage_summary(rows: &[Map<String, Value>]) -> Value {
 
 pub fn insert_context_metrics(out: &mut Map<String, Value>, context: &crate::ResultContextMetrics) {
     out.insert(
-        "retrieved_context_estimated_tokens".to_string(),
-        Value::from(context.retrieved_context_estimated_tokens),
+        "retrieved_context_tokens".to_string(),
+        Value::from(context.retrieved_context_tokens),
     );
     out.insert(
-        "full_history_estimated_tokens".to_string(),
-        option_usize(context.full_history_estimated_tokens),
+        "full_history_tokens".to_string(),
+        option_usize(context.full_history_tokens),
     );
     out.insert(
         "context_compression_ratio".to_string(),
