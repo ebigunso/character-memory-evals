@@ -1,3 +1,5 @@
+use crate::bm25::{Bm25Document, Bm25Index, Bm25Score};
+use crate::config::RetrievalMode;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -109,6 +111,7 @@ pub struct MemoryEndpointInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetrieveInput {
+    pub mode: RetrievalMode,
     pub namespace: String,
     pub query: String,
     pub query_date: Option<String>,
@@ -223,6 +226,22 @@ struct NamespaceState {
     episodes: Vec<EpisodeInput>,
     observations: Vec<ObservationInput>,
     derived_memories: Vec<DerivedMemoryInput>,
+    bm25_index: Option<Arc<Bm25NamespaceIndex>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Bm25NamespaceIndex {
+    search: Bm25Index,
+    documents: BTreeMap<String, Bm25AdapterDocument>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Bm25AdapterDocument {
+    kind: &'static str,
+    internal_id: String,
+    external_id: String,
+    episode_external_id: Option<String>,
+    text: String,
 }
 
 #[async_trait]
@@ -236,22 +255,18 @@ impl MemoryAdapter for MockMemoryAdapter {
     async fn remember_episode(&self, input: EpisodeInput) -> Result<String> {
         let internal_id = format!("mock:episode:{}", input.external_id);
         let mut state = self.state.lock().expect("mock memory mutex poisoned");
-        state
-            .entry(input.namespace.clone())
-            .or_default()
-            .episodes
-            .push(input);
+        let namespace = state.entry(input.namespace.clone()).or_default();
+        namespace.bm25_index = None;
+        namespace.episodes.push(input);
         Ok(internal_id)
     }
 
     async fn remember_observation(&self, input: ObservationInput) -> Result<String> {
         let internal_id = format!("mock:observation:{}", input.external_id);
         let mut state = self.state.lock().expect("mock memory mutex poisoned");
-        state
-            .entry(input.namespace.clone())
-            .or_default()
-            .observations
-            .push(input);
+        let namespace = state.entry(input.namespace.clone()).or_default();
+        namespace.bm25_index = None;
+        namespace.observations.push(input);
         Ok(internal_id)
     }
 
@@ -263,6 +278,23 @@ impl MemoryAdapter for MockMemoryAdapter {
     }
 
     async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
+        if input.mode == RetrievalMode::Bm25Only {
+            let index = {
+                let mut state = self.state.lock().expect("mock memory mutex poisoned");
+                let Some(ns) = state.get_mut(&input.namespace) else {
+                    return Ok(RetrievedContextPack::default());
+                };
+                if ns.bm25_index.is_none() {
+                    ns.bm25_index = Some(Arc::new(build_bm25_index(ns)));
+                }
+                ns.bm25_index
+                    .as_ref()
+                    .expect("BM25 index was just initialized")
+                    .clone()
+            };
+            return Ok(retrieve_bm25(&index, &input));
+        }
+
         let state = self.state.lock().expect("mock memory mutex poisoned");
         let Some(ns) = state.get(&input.namespace) else {
             return Ok(RetrievedContextPack::default());
@@ -359,6 +391,123 @@ impl MemoryAdapter for MockMemoryAdapter {
     }
 }
 
+fn build_bm25_index(ns: &NamespaceState) -> Bm25NamespaceIndex {
+    let mut adapter_documents = BTreeMap::new();
+    for episode in &ns.episodes {
+        let id = format!("episode:{}", episode.external_id);
+        adapter_documents.insert(
+            id,
+            Bm25AdapterDocument {
+                kind: "episode",
+                internal_id: format!("mock:episode:{}", episode.external_id),
+                external_id: episode.external_id.clone(),
+                episode_external_id: None,
+                text: episode.summary.clone(),
+            },
+        );
+    }
+    for observation in &ns.observations {
+        let id = format!("observation:{}", observation.external_id);
+        adapter_documents.insert(
+            id,
+            Bm25AdapterDocument {
+                kind: "observation",
+                internal_id: format!("mock:observation:{}", observation.external_id),
+                external_id: observation.external_id.clone(),
+                episode_external_id: Some(observation.episode_external_id.clone()),
+                text: observation.text.clone(),
+            },
+        );
+    }
+
+    let documents = adapter_documents
+        .iter()
+        .map(|(id, document)| Bm25Document {
+            id: id.clone(),
+            text: document.text.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    Bm25NamespaceIndex {
+        search: Bm25Index::new(&documents),
+        documents: adapter_documents,
+    }
+}
+
+fn retrieve_bm25(index: &Bm25NamespaceIndex, input: &RetrieveInput) -> RetrievedContextPack {
+    let mut top_episodes = Vec::new();
+    let mut top_observations = Vec::new();
+    for score in index.search.scores(&input.query) {
+        let Some(document) = index.documents.get(&score.id) else {
+            continue;
+        };
+        match document.kind {
+            "episode" => insert_top_bm25(&mut top_episodes, score, input.top_k_episodes),
+            "observation" => {
+                insert_top_bm25(&mut top_observations, score, input.top_k_observations);
+            }
+            _ => {}
+        }
+    }
+
+    let mut items = Vec::new();
+    for score in top_episodes.into_iter().chain(top_observations) {
+        let Some(document) = index.documents.get(&score.id) else {
+            continue;
+        };
+        items.push(RetrievedItem {
+            kind: document.kind.to_string(),
+            internal_id: document.internal_id.clone(),
+            external_id: Some(document.external_id.clone()),
+            episode_external_id: document.episode_external_id.clone(),
+            score: Some(score.score),
+            rank: 0,
+            rationale: vec!["bm25_only".to_string()],
+            text: Some(document.text.clone()),
+        });
+    }
+
+    items.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.internal_id.cmp(&b.internal_id))
+    });
+    for (idx, item) in items.iter_mut().enumerate() {
+        item.rank = idx + 1;
+    }
+
+    let context_text = items
+        .iter()
+        .filter_map(|item| item.text.as_deref())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let context_char_count = context_text.chars().count();
+    let context_word_count = context_text.split_whitespace().count();
+
+    RetrievedContextPack {
+        items,
+        context_text,
+        context_char_count,
+        context_word_count,
+        telemetry: RetrievalTelemetry::default(),
+    }
+}
+
+fn insert_top_bm25(top: &mut Vec<Bm25Score>, score: Bm25Score, limit: usize) {
+    if limit == 0 {
+        return;
+    }
+    top.push(score);
+    top.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    top.truncate(limit);
+}
+
 fn default_thread_status() -> String {
     "active".to_string()
 }
@@ -435,6 +584,7 @@ mod tests {
 
         let pack = adapter
             .retrieve(RetrieveInput {
+                mode: RetrievalMode::Hybrid,
                 namespace: "n".into(),
                 query: "chat native first version".into(),
                 query_date: None,
@@ -505,6 +655,7 @@ mod tests {
 
         let pack = adapter
             .retrieve(RetrieveInput {
+                mode: RetrievalMode::Hybrid,
                 namespace: "n".into(),
                 query: "chat native first version".into(),
                 query_date: None,
@@ -556,6 +707,7 @@ mod tests {
 
         let pack = adapter
             .retrieve(RetrieveInput {
+                mode: RetrievalMode::Hybrid,
                 namespace: "n".into(),
                 query: "chat native".into(),
                 query_date: None,
@@ -572,5 +724,192 @@ mod tests {
         assert!(pack.items.iter().any(|item| {
             item.kind == "derived_memory" && item.external_id.as_deref() == Some("dm1")
         }));
+    }
+
+    #[tokio::test]
+    async fn mock_adapter_bm25_ranks_episode_and_observation_matches() {
+        let adapter = MockMemoryAdapter::default();
+        adapter
+            .remember_episodes(vec![
+                EpisodeInput {
+                    external_id: "s1".into(),
+                    namespace: "n".into(),
+                    summary: "Conversation about chat native design".into(),
+                    started_at: None,
+                    ended_at: None,
+                    participants: vec!["user".into()],
+                    metadata: serde_json::json!({}),
+                },
+                EpisodeInput {
+                    external_id: "s2".into(),
+                    namespace: "n".into(),
+                    summary: "Conversation about unrelated travel".into(),
+                    started_at: None,
+                    ended_at: None,
+                    participants: vec!["user".into()],
+                    metadata: serde_json::json!({}),
+                },
+            ])
+            .await
+            .unwrap();
+        adapter
+            .remember_observations(vec![
+                ObservationInput {
+                    external_id: "s1:turn:1".into(),
+                    episode_external_id: "s1".into(),
+                    namespace: "n".into(),
+                    speaker: Some("user".into()),
+                    text: "Keep the first version chat native".into(),
+                    observed_at: None,
+                    metadata: serde_json::json!({}),
+                },
+                ObservationInput {
+                    external_id: "s2:turn:1".into(),
+                    episode_external_id: "s2".into(),
+                    namespace: "n".into(),
+                    speaker: Some("user".into()),
+                    text: "Book a train ticket".into(),
+                    observed_at: None,
+                    metadata: serde_json::json!({}),
+                },
+            ])
+            .await
+            .unwrap();
+
+        let pack = adapter
+            .retrieve(RetrieveInput {
+                mode: RetrievalMode::Bm25Only,
+                namespace: "n".into(),
+                query: "chat native first version".into(),
+                query_date: None,
+                top_k_episodes: 1,
+                top_k_observations: 1,
+                include_derived_memories: false,
+                include_threads: false,
+                include_entities: false,
+                include_debug_rationale: false,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(pack.items.len(), 2);
+        assert!(pack.items.iter().any(|item| {
+            item.kind == "episode"
+                && item.external_id.as_deref() == Some("s1")
+                && item.rationale == vec!["bm25_only"]
+        }));
+        assert!(pack.items.iter().any(|item| {
+            item.kind == "observation" && item.external_id.as_deref() == Some("s1:turn:1")
+        }));
+    }
+
+    #[tokio::test]
+    async fn mock_adapter_bm25_excludes_derived_memories() {
+        let adapter = MockMemoryAdapter::default();
+        adapter
+            .remember_enrichment(GraphEnrichmentInput {
+                namespace: "n".into(),
+                derived_memories: vec![DerivedMemoryInput {
+                    external_id: "dm1".into(),
+                    derived_type: "reflection".into(),
+                    text: "The user prefers chat native design.".into(),
+                    source_episode_external_ids: vec!["s1".into()],
+                    source_observation_external_ids: vec![],
+                    thread_external_ids: vec![],
+                    entity_external_ids: vec![],
+                    confidence: 1.0,
+                    salience_score: 0.5,
+                    stability: "medium".into(),
+                    is_current: true,
+                    supersedes_external_ids: vec![],
+                    metadata: serde_json::json!({}),
+                }],
+                ..GraphEnrichmentInput::default()
+            })
+            .await
+            .unwrap();
+
+        let pack = adapter
+            .retrieve(RetrieveInput {
+                mode: RetrievalMode::Bm25Only,
+                namespace: "n".into(),
+                query: "chat native".into(),
+                query_date: None,
+                top_k_episodes: 5,
+                top_k_observations: 5,
+                include_derived_memories: true,
+                include_threads: false,
+                include_entities: false,
+                include_debug_rationale: false,
+            })
+            .await
+            .unwrap();
+
+        assert!(pack.items.is_empty());
+    }
+
+    #[tokio::test]
+    async fn mock_adapter_bm25_cache_invalidates_after_observation_ingest() {
+        let adapter = MockMemoryAdapter::default();
+        adapter
+            .remember_observation(ObservationInput {
+                external_id: "s1:turn:1".into(),
+                episode_external_id: "s1".into(),
+                namespace: "n".into(),
+                speaker: Some("user".into()),
+                text: "Book a train ticket".into(),
+                observed_at: None,
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .unwrap();
+
+        let first = adapter
+            .retrieve(RetrieveInput {
+                mode: RetrievalMode::Bm25Only,
+                namespace: "n".into(),
+                query: "chat native".into(),
+                query_date: None,
+                top_k_episodes: 1,
+                top_k_observations: 1,
+                include_derived_memories: false,
+                include_threads: false,
+                include_entities: false,
+                include_debug_rationale: false,
+            })
+            .await
+            .unwrap();
+        assert_eq!(first.items[0].external_id.as_deref(), Some("s1:turn:1"));
+
+        adapter
+            .remember_observation(ObservationInput {
+                external_id: "s1:turn:2".into(),
+                episode_external_id: "s1".into(),
+                namespace: "n".into(),
+                speaker: Some("user".into()),
+                text: "Keep the interface chat native".into(),
+                observed_at: None,
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .unwrap();
+
+        let second = adapter
+            .retrieve(RetrieveInput {
+                mode: RetrievalMode::Bm25Only,
+                namespace: "n".into(),
+                query: "chat native".into(),
+                query_date: None,
+                top_k_episodes: 1,
+                top_k_observations: 1,
+                include_derived_memories: false,
+                include_threads: false,
+                include_entities: false,
+                include_debug_rationale: false,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(second.items[0].external_id.as_deref(), Some("s1:turn:2"));
     }
 }

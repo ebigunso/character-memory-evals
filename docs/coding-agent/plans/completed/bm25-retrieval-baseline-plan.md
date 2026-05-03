@@ -1,6 +1,6 @@
 # Plan: BM25 Retrieval Baseline
 
-- status: draft
+- status: done
 - generated: 2026-05-03
 - last_updated: 2026-05-03
 - work_type: code
@@ -227,6 +227,46 @@ Interpretation:
   - Summary: Initial BM25 baseline implementation plan.
   - Validation evidence: Not run; planning only.
   - Notes: Branch created for planning work: `codex/bm25-retrieval-baseline-plan`.
+
+- 2026-05-03 Implementation started: [Task_1]
+  - Summary: User approved implementation after committing the plan state.
+  - Validation evidence: Pending.
+  - Notes: Starting with retrieval mode schema and BM25 sample configs.
+
+- 2026-05-03 Wave 1 completed: [Task_1]
+  - Summary: Added `RetrievalMode`, defaulted existing configs to hybrid, and added BM25 configs for synthetic, LongMemEval-S, and LoCoMo.
+  - Validation evidence: `cargo test -p cmem-eval-core config` passed.
+  - Notes: Existing hybrid configs still omit `retrieval.mode`.
+
+- 2026-05-03 Wave 2 completed: [Task_2]
+  - Summary: Added retrieval mode to `RetrieveInput` and propagated it through synthetic, LongMemEval-S, and LoCoMo runner paths.
+  - Validation evidence: `cargo test -p cmem-eval-runner` passed.
+  - Notes: Adapter selection remains separate from retrieval mode.
+
+- 2026-05-03 Wave 3 completed: [Task_3]
+  - Summary: Added eval-owned BM25 ranking and wired mock adapter BM25 retrieval over episodes and observations only.
+  - Validation evidence: `cargo test -p cmem-eval-core bm25` and `cargo test -p cmem-eval-core mock_adapter` passed.
+  - Notes: Derived memories are intentionally ignored in BM25 mode for this first baseline.
+
+- 2026-05-03 Wave 4 completed: [Task_4]
+  - Summary: Added README guidance and a live-adapter guard so BM25 cannot silently run through Qdrant/Oxigraph.
+  - Validation evidence: `cargo run -p cmem-eval-runner -- run synthetic --dataset ./fixtures/synthetic_small.json --config ./configs/synthetic_bm25.toml --out ./runs/synthetic_bm25.jsonl --summary-out ./runs/synthetic_bm25_summary.json --adapter mock --allow-mock-benchmark` passed.
+  - Notes: BM25 smoke writes only BM25-specific output paths.
+
+- 2026-05-03 Wave 5 validation completed: [Task_5]
+  - Summary: Required workspace checks and existing hybrid smoke validation passed before reviewer handoff.
+  - Validation evidence: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and existing synthetic hybrid smoke command passed.
+  - Notes: Reviewer gate pending.
+
+- 2026-05-03 Reviewer fix completed: [Task_4, Task_5]
+  - Summary: Moved BM25/live-adapter rejection before adapter creation and added a regression test.
+  - Validation evidence: `cargo test -p cmem-eval-runner`, BM25 synthetic smoke, negative BM25/default-live smoke, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and existing synthetic hybrid smoke command passed.
+  - Notes: First reviewer pass was CHANGES_REQUESTED because retrieve-time rejection was too late to guarantee service-free BM25 isolation.
+
+- 2026-05-03 Reviewer approved: [Task_5]
+  - Summary: Reviewer confirmed the live-adapter blocker is resolved and all acceptance criteria are met.
+  - Validation evidence: Reviewer status APPROVED.
+  - Notes: Plan ready to move to completed.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 

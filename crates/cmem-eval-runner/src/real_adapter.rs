@@ -10,7 +10,8 @@ use character_memory::{
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{
     BenchmarkRunConfig, EpisodeInput, GraphEnrichmentInput, MemoryAdapter, MemoryEndpointInput,
-    ObservationInput, RetrievalTelemetry, RetrieveInput, RetrievedContextPack, RetrievedItem,
+    ObservationInput, RetrievalMode, RetrievalTelemetry, RetrieveInput, RetrievedContextPack,
+    RetrievedItem,
 };
 use qdrant_client::Qdrant;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -437,6 +438,11 @@ impl MemoryAdapter for CharacterMemoryAdapter {
     }
 
     async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
+        if input.mode == RetrievalMode::Bm25Only {
+            bail!(
+                "retrieval.mode=bm25_only is service-free and must be run with `--adapter mock --allow-mock-benchmark`; the live Character Memory adapter would use Qdrant/Oxigraph"
+            );
+        }
         let mut namespaces = self.namespaces.lock().await;
         if !namespaces.contains_key(&input.namespace) {
             let state = self.create_namespace_state(&input.namespace).await?;
