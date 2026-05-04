@@ -126,6 +126,28 @@ Prevention:
 Evidence:
 - User correction on 2026-05-03: "Use sub-agents where possible to parellelize work!"
 
+## 2026-05-04 — Keep Generated Dataset Artifacts Out Of Commits Unless Explicitly Requested  [tags: git, datasets, artifacts, scope]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/locomo-online-enrichment-snapshots-plan.md`
+- Task/Wave: LoCoMo enrichment artifact generation and commit prep
+- Roles involved: Orchestrator
+
+Symptom:
+- During commit preparation, generated LoCoMo enrichment snapshot artifacts were considered as possible commit contents even though dataset outputs are ignored by repo policy.
+
+Root cause:
+- I over-weighted the user request to build local enrichment data and under-weighted the repository default that generated datasets and benchmark outputs stay out of commits unless explicitly requested.
+
+Fix applied:
+- Keep generated `datasets/enriched/locomo_online_snapshots*` files and archived legacy enrichment files local and ignored. Commit only code/config/plan changes needed to consume the artifact path.
+
+Prevention:
+- Before staging after dataset generation, explicitly classify files as source/control-plane changes versus generated data artifacts. Stage generated dataset artifacts only when the user explicitly asks for them to be committed.
+
+Evidence:
+- User correction on 2026-05-04: "The generated enrichment results should be kept out of commits btw."
+
 ## 2026-05-03 — Stop At Plan Gate When Requested  [tags: planning, orchestration, workflow, correction]
 
 Context:

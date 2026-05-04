@@ -236,6 +236,12 @@ pub struct IngestConfig {
     pub include_image_captions: bool,
     #[serde(default)]
     pub enrichment_path: Option<String>,
+    #[serde(default)]
+    pub enrichment_snapshot_path: Option<String>,
+    #[serde(default)]
+    pub enrichment_manifest_path: Option<String>,
+    #[serde(default)]
+    pub require_source_hash_match: bool,
 }
 
 impl IngestConfig {
@@ -253,6 +259,17 @@ impl IngestConfig {
         }
         if self.create_threads && self.enrichment_path.is_none() {
             bail!("ingest.create_threads requires ingest.enrichment_path");
+        }
+        if self.enrichment_path.is_some() && self.enrichment_snapshot_path.is_some() {
+            bail!(
+                "ingest.enrichment_path and ingest.enrichment_snapshot_path are mutually exclusive"
+            );
+        }
+        if self.enrichment_manifest_path.is_some() && self.enrichment_snapshot_path.is_none() {
+            bail!("ingest.enrichment_manifest_path requires ingest.enrichment_snapshot_path");
+        }
+        if self.require_source_hash_match && self.enrichment_manifest_path.is_none() {
+            bail!("ingest.require_source_hash_match requires ingest.enrichment_manifest_path");
         }
         Ok(())
     }
