@@ -148,6 +148,28 @@ Prevention:
 Evidence:
 - User correction on 2026-05-04: "The generated enrichment results should be kept out of commits btw."
 
+## 2026-05-04 — Verify Source-Only Metadata Before Treating Generated Artifacts As Valid  [tags: datasets, validation, assumptions, enrichment]
+
+Context:
+- Plan: `docs/coding-agent/plans/completed/longmemeval-s-online-enrichment-snapshots-plan.md`
+- Task/Wave: LongMemEval-S source-only correction and snapshot regeneration
+- Roles involved: Orchestrator
+
+Symptom:
+- I generated LongMemEval-S snapshots from a source-only file that lacked `question_date`, then treated the artifact as useful by falling back to final-haystack cutoffs.
+
+Root cause:
+- I adapted to missing source-only metadata instead of stopping to correct the source-only dataset so the artifact could satisfy the intended eval cutoff semantics.
+
+Fix applied:
+- Rebuilt the LongMemEval-S source-only file with `question_date`, removed nested forbidden keys, archived the invalid snapshot artifact, and regenerated snapshots using question-date cutoffs.
+
+Prevention:
+- Before generating dataset artifacts, verify the source-only input contains every non-label field required by eval semantics. If required metadata is missing, correct the source-only input first; do not invent fallback cutoff semantics.
+
+Evidence:
+- User correction on 2026-05-04: "If the source only file does not contain the required metadata, then that should be corrected, then the enrichment generation should be run to output the actually relevant files."
+
 ## 2026-05-03 — Stop At Plan Gate When Requested  [tags: planning, orchestration, workflow, correction]
 
 Context:

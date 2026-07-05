@@ -283,6 +283,7 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
     let adapter_metadata = selected.metadata();
     let adapter = adapter(selected, &config).await?;
     let enrichment_by_namespace = load_enrichment_by_namespace(&config)?;
+    let snapshots_by_question = load_snapshots_by_dataset_item(&config)?;
     let mut rows = Vec::new();
     let mut namespaces_to_cleanup = Vec::new();
     let progress = RunProgress::new(&config.dataset, instances.len(), None);
@@ -315,7 +316,24 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
             "ingest",
             &format!("episodes={episode_count} observations={observation_count}"),
         );
-        remember_configured_enrichment(&*adapter, &enrichment_by_namespace, &namespace).await?;
+        if let Some(snapshot) = snapshots_by_question.get(&instance.question_id) {
+            if snapshot.namespace != namespace {
+                bail!(
+                    "LongMemEval-S snapshot {} namespace {} does not match expected {}",
+                    snapshot.snapshot_id,
+                    snapshot.namespace,
+                    namespace
+                );
+            }
+            adapter.remember_enrichment(snapshot.graph.clone()).await?;
+        } else if config.ingest.enrichment_snapshot_path.is_some() {
+            bail!(
+                "missing LongMemEval-S enrichment snapshot for question_id {}",
+                instance.question_id
+            );
+        } else {
+            remember_configured_enrichment(&*adapter, &enrichment_by_namespace, &namespace).await?;
+        }
         progress.phase_done(instance_idx + 1, &question_label, "enrichment", "done");
         let pack = adapter
             .retrieve(RetrieveInput {
