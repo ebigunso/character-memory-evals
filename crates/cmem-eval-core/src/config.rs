@@ -305,11 +305,11 @@ impl MetricsConfig {
 }
 
 fn default_top_k_episodes() -> usize {
-    10
+    8
 }
 
 fn default_top_k_observations() -> usize {
-    20
+    16
 }
 
 fn default_embedding_provider() -> String {

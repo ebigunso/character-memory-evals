@@ -14,8 +14,6 @@ provider = "openai"
 model = "text-embedding-3-large"
 
 [retrieval]
-top_k_episodes = 10
-top_k_observations = 50
 include_derived_memories = true
 include_threads = false
 include_entities = false
