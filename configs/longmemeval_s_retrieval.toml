@@ -14,8 +14,6 @@ provider = "openai"
 model = "text-embedding-3-large"
 
 [retrieval]
-top_k_episodes = 10
-top_k_observations = 50
 include_derived_memories = true
 include_threads = false
 include_entities = false
@@ -26,8 +24,9 @@ index_observations = true
 index_episode_summaries = true
 create_threads = false
 store_gold_labels = false
-# Optional precomputed enrichment JSONL produced from haystack/source text only.
-enrichment_path = "./datasets/enriched/longmemeval_s_enrichment.jsonl"
+# Per-question graph snapshots produced from source-only chronological replay.
+enrichment_snapshot_path = "./datasets/enriched/longmemeval_s_online_snapshots.jsonl"
+enrichment_manifest_path = "./datasets/enriched/longmemeval_s_online_snapshots_manifest.json"
 
 [metrics]
 ks_session = [1, 3, 5, 10]

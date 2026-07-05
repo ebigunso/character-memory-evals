@@ -283,6 +283,7 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
     let adapter_metadata = selected.metadata();
     let adapter = adapter(selected, &config).await?;
     let enrichment_by_namespace = load_enrichment_by_namespace(&config)?;
+    let snapshots_by_question = load_snapshots_by_dataset_item(&config)?;
     let mut rows = Vec::new();
     let mut namespaces_to_cleanup = Vec::new();
     let progress = RunProgress::new(&config.dataset, instances.len(), None);
@@ -315,7 +316,24 @@ async fn run_longmemeval(args: RunArgs) -> Result<()> {
             "ingest",
             &format!("episodes={episode_count} observations={observation_count}"),
         );
-        remember_configured_enrichment(&*adapter, &enrichment_by_namespace, &namespace).await?;
+        if let Some(snapshot) = snapshots_by_question.get(&instance.question_id) {
+            if snapshot.namespace != namespace {
+                bail!(
+                    "LongMemEval-S snapshot {} namespace {} does not match expected {}",
+                    snapshot.snapshot_id,
+                    snapshot.namespace,
+                    namespace
+                );
+            }
+            adapter.remember_enrichment(snapshot.graph.clone()).await?;
+        } else if config.ingest.enrichment_snapshot_path.is_some() {
+            bail!(
+                "missing LongMemEval-S enrichment snapshot for question_id {}",
+                instance.question_id
+            );
+        } else {
+            remember_configured_enrichment(&*adapter, &enrichment_by_namespace, &namespace).await?;
+        }
         progress.phase_done(instance_idx + 1, &question_label, "enrichment", "done");
         let pack = adapter
             .retrieve(RetrieveInput {
@@ -397,6 +415,7 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
     let adapter_metadata = selected.metadata();
     let adapter = adapter(selected, &config).await?;
     let enrichment_by_namespace = load_enrichment_by_namespace(&config)?;
+    let snapshots_by_sample = load_snapshots_by_dataset_item(&config)?;
     let mut rows = Vec::new();
     let mut namespaces_to_cleanup = Vec::new();
     let total_qa = samples.iter().map(|sample| sample.qa.len()).sum::<usize>();
@@ -439,13 +458,32 @@ async fn run_locomo(args: RunArgs) -> Result<()> {
                 "episodes={episode_count} observations={observation_count} generated_derived={derived_count}"
             ),
         );
-        let mut namespace_enrichment = enrichment::empty_namespace(namespace.clone());
-        namespace_enrichment.derived_memories = mapped.derived_memories;
-        if let Some(configured) = enrichment_by_namespace.get(&namespace).cloned() {
-            enrichment::merge_enrichment(&mut namespace_enrichment, configured)?;
-        } else {
-            enrichment::validate_enrichment(&namespace_enrichment)?;
-        }
+        let namespace_enrichment =
+            if let Some(snapshot) = snapshots_by_sample.get(&sample.sample_id) {
+                if snapshot.namespace != namespace {
+                    bail!(
+                        "LoCoMo snapshot {} namespace {} does not match expected {}",
+                        snapshot.snapshot_id,
+                        snapshot.namespace,
+                        namespace
+                    );
+                }
+                snapshot.graph.clone()
+            } else if config.ingest.enrichment_snapshot_path.is_some() {
+                bail!(
+                    "missing LoCoMo enrichment snapshot for sample_id {}",
+                    sample.sample_id
+                );
+            } else {
+                let mut namespace_enrichment = enrichment::empty_namespace(namespace.clone());
+                namespace_enrichment.derived_memories = mapped.derived_memories;
+                if let Some(configured) = enrichment_by_namespace.get(&namespace).cloned() {
+                    enrichment::merge_enrichment(&mut namespace_enrichment, configured)?;
+                } else {
+                    enrichment::validate_enrichment(&namespace_enrichment)?;
+                }
+                namespace_enrichment
+            };
         adapter.remember_enrichment(namespace_enrichment).await?;
         progress.phase_done(sample_idx + 1, &sample_label, "enrichment", "done");
         let full_history = locomo_full_history_text(&sample);
@@ -542,6 +580,18 @@ fn load_enrichment_by_namespace(
         .enrichment_path
         .as_ref()
         .map(|path| enrichment::load_enrichment_path(std::path::Path::new(path)))
+        .transpose()
+        .map(|value| value.unwrap_or_default())
+}
+
+fn load_snapshots_by_dataset_item(
+    config: &BenchmarkRunConfig,
+) -> Result<std::collections::HashMap<String, cmem_eval_core::GraphSnapshotInput>> {
+    config
+        .ingest
+        .enrichment_snapshot_path
+        .as_ref()
+        .map(|path| enrichment::load_snapshot_path(std::path::Path::new(path)))
         .transpose()
         .map(|value| value.unwrap_or_default())
 }

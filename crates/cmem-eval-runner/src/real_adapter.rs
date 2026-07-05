@@ -4,8 +4,8 @@ use character_memory::{
     CharacterMemory, ContinuitySectionLimits, DerivedMemoryDraft, DerivedType, EmbeddingProvider,
     EntityDraft, EntityType, EpisodeDraft, LifecycleFilterAction, LifecycleFilterReason, MemoryId,
     MemoryLinkDraft, MemoryObjectDraft, MemoryThreadDraft, ObjectType, ObservationDraft,
-    RelationType, RememberDraft, RetentionState, RetrievalCandidateLimits, RetrievalContext,
-    Settings, Stability, ThreadStatus,
+    RelationType, RememberDraft, RetentionState, RetrievalContext, Settings, Stability,
+    ThreadStatus,
 };
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{
@@ -640,10 +640,6 @@ impl MemoryAdapter for CharacterMemoryAdapter {
 
         let mut context = RetrievalContext::new(input.query);
         context.include_trace = input.include_debug_rationale;
-        context.candidate_limits = RetrievalCandidateLimits {
-            max_vector_candidates: input.top_k_episodes + input.top_k_observations + 16,
-            max_graph_roots: (input.top_k_episodes + input.top_k_observations).max(1),
-        };
         context.section_limits = ContinuitySectionLimits {
             relevant_episodes: input.top_k_episodes,
             salient_observations: input.top_k_observations,

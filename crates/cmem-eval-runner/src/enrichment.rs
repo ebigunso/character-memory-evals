@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow, bail};
 use cmem_eval_core::{
-    DerivedMemoryInput, EntityInput, GraphEnrichmentInput, MemoryLinkInput, MemoryThreadInput,
+    DerivedMemoryInput, EntityInput, GraphEnrichmentInput, GraphSnapshotInput, MemoryLinkInput,
+    MemoryThreadInput,
 };
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -55,6 +56,54 @@ pub fn load_enrichment_path(path: &Path) -> Result<HashMap<String, GraphEnrichme
             .with_context(|| format!("validate merged enrichment namespace {}", input.namespace))?;
     }
     Ok(by_namespace)
+}
+
+pub fn load_snapshot_path(path: &Path) -> Result<HashMap<String, GraphSnapshotInput>> {
+    let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let reader = BufReader::new(file);
+    let mut by_dataset_item: HashMap<String, GraphSnapshotInput> = HashMap::new();
+    for (line_idx, line) in reader.lines().enumerate() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let value: Value = serde_json::from_str(&line)
+            .with_context(|| format!("parse snapshot JSONL line {}", line_idx + 1))?;
+        reject_forbidden_keys(&value)
+            .with_context(|| format!("validate snapshot JSONL line {}", line_idx + 1))?;
+        let snapshot: GraphSnapshotInput = serde_json::from_value(value)
+            .with_context(|| format!("decode snapshot JSONL line {}", line_idx + 1))?;
+        validate_snapshot(&snapshot)
+            .with_context(|| format!("validate snapshot JSONL line {}", line_idx + 1))?;
+        if by_dataset_item
+            .insert(snapshot.dataset_item_id.clone(), snapshot)
+            .is_some()
+        {
+            bail!(
+                "duplicate snapshot dataset_item_id in {} line {}",
+                path.display(),
+                line_idx + 1
+            );
+        }
+    }
+    Ok(by_dataset_item)
+}
+
+pub fn validate_snapshot(snapshot: &GraphSnapshotInput) -> Result<()> {
+    require_non_empty("snapshot_id", &snapshot.snapshot_id)?;
+    require_non_empty("snapshot.namespace", &snapshot.namespace)?;
+    require_non_empty("snapshot.dataset_item_id", &snapshot.dataset_item_id)?;
+    require_non_empty("snapshot.cutoff.type", &snapshot.cutoff.cutoff_type)?;
+    require_non_empty("snapshot.cutoff.value", &snapshot.cutoff.value)?;
+    if snapshot.graph.namespace != snapshot.namespace {
+        bail!(
+            "snapshot {} graph namespace {} does not match snapshot namespace {}",
+            snapshot.snapshot_id,
+            snapshot.graph.namespace,
+            snapshot.namespace
+        );
+    }
+    validate_enrichment(&snapshot.graph)
 }
 
 pub fn validate_enrichment(input: &GraphEnrichmentInput) -> Result<()> {

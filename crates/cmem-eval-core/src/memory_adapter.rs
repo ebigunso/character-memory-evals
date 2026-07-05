@@ -42,6 +42,22 @@ pub struct GraphEnrichmentInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphSnapshotInput {
+    pub snapshot_id: String,
+    pub namespace: String,
+    pub dataset_item_id: String,
+    pub cutoff: SnapshotCutoff,
+    pub graph: GraphEnrichmentInput,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotCutoff {
+    #[serde(rename = "type")]
+    pub cutoff_type: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityInput {
     pub external_id: String,
     pub entity_type: String,
