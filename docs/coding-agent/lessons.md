@@ -298,3 +298,45 @@ Prevention:
 
 Evidence:
 - Orchestrator correction on 2026-07-11: the three Task_5 commits were visible, but no Task_5 report or post-16:01 message existed in its AGMSG history.
+
+## 2026-07-12 — Test Durable Lifecycle From A Fresh Adapter Instance  [tags: review, lifecycle, persistence, validation]
+
+Symptom:
+- The benchmark pipeline reset a namespace through a fresh adapter whose in-memory namespace map was empty, so cleanup silently skipped an existing deterministic collection and identity registry before ingest.
+
+Root cause:
+- Lifecycle validation covered reopen and reattach behavior but did not exercise the distinct fresh-run path from a new adapter instance against stale durable state.
+
+Fix applied:
+- Make fresh namespace preparation explicitly reset durable identity before `open_namespace`, make live reset derive durable paths without an in-memory entry, and verify the behavior with a live fresh-instance regression test.
+
+Prevention:
+- For restart-capable adapters, require separate regression scenarios for fresh open, intended reattach, and fresh-instance cleanup of stale durable state.
+
+## 2026-07-12 — Validate Complete Mutation Drafts Before State Changes  [tags: review, atomicity, state, validation]
+
+Symptom:
+- Mock correction and forget operations could return a validation error after already applying earlier suppressions, appends, or deletions.
+
+Root cause:
+- Validation and mutation occurred in the same iteration, so late invalid items crossed the failure boundary after partial state changes.
+
+Fix applied:
+- Validate every target and replacement before acquiring mutable state, then apply the already-validated operation as one mutation phase.
+
+Prevention:
+- Mutation tests must include a valid first item followed by an invalid later item and assert the complete pre-call state remains unchanged.
+
+## 2026-07-12 — Reconstructed Artifacts Must Receive Original Context  [tags: review, reporting, compatibility, validation]
+
+Symptom:
+- Re-summarizing result rows used an empty config and no dataset metric family, dropping provider metadata and changing registry coverage relative to run-emitted summaries.
+
+Root cause:
+- The compatibility entrypoint reconstructed a derived artifact without requiring the original configuration and dataset selection that defined its semantics.
+
+Fix applied:
+- Require the summarize CLI/API to receive the original config and metric family, validate run/dataset consistency, and compare regenerated provider/config/coverage fields with run output.
+
+Prevention:
+- Any reconstruction or compatibility path for a derived artifact must receive and validate all original semantic inputs, with parity tests against the primary emission path.
