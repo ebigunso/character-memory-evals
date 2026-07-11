@@ -1,8 +1,8 @@
 # Plan: Eval Harness Architecture Revision for Continuity-Readiness
 
-- status: in_progress
+- status: completed
 - generated: 2026-07-05
-- last_updated: 2026-07-05
+- last_updated: 2026-07-12
 - work_type: code
 
 Context: this repo was assembled quickly around LongMemEval-S/LoCoMo. Before the continuity evaluation harness (sibling crate milestone v0.1.4) lands here as a new dataset crate, revise the architecture so new dataset kinds plug in without editing core dispatch, the adapter contract covers the full character_memory facade with a restart-capable identity story, and the report/metric-registry format is stable and versioned. This plan is the gating pre-phase tracked as Task_4 of the sibling repo's v0.1.4 plan.
@@ -313,6 +313,8 @@ Task_8's dependency set extends to [Task_6, Task_7, Task_9] with Task_9's additi
 - 2026-07-11 18:45 Task_5 completed (evals-worker; commits fbd62e2, bff4bad, 2174d14 unchanged — validation-only rerun after asset regeneration). LongMemEval-S (500 rows) and LoCoMo (1,986 rows) metric-value preservation PASS against a properly regenerated PRE baseline (detached worktree at db38bbd, isolated target dir, binary run from main-root cwd so the regenerated datasets resolved in place — nothing moved or copied); every PRE deterministic metric key/value identical in POST; POST-only additions are explicit null registry entries per the approved metric-family semantics; summaries carry schema_version 1.0.0, provider, segregated latency (percentiles intact); registry accounting complete (66/66 present, 0 missing). Task_3's pending live evidence RETIRED: with Qdrant up, live_adapter_reattaches_with_external_ids exercised the live path (skip marker absent) and passed within the 100-test pinned workspace suite. Worktree cleanup verified with post-cleanup asset existence/size checks. Wave 4 complete; Task_7 dispatched (Wave 5 remainder).
 
 - 2026-07-11 18:50 Task_7 completed (evals-worker; commit ff7e6d6). README architecture section rewritten source-backed (adapter crate, DatasetSpec seam with no-core-edit dataset addition, runtime metric families, schema 1.0.0 with segregated latency + provider, deterministic collections, BTreeMap registry, open-vs-reattach lifecycle, future crates/cmem-eval-continuity home). common.md refreshed with checkable post-revision boundaries; the stale machine-local Downloads setup-guide reference removed (verified superseded — still-valid principles already covered by README/rules) and replaced with the repo README; rooted machine-local-path audit clean; documented CLI verified against live --help output. Wave 5 complete; Task_8 independent review dispatched.
+
+- 2026-07-11 19:05 Task_8 completed — Reviewer APPROVED; plan Definition of Done fully satisfied. All eight DoD items verified in source with file:line evidence; full pinned workspace gate exit 0; live reattach round-trip exercised against local Qdrant (6.79s, no skip marker); independent two-run synthetic determinism check passed (only latency differs before masking); contract covers all eight sibling facade ops via crate-root public imports only (targeted rg for internal module paths: zero hits; sibling working tree unmodified); determinism sweep over the full branch diff clean (no hash-iteration feeding reports, no wall-clock feeding deterministic outputs); docs/rules verified claim-by-claim. Non-blocking follow-ups to ride with first continuity-crate work: doc comments on mock op semantics (MINOR); mock-run summaries record the configured provider rather than the exercised one (INFO); ExternalIdRegistry is crate-private — export if the continuity crate wants reuse (INFO). Plan moved to completed/.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
