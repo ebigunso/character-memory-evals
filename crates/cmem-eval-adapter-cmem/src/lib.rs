@@ -208,7 +208,7 @@ impl CharacterMemoryAdapter {
     ) -> Result<NamespaceState> {
         let collection_name = self.collection_name(namespace);
         let identity_registry_path = self.identity_registry_path(namespace);
-        let settings = self.settings()?;
+        let settings = self.settings(namespace)?;
         let memory = if self.config.backend.embedding.provider == "deterministic" {
             let vector_size = self.config.backend.embedding.vector_size.unwrap_or(3072);
             CharacterMemory::new_with_embedding_provider(
@@ -229,7 +229,7 @@ impl CharacterMemoryAdapter {
         })
     }
 
-    fn settings(&self) -> Result<Settings> {
+    fn settings(&self, namespace: &str) -> Result<Settings> {
         let qdrant = self.qdrant_connection_string()?;
         let oxigraph = self
             .config
@@ -262,15 +262,18 @@ impl CharacterMemoryAdapter {
                 "embedding_model",
                 self.config.backend.embedding.model.clone(),
             )?;
-        if let Some(path) = &self.config.backend.oxigraph_persistence_path {
+        if let Some(path) = self.oxigraph_persistence_path(namespace) {
             builder = builder
                 .set_override("graph_store_mode", "persistent")?
-                .set_override("oxigraph_connection_string", path.clone())?;
+                .set_override(
+                    "oxigraph_connection_string",
+                    path.to_string_lossy().into_owned(),
+                )?;
         }
-        if let Some(path) = &self.config.backend.retrieval_stats_path {
+        if let Some(path) = self.retrieval_stats_path(namespace) {
             builder = builder
                 .set_override("retrieval_stats_store_mode", "sqlite")?
-                .set_override("retrieval_stats_path", path.clone())?;
+                .set_override("retrieval_stats_path", path.to_string_lossy().into_owned())?;
         }
         let external_config = builder.build()?;
 
@@ -335,6 +338,65 @@ impl CharacterMemoryAdapter {
         ))
     }
 
+    /// Configured durable-store paths are roots/templates, never deletion targets. Each
+    /// namespace gets a child path derived from the same prefix/run/namespace identity used by
+    /// Qdrant and the external-ID registry, so reset cannot erase another namespace's state.
+    fn durable_store_identity(&self, namespace: &str) -> String {
+        format!(
+            "{}-{}-{}",
+            sanitize_collection_segment(self.namespace_prefix()),
+            sanitize_collection_segment(namespace),
+            self.namespace_identity_suffix(namespace).simple()
+        )
+    }
+
+    fn oxigraph_persistence_path(&self, namespace: &str) -> Option<PathBuf> {
+        self.config
+            .backend
+            .oxigraph_persistence_path
+            .as_deref()
+            .map(Path::new)
+            .map(|root| {
+                root.join(format!(
+                    "oxigraph-{}",
+                    self.durable_store_identity(namespace)
+                ))
+            })
+    }
+
+    fn retrieval_stats_path(&self, namespace: &str) -> Option<PathBuf> {
+        self.config
+            .backend
+            .retrieval_stats_path
+            .as_deref()
+            .map(Path::new)
+            .map(|template| {
+                let parent = template.parent().unwrap_or_else(|| Path::new(""));
+                let stem = template
+                    .file_stem()
+                    .filter(|stem| !stem.is_empty())
+                    .unwrap_or_else(|| std::ffi::OsStr::new("retrieval-stats"));
+                let mut filename = stem.to_os_string();
+                filename.push(format!("-{}", self.durable_store_identity(namespace)));
+                if let Some(extension) = template.extension() {
+                    filename.push(".");
+                    filename.push(extension);
+                }
+                parent.join(filename)
+            })
+    }
+
+    fn configured_durable_store_paths(&self, namespace: &str) -> Vec<(&'static str, PathBuf)> {
+        let mut stores = Vec::new();
+        if let Some(path) = self.oxigraph_persistence_path(namespace) {
+            stores.push(("Oxigraph store", path));
+        }
+        if let Some(path) = self.retrieval_stats_path(namespace) {
+            stores.push(("retrieval stats store", path));
+        }
+        stores
+    }
+
     async fn delete_collection_with_prefix(
         &self,
         collection_name: &str,
@@ -379,6 +441,8 @@ impl CharacterMemoryAdapter {
         };
         self.delete_collection_with_prefix(&collection_name, required_prefix)
             .await?;
+        let removed_state = self.namespaces.lock().await.remove(namespace);
+        drop(removed_state);
         if identity_registry_path.exists() {
             fs::remove_file(&identity_registry_path).with_context(|| {
                 format!(
@@ -387,8 +451,9 @@ impl CharacterMemoryAdapter {
                 )
             })?;
         }
-        let mut namespaces = self.namespaces.lock().await;
-        namespaces.remove(namespace);
+        for (store_name, path) in self.configured_durable_store_paths(namespace) {
+            remove_namespace_store(&path, store_name)?;
+        }
         Ok(())
     }
 
@@ -556,6 +621,16 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 "identity registry already exists for namespace {namespace}; use reattach_namespace"
             );
         }
+        if let Some((store_name, path)) = self
+            .configured_durable_store_paths(namespace)
+            .into_iter()
+            .find(|(_, path)| path.exists())
+        {
+            bail!(
+                "{store_name} {} already exists for namespace {namespace}; reset the namespace or use reattach_namespace",
+                path.display()
+            );
+        }
         let collection_name = self.collection_name(namespace);
         if self
             .qdrant
@@ -583,21 +658,28 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             bail!("namespace is already open: {namespace}");
         }
         let registry_path = self.identity_registry_path(namespace);
-        if !registry_path.exists() {
-            bail!(
-                "identity registry does not exist for namespace {namespace}; reattach requires both the registry and Qdrant collection"
-            );
-        }
         let collection_name = self.collection_name(namespace);
-        if !self
+        let collection_exists = self
             .qdrant
             .collection_exists(&collection_name)
             .await
-            .with_context(|| format!("check Qdrant collection {collection_name} for reattach"))?
-        {
+            .with_context(|| format!("check Qdrant collection {collection_name} for reattach"))?;
+        let mut missing_stores = Vec::new();
+        if !registry_path.exists() {
+            missing_stores.push(format!("identity registry {}", registry_path.display()));
+        }
+        if !collection_exists {
+            missing_stores.push(format!("Qdrant collection {collection_name}"));
+        }
+        for (store_name, path) in self.configured_durable_store_paths(namespace) {
+            if !path.exists() {
+                missing_stores.push(format!("{store_name} {}", path.display()));
+            }
+        }
+        if !missing_stores.is_empty() {
             bail!(
-                "Qdrant collection {collection_name} does not exist for namespace {namespace} while identity registry {} exists; reattach requires both durable stores",
-                registry_path.display()
+                "cannot reattach namespace {namespace}; missing durable store(s): {}; reattach requires the identity registry, Qdrant collection, and every configured namespace-scoped store",
+                missing_stores.join(", ")
             );
         }
         let identities = ExternalIdRegistry::load(&registry_path, namespace)?;
@@ -2348,6 +2430,29 @@ fn sanitize_collection_segment(value: &str) -> String {
         .collect()
 }
 
+fn remove_namespace_store(path: &Path, store_name: &str) -> Result<()> {
+    if path.is_dir() {
+        fs::remove_dir_all(path)
+            .with_context(|| format!("remove {store_name} directory {}", path.display()))?;
+    } else if path.exists() {
+        fs::remove_file(path)
+            .with_context(|| format!("remove {store_name} file {}", path.display()))?;
+    }
+    if store_name == "retrieval stats store" {
+        for suffix in ["-wal", "-shm"] {
+            let mut sidecar = path.as_os_str().to_os_string();
+            sidecar.push(suffix);
+            let sidecar = PathBuf::from(sidecar);
+            if sidecar.exists() {
+                fs::remove_file(&sidecar).with_context(|| {
+                    format!("remove retrieval stats store sidecar {}", sidecar.display())
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
 struct CharacterMemoryEmbeddingProvider {
     inner: DeterministicEmbeddingProvider,
 }
@@ -2396,7 +2501,7 @@ mod tests {
         MemoryObjectRef, Modality, RetrievalRationale, RetrievalTrace, RetrieveOutcome,
         VectorDatabaseError,
     };
-    use cmem_eval_core::{CleanupConfig, EmbeddingConfig};
+    use cmem_eval_core::{CleanupConfig, EmbeddingConfig, EntityInput, MemoryLinkInput};
     use tempfile::tempdir;
 
     fn adapter_config(run_id: String, namespace_prefix: String) -> BenchmarkRunConfig {
@@ -2426,6 +2531,13 @@ mod tests {
             ingest: Default::default(),
             metrics: Default::default(),
         }
+    }
+
+    fn file_contains(path: &Path, needle: &[u8]) -> bool {
+        fs::read(path)
+            .unwrap()
+            .windows(needle.len())
+            .any(|window| window == needle)
     }
 
     fn is_qdrant_unavailable_error(error: &VectorDatabaseError) -> bool {
@@ -2648,6 +2760,38 @@ mod tests {
                 .to_string_lossy()
                 .ends_with(&format!("{shared_suffix}.json"))
         );
+        let directory = tempdir().unwrap();
+        let mut first_config = adapter_config("run-a".to_string(), "cmem_eval_task3".to_string());
+        first_config.backend.oxigraph_persistence_path = Some(
+            directory
+                .path()
+                .join("oxigraph-root")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        first_config.backend.retrieval_stats_path = Some(
+            directory
+                .path()
+                .join("retrieval.sqlite")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let first_with_stores = CharacterMemoryAdapter::new(&first_config).await.unwrap();
+        let oxigraph_path = first_with_stores
+            .oxigraph_persistence_path("namespace")
+            .unwrap();
+        let stats_path = first_with_stores.retrieval_stats_path("namespace").unwrap();
+        assert_eq!(
+            oxigraph_path.parent(),
+            Some(directory.path().join("oxigraph-root").as_path())
+        );
+        assert!(oxigraph_path.to_string_lossy().contains(&shared_suffix));
+        assert_eq!(stats_path.parent(), Some(directory.path()));
+        assert!(stats_path.to_string_lossy().contains(&shared_suffix));
+        assert_eq!(
+            stats_path.extension().and_then(|value| value.to_str()),
+            Some("sqlite")
+        );
         validate_cleanup_target(&first.collection_name("namespace"), Some("cmem_eval_task3"))
             .unwrap();
     }
@@ -2829,6 +2973,10 @@ mod tests {
                 .to_string_lossy()
                 .into_owned(),
         );
+        let path_adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let oxigraph_path = path_adapter.oxigraph_persistence_path(namespace).unwrap();
+        let retrieval_stats_path = path_adapter.retrieval_stats_path(namespace).unwrap();
+        drop(path_adapter);
 
         // Absence before the first successful Qdrant operation skips this gated test. Once
         // availability is demonstrated, later failures are test failures; teardown alone gets
@@ -2878,7 +3026,47 @@ mod tests {
                 })
                 .await
         );
+        live_call_or_skip!(
+            qdrant_was_available,
+            "graph enrichment ingest",
+            true,
+            adapter_a
+                .remember_enrichment(GraphEnrichmentInput {
+                    namespace: namespace.to_string(),
+                    entities: vec![EntityInput {
+                        external_id: "alice-entity".to_string(),
+                        entity_type: "person".to_string(),
+                        name: "Alice".to_string(),
+                        aliases: Vec::new(),
+                        canonical_key: None,
+                        summary: Some("A restart-safe graph entity.".to_string()),
+                    }],
+                    links: vec![MemoryLinkInput {
+                        external_id: "alice-episode-link".to_string(),
+                        from: MemoryEndpointInput {
+                            object_type: "entity".to_string(),
+                            external_id: "alice-entity".to_string(),
+                        },
+                        relation: "involves".to_string(),
+                        to: MemoryEndpointInput {
+                            object_type: "episode".to_string(),
+                            external_id: "episode-external".to_string(),
+                        },
+                        confidence: 1.0,
+                        rationale: Some("exercise graph and stats persistence".to_string()),
+                    }],
+                    ..GraphEnrichmentInput::default()
+                })
+                .await
+        );
         drop(adapter_a);
+        assert!(oxigraph_path.exists());
+        assert!(retrieval_stats_path.exists());
+        let persisted_entity_id = deterministic_id(namespace, "entity", "alice-entity").to_string();
+        assert!(file_contains(
+            &retrieval_stats_path,
+            persisted_entity_id.as_bytes()
+        ));
 
         let adapter_b = live_call_or_skip!(
             qdrant_was_available,
@@ -2892,7 +3080,7 @@ mod tests {
             true,
             adapter_b.reattach_namespace(namespace).await
         );
-        assert_eq!(lifecycle.restored_identity_count, 2);
+        assert_eq!(lifecycle.restored_identity_count, 4);
         let retrieved = live_call_or_skip!(
             qdrant_was_available,
             "reattached retrieval",
@@ -2920,18 +3108,71 @@ mod tests {
             item.external_id.as_deref() == Some("observation-external")
                 && item.episode_external_id.as_deref() == Some("episode-external")
         }));
-        let collection_name = adapter_b.collection_name(namespace);
+        drop(adapter_b);
+
+        let oxigraph_backup = oxigraph_path.with_extension("missing-test-backup");
+        fs::rename(&oxigraph_path, &oxigraph_backup).unwrap();
+        let adapter_missing_oxigraph = live_call_or_skip!(
+            qdrant_was_available,
+            "missing-Oxigraph adapter construction",
+            false,
+            CharacterMemoryAdapter::new(&config).await
+        );
+        let missing_oxigraph_error = live_error_or_skip!(
+            qdrant_was_available,
+            "missing-Oxigraph namespace reattach",
+            adapter_missing_oxigraph.reattach_namespace(namespace).await
+        );
+        let missing_oxigraph_message = missing_oxigraph_error.to_string();
+        assert!(missing_oxigraph_message.contains("Oxigraph store"));
+        assert!(missing_oxigraph_message.contains(&oxigraph_path.display().to_string()));
+        drop(adapter_missing_oxigraph);
+        fs::rename(&oxigraph_backup, &oxigraph_path).unwrap();
+
+        let retrieval_stats_backup = retrieval_stats_path.with_extension("missing-test-backup");
+        fs::rename(&retrieval_stats_path, &retrieval_stats_backup).unwrap();
+        let adapter_missing_stats = live_call_or_skip!(
+            qdrant_was_available,
+            "missing-stats adapter construction",
+            false,
+            CharacterMemoryAdapter::new(&config).await
+        );
+        let missing_stats_error = live_error_or_skip!(
+            qdrant_was_available,
+            "missing-stats namespace reattach",
+            adapter_missing_stats.reattach_namespace(namespace).await
+        );
+        let missing_stats_message = missing_stats_error.to_string();
+        assert!(missing_stats_message.contains("retrieval stats store"));
+        assert!(missing_stats_message.contains(&retrieval_stats_path.display().to_string()));
+        drop(adapter_missing_stats);
+        fs::rename(&retrieval_stats_backup, &retrieval_stats_path).unwrap();
+
+        let adapter_restored_stores = live_call_or_skip!(
+            qdrant_was_available,
+            "all-stores adapter construction",
+            false,
+            CharacterMemoryAdapter::new(&config).await
+        );
+        let restored_stores = live_call_or_skip!(
+            qdrant_was_available,
+            "all-stores namespace reattach",
+            true,
+            adapter_restored_stores.reattach_namespace(namespace).await
+        );
+        assert_eq!(restored_stores.restored_identity_count, 4);
+        let collection_name = adapter_restored_stores.collection_name(namespace);
         live_call_or_skip!(
             qdrant_was_available,
             "backing collection deletion",
             true,
-            adapter_b
+            adapter_restored_stores
                 .qdrant
                 .delete_collection(&collection_name)
                 .await
                 .with_context(|| format!("delete Qdrant collection {collection_name}"))
         );
-        drop(adapter_b);
+        drop(adapter_restored_stores);
 
         let adapter_missing_collection = live_call_or_skip!(
             qdrant_was_available,
@@ -2948,7 +3189,7 @@ mod tests {
         );
         let missing_collection_message = missing_collection_error.to_string();
         assert!(missing_collection_message.contains("Qdrant collection"));
-        assert!(missing_collection_message.contains("does not exist"));
+        assert!(missing_collection_message.contains("missing durable store(s)"));
         assert!(missing_collection_message.contains("identity registry"));
         assert!(missing_collection_message.contains(&collection_name));
         println!("verified reattach rejects a surviving registry without its Qdrant collection");
@@ -2976,6 +3217,8 @@ mod tests {
             true,
             adapter_c.reset_namespace(namespace).await
         );
+        assert!(!oxigraph_path.exists());
+        assert!(!retrieval_stats_path.exists());
         let fresh = live_call_or_skip!(
             qdrant_was_available,
             "post-reset fresh namespace open",
@@ -2983,6 +3226,32 @@ mod tests {
             adapter_c.open_namespace(namespace).await
         );
         assert_eq!(fresh.restored_identity_count, 0);
+        assert!(oxigraph_path.exists());
+        assert!(retrieval_stats_path.exists());
+        let fresh_retrieval = live_call_or_skip!(
+            qdrant_was_available,
+            "fresh namespace retrieval",
+            true,
+            adapter_c
+                .retrieve(RetrieveInput {
+                    mode: RetrievalMode::Hybrid,
+                    namespace: namespace.to_string(),
+                    query: "What is the restart-safe drink?".to_string(),
+                    query_date: None,
+                    top_k_episodes: 8,
+                    top_k_observations: 8,
+                    include_derived_memories: true,
+                    include_threads: true,
+                    include_entities: true,
+                    include_debug_rationale: true,
+                })
+                .await
+        );
+        assert!(fresh_retrieval.items.is_empty());
+        assert!(!file_contains(
+            &retrieval_stats_path,
+            persisted_entity_id.as_bytes()
+        ));
         live_teardown_with_one_retry!(
             qdrant_was_available,
             "final namespace cleanup",
