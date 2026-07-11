@@ -424,3 +424,17 @@ Fix applied:
 
 Prevention:
 - Audit every entrypoint to a stateful operation, every overwrite of authoritative metadata, and every hash/set key construction so admission, atomicity, and type validation happen before side effects or generic runtime errors.
+
+## 2026-07-12 — Inventory Every Durable Store In Lifecycle Transitions  [tags: review, lifecycle, persistence, isolation]
+
+Symptom:
+- Fresh reset cleared the Qdrant collection and external-ID registry while reusing configured Oxigraph and SQLite retrieval-stat paths, so stale graph objects, links, lifecycle state, and counters survived into a supposedly fresh run.
+
+Root cause:
+- The lifecycle contract modeled only the first two durable stores added to the adapter and treated later persistence paths as shared configuration rather than members of the same namespace identity.
+
+Fix applied:
+- Derive namespace-scoped Oxigraph and retrieval-stat paths from the shared prefix/run/namespace identity, delete only those derived paths during reset, and require every configured store to exist before reattach.
+
+Prevention:
+- For every fresh-open, reset, reattach, or cleanup change, enumerate all configured durable stores and add regressions for structural namespace isolation, missing-store diagnostics, reattach restoration, and empty state after reset.
