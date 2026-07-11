@@ -1,18 +1,28 @@
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use character_memory::{
-    CharacterMemory, ContinuitySectionLimits, DerivedMemoryDraft, DerivedType, EmbeddingProvider,
-    EntityDraft, EntityType, EpisodeDraft, LifecycleFilterAction, LifecycleFilterReason, MemoryId,
+    ArchivePolicy, CandidateProvenance, CandidateValidation, CandidateValidationStatus,
+    CharacterMemory, CommitOptions, ContinuitySectionLimits, CorrectMemoryDraft,
+    CorrectionCascadePolicy, CorrectionLifecyclePolicy, CorrectionTarget, DerivedMemoryDraft,
+    DerivedType, EmbeddingProvider, EntityDraft, EntityType, EpisodeDraft, ExternalSourceReference,
+    ForgetCascadePolicy, ForgetLifecyclePolicy, ForgetMemoryDraft, LifecycleFilterAction,
+    LifecycleFilterReason, LifecycleMutationOutcome, LifecycleTargetRef, MemoryCandidate, MemoryId,
     MemoryLinkDraft, MemoryObjectDraft, MemoryThreadDraft, ObjectType, ObservationDraft,
-    RelationType, RememberDraft, RetentionState, RetrievalContext, Settings, Stability,
-    ThreadStatus,
+    PrepareOptions, RelationType, RememberDraft, RememberInput, RememberWritePlan,
+    ReplacementDerivedMemoryDraft, RetentionState, RetrievalContext, Settings,
+    SourceObjectCorrectionTarget, SourceProvenance, SourceProvenanceReference, Stability,
+    SuppressionPolicy, ThreadStatus,
 };
 use chrono::{DateTime, Utc};
 pub use cmem_eval_core::DeterministicEmbeddingProvider;
 use cmem_eval_core::{
-    BenchmarkRunConfig, EpisodeInput, GraphEnrichmentInput, MemoryAdapter, MemoryEndpointInput,
-    ObservationInput, RetrievalMode, RetrievalTelemetry, RetrieveInput, RetrievedContextPack,
-    RetrievedItem,
+    BenchmarkRunConfig, CandidateValidationResult, CommitWriteOptions, CommitWriteResult,
+    CorrectMemoryInput, CorrectionTargetInput, EpisodeInput, ExternalSourceRefInput,
+    ForgetMemoryInput, GraphEnrichmentInput, LifecycleMutationResult, LinkMemoryInput,
+    LinkMemoryResult, MemoryAdapter, MemoryEndpointInput, ObservationInput, PrepareWriteInput,
+    PreparedCandidate, PreparedWritePlan, ReplacementDerivedMemoryInput, RetrievalMode,
+    RetrievalTelemetry, RetrieveInput, RetrievedContextPack, RetrievedItem, SourceProvenanceInput,
+    SupersessionResult,
 };
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::{Condition, Filter, ScoredPoint, SearchPointsBuilder, value::Kind};
@@ -40,12 +50,15 @@ struct NamespaceState {
     episode_ids: HashMap<String, MemoryId>,
     observation_ids: HashMap<String, MemoryId>,
     entity_ids: HashMap<String, MemoryId>,
+    reverse_entity_ids: HashMap<MemoryId, String>,
     thread_ids: HashMap<String, MemoryId>,
     derived_memory_ids: HashMap<String, MemoryId>,
     reverse_episode_ids: HashMap<MemoryId, String>,
     reverse_observation_ids: HashMap<MemoryId, (String, String)>,
     reverse_thread_ids: HashMap<MemoryId, String>,
     reverse_derived_memory_ids: HashMap<MemoryId, String>,
+    link_ids: HashMap<String, MemoryId>,
+    reverse_link_ids: HashMap<MemoryId, String>,
 }
 
 #[derive(Clone)]
@@ -103,12 +116,15 @@ impl CharacterMemoryAdapter {
             episode_ids: HashMap::new(),
             observation_ids: HashMap::new(),
             entity_ids: HashMap::new(),
+            reverse_entity_ids: HashMap::new(),
             thread_ids: HashMap::new(),
             derived_memory_ids: HashMap::new(),
             reverse_episode_ids: HashMap::new(),
             reverse_observation_ids: HashMap::new(),
             reverse_thread_ids: HashMap::new(),
             reverse_derived_memory_ids: HashMap::new(),
+            link_ids: HashMap::new(),
+            reverse_link_ids: HashMap::new(),
         })
     }
 
@@ -485,6 +501,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         let mut pending_entities = HashMap::new();
         let mut pending_threads = HashMap::new();
         let mut pending_derived = HashMap::new();
+        let mut pending_links = HashMap::new();
 
         for entity in &input.entities {
             pending_entities.insert(
@@ -590,13 +607,11 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 to_type,
                 to_id,
             );
-            draft.id = Some(deterministic_id(
-                &input.namespace,
-                "memory_link",
-                &link.external_id,
-            ));
+            let id = deterministic_id(&input.namespace, "memory_link", &link.external_id);
+            draft.id = Some(id);
             draft.confidence = link.confidence;
             draft.rationale = link.rationale;
+            pending_links.insert(link.external_id, id);
             links.push(draft);
         }
 
@@ -608,7 +623,10 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             .memory
             .remember(RememberDraft::new(objects).with_links(links))
             .await?;
-        state.entity_ids.extend(pending_entities);
+        for (external_id, id) in pending_entities {
+            state.entity_ids.insert(external_id.clone(), id);
+            state.reverse_entity_ids.insert(id, external_id);
+        }
         for (external_id, id) in pending_threads {
             state.thread_ids.insert(external_id.clone(), id);
             state.reverse_thread_ids.insert(id, external_id);
@@ -617,7 +635,339 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             state.derived_memory_ids.insert(external_id.clone(), id);
             state.reverse_derived_memory_ids.insert(id, external_id);
         }
+        for (external_id, id) in pending_links {
+            state.link_ids.insert(external_id.clone(), id);
+            state.reverse_link_ids.insert(id, external_id);
+        }
         Ok(())
+    }
+
+    async fn link(&self, input: LinkMemoryInput) -> Result<LinkMemoryResult> {
+        let mut namespaces = self.namespaces.lock().await;
+        let state = namespaces
+            .get_mut(&input.namespace)
+            .ok_or_else(|| anyhow!("namespace has no remembered objects: {}", input.namespace))?;
+        let (from_type, from_id) = resolve_endpoint(
+            &input.link.from,
+            state,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        )?;
+        let (to_type, to_id) = resolve_endpoint(
+            &input.link.to,
+            state,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        )?;
+        let mut draft = MemoryLinkDraft::new(
+            from_type,
+            from_id,
+            parse_relation_type(&input.link.relation)?,
+            to_type,
+            to_id,
+        );
+        let id = deterministic_id(&input.namespace, "memory_link", &input.link.external_id);
+        draft.id = Some(id);
+        draft.confidence = input.link.confidence;
+        draft.rationale = input.link.rationale;
+        let link = state.memory.link(draft).await?;
+        state
+            .link_ids
+            .insert(input.link.external_id.clone(), link.id);
+        state
+            .reverse_link_ids
+            .insert(link.id, input.link.external_id.clone());
+        Ok(LinkMemoryResult {
+            internal_id: link.id.to_string(),
+            external_id: input.link.external_id,
+        })
+    }
+
+    async fn correct(&self, input: CorrectMemoryInput) -> Result<LifecycleMutationResult> {
+        let mut namespaces = self.namespaces.lock().await;
+        let state = namespaces
+            .get_mut(&input.namespace)
+            .ok_or_else(|| anyhow!("namespace has no remembered objects: {}", input.namespace))?;
+        let targets = input
+            .targets
+            .iter()
+            .map(|target| correction_target_to_live(target, state))
+            .collect::<Result<Vec<_>>>()?;
+        let correction_origin =
+            source_provenance_reference_to_live(&input.correction_origin, state)?;
+        let superseded_derived_memory_ids = resolve_ids(
+            "derived_memory",
+            &input.superseded_derived_memory_external_ids,
+            &state.derived_memory_ids,
+            &HashMap::new(),
+        )?;
+        let mut pending_replacements = Vec::new();
+        let mut replacements = Vec::new();
+        for replacement in &input.replacements {
+            let id = deterministic_id(
+                &input.namespace,
+                "derived_memory",
+                &replacement.memory.external_id,
+            );
+            replacements.push(replacement_to_live(replacement, id, state)?);
+            pending_replacements.push((replacement.memory.external_id.clone(), id));
+        }
+        let draft = CorrectMemoryDraft {
+            targets,
+            replacement_derived_memories: replacements,
+            superseded_derived_memory_ids,
+            correction_origin,
+            rationale: input.rationale,
+            lifecycle_policy: CorrectionLifecyclePolicy {
+                supersede_replaced_derived_memories: input
+                    .lifecycle_policy
+                    .supersede_replaced_derived_memories,
+                suppress_superseded_derived_memories: input
+                    .lifecycle_policy
+                    .suppress_superseded_derived_memories,
+                retain_original_source_objects: input
+                    .lifecycle_policy
+                    .retain_original_source_objects,
+                ..CorrectionLifecyclePolicy::default()
+            },
+            cascade_policy: CorrectionCascadePolicy {
+                apply_to_provenanced_derived_memories: input
+                    .cascade_policy
+                    .apply_to_provenanced_derived_memories,
+                require_original_source_match: input.cascade_policy.require_original_source_match,
+                cascade_to_threads: input.cascade_policy.cascade_to_threads,
+            },
+            include_trace: input.include_trace,
+        };
+        let outcome = state.memory.correct(draft).await?;
+        for (external_id, id) in pending_replacements {
+            state.derived_memory_ids.insert(external_id.clone(), id);
+            state.reverse_derived_memory_ids.insert(id, external_id);
+        }
+        lifecycle_result(state, outcome)
+    }
+
+    async fn forget(&self, input: ForgetMemoryInput) -> Result<LifecycleMutationResult> {
+        let mut namespaces = self.namespaces.lock().await;
+        let state = namespaces
+            .get_mut(&input.namespace)
+            .ok_or_else(|| anyhow!("namespace has no remembered objects: {}", input.namespace))?;
+        let targets = input
+            .targets
+            .iter()
+            .map(|target| lifecycle_target_to_live(target, state))
+            .collect::<Result<Vec<_>>>()?;
+        let draft = ForgetMemoryDraft {
+            targets,
+            rationale: input.rationale,
+            lifecycle_policy: ForgetLifecyclePolicy {
+                suppression: SuppressionPolicy {
+                    suppress_target: input.suppression_policy.suppress_target,
+                    suppress_derived_from_target: input
+                        .suppression_policy
+                        .suppress_derived_from_target,
+                    preserve_original_raw_refs: input.suppression_policy.preserve_original_raw_refs,
+                },
+                archive: ArchivePolicy {
+                    archive_thread: input.archive_policy.archive_thread,
+                    archive_thread_derived_memories: input
+                        .archive_policy
+                        .archive_thread_derived_memories,
+                    preserve_original_raw_refs: input.archive_policy.preserve_original_raw_refs,
+                },
+                ..ForgetLifecyclePolicy::default()
+            },
+            cascade_policy: ForgetCascadePolicy {
+                apply_to_derived_from_target: input.cascade_policy.apply_to_derived_from_target,
+                apply_to_thread_members: input.cascade_policy.apply_to_thread_members,
+            },
+            target_retention_state: parse_retention_state(&input.target_retention_state)?,
+            target_thread_status: input
+                .target_thread_status
+                .as_deref()
+                .map(parse_thread_status)
+                .transpose()?,
+            include_trace: input.include_trace,
+        };
+        let outcome = state.memory.forget(draft).await?;
+        lifecycle_result(state, outcome)
+    }
+
+    async fn prepare(&self, input: PrepareWriteInput) -> Result<PreparedWritePlan> {
+        let mut namespaces = self.namespaces.lock().await;
+        if !namespaces.contains_key(&input.namespace) {
+            let state = self.create_namespace_state(&input.namespace).await?;
+            namespaces.insert(input.namespace.clone(), state);
+        }
+        let state = namespaces
+            .get_mut(&input.namespace)
+            .expect("namespace state inserted");
+        let episode_id = deterministic_id(&input.namespace, "episode", &input.episode_external_id);
+        let observation_id = deterministic_id(
+            &input.namespace,
+            "observation",
+            &input.observation_external_id,
+        );
+        let mut episode = EpisodeDraft::new(input.content.clone());
+        episode.id = Some(episode_id);
+        episode.source_conversation_id = Some(input.episode_external_id.clone());
+        episode.raw_ref = input.raw_refs.first().cloned().or_else(|| {
+            Some(format!(
+                "eval://{}/episode/{}",
+                input.namespace, input.episode_external_id
+            ))
+        });
+        let mut observation = ObservationDraft::new(episode_id, input.content.clone());
+        observation.id = Some(observation_id);
+        observation.raw_ref = input.raw_refs.first().cloned().or_else(|| {
+            Some(format!(
+                "eval://{}/observation/{}",
+                input.namespace, input.observation_external_id
+            ))
+        });
+        let mut remember_input = RememberInput::new(input.content.clone());
+        remember_input.raw_refs = input.raw_refs.clone();
+        remember_input.episode_drafts.push(episode);
+        remember_input.observation_drafts.push(observation);
+        let backend_plan = state
+            .memory
+            .prepare(
+                remember_input,
+                PrepareOptions {
+                    idempotency_key: input.idempotency_key.clone(),
+                    include_vector_index_candidates: input.include_vector_index_candidates,
+                    include_stats_update_candidates: input.include_stats_update_candidates,
+                },
+            )
+            .await?;
+        let known_refs = HashMap::from([
+            (
+                episode_id,
+                MemoryEndpointInput {
+                    object_type: "episode".to_string(),
+                    external_id: input.episode_external_id.clone(),
+                },
+            ),
+            (
+                observation_id,
+                MemoryEndpointInput {
+                    object_type: "observation".to_string(),
+                    external_id: input.observation_external_id.clone(),
+                },
+            ),
+        ]);
+        let candidates = backend_plan
+            .candidates
+            .iter()
+            .map(|candidate| prepared_candidate_from_live(candidate, state, &known_refs))
+            .collect::<Result<Vec<_>>>()?;
+        let validations = backend_plan
+            .validations
+            .iter()
+            .map(candidate_validation_from_live)
+            .collect();
+        Ok(PreparedWritePlan {
+            namespace: input.namespace.clone(),
+            operation_internal_id: backend_plan.operation_id.to_string(),
+            idempotency_key: backend_plan.idempotency_key.clone(),
+            input,
+            candidates,
+            validations,
+            backend_plan: serde_json::to_value(backend_plan)?,
+        })
+    }
+
+    async fn validate_plan(
+        &self,
+        plan: &PreparedWritePlan,
+    ) -> Result<Vec<CandidateValidationResult>> {
+        let mut namespaces = self.namespaces.lock().await;
+        let state = namespaces
+            .get_mut(&plan.namespace)
+            .ok_or_else(|| anyhow!("namespace has no prepared state: {}", plan.namespace))?;
+        let backend_plan: RememberWritePlan = serde_json::from_value(plan.backend_plan.clone())
+            .context("deserialize Character Memory write plan")?;
+        Ok(state
+            .memory
+            .validate_plan(&backend_plan)
+            .await?
+            .iter()
+            .map(candidate_validation_from_live)
+            .collect())
+    }
+
+    async fn commit(
+        &self,
+        plan: PreparedWritePlan,
+        options: CommitWriteOptions,
+    ) -> Result<CommitWriteResult> {
+        let mut namespaces = self.namespaces.lock().await;
+        let state = namespaces
+            .get_mut(&plan.namespace)
+            .ok_or_else(|| anyhow!("namespace has no prepared state: {}", plan.namespace))?;
+        let backend_plan: RememberWritePlan = serde_json::from_value(plan.backend_plan)
+            .context("deserialize Character Memory write plan")?;
+        let outcome = state
+            .memory
+            .commit(
+                backend_plan,
+                CommitOptions {
+                    update_vectors: options.update_vectors,
+                    update_stats: options.update_stats,
+                },
+            )
+            .await?;
+        let episode_id =
+            deterministic_id(&plan.namespace, "episode", &plan.input.episode_external_id);
+        let observation_id = deterministic_id(
+            &plan.namespace,
+            "observation",
+            &plan.input.observation_external_id,
+        );
+        if outcome.persisted_object_ids.contains(&episode_id) {
+            state
+                .episode_ids
+                .insert(plan.input.episode_external_id.clone(), episode_id);
+            state
+                .reverse_episode_ids
+                .insert(episode_id, plan.input.episode_external_id.clone());
+        }
+        if outcome.persisted_object_ids.contains(&observation_id) {
+            state
+                .observation_ids
+                .insert(plan.input.observation_external_id.clone(), observation_id);
+            state.reverse_observation_ids.insert(
+                observation_id,
+                (
+                    plan.input.observation_external_id.clone(),
+                    plan.input.episode_external_id.clone(),
+                ),
+            );
+        }
+        Ok(CommitWriteResult {
+            persisted_object_refs: outcome
+                .persisted_object_ids
+                .iter()
+                .filter_map(|id| external_endpoint_for_id(state, *id))
+                .collect(),
+            persisted_link_external_ids: outcome
+                .persisted_link_ids
+                .iter()
+                .filter_map(|id| state.reverse_link_ids.get(id).cloned())
+                .collect(),
+            vector_indexed_object_refs: outcome
+                .vector_indexed_object_ids
+                .iter()
+                .filter_map(|id| external_endpoint_for_id(state, *id))
+                .collect(),
+            repair_needed: outcome
+                .repair_needed
+                .iter()
+                .map(|marker| format!("{marker:?}"))
+                .collect(),
+        })
     }
 
     async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
@@ -1266,6 +1616,423 @@ fn resolve_endpoint(
     Ok((object_type, id))
 }
 
+fn correction_target_to_live(
+    target: &CorrectionTargetInput,
+    state: &NamespaceState,
+) -> Result<CorrectionTarget> {
+    match target {
+        CorrectionTargetInput::DerivedMemory { external_id } => state
+            .derived_memory_ids
+            .get(external_id)
+            .copied()
+            .map(CorrectionTarget::derived_memory)
+            .ok_or_else(|| anyhow!("unknown derived_memory external_id {external_id}")),
+        CorrectionTargetInput::SourceObject {
+            object_type,
+            external_id,
+            original_raw_ref,
+            original_source_ref,
+        } => {
+            let target = match object_type.as_str() {
+                "episode" => SourceObjectCorrectionTarget::Episode {
+                    id: *state
+                        .episode_ids
+                        .get(external_id)
+                        .ok_or_else(|| anyhow!("unknown episode external_id {external_id}"))?,
+                    original_raw_ref: original_raw_ref.clone(),
+                    original_source_ref: original_source_ref.clone(),
+                },
+                "observation" => SourceObjectCorrectionTarget::Observation {
+                    id: *state
+                        .observation_ids
+                        .get(external_id)
+                        .ok_or_else(|| anyhow!("unknown observation external_id {external_id}"))?,
+                    original_raw_ref: original_raw_ref.clone(),
+                    original_source_ref: original_source_ref.clone(),
+                },
+                unsupported => {
+                    bail!("unsupported correction source object type: {unsupported}")
+                }
+            };
+            Ok(CorrectionTarget::source_object(target))
+        }
+    }
+}
+
+fn lifecycle_target_to_live(
+    target: &MemoryEndpointInput,
+    state: &NamespaceState,
+) -> Result<LifecycleTargetRef> {
+    match target.object_type.as_str() {
+        "episode" => state
+            .episode_ids
+            .get(&target.external_id)
+            .copied()
+            .map(LifecycleTargetRef::episode),
+        "observation" => state
+            .observation_ids
+            .get(&target.external_id)
+            .copied()
+            .map(LifecycleTargetRef::observation),
+        "derived_memory" => state
+            .derived_memory_ids
+            .get(&target.external_id)
+            .copied()
+            .map(LifecycleTargetRef::derived_memory),
+        "memory_thread" => state
+            .thread_ids
+            .get(&target.external_id)
+            .copied()
+            .map(LifecycleTargetRef::memory_thread),
+        unsupported => bail!("unsupported lifecycle target object type: {unsupported}"),
+    }
+    .ok_or_else(|| {
+        anyhow!(
+            "unknown {} external_id {}",
+            target.object_type,
+            target.external_id
+        )
+    })
+}
+
+fn source_provenance_reference_to_live(
+    input: &SourceProvenanceInput,
+    state: &NamespaceState,
+) -> Result<SourceProvenanceReference> {
+    Ok(SourceProvenanceReference {
+        episode_ids: resolve_ids(
+            "episode",
+            &input.episode_external_ids,
+            &state.episode_ids,
+            &HashMap::new(),
+        )?,
+        observation_ids: resolve_ids(
+            "observation",
+            &input.observation_external_ids,
+            &state.observation_ids,
+            &HashMap::new(),
+        )?,
+        external_refs: input
+            .external_refs
+            .iter()
+            .map(external_source_ref_to_live)
+            .collect::<Result<Vec<_>>>()?,
+    })
+}
+
+fn external_source_ref_to_live(input: &ExternalSourceRefInput) -> Result<ExternalSourceReference> {
+    match (&input.source_ref, &input.raw_ref) {
+        (Some(source_ref), None) => Ok(ExternalSourceReference::source(source_ref.clone())),
+        (None, Some(raw_ref)) => Ok(ExternalSourceReference::raw(raw_ref.clone())),
+        _ => bail!("external source reference must contain exactly one of source_ref or raw_ref"),
+    }
+}
+
+fn replacement_to_live(
+    input: &ReplacementDerivedMemoryInput,
+    id: MemoryId,
+    state: &NamespaceState,
+) -> Result<ReplacementDerivedMemoryDraft> {
+    let memory = &input.memory;
+    let mut draft = ReplacementDerivedMemoryDraft::new(
+        parse_derived_type(&memory.derived_type)?,
+        memory.text.clone(),
+    );
+    draft.id = Some(id);
+    draft.derived_from_episode_ids = resolve_ids(
+        "episode",
+        &memory.source_episode_external_ids,
+        &state.episode_ids,
+        &HashMap::new(),
+    )?;
+    draft.derived_from_observation_ids = resolve_ids(
+        "observation",
+        &memory.source_observation_external_ids,
+        &state.observation_ids,
+        &HashMap::new(),
+    )?;
+    draft.thread_ids = resolve_ids(
+        "memory_thread",
+        &memory.thread_external_ids,
+        &state.thread_ids,
+        &HashMap::new(),
+    )?;
+    draft.entity_ids = resolve_ids(
+        "entity",
+        &memory.entity_external_ids,
+        &state.entity_ids,
+        &HashMap::new(),
+    )?;
+    draft.confidence = memory.confidence;
+    draft.salience_score = memory.salience_score;
+    draft.stability = parse_stability(&memory.stability)?;
+    draft.supersedes = resolve_ids(
+        "derived_memory",
+        &memory.supersedes_external_ids,
+        &state.derived_memory_ids,
+        &HashMap::new(),
+    )?;
+    draft.original_source_provenance =
+        source_provenance_reference_to_live(&input.original_source_provenance, state)?;
+    draft.correction_origin_provenance =
+        source_provenance_reference_to_live(&input.correction_origin_provenance, state)?;
+    Ok(draft)
+}
+
+fn lifecycle_result(
+    state: &NamespaceState,
+    outcome: LifecycleMutationOutcome,
+) -> Result<LifecycleMutationResult> {
+    let mutated_object_refs = outcome
+        .graph_mutated_object_ids
+        .iter()
+        .filter_map(|object| external_endpoint_for_object(state, object.object_type, object.id))
+        .collect();
+    let mutated_link_external_ids = outcome
+        .graph_mutated_link_ids
+        .iter()
+        .filter_map(|id| state.reverse_link_ids.get(id).cloned())
+        .collect();
+    let vector_maintained_object_refs = outcome
+        .vector_maintained_object_ids
+        .iter()
+        .filter_map(|object| external_endpoint_for_object(state, object.object_type, object.id))
+        .collect();
+    let superseded = outcome
+        .trace
+        .into_iter()
+        .flat_map(|trace| trace.superseded_by)
+        .filter_map(|evidence| {
+            Some(SupersessionResult {
+                superseded_external_id: state
+                    .reverse_derived_memory_ids
+                    .get(&evidence.superseded_memory_id)?
+                    .clone(),
+                superseded_by_external_id: state
+                    .reverse_derived_memory_ids
+                    .get(&evidence.superseded_by_memory_id)?
+                    .clone(),
+            })
+        })
+        .collect();
+    Ok(LifecycleMutationResult {
+        mutated_object_refs,
+        mutated_link_external_ids,
+        vector_maintained_object_refs,
+        superseded,
+    })
+}
+
+fn external_endpoint_for_id(state: &NamespaceState, id: MemoryId) -> Option<MemoryEndpointInput> {
+    for object_type in [
+        ObjectType::Episode,
+        ObjectType::Observation,
+        ObjectType::Entity,
+        ObjectType::MemoryThread,
+        ObjectType::DerivedMemory,
+        ObjectType::MemoryLink,
+    ] {
+        if let Some(endpoint) = external_endpoint_for_object(state, object_type, id) {
+            return Some(endpoint);
+        }
+    }
+    None
+}
+
+fn external_endpoint_for_object(
+    state: &NamespaceState,
+    object_type: ObjectType,
+    id: MemoryId,
+) -> Option<MemoryEndpointInput> {
+    external_endpoint_from_reverse_maps(
+        object_type,
+        id,
+        &state.reverse_episode_ids,
+        &state.reverse_observation_ids,
+        &state.reverse_entity_ids,
+        &state.reverse_thread_ids,
+        &state.reverse_derived_memory_ids,
+        &state.reverse_link_ids,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn external_endpoint_from_reverse_maps(
+    object_type: ObjectType,
+    id: MemoryId,
+    episodes: &HashMap<MemoryId, String>,
+    observations: &HashMap<MemoryId, (String, String)>,
+    entities: &HashMap<MemoryId, String>,
+    threads: &HashMap<MemoryId, String>,
+    derived_memories: &HashMap<MemoryId, String>,
+    links: &HashMap<MemoryId, String>,
+) -> Option<MemoryEndpointInput> {
+    let (object_type, external_id) = match object_type {
+        ObjectType::Episode => ("episode", episodes.get(&id)?.clone()),
+        ObjectType::Observation => ("observation", observations.get(&id)?.0.clone()),
+        ObjectType::Entity => ("entity", entities.get(&id)?.clone()),
+        ObjectType::MemoryThread => ("memory_thread", threads.get(&id)?.clone()),
+        ObjectType::DerivedMemory => ("derived_memory", derived_memories.get(&id)?.clone()),
+        ObjectType::MemoryLink => ("memory_link", links.get(&id)?.clone()),
+    };
+    Some(MemoryEndpointInput {
+        object_type: object_type.to_string(),
+        external_id,
+    })
+}
+
+fn prepared_candidate_from_live(
+    candidate: &MemoryCandidate,
+    state: &NamespaceState,
+    known_refs: &HashMap<MemoryId, MemoryEndpointInput>,
+) -> Result<PreparedCandidate> {
+    let (kind, internal_id, object_type, provenance): (
+        &str,
+        MemoryId,
+        Option<ObjectType>,
+        &CandidateProvenance,
+    ) = match candidate {
+        MemoryCandidate::Episode(candidate) => (
+            "episode",
+            candidate
+                .draft
+                .id
+                .context("prepared episode candidate id")?,
+            Some(ObjectType::Episode),
+            &candidate.provenance,
+        ),
+        MemoryCandidate::Observation(candidate) => (
+            "observation",
+            candidate
+                .draft
+                .id
+                .context("prepared observation candidate id")?,
+            Some(ObjectType::Observation),
+            &candidate.provenance,
+        ),
+        MemoryCandidate::Entity(candidate) => (
+            "entity",
+            candidate.draft.id.context("prepared entity candidate id")?,
+            Some(ObjectType::Entity),
+            &candidate.provenance,
+        ),
+        MemoryCandidate::MemoryThread(candidate) => (
+            "memory_thread",
+            candidate
+                .draft
+                .id
+                .context("prepared memory_thread candidate id")?,
+            Some(ObjectType::MemoryThread),
+            &candidate.provenance,
+        ),
+        MemoryCandidate::DerivedMemory(candidate) => (
+            "derived_memory",
+            candidate
+                .draft
+                .id
+                .context("prepared derived_memory candidate id")?,
+            Some(ObjectType::DerivedMemory),
+            &candidate.provenance,
+        ),
+        MemoryCandidate::MemoryLink(candidate) => (
+            "memory_link",
+            candidate
+                .draft
+                .id
+                .context("prepared memory_link candidate id")?,
+            Some(ObjectType::MemoryLink),
+            &candidate.provenance,
+        ),
+        MemoryCandidate::VectorIndex(candidate) => (
+            "vector_index",
+            candidate.target.id,
+            Some(candidate.target.object_type),
+            &candidate.provenance,
+        ),
+        MemoryCandidate::StatsUpdate(candidate) => (
+            "stats_update",
+            candidate.subject.id,
+            Some(candidate.subject.object_type),
+            &candidate.provenance,
+        ),
+    };
+    let external_id = known_refs
+        .get(&internal_id)
+        .cloned()
+        .or_else(|| {
+            object_type.and_then(|kind| external_endpoint_for_object(state, kind, internal_id))
+        })
+        .map(|endpoint| endpoint.external_id);
+    let (producer_kind, rationale_origin, rationale) = candidate_provenance_summary(provenance);
+    Ok(PreparedCandidate {
+        kind: kind.to_string(),
+        internal_id: internal_id.to_string(),
+        external_id,
+        producer_kind,
+        rationale_origin,
+        rationale,
+        source: source_provenance_from_live(&provenance.source, state, known_refs),
+    })
+}
+
+fn candidate_provenance_summary(
+    provenance: &CandidateProvenance,
+) -> (String, String, Option<String>) {
+    (
+        format!("{:?}", provenance.producer_kind).to_ascii_snake_case(),
+        format!("{:?}", provenance.rationale_origin()).to_ascii_snake_case(),
+        provenance.rationale.text().map(str::to_string),
+    )
+}
+
+fn source_provenance_from_live(
+    provenance: &SourceProvenance,
+    state: &NamespaceState,
+    known_refs: &HashMap<MemoryId, MemoryEndpointInput>,
+) -> SourceProvenanceInput {
+    let external_for = |object_type, id| {
+        known_refs
+            .get(&id)
+            .cloned()
+            .or_else(|| external_endpoint_for_object(state, object_type, id))
+            .map(|endpoint| endpoint.external_id)
+    };
+    SourceProvenanceInput {
+        episode_external_ids: provenance
+            .episode_ids
+            .iter()
+            .filter_map(|id| external_for(ObjectType::Episode, *id))
+            .collect(),
+        observation_external_ids: provenance
+            .observation_ids
+            .iter()
+            .filter_map(|id| external_for(ObjectType::Observation, *id))
+            .collect(),
+        external_refs: provenance
+            .external_refs
+            .iter()
+            .map(|reference| ExternalSourceRefInput {
+                source_ref: reference.source_ref.clone(),
+                raw_ref: reference.raw_ref.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn candidate_validation_from_live(validation: &CandidateValidation) -> CandidateValidationResult {
+    CandidateValidationResult {
+        candidate_index: validation.candidate_index,
+        candidate_kind: format!("{:?}", validation.candidate_kind).to_ascii_snake_case(),
+        status: match validation.status {
+            CandidateValidationStatus::Valid => "valid",
+            CandidateValidationStatus::Invalid => "invalid",
+        }
+        .to_string(),
+        errors: validation.errors.clone(),
+        warnings: validation.warnings.clone(),
+    }
+}
+
 fn parse_entity_type(value: &str) -> Result<EntityType> {
     parse_snake_enum(value, "entity_type")
 }
@@ -1334,6 +2101,10 @@ struct CharacterMemoryEmbeddingProvider {
     inner: DeterministicEmbeddingProvider,
 }
 
+fn parse_retention_state(value: &str) -> Result<RetentionState> {
+    parse_snake_enum(value, "forget.target_retention_state")
+}
+
 impl CharacterMemoryEmbeddingProvider {
     fn new(vector_size: usize) -> Self {
         Self {
@@ -1380,6 +2151,75 @@ mod tests {
         assert_eq!(first, deterministic_id("n1", "episode", "s1"));
         assert_ne!(first, deterministic_id("n2", "episode", "s1"));
         assert_ne!(first, deterministic_id("n1", "observation", "s1"));
+    }
+
+    #[test]
+    fn new_operation_results_round_trip_all_external_id_kinds() {
+        let episode_id = deterministic_id("n", "episode", "s1");
+        let observation_id = deterministic_id("n", "observation", "o1");
+        let entity_id = deterministic_id("n", "entity", "e1");
+        let thread_id = deterministic_id("n", "memory_thread", "t1");
+        let derived_id = deterministic_id("n", "derived_memory", "d1");
+        let link_id = deterministic_id("n", "memory_link", "l1");
+        let episodes = HashMap::from([(episode_id, "s1".to_string())]);
+        let observations = HashMap::from([(observation_id, ("o1".to_string(), "s1".to_string()))]);
+        let entities = HashMap::from([(entity_id, "e1".to_string())]);
+        let threads = HashMap::from([(thread_id, "t1".to_string())]);
+        let derived = HashMap::from([(derived_id, "d1".to_string())]);
+        let links = HashMap::from([(link_id, "l1".to_string())]);
+
+        for (object_type, id, expected_type, expected_external_id) in [
+            (ObjectType::Episode, episode_id, "episode", "s1"),
+            (ObjectType::Observation, observation_id, "observation", "o1"),
+            (ObjectType::Entity, entity_id, "entity", "e1"),
+            (ObjectType::MemoryThread, thread_id, "memory_thread", "t1"),
+            (
+                ObjectType::DerivedMemory,
+                derived_id,
+                "derived_memory",
+                "d1",
+            ),
+            (ObjectType::MemoryLink, link_id, "memory_link", "l1"),
+        ] {
+            let endpoint = external_endpoint_from_reverse_maps(
+                object_type,
+                id,
+                &episodes,
+                &observations,
+                &entities,
+                &threads,
+                &derived,
+                &links,
+            )
+            .unwrap();
+            assert_eq!(endpoint.object_type, expected_type);
+            assert_eq!(endpoint.external_id, expected_external_id);
+        }
+    }
+
+    #[test]
+    fn prepared_candidate_provenance_preserves_producer_and_rationale_origin() {
+        let caller = CandidateProvenance::caller("caller supplied the candidate");
+        assert_eq!(
+            candidate_provenance_summary(&caller),
+            (
+                "caller".to_string(),
+                "provided_by_caller".to_string(),
+                Some("caller supplied the candidate".to_string()),
+            )
+        );
+
+        let helper = CandidateProvenance::unavailable(
+            character_memory::CandidateProducerKind::DeterministicHelper,
+        );
+        assert_eq!(
+            candidate_provenance_summary(&helper),
+            (
+                "deterministic_helper".to_string(),
+                "unavailable".to_string(),
+                None,
+            )
+        );
     }
 
     #[test]
