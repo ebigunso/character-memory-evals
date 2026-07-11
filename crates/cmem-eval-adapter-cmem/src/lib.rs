@@ -334,14 +334,14 @@ impl CharacterMemoryAdapter {
             .next()
             .map(|item| item.embedding)
             .context("OpenAI query embedding response did not contain an embedding")?;
-        if let Some(expected) = self.config.backend.embedding.vector_size {
-            if embedding.len() != expected {
-                bail!(
-                    "OpenAI query embedding length {} did not match configured vector_size {}",
-                    embedding.len(),
-                    expected
-                );
-            }
+        if let Some(expected) = self.config.backend.embedding.vector_size
+            && embedding.len() != expected
+        {
+            bail!(
+                "OpenAI query embedding length {} did not match configured vector_size {}",
+                embedding.len(),
+                expected
+            );
         }
         Ok(embedding)
     }
