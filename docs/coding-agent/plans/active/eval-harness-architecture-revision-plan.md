@@ -447,6 +447,27 @@ repo's v0.1.4 plan.
     necessity, not choice. CI widening (user-provisioned read-only deploy
     key/PAT + two-repo checkout) carried forward as an open user decision for
     Task_8/closeout.
+- 2026-07-11 14:50 Task_3 completed (worker3; commits 3587f53, 056be29).
+  - Summary: deterministic run-scoped collection naming (no Uuid::new_v4;
+    cleanup safety-prefix guards proven by test); BTreeMap-backed external-id
+    registry with byte-stable sorted serialization, assigned before writes and
+    persisted only after successful writes; explicit fresh-open vs
+    persistent-reattach namespace lifecycle in the contract with mock coverage
+    (missing-reattach failure, duplicate-open rejection, restored identity
+    count).
+  - Validation evidence: pinned fmt/clippy(-D warnings)/test --workspace pass
+    (adapter 15, core 43, longmemeval 10, locomo 6, runner 16 + doc tests);
+    registry serialization stability test; deterministic-naming test; mock
+    smoke latency-masked diff identical vs fresh pre-Task_3 baseline
+    (skip_serializing_if keeps existing artifacts structurally unchanged).
+  - PENDING live evidence: the gated reattach round-trip test
+    (live_adapter_reattaches_with_external_ids) took its documented skip path —
+    local Qdrant down, concrete structured skip evidence captured. Plan permits
+    this at Task_3, but the LIVE reattach round-trip must be exercised before
+    or at Task_8 (Qdrant must be up for the independent review). Carried
+    forward.
+  - Deviation accepted: Cargo.lock (tempfile dev-dependency for
+    adapter-owned persistence tests; mechanical).
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
