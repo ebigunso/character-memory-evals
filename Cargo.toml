@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/cmem-eval-adapter-cmem",
   "crates/cmem-eval-core",
   "crates/cmem-eval-longmemeval",
   "crates/cmem-eval-locomo",

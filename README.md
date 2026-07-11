@@ -10,8 +10,7 @@ Benchmark CLI runs default to the live Character Memory adapter. Mock runs are a
 cargo test --workspace
 ```
 
-Benchmark commands default to the live Character Memory adapter. Build live runs with
-the `real-character-memory` feature and provide backend settings:
+Benchmark commands default to the live Character Memory adapter. Provide backend settings:
 
 ```bash
 export QDRANT_CONNECTION_STRING=http://localhost:6334
@@ -33,10 +32,10 @@ cargo run -p cmem-eval-runner -- run synthetic \
   --allow-mock-benchmark
 ```
 
-Live synthetic runs use the default adapter and require the real feature:
+Live synthetic runs use the default adapter:
 
 ```bash
-cargo run -p cmem-eval-runner --features real-character-memory -- run synthetic \
+cargo run -p cmem-eval-runner -- run synthetic \
   --dataset ./fixtures/synthetic_small.json \
   --config ./configs/synthetic_retrieval.toml \
   --out ./runs/synthetic.jsonl \
@@ -70,11 +69,10 @@ Vector-only retrieval is a live baseline selected in TOML with
 the eval runner bypasses Character Memory retrieval and searches the namespace
 Qdrant collection directly with basic vector similarity over benchmark-provided
 raw candidates: episodes and observations. It uses the configured embedding
-provider for query embeddings, requires the `real-character-memory` feature,
-and cannot run with `--adapter mock`.
+provider for query embeddings and cannot run with `--adapter mock`.
 
 ```bash
-cargo run -p cmem-eval-runner --features real-character-memory -- run synthetic \
+cargo run -p cmem-eval-runner -- run synthetic \
   --dataset ./fixtures/synthetic_small.json \
   --config ./configs/synthetic_vector.toml \
   --out ./runs/synthetic_vector.jsonl \
@@ -90,13 +88,13 @@ OpenAI resources unless sharing that load is intentional.
 LongMemEval-S and LoCoMo expect local dataset files:
 
 ```bash
-cargo run -p cmem-eval-runner --features real-character-memory -- run longmemeval-s \
+cargo run -p cmem-eval-runner -- run longmemeval-s \
   --dataset ./datasets/longmemeval_s_cleaned.json \
   --config ./configs/longmemeval_s_retrieval.toml \
   --out ./runs/longmemeval_s_v0_1.jsonl \
   --summary-out ./runs/longmemeval_s_v0_1_summary.json
 
-cargo run -p cmem-eval-runner --features real-character-memory -- run locomo \
+cargo run -p cmem-eval-runner -- run locomo \
   --dataset ./datasets/locomo10.json \
   --config ./configs/locomo_retrieval.toml \
   --out ./runs/locomo_v0_1.jsonl \
@@ -257,9 +255,8 @@ successfully.
 
 ## Character Memory API
 
-The eval-side adapter contract is in `cmem-eval-core::memory_adapter`. It is written as the target public API boundary for Character Memory: external IDs, namespaces, ranks, scores, rationale, and context text must survive round trip. Live runs require the `real-character-memory` feature and backend settings; the initial embedding default is OpenAI `text-embedding-3-large`.
+The eval-side adapter contract is in `cmem-eval-core::memory_adapter`. It is written as the target public API boundary for Character Memory: external IDs, namespaces, ranks, scores, rationale, and context text must survive round trip. Live runs require backend settings; the initial embedding default is OpenAI `text-embedding-3-large`.
 
-If the binary is built without `real-character-memory`, omitted `--adapter` and
-`--adapter real` fail loudly instead of falling back to mock. Mock output is for
-unit/integration smoke checks only and is marked with `adapter.mode =
+Omitted `--adapter` and explicit `--adapter real` both select the live adapter.
+Mock output is for unit/integration smoke checks only and is marked with `adapter.mode =
 "mock_smoke"` in result artifacts.

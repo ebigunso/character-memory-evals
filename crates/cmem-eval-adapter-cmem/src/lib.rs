@@ -8,6 +8,7 @@ use character_memory::{
     ThreadStatus,
 };
 use chrono::{DateTime, Utc};
+pub use cmem_eval_core::DeterministicEmbeddingProvider;
 use cmem_eval_core::{
     BenchmarkRunConfig, EpisodeInput, GraphEnrichmentInput, MemoryAdapter, MemoryEndpointInput,
     ObservationInput, RetrievalMode, RetrievalTelemetry, RetrieveInput, RetrievedContextPack,
@@ -89,7 +90,7 @@ impl CharacterMemoryAdapter {
             CharacterMemory::new_with_embedding_provider(
                 settings,
                 collection_name.clone(),
-                Box::new(DeterministicEmbeddingProvider { vector_size }),
+                Box::new(CharacterMemoryEmbeddingProvider::new(vector_size)),
             )
             .await?
         } else {
@@ -268,7 +269,7 @@ impl CharacterMemoryAdapter {
         match self.config.backend.embedding.provider.as_str() {
             "deterministic" => {
                 let vector_size = self.config.backend.embedding.vector_size.unwrap_or(3072);
-                Ok(DeterministicEmbeddingProvider { vector_size }.vector_for_text(query))
+                Ok(DeterministicEmbeddingProvider::new(vector_size).vector_for_text(query))
             }
             "openai" => self.openai_query_embedding(query).await,
             provider => bail!("unsupported vector_only embedding provider: {provider}"),
@@ -1329,21 +1330,29 @@ fn sanitize_collection_segment(value: &str) -> String {
         .collect()
 }
 
-struct DeterministicEmbeddingProvider {
-    vector_size: usize,
+struct CharacterMemoryEmbeddingProvider {
+    inner: DeterministicEmbeddingProvider,
+}
+
+impl CharacterMemoryEmbeddingProvider {
+    fn new(vector_size: usize) -> Self {
+        Self {
+            inner: DeterministicEmbeddingProvider::new(vector_size),
+        }
+    }
 }
 
 #[async_trait]
-impl EmbeddingProvider for DeterministicEmbeddingProvider {
+impl EmbeddingProvider for CharacterMemoryEmbeddingProvider {
     fn vector_size(&self) -> usize {
-        self.vector_size
+        self.inner.vector_size()
     }
 
     async fn generate_embedding<'a>(
         &self,
         text: &'a str,
     ) -> std::result::Result<Vec<f32>, character_memory::CustomError> {
-        Ok(self.vector_for_text(text))
+        Ok(self.inner.vector_for_text(text))
     }
 
     async fn bulk_generate_embeddings<'a>(
@@ -1352,32 +1361,9 @@ impl EmbeddingProvider for DeterministicEmbeddingProvider {
     ) -> std::result::Result<Vec<Vec<f32>>, character_memory::CustomError> {
         Ok(texts
             .iter()
-            .map(|text| self.vector_for_text(text))
+            .map(|text| self.inner.vector_for_text(text))
             .collect())
     }
-}
-
-impl DeterministicEmbeddingProvider {
-    fn vector_for_text(&self, text: &str) -> Vec<f32> {
-        let mut embedding = vec![0.0; self.vector_size];
-        for token in text.split(|ch: char| !ch.is_alphanumeric()) {
-            if token.is_empty() {
-                continue;
-            }
-            let idx = stable_hash(token) % self.vector_size;
-            embedding[idx] += 1.0;
-        }
-        if embedding.iter().all(|value| *value == 0.0) {
-            embedding[0] = 1.0;
-        }
-        embedding
-    }
-}
-
-fn stable_hash(text: &str) -> usize {
-    text.bytes().fold(2166136261usize, |hash, byte| {
-        hash.wrapping_mul(16777619) ^ usize::from(byte.to_ascii_lowercase())
-    })
 }
 
 #[cfg(test)]
@@ -1503,7 +1489,7 @@ mod tests {
 
     #[test]
     fn deterministic_query_embeddings_are_stable_and_sized() {
-        let provider = DeterministicEmbeddingProvider { vector_size: 8 };
+        let provider = DeterministicEmbeddingProvider::new(8);
         let first = provider.vector_for_text("Alice likes tea");
         let second = provider.vector_for_text("Alice likes tea");
 
@@ -1516,33 +1502,32 @@ mod tests {
     fn telemetry_leakage_counts_only_final_returned_items() {
         let returned_id = deterministic_id("n", "episode", "returned");
         let omitted_id = deterministic_id("n", "episode", "omitted");
+        let mut trace = RetrievalTrace::empty();
+        trace.lifecycle_filter_decisions = vec![
+            LifecycleFilterDecision {
+                object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
+                retention_state: Some(RetentionState::Suppressed),
+                is_current: None,
+                superseded_by: Vec::new(),
+                action: LifecycleFilterAction::Included,
+                reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+            },
+            LifecycleFilterDecision {
+                object: MemoryObjectRef::new(ObjectType::Episode, omitted_id),
+                retention_state: Some(RetentionState::Suppressed),
+                is_current: None,
+                superseded_by: Vec::new(),
+                action: LifecycleFilterAction::Included,
+                reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+            },
+        ];
         let outcome = RetrieveOutcome {
             pack: ContinuityContextPack {
                 relevant_episodes: vec![episode(returned_id)],
                 ..ContinuityContextPack::empty()
             },
             rationale: RetrievalRationale::new("test"),
-            trace: Some(RetrievalTrace {
-                lifecycle_filter_decisions: vec![
-                    LifecycleFilterDecision {
-                        object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
-                        retention_state: Some(RetentionState::Suppressed),
-                        is_current: None,
-                        superseded_by: Vec::new(),
-                        action: LifecycleFilterAction::Included,
-                        reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
-                    },
-                    LifecycleFilterDecision {
-                        object: MemoryObjectRef::new(ObjectType::Episode, omitted_id),
-                        retention_state: Some(RetentionState::Suppressed),
-                        is_current: None,
-                        superseded_by: Vec::new(),
-                        action: LifecycleFilterAction::Included,
-                        reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
-                    },
-                ],
-                ..RetrievalTrace::empty()
-            }),
+            trace: Some(trace),
         };
 
         let telemetry = telemetry_from_outcome(&outcome);

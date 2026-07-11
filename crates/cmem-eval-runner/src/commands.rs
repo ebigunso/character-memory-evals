@@ -1,6 +1,7 @@
 use crate::{enrichment, official_exports};
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use cmem_eval_adapter_cmem::CharacterMemoryAdapter;
 use cmem_eval_core::{
     BenchmarkRunConfig, EpisodeInput, MemoryAdapter, MockMemoryAdapter, ObservationInput,
     PerQuestionResult, ReaderResult, ResultContextMetrics, RetrievalMode, RetrieveInput,
@@ -14,10 +15,6 @@ use serde_json::{Map, Value};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
-
-#[cfg(feature = "real-character-memory")]
-#[path = "real_adapter.rs"]
-mod real_adapter;
 
 #[derive(Debug, Parser)]
 #[command(name = "cmem-eval")]
@@ -958,18 +955,8 @@ async fn adapter(kind: AdapterKind, config: &BenchmarkRunConfig) -> Result<Box<d
     }
 }
 
-#[cfg(feature = "real-character-memory")]
 async fn real_adapter(config: &BenchmarkRunConfig) -> Result<Box<dyn MemoryAdapter>> {
-    Ok(Box::new(
-        real_adapter::CharacterMemoryAdapter::new(config).await?,
-    ))
-}
-
-#[cfg(not(feature = "real-character-memory"))]
-async fn real_adapter(_config: &BenchmarkRunConfig) -> Result<Box<dyn MemoryAdapter>> {
-    bail!(
-        "live Character Memory adapter is the default for benchmark runs, but this binary was built without `real-character-memory`; rebuild with `cargo run -p cmem-eval-runner --features real-character-memory -- ...`. Use `--adapter mock --allow-mock-benchmark` only for smoke tests."
-    )
+    Ok(Box::new(CharacterMemoryAdapter::new(config).await?))
 }
 
 impl RunArgs {
@@ -1263,23 +1250,6 @@ mod tests {
                 );
             });
         }
-    }
-
-    #[tokio::test]
-    #[cfg(not(feature = "real-character-memory"))]
-    async fn feature_disabled_real_adapter_fails_actionably() {
-        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
-            "run_id": "r",
-            "dataset": "synthetic"
-        }))
-        .unwrap();
-
-        let err = match adapter(AdapterKind::Real, &config).await {
-            Ok(_) => panic!("feature-disabled real adapter unexpectedly succeeded"),
-            Err(err) => err.to_string(),
-        };
-        assert!(err.contains("real-character-memory"));
-        assert!(err.contains("--adapter mock --allow-mock-benchmark"));
     }
 
     fn synthetic_config() -> BenchmarkRunConfig {

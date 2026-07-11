@@ -1,5 +1,6 @@
 pub mod bm25;
 pub mod config;
+pub mod deterministic_embedding;
 pub mod memory_adapter;
 pub mod metrics;
 pub mod results;
@@ -7,6 +8,7 @@ pub mod timing;
 pub mod token_count;
 
 pub use config::*;
+pub use deterministic_embedding::*;
 pub use memory_adapter::*;
 pub use metrics::*;
 pub use results::*;
