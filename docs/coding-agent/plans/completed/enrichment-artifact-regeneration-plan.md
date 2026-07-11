@@ -1,6 +1,6 @@
 # Plan: Enrichment Artifact Regeneration
 
-- status: in_progress
+- status: completed
 - generated: 2026-07-12
 - last_updated: 2026-07-12
 - work_type: mixed
