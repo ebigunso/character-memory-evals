@@ -382,3 +382,17 @@ Fix applied:
 
 Prevention:
 - Before removing dependency checkout or setup steps from a CI gate, execute the exact gate in an isolated environment with that dependency intentionally absent.
+
+## 2026-07-12 — Resolve Moving External Dependencies Once Before CI Fan-Out  [tags: ci, review, dependencies, consistency]
+
+Symptom:
+- Parallel CI jobs independently checked out the public sibling's moving default branch, so a mid-run sibling push could make different gates validate different source snapshots.
+
+Root cause:
+- The job split preserved per-job setup but treated a moving external repository ref as equivalent to the monolithic job's single resolved checkout.
+
+Fix applied:
+- Added a credential-less resolver job that captures the sibling's current `main` SHA once and passes that immutable run-scoped SHA to every parallel gate checkout.
+
+Prevention:
+- When CI fans out across jobs that consume a moving external dependency, resolve the dependency revision once before fan-out and assert every consumer uses the shared immutable output.
