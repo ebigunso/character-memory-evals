@@ -396,3 +396,17 @@ Fix applied:
 
 Prevention:
 - When CI fans out across jobs that consume a moving external dependency, resolve the dependency revision once before fan-out and assert every consumer uses the shared immutable output.
+
+## 2026-07-12 — Validate Complete Durable Identities And Matched Input Shapes  [tags: review, persistence, lifecycle, validation]
+
+Symptom:
+- Registry filenames omitted one component of the backing collection identity, reattach accepted a surviving registry without its collection, and matched LoCoMo session fields with invalid shapes were silently dropped.
+
+Root cause:
+- Related durable stores and matched input fields were validated independently or filtered by type instead of enforcing their complete shared contract at the boundary.
+
+Fix applied:
+- Centralized the prefix/run/namespace identity, required both registry and collection for reattach, and made every regex-matched session field pass explicit array validation.
+
+Prevention:
+- For paired durable stores and pattern-discovered inputs, enumerate every identity component and required half/shape, then add regressions for mismatched identity, missing backing state, and malformed matched values.
