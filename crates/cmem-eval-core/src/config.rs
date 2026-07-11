@@ -96,6 +96,9 @@ impl Default for BackendConfig {
 impl BackendConfig {
     pub fn validate(&self) -> Result<()> {
         self.cleanup.validate()?;
+        if self.embedding.vector_size == Some(0) {
+            bail!("backend.embedding.vector_size must be greater than zero");
+        }
         for (field, value) in [
             (
                 "backend.oxigraph_persistence_path",
@@ -393,6 +396,21 @@ mod tests {
 
         assert_eq!(config.backend.embedding.provider, "openai");
         assert_eq!(config.backend.embedding.model, "text-embedding-3-large");
+    }
+
+    #[test]
+    fn rejects_zero_embedding_vector_size() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "backend": {"embedding": {"provider": "deterministic", "vector_size": 0}},
+            "ingest": {"index_observations": true, "index_episode_summaries": true}
+        }))
+        .unwrap();
+
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("backend.embedding.vector_size"));
+        assert!(error.contains("greater than zero"));
     }
 
     #[test]

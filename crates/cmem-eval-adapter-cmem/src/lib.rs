@@ -189,7 +189,7 @@ impl CharacterMemoryAdapter {
             CharacterMemory::new_with_embedding_provider(
                 settings,
                 collection_name.clone(),
-                Box::new(CharacterMemoryEmbeddingProvider::new(vector_size)),
+                Box::new(CharacterMemoryEmbeddingProvider::new(vector_size)?),
             )
             .await?
         } else {
@@ -308,10 +308,17 @@ impl CharacterMemoryAdapter {
                 .require_collection_prefix
                 .as_deref(),
         )?;
-        self.qdrant
-            .delete_collection(collection_name)
+        if self
+            .qdrant
+            .collection_exists(collection_name)
             .await
-            .with_context(|| format!("delete Qdrant collection {collection_name}"))?;
+            .with_context(|| format!("check Qdrant collection {collection_name}"))?
+        {
+            self.qdrant
+                .delete_collection(collection_name)
+                .await
+                .with_context(|| format!("delete Qdrant collection {collection_name}"))?;
+        }
         Ok(())
     }
 
@@ -390,7 +397,7 @@ impl CharacterMemoryAdapter {
         match self.config.backend.embedding.provider.as_str() {
             "deterministic" => {
                 let vector_size = self.config.backend.embedding.vector_size.unwrap_or(3072);
-                Ok(DeterministicEmbeddingProvider::new(vector_size).vector_for_text(query))
+                Ok(DeterministicEmbeddingProvider::new(vector_size)?.vector_for_text(query))
             }
             "openai" => self.openai_query_embedding(query).await,
             provider => bail!("unsupported vector_only embedding provider: {provider}"),
@@ -481,6 +488,17 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 "identity registry already exists for namespace {namespace}; use reattach_namespace"
             );
         }
+        let collection_name = self.collection_name(namespace);
+        if self
+            .qdrant
+            .collection_exists(&collection_name)
+            .await
+            .with_context(|| format!("check Qdrant collection {collection_name}"))?
+        {
+            bail!(
+                "Qdrant collection already exists for namespace {namespace}; reset the namespace or use reattach_namespace"
+            );
+        }
         let state = self.create_namespace_state(namespace).await?;
         namespaces.insert(namespace.to_string(), state);
         Ok(NamespaceLifecycleResult {
@@ -508,18 +526,26 @@ impl MemoryAdapter for CharacterMemoryAdapter {
     }
 
     async fn reset_namespace(&self, namespace: &str) -> Result<()> {
-        let state = {
+        let (collection_name, identity_registry_path) = {
             let namespaces = self.namespaces.lock().await;
-            namespaces.get(namespace).map(|state| {
-                (
-                    state.collection_name.clone(),
-                    state.identity_registry_path.clone(),
-                )
-            })
+            namespaces
+                .get(namespace)
+                .map(|state| {
+                    (
+                        state.collection_name.clone(),
+                        state.identity_registry_path.clone(),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    (
+                        self.collection_name(namespace),
+                        self.identity_registry_path(namespace),
+                    )
+                })
         };
-        if let Some((collection_name, identity_registry_path)) = state {
+        if self.config.backend.cleanup.enabled {
             self.cleanup_collection_if_enabled(&collection_name).await?;
-            if self.config.backend.cleanup.enabled && identity_registry_path.exists() {
+            if identity_registry_path.exists() {
                 fs::remove_file(&identity_registry_path).with_context(|| {
                     format!(
                         "remove identity registry {}",
@@ -527,9 +553,9 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                     )
                 })?;
             }
-            let mut namespaces = self.namespaces.lock().await;
-            namespaces.remove(namespace);
         }
+        let mut namespaces = self.namespaces.lock().await;
+        namespaces.remove(namespace);
         Ok(())
     }
 
@@ -2265,10 +2291,10 @@ fn parse_retention_state(value: &str) -> Result<RetentionState> {
 }
 
 impl CharacterMemoryEmbeddingProvider {
-    fn new(vector_size: usize) -> Self {
-        Self {
-            inner: DeterministicEmbeddingProvider::new(vector_size),
-        }
+    fn new(vector_size: usize) -> Result<Self> {
+        Ok(Self {
+            inner: DeterministicEmbeddingProvider::new(vector_size)?,
+        })
     }
 }
 
@@ -2531,7 +2557,14 @@ mod tests {
             item.external_id.as_deref() == Some("observation-external")
                 && item.episode_external_id.as_deref() == Some("episode-external")
         }));
-        adapter_b.reset_namespace(namespace).await.unwrap();
+        drop(adapter_b);
+
+        let adapter_c = CharacterMemoryAdapter::new(&config).await.unwrap();
+        assert!(adapter_c.open_namespace(namespace).await.is_err());
+        adapter_c.reset_namespace(namespace).await.unwrap();
+        let fresh = adapter_c.open_namespace(namespace).await.unwrap();
+        assert_eq!(fresh.restored_identity_count, 0);
+        adapter_c.reset_namespace(namespace).await.unwrap();
     }
 
     #[test]
@@ -2710,7 +2743,7 @@ mod tests {
 
     #[test]
     fn deterministic_query_embeddings_are_stable_and_sized() {
-        let provider = DeterministicEmbeddingProvider::new(8);
+        let provider = DeterministicEmbeddingProvider::new(8).unwrap();
         let first = provider.vector_for_text("Alice likes tea");
         let second = provider.vector_for_text("Alice likes tea");
 

@@ -9,8 +9,7 @@ use cmem_eval_core::{
     RunAdapterMetadata, Timer, composition_metrics, count_tokens, estimate_word_count,
     initialize_registry_metrics_for, insert_composition_metrics, insert_context_metrics,
     insert_integrity_detail_metrics, insert_retrieval_metrics, insert_telemetry_metrics,
-    integrity_details_with_telemetry, summarize_rows_with_metric_families, write_jsonl,
-    write_summary,
+    integrity_details_with_telemetry, summarize_rows, write_jsonl, write_summary,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -29,6 +28,24 @@ pub(crate) async fn run_longmemeval(args: RunArgs) -> Result<()> {
 
 pub(crate) async fn run_locomo(args: RunArgs) -> Result<()> {
     run_pipeline::<LoCoMoSpec>(args).await
+}
+
+pub(crate) fn metric_family_for_config(config: &BenchmarkRunConfig) -> Result<MetricFamily> {
+    match config.dataset.as_str() {
+        "synthetic" => {
+            SyntheticSpec::validate_config(config)?;
+            Ok(SyntheticSpec::metric_family(&config.metrics))
+        }
+        "longmemeval_s" => {
+            LongMemEvalSpec::validate_config(config)?;
+            Ok(LongMemEvalSpec::metric_family(&config.metrics))
+        }
+        "locomo" => {
+            LoCoMoSpec::validate_config(config)?;
+            Ok(LoCoMoSpec::metric_family(&config.metrics))
+        }
+        dataset => bail!("unsupported summarize dataset in config: {dataset}"),
+    }
 }
 
 struct MemoryBatch {
@@ -123,7 +140,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
         let item_label = S::item_id(&item).to_string();
         let item_timer = Timer::start();
         progress.item_started(item_number, &item_label);
-        adapter.reset_namespace(&namespace).await?;
+        prepare_fresh_namespace(adapter.as_ref(), &namespace).await?;
 
         let batch = S::memory_inputs(&item, &config);
         let ingest_detail = S::ingest_progress_detail(&batch);
@@ -259,6 +276,12 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
     write_outputs(args, config.clone(), rows, &[metric_family])?;
     progress.cleanup_started(namespaces_to_cleanup.len());
     cleanup_namespaces_after_artifacts(&*adapter, &config, &namespaces_to_cleanup).await
+}
+
+async fn prepare_fresh_namespace(adapter: &dyn MemoryAdapter, namespace: &str) -> Result<()> {
+    adapter.reset_namespace(namespace).await?;
+    adapter.open_namespace(namespace).await?;
+    Ok(())
 }
 
 struct SyntheticSpec;
@@ -820,7 +843,7 @@ fn write_outputs(
     if let Some(parent) = args.summary_out.parent() {
         fs::create_dir_all(parent)?;
     }
-    let summary = summarize_rows_with_metric_families(
+    let summary = summarize_rows(
         config.run_id.clone(),
         config.dataset.clone(),
         rows.first()
@@ -1048,13 +1071,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fresh_namespace_preparation_discards_stale_state() {
+        let adapter = MockMemoryAdapter::default();
+        adapter.open_namespace("stale").await.unwrap();
+        adapter
+            .remember_episode(EpisodeInput {
+                external_id: "old".into(),
+                namespace: "stale".into(),
+                summary: "stale durable state".into(),
+                started_at: None,
+                ended_at: None,
+                participants: Vec::new(),
+                metadata: Value::Null,
+            })
+            .await
+            .unwrap();
+
+        prepare_fresh_namespace(&adapter, "stale").await.unwrap();
+
+        assert_eq!(
+            adapter
+                .reattach_namespace("stale")
+                .await
+                .unwrap()
+                .restored_identity_count,
+            0
+        );
+    }
+
+    #[tokio::test]
     async fn synthetic_command_writes_outputs() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("synthetic.jsonl");
         let summary = dir.path().join("synthetic_summary.json");
+        let resummary = dir.path().join("synthetic_resummary.json");
+        let config = PathBuf::from("../../configs/synthetic_retrieval.toml");
         run_synthetic(RunArgs {
             dataset: PathBuf::from("../../fixtures/synthetic_small.json"),
-            config: PathBuf::from("../../configs/synthetic_retrieval.toml"),
+            config: config.clone(),
             out: out.clone(),
             summary_out: summary.clone(),
             adapter: Some(AdapterKind::Mock),
@@ -1064,6 +1118,18 @@ mod tests {
         .unwrap();
         assert!(out.exists());
         assert!(summary.exists());
+
+        crate::commands::summarize(crate::commands::SummarizeArgs {
+            input: out,
+            config,
+            out: resummary.clone(),
+        })
+        .unwrap();
+        let original = cmem_eval_core::read_summary(&summary).unwrap();
+        let regenerated = cmem_eval_core::read_summary(&resummary).unwrap();
+        assert_eq!(regenerated.embedding_provider.as_deref(), Some("openai"));
+        assert_eq!(regenerated.config, original.config);
+        assert_eq!(regenerated.registry_coverage, original.registry_coverage);
     }
 
     #[tokio::test]

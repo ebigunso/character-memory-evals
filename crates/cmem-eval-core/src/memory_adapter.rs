@@ -627,6 +627,29 @@ impl MemoryAdapter for MockMemoryAdapter {
         if !source_provenance_has_reference(&input.correction_origin) {
             bail!("correction origin provenance is required");
         }
+        for target in &input.targets {
+            if let CorrectionTargetInput::SourceObject { object_type, .. } = target
+                && !matches!(object_type.as_str(), "episode" | "observation")
+            {
+                bail!("unsupported correction source object type: {object_type}");
+            }
+        }
+        for replacement in &input.replacements {
+            if replacement.memory.text.trim().is_empty() {
+                bail!("replacement derived memory text must not be empty");
+            }
+            if replacement.memory.source_episode_external_ids.is_empty()
+                && replacement
+                    .memory
+                    .source_observation_external_ids
+                    .is_empty()
+            {
+                bail!("replacement derived memory requires episode or observation provenance");
+            }
+            if !source_provenance_has_reference(&replacement.correction_origin_provenance) {
+                bail!("replacement correction origin provenance is required");
+            }
+        }
 
         let mut state = self.state.lock().expect("mock memory mutex poisoned");
         let namespace = state.entry(input.namespace.clone()).or_default();
@@ -646,9 +669,6 @@ impl MemoryAdapter for MockMemoryAdapter {
                     external_id,
                     ..
                 } => {
-                    if !matches!(object_type.as_str(), "episode" | "observation") {
-                        bail!("unsupported correction source object type: {object_type}");
-                    }
                     mutated_object_refs.push(MemoryEndpointInput {
                         object_type: object_type.clone(),
                         external_id: external_id.clone(),
@@ -683,20 +703,6 @@ impl MemoryAdapter for MockMemoryAdapter {
 
         let mut superseded = Vec::new();
         for replacement in input.replacements {
-            if replacement.memory.text.trim().is_empty() {
-                bail!("replacement derived memory text must not be empty");
-            }
-            if replacement.memory.source_episode_external_ids.is_empty()
-                && replacement
-                    .memory
-                    .source_observation_external_ids
-                    .is_empty()
-            {
-                bail!("replacement derived memory requires episode or observation provenance");
-            }
-            if !source_provenance_has_reference(&replacement.correction_origin_provenance) {
-                bail!("replacement correction origin provenance is required");
-            }
             for superseded_external_id in &replacement.memory.supersedes_external_ids {
                 superseded.push(SupersessionResult {
                     superseded_external_id: superseded_external_id.clone(),
@@ -726,6 +732,17 @@ impl MemoryAdapter for MockMemoryAdapter {
         }
         if input.rationale.trim().is_empty() {
             bail!("forget rationale must not be empty");
+        }
+        for target in &input.targets {
+            if !matches!(
+                target.object_type.as_str(),
+                "episode" | "observation" | "derived_memory" | "memory_thread"
+            ) {
+                bail!(
+                    "unsupported forget target object type: {}",
+                    target.object_type
+                );
+            }
         }
 
         let mut state = self.state.lock().expect("mock memory mutex poisoned");
@@ -768,7 +785,7 @@ impl MemoryAdapter for MockMemoryAdapter {
                         });
                     }
                 }
-                unsupported => bail!("unsupported forget target object type: {unsupported}"),
+                _ => unreachable!("forget targets were validated before mutation"),
             }
         }
         namespace.bm25_index = None;
@@ -1791,6 +1808,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mock_correction_validation_failure_is_atomic() {
+        let adapter = MockMemoryAdapter::default();
+        adapter
+            .remember_enrichment(GraphEnrichmentInput {
+                namespace: "n".into(),
+                derived_memories: vec![derived_memory("old", "s1", "old preference", vec![])],
+                ..GraphEnrichmentInput::default()
+            })
+            .await
+            .unwrap();
+        let origin = SourceProvenanceInput {
+            episode_external_ids: vec!["s1".into()],
+            ..SourceProvenanceInput::default()
+        };
+        let error = adapter
+            .correct(CorrectMemoryInput {
+                namespace: "n".into(),
+                targets: vec![CorrectionTargetInput::DerivedMemory {
+                    external_id: "old".into(),
+                }],
+                replacements: vec![
+                    ReplacementDerivedMemoryInput {
+                        memory: derived_memory("valid", "s1", "valid replacement", vec![]),
+                        original_source_provenance: origin.clone(),
+                        correction_origin_provenance: origin.clone(),
+                    },
+                    ReplacementDerivedMemoryInput {
+                        memory: derived_memory("invalid", "s1", " ", vec![]),
+                        original_source_provenance: origin.clone(),
+                        correction_origin_provenance: origin.clone(),
+                    },
+                ],
+                superseded_derived_memory_external_ids: vec!["old".into()],
+                correction_origin: origin,
+                rationale: "test atomic validation".into(),
+                lifecycle_policy: CorrectionLifecyclePolicyInput::default(),
+                cascade_policy: CorrectionCascadePolicyInput::default(),
+                include_trace: false,
+            })
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("text must not be empty"));
+        let state = adapter.state.lock().unwrap();
+        let namespace = &state["n"];
+        assert_eq!(namespace.derived_memories.len(), 1);
+        assert_eq!(namespace.derived_memories[0].external_id, "old");
+        assert!(namespace.suppressed_derived_memory_ids.is_empty());
+    }
+
+    #[tokio::test]
     async fn mock_forget_removes_target_with_minimal_semantics() {
         let adapter = MockMemoryAdapter::default();
         adapter
@@ -1826,6 +1894,46 @@ mod tests {
                 .derived_memories
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn mock_forget_validation_failure_is_atomic() {
+        let adapter = MockMemoryAdapter::default();
+        adapter
+            .remember_enrichment(GraphEnrichmentInput {
+                namespace: "n".into(),
+                derived_memories: vec![derived_memory("dm1", "s1", "keep me", vec![])],
+                ..GraphEnrichmentInput::default()
+            })
+            .await
+            .unwrap();
+
+        let error = adapter
+            .forget(ForgetMemoryInput {
+                namespace: "n".into(),
+                targets: vec![
+                    MemoryEndpointInput {
+                        object_type: "derived_memory".into(),
+                        external_id: "dm1".into(),
+                    },
+                    MemoryEndpointInput {
+                        object_type: "unsupported".into(),
+                        external_id: "later".into(),
+                    },
+                ],
+                rationale: "test atomic validation".into(),
+                suppression_policy: SuppressionPolicyInput::default(),
+                archive_policy: ArchivePolicyInput::default(),
+                cascade_policy: ForgetCascadePolicyInput::default(),
+                target_retention_state: "suppressed".into(),
+                target_thread_status: None,
+                include_trace: false,
+            })
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("unsupported forget target"));
+        assert_eq!(adapter.state.lock().unwrap()["n"].derived_memories.len(), 1);
     }
 
     fn derived_memory(

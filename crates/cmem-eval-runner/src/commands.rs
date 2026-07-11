@@ -183,6 +183,8 @@ struct SummarizeArgs {
     #[arg(long)]
     input: PathBuf,
     #[arg(long)]
+    config: PathBuf,
+    #[arg(long)]
     out: PathBuf,
 }
 
@@ -216,12 +218,31 @@ fn summarize(args: SummarizeArgs) -> Result<()> {
     let Some(first) = rows.first() else {
         bail!("cannot summarize empty JSONL: {}", args.input.display());
     };
+    let config = read_config(&args.config)?;
+    config.validate()?;
+    if first.run_id != config.run_id || first.dataset != config.dataset {
+        bail!(
+            "summary input run/dataset ({}/{}) does not match config ({}/{})",
+            first.run_id,
+            first.dataset,
+            config.run_id,
+            config.dataset
+        );
+    }
+    if rows
+        .iter()
+        .any(|row| row.run_id != first.run_id || row.dataset != first.dataset)
+    {
+        bail!("summary input contains mixed run_id or dataset values");
+    }
+    let metric_family = pipeline::metric_family_for_config(&config)?;
     let summary = summarize_rows(
         first.run_id.clone(),
         first.dataset.clone(),
         first.adapter.clone(),
-        serde_json::json!({}),
+        serde_json::to_value(&config)?,
         &rows,
+        &[metric_family],
     );
     write_summary(&args.out, &summary)
 }

@@ -196,17 +196,15 @@ pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
     Ok(())
 }
 
-pub fn summarize_rows(
-    run_id: String,
-    dataset: String,
-    adapter: RunAdapterMetadata,
-    config: Value,
-    rows: &[PerQuestionResult],
-) -> RunSummary {
-    summarize_rows_with_metric_families(run_id, dataset, adapter, config, rows, &[])
+pub fn read_summary(path: &Path) -> Result<RunSummary> {
+    let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let value: Value = serde_json::from_reader(file)
+        .with_context(|| format!("deserialize summary {}", path.display()))?;
+    validate_summary_schema(&value)?;
+    serde_json::from_value(value).with_context(|| format!("decode summary {}", path.display()))
 }
 
-pub fn summarize_rows_with_metric_families(
+pub fn summarize_rows(
     run_id: String,
     dataset: String,
     adapter: RunAdapterMetadata,
@@ -276,6 +274,16 @@ fn validate_row_schema(value: &Value) -> Result<()> {
     }
 }
 
+fn validate_summary_schema(value: &Value) -> Result<()> {
+    match value.get("schema_version").and_then(Value::as_str) {
+        Some(RESULT_SCHEMA_VERSION) => Ok(()),
+        Some(version) => anyhow::bail!(
+            "unsupported summary schema_version {version:?}; expected {RESULT_SCHEMA_VERSION:?}"
+        ),
+        None => anyhow::bail!("missing summary schema_version; expected {RESULT_SCHEMA_VERSION:?}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,6 +345,7 @@ mod tests {
             RunAdapterMetadata::mock_smoke(),
             serde_json::json!({}),
             &[row],
+            &[],
         );
 
         assert_eq!(
@@ -375,7 +384,7 @@ mod tests {
         };
         let family = crate::retrieval_metric_family("synthetic", [("session", [5].as_slice())]);
 
-        let summary = summarize_rows_with_metric_families(
+        let summary = summarize_rows(
             "r".into(),
             "synthetic".into(),
             RunAdapterMetadata::mock_smoke(),
@@ -410,5 +419,27 @@ mod tests {
                 .to_string()
                 .contains("unsupported result schema_version")
         );
+    }
+
+    #[test]
+    fn read_summary_rejects_missing_or_unsupported_schema_version() {
+        let path =
+            std::env::temp_dir().join(format!("cmem-summary-schema-{}.json", uuid::Uuid::new_v4()));
+        for (value, expected) in [
+            (serde_json::json!({}), "missing summary schema_version"),
+            (
+                serde_json::json!({"schema_version": "0.9.0"}),
+                "unsupported summary schema_version",
+            ),
+        ] {
+            std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+            assert!(
+                read_summary(&path)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(expected)
+            );
+        }
+        std::fs::remove_file(path).unwrap();
     }
 }
