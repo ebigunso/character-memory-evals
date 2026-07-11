@@ -4,12 +4,13 @@ use anyhow::{Result, bail};
 use cmem_eval_adapter_cmem::CharacterMemoryAdapter;
 use cmem_eval_core::{
     BenchmarkRunConfig, EpisodeInput, GraphEnrichmentInput, GraphSnapshotInput, MemoryAdapter,
-    MockMemoryAdapter, ObservationInput, PerQuestionResult, ReaderResult, ResultContextMetrics,
-    RetrieveInput, RetrievedContextPack, RetrievedItem, RunAdapterMetadata, Timer,
-    composition_metrics, count_tokens, estimate_word_count, initialize_registry_metrics,
-    insert_composition_metrics, insert_context_metrics, insert_integrity_detail_metrics,
-    insert_retrieval_metrics, insert_telemetry_metrics, integrity_details_with_telemetry,
-    summarize_rows, write_jsonl, write_summary,
+    MetricFamily, MetricsConfig, MockMemoryAdapter, ObservationInput, PerQuestionResult,
+    ReaderResult, ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem,
+    RunAdapterMetadata, Timer, composition_metrics, count_tokens, estimate_word_count,
+    initialize_registry_metrics_for, insert_composition_metrics, insert_context_metrics,
+    insert_integrity_detail_metrics, insert_retrieval_metrics, insert_telemetry_metrics,
+    integrity_details_with_telemetry, summarize_rows_with_metric_families, write_jsonl,
+    write_summary,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -44,6 +45,7 @@ trait DatasetSpec {
     const REPORT_QA_PROGRESS: bool;
     const USES_ENRICHMENT: bool;
 
+    fn metric_family(config: &MetricsConfig) -> MetricFamily;
     fn validate_config(config: &BenchmarkRunConfig) -> Result<()>;
     fn load(path: &Path) -> Result<Vec<Self::Item>>;
     fn item_id(item: &Self::Item) -> &str;
@@ -89,6 +91,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
     let config = read_config(&args.config)?;
     config.validate()?;
     S::validate_config(&config)?;
+    let metric_family = S::metric_family(&config.metrics);
     let source_items = S::load(&args.dataset)?;
     let selected = args.selected_adapter();
     args.validate_adapter_selection(&config)?;
@@ -215,7 +218,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                     &composition,
                     &integrity,
                     &pack.telemetry,
-                    latency_ms,
+                    std::slice::from_ref(&metric_family),
                 );
             }
             rows.push(PerQuestionResult {
@@ -253,7 +256,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
     }
 
     progress.write_outputs_started(rows.len());
-    write_outputs(args, config.clone(), rows)?;
+    write_outputs(args, config.clone(), rows, &[metric_family])?;
     progress.cleanup_started(namespaces_to_cleanup.len());
     cleanup_namespaces_after_artifacts(&*adapter, &config, &namespaces_to_cleanup).await
 }
@@ -267,6 +270,16 @@ impl DatasetSpec for SyntheticSpec {
     const LATENCY_INCLUDES_INGEST: bool = true;
     const REPORT_QA_PROGRESS: bool = false;
     const USES_ENRICHMENT: bool = false;
+
+    fn metric_family(_config: &MetricsConfig) -> MetricFamily {
+        cmem_eval_core::retrieval_metric_family(
+            "synthetic_retrieval",
+            [
+                ("session", [5, 10].as_slice()),
+                ("turn", [10, 50].as_slice()),
+            ],
+        )
+    }
 
     fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
         validate_dataset_name(config, "synthetic")
@@ -392,6 +405,10 @@ impl DatasetSpec for LongMemEvalSpec {
     const REPORT_QA_PROGRESS: bool = false;
     const USES_ENRICHMENT: bool = true;
 
+    fn metric_family(config: &MetricsConfig) -> MetricFamily {
+        cmem_eval_longmemeval::metric_family(config)
+    }
+
     fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
         cmem_eval_longmemeval::validate_config(config)
     }
@@ -501,6 +518,10 @@ impl DatasetSpec for LoCoMoSpec {
     const LATENCY_INCLUDES_INGEST: bool = false;
     const REPORT_QA_PROGRESS: bool = true;
     const USES_ENRICHMENT: bool = true;
+
+    fn metric_family(config: &MetricsConfig) -> MetricFamily {
+        cmem_eval_locomo::metric_family(config)
+    }
 
     fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
         cmem_eval_locomo::validate_config(config)
@@ -664,13 +685,9 @@ fn insert_common_metrics(
     composition: &cmem_eval_core::ResultCompositionMetrics,
     integrity: &cmem_eval_core::ResultIntegrityDetails,
     telemetry: &cmem_eval_core::RetrievalTelemetry,
-    latency_ms: u128,
+    metric_families: &[MetricFamily],
 ) {
-    initialize_registry_metrics(metrics);
-    metrics.insert(
-        "retrieval_latency_ms".to_string(),
-        Value::from(latency_ms as f64),
-    );
+    initialize_registry_metrics_for(metrics, metric_families);
     insert_context_metrics(metrics, context);
     insert_composition_metrics(metrics, composition);
     insert_integrity_detail_metrics(metrics, integrity);
@@ -795,6 +812,7 @@ fn write_outputs(
     args: RunArgs,
     config: BenchmarkRunConfig,
     rows: Vec<PerQuestionResult>,
+    metric_families: &[MetricFamily],
 ) -> Result<()> {
     if let Some(parent) = args.out.parent() {
         fs::create_dir_all(parent)?;
@@ -802,7 +820,7 @@ fn write_outputs(
     if let Some(parent) = args.summary_out.parent() {
         fs::create_dir_all(parent)?;
     }
-    let summary = summarize_rows(
+    let summary = summarize_rows_with_metric_families(
         config.run_id.clone(),
         config.dataset.clone(),
         rows.first()
@@ -810,6 +828,7 @@ fn write_outputs(
             .unwrap_or_else(RunAdapterMetadata::live),
         serde_json::to_value(&config)?,
         &rows,
+        metric_families,
     );
     write_jsonl(&args.out, &rows)?;
     write_summary(&args.summary_out, &summary)
