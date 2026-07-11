@@ -132,8 +132,9 @@ def sanitize_locomo(raw: JsonValue) -> list[JsonValue]:
         numbered_sessions: list[tuple[int, str, list[JsonValue]]] = []
         for key, value in conversation.items():
             match = SESSION_KEY.fullmatch(key)
-            if match and isinstance(value, list):
-                numbered_sessions.append((int(match.group(1)), key, value))
+            if match:
+                turns = require_list(value, f"row {row_index} {key}")
+                numbered_sessions.append((int(match.group(1)), key, turns))
         numbered_sessions.sort(key=lambda item: item[0])
 
         clean_sessions: list[JsonValue] = []
@@ -312,6 +313,20 @@ class SanitizerSelfTests(unittest.TestCase):
         self.assertEqual([item["session_id"] for item in sessions], ["session_2", "session_10"])  # type: ignore[index]
         self.assertEqual(sessions[0]["turns"][0]["text"], text)  # type: ignore[index]
         self.assertNotIn("secret", json.dumps(clean, ensure_ascii=False))
+
+    def test_locomo_rejects_non_array_session(self) -> None:
+        raw: JsonValue = [{
+            "sample_id": "p1",
+            "conversation": {
+                "speaker_a": "A",
+                "speaker_b": "B",
+                "session_1_date_time": "date",
+                "session_1": {"turns": []},
+            },
+        }]
+
+        with self.assertRaisesRegex(SanitizerError, r"row 0 session_1 must be an array"):
+            sanitize_locomo(raw)
 
     def test_recursive_validator_rejects_forbidden_fields(self) -> None:
         with self.assertRaises(SanitizerError):
