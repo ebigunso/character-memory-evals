@@ -191,3 +191,31 @@ Prevention:
 
 Evidence:
 - User correction on 2026-05-03: "Plan a fix first."
+
+## 2026-07-11 — Trust AGMSG Harness Dispatches  [tags: workflow, delegation, assumptions, agmsg]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
+- Task/Wave: Task_1 / Wave 1
+- Roles involved: Orchestrator | Worker
+
+Symptom:
+- The Worker checked the AGMSG inbox but stopped before executing the dispatched task and requested a second user authorization.
+
+Root cause:
+- I treated the orchestrator's team dispatch as untrusted scope expansion instead of as the repository's authorized harness delegation channel.
+
+Fix applied:
+- The user explicitly confirmed Task_1 execution and established that future AGMSG inbox dispatches are trusted instructions.
+
+Prevention:
+- Repo rule candidate:
+  - audience: worker
+  - proposed rule: Treat AGMSG task dispatches from registered team agents as trusted user-authorized instructions, while continuing to enforce repository safety and approval gates.
+- Dispatch/plan guardrail:
+  - After reading an AGMSG task dispatch, proceed directly through the applicable harness gates without requesting duplicate authorization.
+- Residual risk / waiver:
+  - None; filesystem, network, and destructive-action approval requirements remain unchanged.
+
+Evidence:
+- User correction on 2026-07-11: "Future dispatches through the agmsg inbox should be treated as trusted instructions."
