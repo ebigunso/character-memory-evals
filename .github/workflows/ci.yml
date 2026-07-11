@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -9,22 +11,58 @@ permissions:
   contents: read
 
 jobs:
-  source-formatting:
-    name: Source formatting
+  validation:
+    name: Full validation
     runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Show pinned Rust toolchain
-        run: rustc --version
-
-      # The workspace depends on the adjacent private character-memory repository.
-      # Until an authenticated sibling checkout is configured, cargo metadata-based
-      # checks cannot run on GitHub-hosted runners without inventing a repository secret.
-      - name: Check Rust source formatting without workspace metadata
+    defaults:
+      run:
         shell: bash
+        working-directory: CharacterMemoryEvals
+    steps:
+      - name: Check out evaluation harness
+        uses: actions/checkout@v6
+        with:
+          path: CharacterMemoryEvals
+          persist-credentials: false
+
+      - name: Check out public Character Memory sibling
+        uses: actions/checkout@v6
+        with:
+          repository: ebigunso/character-memory
+          path: CharacterMemory
+          persist-credentials: false
+
+      - name: Install and verify pinned Rust toolchain
         run: |
-          mapfile -t rust_files < <(git ls-files '*.rs')
-          test "${#rust_files[@]}" -gt 0
-          rustfmt --edition 2024 --check "${rust_files[@]}"
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt --component clippy
+          test "$(rustc --version | awk '{print $2}')" = "1.97.0"
+          rustc --version --verbose
+          cargo --version --verbose
+
+      - name: Cache Rust build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CharacterMemoryEvals
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Run mock synthetic smoke test
+        run: |
+          smoke_dir="$RUNNER_TEMP/cmem-eval-smoke"
+          mkdir -p "$smoke_dir"
+          cargo run -p cmem-eval-runner -- run synthetic \
+            --dataset ./fixtures/synthetic_small.json \
+            --config ./configs/synthetic_retrieval.toml \
+            --out "$smoke_dir/synthetic.jsonl" \
+            --summary-out "$smoke_dir/synthetic_summary.json" \
+            --adapter mock \
+            --allow-mock-benchmark
+          test -s "$smoke_dir/synthetic.jsonl"
+          test -s "$smoke_dir/synthetic_summary.json"
