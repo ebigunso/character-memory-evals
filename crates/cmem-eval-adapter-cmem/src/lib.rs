@@ -261,15 +261,26 @@ impl CharacterMemoryAdapter {
             .context("QDRANT_CONNECTION_STRING is required for live Character Memory runs")
     }
 
-    fn collection_name(&self, namespace: &str) -> String {
-        let prefix = self
-            .config
+    fn namespace_prefix(&self) -> &str {
+        self.config
             .backend
             .namespace_prefix
             .as_deref()
-            .unwrap_or("cmem_eval");
-        let identity = format!("{prefix}\0{}\0{namespace}", self.config.run_id);
-        let suffix = Uuid::new_v5(&UUID_NAMESPACE, identity.as_bytes());
+            .unwrap_or("cmem_eval")
+    }
+
+    fn namespace_identity_suffix(&self, namespace: &str) -> Uuid {
+        let identity = format!(
+            "{}\0{}\0{namespace}",
+            self.namespace_prefix(),
+            self.config.run_id
+        );
+        Uuid::new_v5(&UUID_NAMESPACE, identity.as_bytes())
+    }
+
+    fn collection_name(&self, namespace: &str) -> String {
+        let prefix = self.namespace_prefix();
+        let suffix = self.namespace_identity_suffix(namespace);
         format!(
             "{}_{}_{}_{}",
             sanitize_collection_segment(prefix),
@@ -279,6 +290,8 @@ impl CharacterMemoryAdapter {
         )
     }
 
+    /// Registry filenames share the collection's prefix/run/namespace identity. Legacy
+    /// prefix-less registry files are ephemeral eval artifacts and are intentionally not migrated.
     fn identity_registry_path(&self, namespace: &str) -> PathBuf {
         let root = self
             .config
@@ -287,10 +300,11 @@ impl CharacterMemoryAdapter {
             .as_deref()
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("runs").join(&self.config.run_id));
-        let identity = format!("{}\0{namespace}", self.config.run_id);
-        let suffix = Uuid::new_v5(&UUID_NAMESPACE, identity.as_bytes());
+        let prefix = self.namespace_prefix();
+        let suffix = self.namespace_identity_suffix(namespace);
         root.join(format!(
-            "identity-{}-{}.json",
+            "identity-{}-{}-{}.json",
+            sanitize_collection_segment(prefix),
             sanitize_collection_segment(namespace),
             suffix.simple()
         ))
@@ -545,7 +559,21 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         }
         let registry_path = self.identity_registry_path(namespace);
         if !registry_path.exists() {
-            bail!("identity registry does not exist for namespace {namespace}");
+            bail!(
+                "identity registry does not exist for namespace {namespace}; reattach requires both the registry and Qdrant collection"
+            );
+        }
+        let collection_name = self.collection_name(namespace);
+        if !self
+            .qdrant
+            .collection_exists(&collection_name)
+            .await
+            .with_context(|| format!("check Qdrant collection {collection_name} for reattach"))?
+        {
+            bail!(
+                "Qdrant collection {collection_name} does not exist for namespace {namespace} while identity registry {} exists; reattach requires both durable stores",
+                registry_path.display()
+            );
         }
         let state = self.create_namespace_state(namespace).await?;
         let restored_identity_count = state.identities.len();
@@ -557,12 +585,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
     }
 
     async fn reset_namespace(&self, namespace: &str) -> Result<()> {
-        let namespace_prefix = self
-            .config
-            .backend
-            .namespace_prefix
-            .as_deref()
-            .unwrap_or("cmem_eval");
+        let namespace_prefix = self.namespace_prefix();
         self.reset_namespace_with_prefix(namespace, namespace_prefix)
             .await
     }
@@ -2561,6 +2584,12 @@ mod tests {
         ))
         .await
         .unwrap();
+        let other_prefix = CharacterMemoryAdapter::new(&adapter_config(
+            "run-a".to_string(),
+            "cmem_eval_other".to_string(),
+        ))
+        .await
+        .unwrap();
 
         assert_eq!(
             first.collection_name("namespace"),
@@ -2569,6 +2598,35 @@ mod tests {
         assert_ne!(
             first.collection_name("namespace"),
             parallel.collection_name("namespace")
+        );
+        assert_ne!(
+            first.collection_name("namespace"),
+            other_prefix.collection_name("namespace")
+        );
+        assert_eq!(
+            first.identity_registry_path("namespace"),
+            same.identity_registry_path("namespace")
+        );
+        assert_ne!(
+            first.identity_registry_path("namespace"),
+            parallel.identity_registry_path("namespace")
+        );
+        assert_ne!(
+            first.identity_registry_path("namespace"),
+            other_prefix.identity_registry_path("namespace")
+        );
+        let shared_suffix = first
+            .namespace_identity_suffix("namespace")
+            .simple()
+            .to_string();
+        assert!(first.collection_name("namespace").ends_with(&shared_suffix));
+        assert!(
+            first
+                .identity_registry_path("namespace")
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with(&format!("{shared_suffix}.json"))
         );
         validate_cleanup_target(&first.collection_name("namespace"), Some("cmem_eval_task3"))
             .unwrap();
@@ -2721,7 +2779,39 @@ mod tests {
             item.external_id.as_deref() == Some("observation-external")
                 && item.episode_external_id.as_deref() == Some("episode-external")
         }));
+        let collection_name = adapter_b.collection_name(namespace);
+        live_call_or_skip!(
+            qdrant_was_available,
+            "backing collection deletion",
+            true,
+            adapter_b
+                .qdrant
+                .delete_collection(&collection_name)
+                .await
+                .with_context(|| format!("delete Qdrant collection {collection_name}"))
+        );
         drop(adapter_b);
+
+        let adapter_missing_collection = live_call_or_skip!(
+            qdrant_was_available,
+            "missing-collection adapter construction",
+            false,
+            CharacterMemoryAdapter::new(&config).await
+        );
+        let missing_collection_error = live_error_or_skip!(
+            qdrant_was_available,
+            "missing-collection namespace reattach",
+            adapter_missing_collection
+                .reattach_namespace(namespace)
+                .await
+        );
+        let missing_collection_message = missing_collection_error.to_string();
+        assert!(missing_collection_message.contains("Qdrant collection"));
+        assert!(missing_collection_message.contains("does not exist"));
+        assert!(missing_collection_message.contains("identity registry"));
+        assert!(missing_collection_message.contains(&collection_name));
+        println!("verified reattach rejects a surviving registry without its Qdrant collection");
+        drop(adapter_missing_collection);
 
         let adapter_c = live_call_or_skip!(
             qdrant_was_available,
