@@ -29,6 +29,7 @@ use qdrant_client::qdrant::{Condition, Filter, ScoredPoint, SearchPointsBuilder,
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -129,15 +130,40 @@ impl ExternalIdRegistry {
     }
 
     fn save(&self, path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("create identity registry directory {}", parent.display())
-            })?;
-        }
+        self.save_with_before_persist(path, |_| Ok(()))
+    }
+
+    fn save_with_before_persist<F>(&self, path: &Path, before_persist: F) -> Result<()>
+    where
+        F: FnOnce(&Path) -> Result<()>,
+    {
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create identity registry directory {}", parent.display()))?;
         let mut bytes = serde_json::to_vec_pretty(self)?;
         bytes.push(b'\n');
-        fs::write(path, bytes)
-            .with_context(|| format!("write identity registry {}", path.display()))
+        let mut temporary = tempfile::NamedTempFile::new_in(parent).with_context(|| {
+            format!(
+                "create temporary identity registry beside {}",
+                path.display()
+            )
+        })?;
+        temporary
+            .write_all(&bytes)
+            .with_context(|| format!("write temporary identity registry for {}", path.display()))?;
+        temporary
+            .as_file()
+            .sync_all()
+            .with_context(|| format!("sync temporary identity registry for {}", path.display()))?;
+        before_persist(temporary.path())?;
+        temporary
+            .persist(path)
+            .map_err(|error| error.error)
+            .with_context(|| format!("atomically replace identity registry {}", path.display()))?;
+        Ok(())
     }
 }
 
@@ -175,14 +201,13 @@ impl CharacterMemoryAdapter {
         })
     }
 
-    async fn create_namespace_state(&self, namespace: &str) -> Result<NamespaceState> {
+    async fn create_namespace_state(
+        &self,
+        namespace: &str,
+        identities: ExternalIdRegistry,
+    ) -> Result<NamespaceState> {
         let collection_name = self.collection_name(namespace);
         let identity_registry_path = self.identity_registry_path(namespace);
-        let identities = if identity_registry_path.exists() {
-            ExternalIdRegistry::load(&identity_registry_path, namespace)?
-        } else {
-            ExternalIdRegistry::new(namespace)
-        };
         let settings = self.settings()?;
         let memory = if self.config.backend.embedding.provider == "deterministic" {
             let vector_size = self.config.backend.embedding.vector_size.unwrap_or(3072);
@@ -368,12 +393,10 @@ impl CharacterMemoryAdapter {
     }
 
     async fn vector_namespace_snapshot(&self, namespace: &str) -> Result<VectorNamespaceSnapshot> {
-        let mut namespaces = self.namespaces.lock().await;
-        if !namespaces.contains_key(namespace) {
-            let state = self.create_namespace_state(namespace).await?;
-            namespaces.insert(namespace.to_string(), state);
-        }
-        let state = namespaces.get(namespace).expect("namespace state inserted");
+        let namespaces = self.namespaces.lock().await;
+        let state = namespaces
+            .get(namespace)
+            .ok_or_else(|| explicit_lifecycle_error(namespace))?;
         Ok(VectorNamespaceSnapshot {
             collection_name: state.collection_name.clone(),
             reverse_episode_ids: state.reverse_episode_ids.clone(),
@@ -544,7 +567,9 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 "Qdrant collection already exists for namespace {namespace}; reset the namespace or use reattach_namespace"
             );
         }
-        let state = self.create_namespace_state(namespace).await?;
+        let state = self
+            .create_namespace_state(namespace, ExternalIdRegistry::new(namespace))
+            .await?;
         namespaces.insert(namespace.to_string(), state);
         Ok(NamespaceLifecycleResult {
             namespace: namespace.to_string(),
@@ -575,7 +600,8 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 registry_path.display()
             );
         }
-        let state = self.create_namespace_state(namespace).await?;
+        let identities = ExternalIdRegistry::load(&registry_path, namespace)?;
+        let state = self.create_namespace_state(namespace, identities).await?;
         let restored_identity_count = state.identities.len();
         namespaces.insert(namespace.to_string(), state);
         Ok(NamespaceLifecycleResult {
@@ -624,13 +650,9 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             inputs.iter().map(|input| input.namespace.as_str()),
         )?;
         let mut namespaces = self.namespaces.lock().await;
-        if !namespaces.contains_key(&namespace) {
-            let state = self.create_namespace_state(&namespace).await?;
-            namespaces.insert(namespace.clone(), state);
-        }
         let state = namespaces
             .get_mut(&namespace)
-            .expect("namespace state inserted");
+            .ok_or_else(|| explicit_lifecycle_error(&namespace))?;
         let mut objects = Vec::with_capacity(inputs.len());
         let mut ids = Vec::with_capacity(inputs.len());
         for input in inputs {
@@ -1027,13 +1049,9 @@ impl MemoryAdapter for CharacterMemoryAdapter {
 
     async fn prepare(&self, input: PrepareWriteInput) -> Result<PreparedWritePlan> {
         let mut namespaces = self.namespaces.lock().await;
-        if !namespaces.contains_key(&input.namespace) {
-            let state = self.create_namespace_state(&input.namespace).await?;
-            namespaces.insert(input.namespace.clone(), state);
-        }
         let state = namespaces
             .get_mut(&input.namespace)
-            .expect("namespace state inserted");
+            .ok_or_else(|| explicit_lifecycle_error(&input.namespace))?;
         let episode_id = deterministic_id(&input.namespace, "episode", &input.episode_external_id);
         let observation_id = deterministic_id(
             &input.namespace,
@@ -1212,13 +1230,9 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             RetrievalMode::Hybrid => {}
         }
         let mut namespaces = self.namespaces.lock().await;
-        if !namespaces.contains_key(&input.namespace) {
-            let state = self.create_namespace_state(&input.namespace).await?;
-            namespaces.insert(input.namespace.clone(), state);
-        }
         let state = namespaces
             .get_mut(&input.namespace)
-            .expect("namespace state inserted");
+            .ok_or_else(|| explicit_lifecycle_error(&input.namespace))?;
 
         let mut context = RetrievalContext::new(input.query);
         context.include_trace = input.include_debug_rationale;
@@ -1755,6 +1769,12 @@ fn deterministic_id(namespace: &str, kind: &str, external_id: &str) -> MemoryId 
     Uuid::new_v5(
         &UUID_NAMESPACE,
         format!("{namespace}\0{kind}\0{external_id}").as_bytes(),
+    )
+}
+
+fn explicit_lifecycle_error(namespace: &str) -> anyhow::Error {
+    anyhow!(
+        "namespace is not open: {namespace}; call open_namespace or reattach_namespace before adapter operations"
     )
 }
 
@@ -2653,6 +2673,127 @@ mod tests {
         assert!(first.find("\"a\"").unwrap() < first.find("\"z\"").unwrap());
         assert_eq!(
             ExternalIdRegistry::load(&path, "namespace").unwrap(),
+            registry
+        );
+
+        let mut updated = registry.clone();
+        let replacement = deterministic_id("namespace", "episode", "replacement");
+        updated
+            .episode_ids
+            .insert("replacement".to_string(), replacement);
+        updated
+            .reverse_episode_ids
+            .insert(replacement, "replacement".to_string());
+        let expected_updated = updated.clone();
+        let mut staged_path = None;
+        let error = updated
+            .save_with_before_persist(&path, |temporary_path| {
+                staged_path = Some(temporary_path.to_path_buf());
+                assert_eq!(temporary_path.parent(), path.parent());
+                assert_eq!(fs::read_to_string(&path).unwrap(), first);
+                assert_eq!(
+                    ExternalIdRegistry::load(temporary_path, "namespace").unwrap(),
+                    expected_updated
+                );
+                bail!("simulated interruption before atomic registry replacement")
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("simulated interruption"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), first);
+        assert!(!staged_path.unwrap().exists());
+
+        updated.save(&path).unwrap();
+        assert_eq!(
+            ExternalIdRegistry::load(&path, "namespace").unwrap(),
+            updated
+        );
+    }
+
+    #[tokio::test]
+    async fn operational_calls_require_explicit_lifecycle_with_surviving_registry() {
+        let directory = tempdir().unwrap();
+        let namespace = "explicit-lifecycle";
+        let mut config = adapter_config(
+            "explicit-lifecycle-run".to_string(),
+            "cmem_eval_explicit_lifecycle".to_string(),
+        );
+        config.backend.identity_registry_dir = Some(
+            directory
+                .path()
+                .join("identities")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let registry_path = adapter.identity_registry_path(namespace);
+        let mut registry = ExternalIdRegistry::new(namespace);
+        let existing_id = deterministic_id(namespace, "episode", "existing");
+        registry
+            .episode_ids
+            .insert("existing".to_string(), existing_id);
+        registry
+            .reverse_episode_ids
+            .insert(existing_id, "existing".to_string());
+        registry.save(&registry_path).unwrap();
+
+        let mut errors = Vec::new();
+        errors.push(
+            adapter
+                .remember_episode(EpisodeInput {
+                    external_id: "new-episode".to_string(),
+                    namespace: namespace.to_string(),
+                    summary: "must not attach implicitly".to_string(),
+                    started_at: None,
+                    ended_at: None,
+                    participants: Vec::new(),
+                    metadata: serde_json::Value::Null,
+                })
+                .await
+                .unwrap_err(),
+        );
+        errors.push(
+            adapter
+                .prepare(PrepareWriteInput {
+                    namespace: namespace.to_string(),
+                    content: "must not attach implicitly".to_string(),
+                    episode_external_id: "new-episode".to_string(),
+                    observation_external_id: "new-observation".to_string(),
+                    raw_refs: Vec::new(),
+                    idempotency_key: None,
+                    include_vector_index_candidates: true,
+                    include_stats_update_candidates: true,
+                })
+                .await
+                .unwrap_err(),
+        );
+        for mode in [RetrievalMode::Hybrid, RetrievalMode::VectorOnly] {
+            errors.push(
+                adapter
+                    .retrieve(RetrieveInput {
+                        mode,
+                        namespace: namespace.to_string(),
+                        query: "must not attach implicitly".to_string(),
+                        query_date: None,
+                        top_k_episodes: 4,
+                        top_k_observations: 4,
+                        include_derived_memories: false,
+                        include_threads: false,
+                        include_entities: false,
+                        include_debug_rationale: false,
+                    })
+                    .await
+                    .unwrap_err(),
+            );
+        }
+
+        for error in errors {
+            let message = error.to_string();
+            assert!(message.contains("namespace is not open"));
+            assert!(message.contains("open_namespace or reattach_namespace"));
+        }
+        assert!(adapter.namespaces.lock().await.is_empty());
+        assert_eq!(
+            ExternalIdRegistry::load(&registry_path, namespace).unwrap(),
             registry
         );
     }
