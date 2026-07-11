@@ -10,7 +10,12 @@ Benchmark CLI runs default to the live Character Memory adapter. Mock runs are a
 cargo test --workspace
 ```
 
-The repository pins Rust 1.97.0 with the `rustfmt` and `clippy` components. GitHub Actions installs and verifies that toolchain explicitly, checks out this repository beside the public `ebigunso/character-memory` repository so the `../CharacterMemory` path dependency resolves, and runs the same full validation gate used locally. The sibling checkout requires no deploy key, PAT, or repository secret.
+The repository pins Rust 1.97.0 with the `rustfmt` and `clippy` components. Each GitHub Actions job installs and verifies that toolchain explicitly and checks out this repository beside the public `ebigunso/character-memory` repository so the `../CharacterMemory` path dependency resolves. The sibling checkout requires no deploy key, PAT, or repository secret.
+
+- Formatting checks `cargo fmt --all --check` without compiling the workspace.
+- Clippy enforces warnings-as-errors across the workspace and all targets.
+- Tests runs the complete workspace test suite.
+- Mock smoke runs the guarded service-free synthetic CLI and verifies that both output artifacts are non-empty.
 
 ```bash
 cargo fmt --all --check

@@ -368,3 +368,17 @@ Fix applied:
 
 Prevention:
 - When one durable-state action serves multiple lifecycle phases, model each phase explicitly and test that phase-local configuration cannot affect the other phase.
+
+## 2026-07-12 — Validate Source-Only CI Optimizations Against Workspace Metadata  [tags: ci, validation, dependencies, workflow]
+
+Symptom:
+- A proposed source-only formatting job failed because `cargo fmt --all --check` invokes workspace metadata and the workspace contains a sibling path dependency.
+
+Root cause:
+- The optimization assumed formatting never resolves workspace manifests, without testing the exact command in a checkout where `../CharacterMemory` was absent.
+
+Fix applied:
+- Restored the credential-less public sibling checkout for the formatting job after reproducing the failure in an isolated source-only archive.
+
+Prevention:
+- Before removing dependency checkout or setup steps from a CI gate, execute the exact gate in an isolated environment with that dependency intentionally absent.
