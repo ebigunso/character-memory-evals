@@ -338,6 +338,42 @@ repo's v0.1.4 plan.
     owner: reviewer
     detail: "Docs/rules accuracy vs landed architecture"
 
+### Task_9: CI hardening and widening to full gates (user-approved follow-up)
+
+- type: chore
+- owns:
+  - .github/workflows/** (ci.yml edits)
+  - README.md (CI notes only)
+- depends_on: [Task_6]
+- description: |
+  Post-Task_6 user decisions (2026-07-11): (1) add an explicit rustup
+  toolchain install step so the 1.97.0 pin is self-enforcing; (2) filter the
+  push trigger to main to stop duplicate PR runs; (3) SHA-pinning of
+  actions/checkout declined. (4) Widen CI to the full local gates: the sibling
+  `character-memory` repo is PUBLIC (verified via gh repo view) — check out
+  this repo and the sibling side by side so the ../CharacterMemory path dep
+  resolves, then run cargo fmt --all --check, clippy --workspace --all-targets
+  -D warnings, cargo test --workspace, and the mock synthetic smoke run on the
+  pinned toolchain. No credentials, deploy keys, or PATs are needed or may be
+  added. Qdrant-gated tests must take their documented skip path on the
+  runner. Update README CI notes to match (drop the credential-dependent
+  expansion wording).
+- acceptance:
+  - CI runs full fmt/clippy/test + mock smoke with a credential-less two-repo
+    checkout; workflow remains least-privilege (contents: read) with no
+    secrets.
+  - Explicit toolchain install step present; push trigger filtered to main.
+  - README CI section matches the widened reality.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: "Workflow YAML validity + exact step logic executed locally (two-repo layout simulated); pinned-toolchain fmt/clippy/test remain green locally"
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: "Workflow review: two-repo checkout correctness, gate parity vs local commands, no credential/secret introduction"
+
 ### Task_8: Independent review of the revision
 
 - type: review
@@ -363,8 +399,11 @@ repo's v0.1.4 plan.
 - Wave 2 (parallel): [Task_2, Task_6]
 - Wave 3 (parallel): [Task_3, Task_4]
 - Wave 4 (parallel): [Task_5]
-- Wave 5 (parallel): [Task_7]
+- Wave 5 (parallel): [Task_7, Task_9]
 - Wave 6 (parallel): [Task_8]
+
+Task_8's dependency set extends to [Task_6, Task_7, Task_9] with Task_9's
+addition (final review must see the widened CI).
 
 ## Rollback / Safety
 
@@ -504,6 +543,25 @@ repo's v0.1.4 plan.
     reported metric; it is segregated from deterministic diff keys, never dropped.
     Task_5 description/acceptance updated accordingly.
   - User approval: yes (2026-07-05) — Wave 1 dispatch authorized.
+- 2026-07-11 Decision: CI scope premise corrected; widening approved without
+  credentials; hardening decisions recorded.
+  - Trigger / new insight: Task_6 and its review assumed the sibling path
+    dependency requires credentials in CI. Orchestrator verification (gh repo
+    view) shows the sibling `character-memory` repository is PUBLIC; the
+    private repository is this one (`character-memory-evals`), which Actions
+    checks out with its own default token. Therefore full fmt/clippy/test +
+    mock smoke CI needs NO deploy key or PAT — only a second, credential-less
+    checkout of the public sibling laid out so the `../CharacterMemory` path
+    dependency resolves.
+  - Plan delta: new Task_9 (chore) added — CI hardening + widening: explicit
+    rustup toolchain install step (accepted), push-trigger branch filter
+    (accepted), SHA-pinning checkout (declined — no secrets in workflow),
+    two-repo checkout + full local-gate parity in CI (user approved full test
+    suite in CI). Qdrant-gated tests rely on their documented skip path on the
+    runner. Dispatch when worker3 frees up; owns disjoint from Tasks 5/7.
+  - User approval: yes (2026-07-11) — "take your recommendations on the
+    hardenings; deploy the key and let CI run the full test suite"; the
+    credential step is dropped as unnecessary given the public sibling.
 
 ## Notes
 
