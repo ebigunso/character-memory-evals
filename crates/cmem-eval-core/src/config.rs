@@ -69,6 +69,12 @@ pub struct BackendConfig {
     pub qdrant_connection_string: Option<String>,
     #[serde(default)]
     pub oxigraph_connection_string: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oxigraph_persistence_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_stats_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_registry_dir: Option<String>,
     #[serde(default = "default_openai_api_key_env")]
     pub openai_api_key_env: String,
     #[serde(default)]
@@ -87,6 +93,9 @@ impl Default for BackendConfig {
             namespace_prefix: None,
             qdrant_connection_string: None,
             oxigraph_connection_string: None,
+            oxigraph_persistence_path: None,
+            retrieval_stats_path: None,
+            identity_registry_dir: None,
             openai_api_key_env: default_openai_api_key_env(),
             reset_namespace_before_each_question: false,
             reset_namespace_before_each_sample: false,
@@ -99,6 +108,24 @@ impl Default for BackendConfig {
 impl BackendConfig {
     pub fn validate(&self) -> Result<()> {
         self.cleanup.validate()?;
+        for (field, value) in [
+            (
+                "backend.oxigraph_persistence_path",
+                self.oxigraph_persistence_path.as_deref(),
+            ),
+            (
+                "backend.retrieval_stats_path",
+                self.retrieval_stats_path.as_deref(),
+            ),
+            (
+                "backend.identity_registry_dir",
+                self.identity_registry_dir.as_deref(),
+            ),
+        ] {
+            if value.is_some_and(|value| value.trim().is_empty()) {
+                bail!("{field} must not be empty when configured");
+            }
+        }
         if self.cleanup.enabled {
             let Some(namespace_prefix) = self
                 .namespace_prefix
@@ -378,6 +405,39 @@ mod tests {
 
         assert_eq!(config.backend.embedding.provider, "openai");
         assert_eq!(config.backend.embedding.model, "text-embedding-3-large");
+    }
+
+    #[test]
+    fn parses_restart_persistence_paths_and_rejects_empty_values() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "backend": {
+                "oxigraph_persistence_path": "runs/r/oxigraph",
+                "retrieval_stats_path": "runs/r/retrieval.sqlite",
+                "identity_registry_dir": "runs/r/identities"
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+        config.validate().unwrap();
+        assert_eq!(
+            config.backend.identity_registry_dir.as_deref(),
+            Some("runs/r/identities")
+        );
+
+        let mut invalid = config;
+        invalid.backend.retrieval_stats_path = Some("  ".to_string());
+        assert!(
+            invalid
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("backend.retrieval_stats_path")
+        );
     }
 
     #[test]

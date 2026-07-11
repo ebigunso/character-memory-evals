@@ -463,8 +463,20 @@ pub struct CommitWriteResult {
     pub repair_needed: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NamespaceLifecycleResult {
+    pub namespace: String,
+    pub restored_identity_count: usize,
+}
+
 #[async_trait]
 pub trait MemoryAdapter: Send + Sync {
+    /// Open a fresh namespace. Implementations must not silently attach to
+    /// durable state that already exists for the same namespace identity.
+    async fn open_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult>;
+    /// Reconstruct a namespace against its durable stores and primary identity
+    /// registry. Missing durable lifecycle state is an error.
+    async fn reattach_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult>;
     async fn reset_namespace(&self, namespace: &str) -> Result<()>;
     async fn remember_episode(&self, input: EpisodeInput) -> Result<String>;
     async fn remember_episodes(&self, inputs: Vec<EpisodeInput>) -> Result<Vec<String>> {
@@ -531,6 +543,35 @@ struct Bm25AdapterDocument {
 
 #[async_trait]
 impl MemoryAdapter for MockMemoryAdapter {
+    async fn open_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
+        let mut state = self.state.lock().expect("mock memory mutex poisoned");
+        if state.contains_key(namespace) {
+            bail!("namespace is already open: {namespace}");
+        }
+        state.insert(namespace.to_string(), NamespaceState::default());
+        Ok(NamespaceLifecycleResult {
+            namespace: namespace.to_string(),
+            restored_identity_count: 0,
+        })
+    }
+
+    async fn reattach_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
+        let state = self.state.lock().expect("mock memory mutex poisoned");
+        let restored_identity_count = state
+            .get(namespace)
+            .map(|namespace| {
+                namespace.episodes.len()
+                    + namespace.observations.len()
+                    + namespace.derived_memories.len()
+                    + namespace.links.len()
+            })
+            .ok_or_else(|| anyhow::anyhow!("namespace does not exist: {namespace}"))?;
+        Ok(NamespaceLifecycleResult {
+            namespace: namespace.to_string(),
+            restored_identity_count,
+        })
+    }
+
     async fn reset_namespace(&self, namespace: &str) -> Result<()> {
         let mut state = self.state.lock().expect("mock memory mutex poisoned");
         state.remove(namespace);
@@ -1220,6 +1261,41 @@ fn score_text(query: &str, text: &str) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn mock_namespace_lifecycle_distinguishes_open_from_reattach() {
+        let adapter = MockMemoryAdapter::default();
+        assert!(adapter.reattach_namespace("n").await.is_err());
+        assert_eq!(
+            adapter
+                .open_namespace("n")
+                .await
+                .unwrap()
+                .restored_identity_count,
+            0
+        );
+        assert!(adapter.open_namespace("n").await.is_err());
+        adapter
+            .remember_episode(EpisodeInput {
+                external_id: "episode".into(),
+                namespace: "n".into(),
+                summary: "restart lifecycle".into(),
+                started_at: None,
+                ended_at: None,
+                participants: Vec::new(),
+                metadata: serde_json::Value::Null,
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            adapter
+                .reattach_namespace("n")
+                .await
+                .unwrap()
+                .restored_identity_count,
+            1
+        );
+    }
 
     #[tokio::test]
     async fn mock_adapter_preserves_external_ids() {
