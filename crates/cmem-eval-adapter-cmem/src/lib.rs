@@ -19,15 +19,18 @@ use cmem_eval_core::{
     BenchmarkRunConfig, CandidateValidationResult, CommitWriteOptions, CommitWriteResult,
     CorrectMemoryInput, CorrectionTargetInput, EpisodeInput, ExternalSourceRefInput,
     ForgetMemoryInput, GraphEnrichmentInput, LifecycleMutationResult, LinkMemoryInput,
-    LinkMemoryResult, MemoryAdapter, MemoryEndpointInput, ObservationInput, PrepareWriteInput,
-    PreparedCandidate, PreparedWritePlan, ReplacementDerivedMemoryInput, RetrievalMode,
-    RetrievalTelemetry, RetrieveInput, RetrievedContextPack, RetrievedItem, SourceProvenanceInput,
-    SupersessionResult,
+    LinkMemoryResult, MemoryAdapter, MemoryEndpointInput, NamespaceLifecycleResult,
+    ObservationInput, PrepareWriteInput, PreparedCandidate, PreparedWritePlan,
+    ReplacementDerivedMemoryInput, RetrievalMode, RetrievalTelemetry, RetrieveInput,
+    RetrievedContextPack, RetrievedItem, SourceProvenanceInput, SupersessionResult,
 };
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::{Condition, Filter, ScoredPoint, SearchPointsBuilder, value::Kind};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
+use std::fs;
+use std::ops::{Deref, DerefMut};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -47,25 +50,102 @@ pub struct CharacterMemoryAdapter {
 struct NamespaceState {
     memory: CharacterMemory,
     collection_name: String,
-    episode_ids: HashMap<String, MemoryId>,
-    observation_ids: HashMap<String, MemoryId>,
-    entity_ids: HashMap<String, MemoryId>,
-    reverse_entity_ids: HashMap<MemoryId, String>,
-    thread_ids: HashMap<String, MemoryId>,
-    derived_memory_ids: HashMap<String, MemoryId>,
-    reverse_episode_ids: HashMap<MemoryId, String>,
-    reverse_observation_ids: HashMap<MemoryId, (String, String)>,
-    reverse_thread_ids: HashMap<MemoryId, String>,
-    reverse_derived_memory_ids: HashMap<MemoryId, String>,
-    link_ids: HashMap<String, MemoryId>,
-    reverse_link_ids: HashMap<MemoryId, String>,
+    identity_registry_path: PathBuf,
+    identities: ExternalIdRegistry,
+}
+
+impl Deref for NamespaceState {
+    type Target = ExternalIdRegistry;
+
+    fn deref(&self) -> &Self::Target {
+        &self.identities
+    }
+}
+
+impl DerefMut for NamespaceState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.identities
+    }
+}
+
+impl NamespaceState {
+    fn persist_identities(&self) -> Result<()> {
+        self.identities.save(&self.identity_registry_path)
+    }
+}
+
+/// Durable external-id mapping for a single evaluation namespace.
+///
+/// Callers assign deterministic `MemoryId`s before a write, register them only
+/// after the store accepts the write, and persist this registry in the run
+/// directory. Reattaching loads this file as the primary identity source;
+/// retrieval from the backing stores may verify it but never reconstructs it.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+struct ExternalIdRegistry {
+    namespace: String,
+    episode_ids: BTreeMap<String, MemoryId>,
+    observation_ids: BTreeMap<String, MemoryId>,
+    entity_ids: BTreeMap<String, MemoryId>,
+    reverse_entity_ids: BTreeMap<MemoryId, String>,
+    thread_ids: BTreeMap<String, MemoryId>,
+    derived_memory_ids: BTreeMap<String, MemoryId>,
+    reverse_episode_ids: BTreeMap<MemoryId, String>,
+    reverse_observation_ids: BTreeMap<MemoryId, (String, String)>,
+    reverse_thread_ids: BTreeMap<MemoryId, String>,
+    reverse_derived_memory_ids: BTreeMap<MemoryId, String>,
+    link_ids: BTreeMap<String, MemoryId>,
+    reverse_link_ids: BTreeMap<MemoryId, String>,
+}
+
+impl ExternalIdRegistry {
+    fn new(namespace: &str) -> Self {
+        Self {
+            namespace: namespace.to_string(),
+            ..Self::default()
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.episode_ids.len()
+            + self.observation_ids.len()
+            + self.entity_ids.len()
+            + self.thread_ids.len()
+            + self.derived_memory_ids.len()
+            + self.link_ids.len()
+    }
+
+    fn load(path: &Path, expected_namespace: &str) -> Result<Self> {
+        let bytes =
+            fs::read(path).with_context(|| format!("read identity registry {}", path.display()))?;
+        let registry: Self = serde_json::from_slice(&bytes)
+            .with_context(|| format!("deserialize identity registry {}", path.display()))?;
+        if registry.namespace != expected_namespace {
+            bail!(
+                "identity registry namespace mismatch: expected {expected_namespace}, found {}",
+                registry.namespace
+            );
+        }
+        Ok(registry)
+    }
+
+    fn save(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("create identity registry directory {}", parent.display())
+            })?;
+        }
+        let mut bytes = serde_json::to_vec_pretty(self)?;
+        bytes.push(b'\n');
+        fs::write(path, bytes)
+            .with_context(|| format!("write identity registry {}", path.display()))
+    }
 }
 
 #[derive(Clone)]
 struct VectorNamespaceSnapshot {
     collection_name: String,
-    reverse_episode_ids: HashMap<MemoryId, String>,
-    reverse_observation_ids: HashMap<MemoryId, (String, String)>,
+    reverse_episode_ids: BTreeMap<MemoryId, String>,
+    reverse_observation_ids: BTreeMap<MemoryId, (String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +177,12 @@ impl CharacterMemoryAdapter {
 
     async fn create_namespace_state(&self, namespace: &str) -> Result<NamespaceState> {
         let collection_name = self.collection_name(namespace);
+        let identity_registry_path = self.identity_registry_path(namespace);
+        let identities = if identity_registry_path.exists() {
+            ExternalIdRegistry::load(&identity_registry_path, namespace)?
+        } else {
+            ExternalIdRegistry::new(namespace)
+        };
         let settings = self.settings()?;
         let memory = if self.config.backend.embedding.provider == "deterministic" {
             let vector_size = self.config.backend.embedding.vector_size.unwrap_or(3072);
@@ -113,18 +199,8 @@ impl CharacterMemoryAdapter {
         Ok(NamespaceState {
             memory,
             collection_name,
-            episode_ids: HashMap::new(),
-            observation_ids: HashMap::new(),
-            entity_ids: HashMap::new(),
-            reverse_entity_ids: HashMap::new(),
-            thread_ids: HashMap::new(),
-            derived_memory_ids: HashMap::new(),
-            reverse_episode_ids: HashMap::new(),
-            reverse_observation_ids: HashMap::new(),
-            reverse_thread_ids: HashMap::new(),
-            reverse_derived_memory_ids: HashMap::new(),
-            link_ids: HashMap::new(),
-            reverse_link_ids: HashMap::new(),
+            identity_registry_path,
+            identities,
         })
     }
 
@@ -153,15 +229,25 @@ impl CharacterMemoryAdapter {
             );
         }
 
-        let external_config = config::Config::builder()
+        let mut builder = config::Config::builder()
             .set_override("qdrant_connection_string", qdrant)?
             .set_override("oxigraph_connection_string", oxigraph)?
             .set_override("openai_api_key", openai_api_key)?
             .set_override(
                 "embedding_model",
                 self.config.backend.embedding.model.clone(),
-            )?
-            .build()?;
+            )?;
+        if let Some(path) = &self.config.backend.oxigraph_persistence_path {
+            builder = builder
+                .set_override("graph_store_mode", "persistent")?
+                .set_override("oxigraph_connection_string", path.clone())?;
+        }
+        if let Some(path) = &self.config.backend.retrieval_stats_path {
+            builder = builder
+                .set_override("retrieval_stats_store_mode", "sqlite")?
+                .set_override("retrieval_stats_path", path.clone())?;
+        }
+        let external_config = builder.build()?;
 
         Settings::new(external_config).map_err(Into::into)
     }
@@ -182,13 +268,32 @@ impl CharacterMemoryAdapter {
             .namespace_prefix
             .as_deref()
             .unwrap_or("cmem_eval");
+        let identity = format!("{prefix}\0{}\0{namespace}", self.config.run_id);
+        let suffix = Uuid::new_v5(&UUID_NAMESPACE, identity.as_bytes());
         format!(
             "{}_{}_{}_{}",
             sanitize_collection_segment(prefix),
             sanitize_collection_segment(&self.config.run_id),
             sanitize_collection_segment(namespace),
-            Uuid::new_v4().simple()
+            suffix.simple()
         )
+    }
+
+    fn identity_registry_path(&self, namespace: &str) -> PathBuf {
+        let root = self
+            .config
+            .backend
+            .identity_registry_dir
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("runs").join(&self.config.run_id));
+        let identity = format!("{}\0{namespace}", self.config.run_id);
+        let suffix = Uuid::new_v5(&UUID_NAMESPACE, identity.as_bytes());
+        root.join(format!(
+            "identity-{}-{}.json",
+            sanitize_collection_segment(namespace),
+            suffix.simple()
+        ))
     }
 
     async fn cleanup_collection_if_enabled(&self, collection_name: &str) -> Result<()> {
@@ -365,15 +470,63 @@ struct OpenAiEmbeddingData {
 
 #[async_trait]
 impl MemoryAdapter for CharacterMemoryAdapter {
+    async fn open_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
+        let mut namespaces = self.namespaces.lock().await;
+        if namespaces.contains_key(namespace) {
+            bail!("namespace is already open: {namespace}");
+        }
+        let registry_path = self.identity_registry_path(namespace);
+        if registry_path.exists() {
+            bail!(
+                "identity registry already exists for namespace {namespace}; use reattach_namespace"
+            );
+        }
+        let state = self.create_namespace_state(namespace).await?;
+        namespaces.insert(namespace.to_string(), state);
+        Ok(NamespaceLifecycleResult {
+            namespace: namespace.to_string(),
+            restored_identity_count: 0,
+        })
+    }
+
+    async fn reattach_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
+        let mut namespaces = self.namespaces.lock().await;
+        if namespaces.contains_key(namespace) {
+            bail!("namespace is already open: {namespace}");
+        }
+        let registry_path = self.identity_registry_path(namespace);
+        if !registry_path.exists() {
+            bail!("identity registry does not exist for namespace {namespace}");
+        }
+        let state = self.create_namespace_state(namespace).await?;
+        let restored_identity_count = state.identities.len();
+        namespaces.insert(namespace.to_string(), state);
+        Ok(NamespaceLifecycleResult {
+            namespace: namespace.to_string(),
+            restored_identity_count,
+        })
+    }
+
     async fn reset_namespace(&self, namespace: &str) -> Result<()> {
-        let collection_name = {
+        let state = {
             let namespaces = self.namespaces.lock().await;
-            namespaces
-                .get(namespace)
-                .map(|state| state.collection_name.clone())
+            namespaces.get(namespace).map(|state| {
+                (
+                    state.collection_name.clone(),
+                    state.identity_registry_path.clone(),
+                )
+            })
         };
-        if let Some(collection_name) = collection_name {
+        if let Some((collection_name, identity_registry_path)) = state {
             self.cleanup_collection_if_enabled(&collection_name).await?;
+            if self.config.backend.cleanup.enabled && identity_registry_path.exists() {
+                fs::remove_file(&identity_registry_path).with_context(|| {
+                    format!(
+                        "remove identity registry {}",
+                        identity_registry_path.display()
+                    )
+                })?;
+            }
             let mut namespaces = self.namespaces.lock().await;
             namespaces.remove(namespace);
         }
@@ -428,6 +581,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             state.episode_ids.insert(external_id.clone(), *id);
             state.reverse_episode_ids.insert(*id, external_id.clone());
         }
+        state.persist_identities()?;
 
         Ok(ids.into_iter().map(|(_, id)| id.to_string()).collect())
     }
@@ -486,6 +640,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 .reverse_observation_ids
                 .insert(*id, (external_id.clone(), episode_external_id.clone()));
         }
+        state.persist_identities()?;
 
         Ok(ids.into_iter().map(|(_, _, id)| id.to_string()).collect())
     }
@@ -498,10 +653,10 @@ impl MemoryAdapter for CharacterMemoryAdapter {
 
         let mut objects = Vec::new();
         let mut links = Vec::new();
-        let mut pending_entities = HashMap::new();
-        let mut pending_threads = HashMap::new();
-        let mut pending_derived = HashMap::new();
-        let mut pending_links = HashMap::new();
+        let mut pending_entities = BTreeMap::new();
+        let mut pending_threads = BTreeMap::new();
+        let mut pending_derived = BTreeMap::new();
+        let mut pending_links = BTreeMap::new();
 
         for entity in &input.entities {
             pending_entities.insert(
@@ -552,13 +707,13 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 "episode",
                 &memory.source_episode_external_ids,
                 &state.episode_ids,
-                &HashMap::new(),
+                &BTreeMap::new(),
             )?;
             draft.derived_from_observation_ids = resolve_ids(
                 "observation",
                 &memory.source_observation_external_ids,
                 &state.observation_ids,
-                &HashMap::new(),
+                &BTreeMap::new(),
             )?;
             draft.thread_ids = resolve_ids(
                 "memory_thread",
@@ -639,6 +794,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             state.link_ids.insert(external_id.clone(), id);
             state.reverse_link_ids.insert(id, external_id);
         }
+        state.persist_identities()?;
         Ok(())
     }
 
@@ -650,16 +806,16 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         let (from_type, from_id) = resolve_endpoint(
             &input.link.from,
             state,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
         )?;
         let (to_type, to_id) = resolve_endpoint(
             &input.link.to,
             state,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
         )?;
         let mut draft = MemoryLinkDraft::new(
             from_type,
@@ -679,6 +835,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         state
             .reverse_link_ids
             .insert(link.id, input.link.external_id.clone());
+        state.persist_identities()?;
         Ok(LinkMemoryResult {
             internal_id: link.id.to_string(),
             external_id: input.link.external_id,
@@ -701,7 +858,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             "derived_memory",
             &input.superseded_derived_memory_external_ids,
             &state.derived_memory_ids,
-            &HashMap::new(),
+            &BTreeMap::new(),
         )?;
         let mut pending_replacements = Vec::new();
         let mut replacements = Vec::new();
@@ -746,6 +903,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             state.derived_memory_ids.insert(external_id.clone(), id);
             state.reverse_derived_memory_ids.insert(id, external_id);
         }
+        state.persist_identities()?;
         lifecycle_result(state, outcome)
     }
 
@@ -946,6 +1104,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 ),
             );
         }
+        state.persist_identities()?;
         Ok(CommitWriteResult {
             persisted_object_refs: outcome
                 .persisted_object_ids
@@ -1558,8 +1717,8 @@ fn parse_timestamp(value: Option<&str>) -> Result<Option<DateTime<Utc>>> {
 fn resolve_ids(
     kind: &str,
     external_ids: &[String],
-    persisted: &HashMap<String, MemoryId>,
-    pending: &HashMap<String, MemoryId>,
+    persisted: &BTreeMap<String, MemoryId>,
+    pending: &BTreeMap<String, MemoryId>,
 ) -> Result<Vec<MemoryId>> {
     external_ids
         .iter()
@@ -1578,9 +1737,9 @@ fn resolve_ids(
 fn resolve_endpoint(
     endpoint: &MemoryEndpointInput,
     state: &NamespaceState,
-    pending_entities: &HashMap<String, MemoryId>,
-    pending_threads: &HashMap<String, MemoryId>,
-    pending_derived: &HashMap<String, MemoryId>,
+    pending_entities: &BTreeMap<String, MemoryId>,
+    pending_threads: &BTreeMap<String, MemoryId>,
+    pending_derived: &BTreeMap<String, MemoryId>,
 ) -> Result<(ObjectType, MemoryId)> {
     let object_type = parse_object_type(&endpoint.object_type)?;
     if object_type == ObjectType::MemoryLink {
@@ -1704,13 +1863,13 @@ fn source_provenance_reference_to_live(
             "episode",
             &input.episode_external_ids,
             &state.episode_ids,
-            &HashMap::new(),
+            &BTreeMap::new(),
         )?,
         observation_ids: resolve_ids(
             "observation",
             &input.observation_external_ids,
             &state.observation_ids,
-            &HashMap::new(),
+            &BTreeMap::new(),
         )?,
         external_refs: input
             .external_refs
@@ -1743,25 +1902,25 @@ fn replacement_to_live(
         "episode",
         &memory.source_episode_external_ids,
         &state.episode_ids,
-        &HashMap::new(),
+        &BTreeMap::new(),
     )?;
     draft.derived_from_observation_ids = resolve_ids(
         "observation",
         &memory.source_observation_external_ids,
         &state.observation_ids,
-        &HashMap::new(),
+        &BTreeMap::new(),
     )?;
     draft.thread_ids = resolve_ids(
         "memory_thread",
         &memory.thread_external_ids,
         &state.thread_ids,
-        &HashMap::new(),
+        &BTreeMap::new(),
     )?;
     draft.entity_ids = resolve_ids(
         "entity",
         &memory.entity_external_ids,
         &state.entity_ids,
-        &HashMap::new(),
+        &BTreeMap::new(),
     )?;
     draft.confidence = memory.confidence;
     draft.salience_score = memory.salience_score;
@@ -1770,7 +1929,7 @@ fn replacement_to_live(
         "derived_memory",
         &memory.supersedes_external_ids,
         &state.derived_memory_ids,
-        &HashMap::new(),
+        &BTreeMap::new(),
     )?;
     draft.original_source_provenance =
         source_provenance_reference_to_live(&input.original_source_provenance, state)?;
@@ -1860,12 +2019,12 @@ fn external_endpoint_for_object(
 fn external_endpoint_from_reverse_maps(
     object_type: ObjectType,
     id: MemoryId,
-    episodes: &HashMap<MemoryId, String>,
-    observations: &HashMap<MemoryId, (String, String)>,
-    entities: &HashMap<MemoryId, String>,
-    threads: &HashMap<MemoryId, String>,
-    derived_memories: &HashMap<MemoryId, String>,
-    links: &HashMap<MemoryId, String>,
+    episodes: &BTreeMap<MemoryId, String>,
+    observations: &BTreeMap<MemoryId, (String, String)>,
+    entities: &BTreeMap<MemoryId, String>,
+    threads: &BTreeMap<MemoryId, String>,
+    derived_memories: &BTreeMap<MemoryId, String>,
+    links: &BTreeMap<MemoryId, String>,
 ) -> Option<MemoryEndpointInput> {
     let (object_type, external_id) = match object_type {
         ObjectType::Episode => ("episode", episodes.get(&id)?.clone()),
@@ -2143,7 +2302,76 @@ mod tests {
     use character_memory::{
         CURRENT_SCHEMA_VERSION, ContinuityContextPack, Episode, LifecycleFilterDecision,
         MemoryObjectRef, Modality, RetrievalRationale, RetrievalTrace, RetrieveOutcome,
+        VectorDatabaseError,
     };
+    use cmem_eval_core::{CleanupConfig, EmbeddingConfig};
+    use tempfile::tempdir;
+
+    fn adapter_config(run_id: String, namespace_prefix: String) -> BenchmarkRunConfig {
+        let mut backend = cmem_eval_core::BackendConfig {
+            namespace_prefix: Some(namespace_prefix.clone()),
+            qdrant_connection_string: Some(
+                env::var("QDRANT_CONNECTION_STRING")
+                    .unwrap_or_else(|_| "http://localhost:6334".to_string()),
+            ),
+            cleanup: CleanupConfig {
+                enabled: true,
+                require_collection_prefix: Some(namespace_prefix),
+            },
+            embedding: EmbeddingConfig {
+                provider: "deterministic".to_string(),
+                vector_size: Some(3072),
+                ..EmbeddingConfig::default()
+            },
+            ..cmem_eval_core::BackendConfig::default()
+        };
+        backend.openai_api_key_env = "CMEM_EVAL_UNUSED_OPENAI_KEY".to_string();
+        BenchmarkRunConfig {
+            run_id,
+            dataset: "synthetic".to_string(),
+            backend,
+            retrieval: Default::default(),
+            ingest: Default::default(),
+            metrics: Default::default(),
+        }
+    }
+
+    fn is_qdrant_unavailable_error(error: &VectorDatabaseError) -> bool {
+        let message = error.message.to_ascii_lowercase();
+        error.backend == "qdrant"
+            && (error
+                .status
+                .as_deref()
+                .is_some_and(|status| status.to_ascii_lowercase().contains("unavailable"))
+                || (error.kind == "response"
+                    && message.contains("failed to connect")
+                    && message.contains("tcp connect error"))
+                || matches!(
+                    error.kind.as_str(),
+                    "reqwest::connect"
+                        | "reqwest::timeout"
+                        | "io::ConnectionRefused"
+                        | "io::ConnectionReset"
+                        | "io::ConnectionAborted"
+                        | "io::NotConnected"
+                        | "io::TimedOut"
+                ))
+    }
+
+    fn qdrant_unavailable(error: &anyhow::Error) -> Option<&VectorDatabaseError> {
+        error
+            .chain()
+            .find_map(|source| source.downcast_ref::<VectorDatabaseError>())
+            .filter(|error| is_qdrant_unavailable_error(error))
+    }
+
+    fn unique_test_token() -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock is before the Unix epoch")
+            .as_nanos();
+        format!("{}-{nanos}", std::process::id())
+    }
 
     #[test]
     fn deterministic_ids_are_stable_and_namespaced() {
@@ -2151,6 +2379,159 @@ mod tests {
         assert_eq!(first, deterministic_id("n1", "episode", "s1"));
         assert_ne!(first, deterministic_id("n2", "episode", "s1"));
         assert_ne!(first, deterministic_id("n1", "observation", "s1"));
+    }
+
+    #[tokio::test]
+    async fn collection_names_are_deterministic_and_run_scoped() {
+        let first = CharacterMemoryAdapter::new(&adapter_config(
+            "run-a".to_string(),
+            "cmem_eval_task3".to_string(),
+        ))
+        .await
+        .unwrap();
+        let same = CharacterMemoryAdapter::new(&adapter_config(
+            "run-a".to_string(),
+            "cmem_eval_task3".to_string(),
+        ))
+        .await
+        .unwrap();
+        let parallel = CharacterMemoryAdapter::new(&adapter_config(
+            "run-b".to_string(),
+            "cmem_eval_task3".to_string(),
+        ))
+        .await
+        .unwrap();
+
+        assert_eq!(
+            first.collection_name("namespace"),
+            same.collection_name("namespace")
+        );
+        assert_ne!(
+            first.collection_name("namespace"),
+            parallel.collection_name("namespace")
+        );
+        validate_cleanup_target(&first.collection_name("namespace"), Some("cmem_eval_task3"))
+            .unwrap();
+    }
+
+    #[test]
+    fn identity_registry_serialization_is_stable_and_sorted() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("identity.json");
+        let mut registry = ExternalIdRegistry::new("namespace");
+        let z = deterministic_id("namespace", "episode", "z");
+        let a = deterministic_id("namespace", "episode", "a");
+        registry.episode_ids.insert("z".to_string(), z);
+        registry.episode_ids.insert("a".to_string(), a);
+        registry.reverse_episode_ids.insert(z, "z".to_string());
+        registry.reverse_episode_ids.insert(a, "a".to_string());
+
+        registry.save(&path).unwrap();
+        let first = fs::read_to_string(&path).unwrap();
+        registry.save(&path).unwrap();
+        let second = fs::read_to_string(&path).unwrap();
+
+        assert_eq!(first, second);
+        assert!(first.find("\"a\"").unwrap() < first.find("\"z\"").unwrap());
+        assert_eq!(
+            ExternalIdRegistry::load(&path, "namespace").unwrap(),
+            registry
+        );
+    }
+
+    #[tokio::test]
+    async fn live_adapter_reattaches_with_external_ids() {
+        let directory = tempdir().unwrap();
+        let token = unique_test_token();
+        let run_id = format!("task3-{token}");
+        let prefix = format!("cmem_eval_task3_{token}");
+        let namespace = "restart-round-trip";
+        let mut config = adapter_config(run_id, prefix);
+        config.backend.identity_registry_dir = Some(
+            directory
+                .path()
+                .join("identities")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        config.backend.oxigraph_persistence_path = Some(
+            directory
+                .path()
+                .join("oxigraph")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        config.backend.retrieval_stats_path = Some(
+            directory
+                .path()
+                .join("retrieval-stats.sqlite")
+                .to_string_lossy()
+                .into_owned(),
+        );
+
+        let adapter_a = CharacterMemoryAdapter::new(&config).await.unwrap();
+        if let Err(error) = adapter_a.open_namespace(namespace).await {
+            if let Some(qdrant_error) = qdrant_unavailable(&error) {
+                println!(
+                    "skipping live adapter reattach test because Qdrant is unavailable: {qdrant_error}"
+                );
+                return;
+            }
+            panic!("unexpected live adapter setup failure: {error:#}");
+        }
+        adapter_a
+            .remember_episode(EpisodeInput {
+                external_id: "episode-external".to_string(),
+                namespace: namespace.to_string(),
+                summary: "Alice remembers a restart-safe cup of tea.".to_string(),
+                started_at: None,
+                ended_at: None,
+                participants: Vec::new(),
+                metadata: serde_json::Value::Null,
+            })
+            .await
+            .unwrap();
+        adapter_a
+            .remember_observation(ObservationInput {
+                external_id: "observation-external".to_string(),
+                episode_external_id: "episode-external".to_string(),
+                namespace: namespace.to_string(),
+                speaker: Some("Alice".to_string()),
+                text: "The restart-safe drink is jasmine tea.".to_string(),
+                observed_at: None,
+                metadata: serde_json::Value::Null,
+            })
+            .await
+            .unwrap();
+        drop(adapter_a);
+
+        let adapter_b = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let lifecycle = adapter_b.reattach_namespace(namespace).await.unwrap();
+        assert_eq!(lifecycle.restored_identity_count, 2);
+        let retrieved = adapter_b
+            .retrieve(RetrieveInput {
+                mode: RetrievalMode::Hybrid,
+                namespace: namespace.to_string(),
+                query: "What is the restart-safe drink?".to_string(),
+                query_date: None,
+                top_k_episodes: 8,
+                top_k_observations: 8,
+                include_derived_memories: false,
+                include_threads: false,
+                include_entities: false,
+                include_debug_rationale: true,
+            })
+            .await
+            .unwrap();
+        assert!(retrieved.items.iter().any(|item| {
+            item.external_id.as_deref() == Some("episode-external")
+                || item.external_id.as_deref() == Some("observation-external")
+        }));
+        assert!(retrieved.items.iter().any(|item| {
+            item.external_id.as_deref() == Some("observation-external")
+                && item.episode_external_id.as_deref() == Some("episode-external")
+        }));
+        adapter_b.reset_namespace(namespace).await.unwrap();
     }
 
     #[test]
@@ -2161,12 +2542,12 @@ mod tests {
         let thread_id = deterministic_id("n", "memory_thread", "t1");
         let derived_id = deterministic_id("n", "derived_memory", "d1");
         let link_id = deterministic_id("n", "memory_link", "l1");
-        let episodes = HashMap::from([(episode_id, "s1".to_string())]);
-        let observations = HashMap::from([(observation_id, ("o1".to_string(), "s1".to_string()))]);
-        let entities = HashMap::from([(entity_id, "e1".to_string())]);
-        let threads = HashMap::from([(thread_id, "t1".to_string())]);
-        let derived = HashMap::from([(derived_id, "d1".to_string())]);
-        let links = HashMap::from([(link_id, "l1".to_string())]);
+        let episodes = BTreeMap::from([(episode_id, "s1".to_string())]);
+        let observations = BTreeMap::from([(observation_id, ("o1".to_string(), "s1".to_string()))]);
+        let entities = BTreeMap::from([(entity_id, "e1".to_string())]);
+        let threads = BTreeMap::from([(thread_id, "t1".to_string())]);
+        let derived = BTreeMap::from([(derived_id, "d1".to_string())]);
+        let links = BTreeMap::from([(link_id, "l1".to_string())]);
 
         for (object_type, id, expected_type, expected_external_id) in [
             (ObjectType::Episode, episode_id, "episode", "s1"),
@@ -2245,8 +2626,8 @@ mod tests {
         let unmapped_id = deterministic_id("n", "episode", "unmapped");
         let snapshot = VectorNamespaceSnapshot {
             collection_name: "collection".to_string(),
-            reverse_episode_ids: HashMap::from([(episode_id, "s1".to_string())]),
-            reverse_observation_ids: HashMap::from([(
+            reverse_episode_ids: BTreeMap::from([(episode_id, "s1".to_string())]),
+            reverse_observation_ids: BTreeMap::from([(
                 observation_id,
                 ("s1:turn:1".to_string(), "s1".to_string()),
             )]),
@@ -2297,8 +2678,8 @@ mod tests {
         let observation_id = deterministic_id("n", "observation", "s1:turn:1");
         let snapshot = VectorNamespaceSnapshot {
             collection_name: "collection".to_string(),
-            reverse_episode_ids: HashMap::new(),
-            reverse_observation_ids: HashMap::from([(
+            reverse_episode_ids: BTreeMap::new(),
+            reverse_observation_ids: BTreeMap::from([(
                 observation_id,
                 ("s1:turn:1".to_string(), "s1".to_string()),
             )]),
