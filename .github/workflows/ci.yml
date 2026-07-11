@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-formatting:
+    name: Source formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Show pinned Rust toolchain
+        run: rustc --version
+
+      # The workspace depends on the adjacent private character-memory repository.
+      # Until an authenticated sibling checkout is configured, cargo metadata-based
+      # checks cannot run on GitHub-hosted runners without inventing a repository secret.
+      - name: Check Rust source formatting without workspace metadata
+        shell: bash
+        run: |
+          mapfile -t rust_files < <(git ls-files '*.rs')
+          test "${#rust_files[@]}" -gt 0
+          rustfmt --edition 2024 --check "${rust_files[@]}"

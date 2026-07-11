@@ -10,6 +10,29 @@ Benchmark CLI runs default to the live Character Memory adapter. Mock runs are a
 cargo test --workspace
 ```
 
+The repository pins Rust 1.97.0 with the `rustfmt` and `clippy` components.
+Because the workspace depends on the adjacent private `character-memory`
+repository, GitHub Actions currently runs a source-only formatting check that
+does not load Cargo workspace metadata. Run the complete validation locally
+with both repositories checked out as siblings:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo run -p cmem-eval-runner -- run synthetic \
+  --dataset ./fixtures/synthetic_small.json \
+  --config ./configs/synthetic_retrieval.toml \
+  --out ./runs/synthetic.jsonl \
+  --summary-out ./runs/synthetic_summary.json \
+  --adapter mock \
+  --allow-mock-benchmark
+```
+
+Expand CI to the same full gate only after an authenticated read-only checkout
+of the private sibling repository is configured; do not place credentials in
+the workflow or repository files.
+
 Benchmark commands default to the live Character Memory adapter. Provide backend settings:
 
 ```bash
