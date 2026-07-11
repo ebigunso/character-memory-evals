@@ -507,6 +507,25 @@ addition (final review must see the widened CI).
     forward.
   - Deviation accepted: Cargo.lock (tempfile dev-dependency for
     adapter-owned persistence tests; mechanical).
+- 2026-07-11 16:05 Task_4 completed after one integration bounce (worker3;
+  commits 88c6522, deb486e; lesson commit e794eaf).
+  - Summary: single static-dispatch generic ingest→enrich→retrieve→score→row
+    pipeline (pipeline.rs) parameterized by DatasetSpec for synthetic/
+    LongMemEval-S/LoCoMo; commands.rs reduced to 231 lines of CLI concerns;
+    core config has zero dataset-kind dispatch (extension seam tested with a
+    future_dataset probe); dataset crates own config-name validation and
+    full-history builders.
+  - Integration bounce: worker initially skipped the LongMemEval-S/LoCoMo A4
+    byte-diffs claiming datasets absent; orchestrator spot-check found the
+    gitignored local assets present (rg/fd honor ignore rules — absence was an
+    artifact of ignore-aware search). Amended validation: detached worktree at
+    ec9eb32 produced PRE artifacts with the real assets; isolated
+    CARGO_TARGET_DIR built HEAD POST artifacts (earlier shared-target attempts
+    detected as stale-binary reuse and discarded); latency-masked diffs exact
+    for synthetic (1 row), LongMemEval-S (500 rows), LoCoMo (1986 rows) and
+    all three summaries. Pinned fmt/clippy/test remain green (95 tests).
+  - Rule update: RB-CAND-NO-IGNORE-ASSET-CHECK accepted into worker.md — never
+    infer asset absence from ignore-aware enumeration.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
