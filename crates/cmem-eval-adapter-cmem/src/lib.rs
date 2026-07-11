@@ -296,15 +296,11 @@ impl CharacterMemoryAdapter {
         ))
     }
 
-    async fn delete_collection_for_reset(&self, collection_name: &str) -> Result<()> {
-        let required_prefix = self
-            .config
-            .backend
-            .cleanup
-            .require_collection_prefix
-            .as_deref()
-            .or(self.config.backend.namespace_prefix.as_deref())
-            .unwrap_or("cmem_eval");
+    async fn delete_collection_with_prefix(
+        &self,
+        collection_name: &str,
+        required_prefix: &str,
+    ) -> Result<()> {
         validate_cleanup_target(collection_name, Some(required_prefix))?;
         if self
             .qdrant
@@ -317,6 +313,43 @@ impl CharacterMemoryAdapter {
                 .await
                 .with_context(|| format!("delete Qdrant collection {collection_name}"))?;
         }
+        Ok(())
+    }
+
+    async fn reset_namespace_with_prefix(
+        &self,
+        namespace: &str,
+        required_prefix: &str,
+    ) -> Result<()> {
+        let (collection_name, identity_registry_path) = {
+            let namespaces = self.namespaces.lock().await;
+            namespaces
+                .get(namespace)
+                .map(|state| {
+                    (
+                        state.collection_name.clone(),
+                        state.identity_registry_path.clone(),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    (
+                        self.collection_name(namespace),
+                        self.identity_registry_path(namespace),
+                    )
+                })
+        };
+        self.delete_collection_with_prefix(&collection_name, required_prefix)
+            .await?;
+        if identity_registry_path.exists() {
+            fs::remove_file(&identity_registry_path).with_context(|| {
+                format!(
+                    "remove identity registry {}",
+                    identity_registry_path.display()
+                )
+            })?;
+        }
+        let mut namespaces = self.namespaces.lock().await;
+        namespaces.remove(namespace);
         Ok(())
     }
 
@@ -524,35 +557,29 @@ impl MemoryAdapter for CharacterMemoryAdapter {
     }
 
     async fn reset_namespace(&self, namespace: &str) -> Result<()> {
-        let (collection_name, identity_registry_path) = {
-            let namespaces = self.namespaces.lock().await;
-            namespaces
-                .get(namespace)
-                .map(|state| {
-                    (
-                        state.collection_name.clone(),
-                        state.identity_registry_path.clone(),
-                    )
-                })
-                .unwrap_or_else(|| {
-                    (
-                        self.collection_name(namespace),
-                        self.identity_registry_path(namespace),
-                    )
-                })
-        };
-        self.delete_collection_for_reset(&collection_name).await?;
-        if identity_registry_path.exists() {
-            fs::remove_file(&identity_registry_path).with_context(|| {
-                format!(
-                    "remove identity registry {}",
-                    identity_registry_path.display()
-                )
-            })?;
+        let namespace_prefix = self
+            .config
+            .backend
+            .namespace_prefix
+            .as_deref()
+            .unwrap_or("cmem_eval");
+        self.reset_namespace_with_prefix(namespace, namespace_prefix)
+            .await
+    }
+
+    async fn cleanup_namespace(&self, namespace: &str) -> Result<()> {
+        if !self.config.backend.cleanup.enabled {
+            return Ok(());
         }
-        let mut namespaces = self.namespaces.lock().await;
-        namespaces.remove(namespace);
-        Ok(())
+        let cleanup_prefix = self
+            .config
+            .backend
+            .cleanup
+            .require_collection_prefix
+            .as_deref()
+            .context("post-run cleanup requires a collection prefix")?;
+        self.reset_namespace_with_prefix(namespace, cleanup_prefix)
+            .await
     }
 
     async fn remember_episode(&self, input: EpisodeInput) -> Result<String> {
@@ -2581,6 +2608,7 @@ mod tests {
         let namespace = "restart-round-trip";
         let mut config = adapter_config(run_id, prefix);
         config.backend.cleanup.enabled = false;
+        config.backend.cleanup.require_collection_prefix = Some("unrelated:prefix".to_string());
         config.backend.identity_registry_dir = Some(
             directory
                 .path()
@@ -2730,6 +2758,22 @@ mod tests {
             adapter_c.reset_namespace(namespace).await,
             adapter_c.reset_namespace(namespace).await
         );
+    }
+
+    #[tokio::test]
+    async fn post_run_cleanup_honors_cleanup_required_prefix() {
+        let mut config = adapter_config("post-run-cleanup".to_string(), "bench:review".to_string());
+        config.backend.cleanup.require_collection_prefix = Some("unrelated:prefix".to_string());
+        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+
+        let error = adapter
+            .cleanup_namespace("namespace")
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("refusing to cleanup collection"));
+        assert!(error.contains("unrelated_prefix"));
     }
 
     #[test]

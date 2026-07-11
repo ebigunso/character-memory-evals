@@ -274,14 +274,9 @@ timestamp remains in eval metadata for debugging, but the live adapter stays
 strict: any non-RFC3339 timestamp that reaches it fails with context instead of
 being guessed at the backend boundary.
 
-Backend cleanup is disabled by default. When `[backend.cleanup] enabled = true`,
-the runner deletes only live Qdrant collections it created for completed eval
-namespaces, and only when `require_collection_prefix` matches the configured
-`namespace_prefix` after Qdrant-name sanitization. Cleanup never deletes files
-under `runs/`, `reports/`, `datasets/`, or other result artifacts. Leaving
-cleanup disabled preserves backend collections for inspection; enabling it makes
-repeat runs practical after the JSONL and summary artifacts have been written
-successfully.
+Backend post-run cleanup is disabled by default. When `[backend.cleanup] enabled = true`, the runner deletes only live Qdrant collections it created for completed eval namespaces, and only when `require_collection_prefix` matches the configured `namespace_prefix` after Qdrant-name sanitization. Post-run cleanup never deletes files under `runs/`, `reports/`, `datasets/`, or other result artifacts.
+
+Fresh runs always remove any prior deterministic collection and identity registry for the same `(namespace_prefix, run_id, namespace)` before ingest, using `namespace_prefix` as the deletion safety guard. Disabling post-run cleanup therefore preserves a completed collection for inspection only until the next fresh run with the same identity. Use the explicit reattach lifecycle when state must be preserved intentionally across adapter instances or runs.
 
 ## Character Memory API
 

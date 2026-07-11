@@ -354,3 +354,17 @@ Fix applied:
 
 Prevention:
 - Skip-if-unavailable predicates must gate every live call made by a gated test, and any setup-path change requires explicit service-down and service-up verification before completion.
+
+## 2026-07-12 — Keep Fresh Reset And Post-Run Cleanup Policies Separate  [tags: review, lifecycle, configuration, contracts]
+
+Symptom:
+- Fresh reset consulted `cleanup.require_collection_prefix` even when cleanup was disabled, so a valid leftover mismatched cleanup prefix blocked the next fresh run before ingest.
+
+Root cause:
+- One adapter operation represented both unconditional pre-open freshness and optional post-run cleanup, allowing a post-run configuration constraint to leak into the fresh-open path.
+
+Fix applied:
+- Split fresh reset from post-run cleanup at the adapter contract: fresh reset uses `namespace_prefix`, while post-run cleanup separately uses `cleanup.require_collection_prefix`.
+
+Prevention:
+- When one durable-state action serves multiple lifecycle phases, model each phase explicitly and test that phase-local configuration cannot affect the other phase.

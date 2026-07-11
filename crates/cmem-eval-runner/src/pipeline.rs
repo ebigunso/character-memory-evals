@@ -825,7 +825,7 @@ async fn cleanup_namespaces_after_artifacts(
 ) -> Result<()> {
     if config.backend.cleanup.enabled {
         for namespace in namespaces {
-            adapter.reset_namespace(namespace).await?;
+            adapter.cleanup_namespace(namespace).await?;
         }
     }
     Ok(())

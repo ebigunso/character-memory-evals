@@ -477,7 +477,13 @@ pub trait MemoryAdapter: Send + Sync {
     /// Reconstruct a namespace against its durable stores and primary identity
     /// registry. Missing durable lifecycle state is an error.
     async fn reattach_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult>;
+    /// Remove durable state before opening a fresh namespace identity. This is
+    /// distinct from optional post-run cleanup policy.
     async fn reset_namespace(&self, namespace: &str) -> Result<()>;
+    /// Apply optional post-run cleanup after result artifacts are durable.
+    async fn cleanup_namespace(&self, namespace: &str) -> Result<()> {
+        self.reset_namespace(namespace).await
+    }
     async fn remember_episode(&self, input: EpisodeInput) -> Result<String>;
     async fn remember_episodes(&self, inputs: Vec<EpisodeInput>) -> Result<Vec<String>> {
         let mut ids = Vec::with_capacity(inputs.len());
