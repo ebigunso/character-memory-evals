@@ -247,3 +247,31 @@ Prevention:
 
 Evidence:
 - Orchestrator integration finding on 2026-07-11 identified `scripts/README.md` lines 10-11 after the Worker reported a clean audit.
+
+## 2026-07-12 — Do Not Infer Asset Absence From Ignore-Aware Search  [tags: validation, datasets, tooling, assumptions, gitignore]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
+- Task/Wave: Task_4 / Wave 3 integration
+- Roles involved: Worker | Orchestrator
+
+Symptom:
+- The Worker reported that LongMemEval-S and LoCoMo local datasets and enrichment assets were absent, then skipped their required pre/post artifact diffs.
+
+Root cause:
+- Asset discovery used `rg --files`, which honors ignore rules and therefore omitted the gitignored `datasets/` tree even though the files existed on disk.
+
+Fix applied:
+- Verify the assets with direct filesystem existence checks or `rg --no-ignore`, then run the real pre/post CLI validations from a detached pre-change worktree and the current tree.
+
+Prevention:
+- Repo rule candidate:
+  - audience: worker
+  - proposed rule: When validation depends on local or generated asset existence, use direct filesystem checks or an explicit no-ignore search; never infer absence from default `rg`, `fd`, or tracked-file enumeration.
+- Dispatch/plan guardrail:
+  - Required validation may be marked unavailable only after an ignore-independent existence check records the exact expected paths.
+- Residual risk / waiver:
+  - None.
+
+Evidence:
+- Orchestrator integration finding on 2026-07-11 confirmed `datasets/longmemeval_s_cleaned.json`, `datasets/locomo10.json`, `datasets/enriched/`, and `datasets/enrichment_source/` exist as gitignored local assets.
