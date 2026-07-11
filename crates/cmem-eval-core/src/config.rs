@@ -45,18 +45,6 @@ impl BenchmarkRunConfig {
         self.ingest.validate()?;
         self.retrieval.validate()?;
         self.backend.validate()?;
-        match self.dataset.as_str() {
-            "longmemeval_s" => {
-                require_non_empty("metrics.ks_session", &self.metrics.ks_session)?;
-                require_non_empty("metrics.ks_turn", &self.metrics.ks_turn)?;
-            }
-            "locomo" => {
-                require_non_empty("metrics.ks_dialog", &self.metrics.ks_dialog)?;
-                require_non_empty("metrics.ks_session", &self.metrics.ks_session)?;
-            }
-            "synthetic" => {}
-            other => bail!("unsupported dataset in config: {other}"),
-        }
         Ok(())
     }
 }
@@ -512,6 +500,21 @@ mod tests {
         .to_string();
 
         assert!(err.contains("unknown variant"));
+    }
+
+    #[test]
+    fn core_validation_leaves_dataset_dispatch_to_the_runner_seam() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "future_dataset",
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        config.validate().unwrap();
     }
 
     #[test]
