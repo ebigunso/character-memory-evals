@@ -1,6 +1,6 @@
 use crate::{
-    RetrievalTelemetry, RetrievedItem, aggregate_numeric_metrics, metric_support_summary,
-    registry_coverage_summary,
+    MetricFamily, RetrievalTelemetry, RetrievedItem, aggregate_numeric_metrics,
+    metric_support_summary, registry_coverage_summary_for,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,8 @@ use serde_json::{Map, Value};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
+
+pub const RESULT_SCHEMA_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PerQuestionResult {
@@ -39,11 +41,13 @@ pub struct PerQuestionResult {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RunSummary {
+    pub schema_version: String,
     pub run_id: String,
     pub dataset: String,
     #[serde(default)]
     pub adapter: RunAdapterMetadata,
     pub config: Value,
+    pub embedding_provider: Option<String>,
     pub num_questions: usize,
     pub metrics: Value,
     #[serde(default)]
@@ -167,10 +171,22 @@ impl Default for RunAdapterMetadata {
 pub fn write_jsonl(path: &Path, rows: &[PerQuestionResult]) -> Result<()> {
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     for row in rows {
-        serde_json::to_writer(&mut file, row)?;
+        serde_json::to_writer(&mut file, &versioned_row_value(row)?)?;
         file.write_all(b"\n")?;
     }
     Ok(())
+}
+
+fn versioned_row_value(row: &PerQuestionResult) -> Result<Value> {
+    let mut value = serde_json::to_value(row)?;
+    value
+        .as_object_mut()
+        .expect("PerQuestionResult always serializes as an object")
+        .insert(
+            "schema_version".to_string(),
+            Value::String(RESULT_SCHEMA_VERSION.to_string()),
+        );
+    Ok(value)
 }
 
 pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
@@ -187,6 +203,17 @@ pub fn summarize_rows(
     config: Value,
     rows: &[PerQuestionResult],
 ) -> RunSummary {
+    summarize_rows_with_metric_families(run_id, dataset, adapter, config, rows, &[])
+}
+
+pub fn summarize_rows_with_metric_families(
+    run_id: String,
+    dataset: String,
+    adapter: RunAdapterMetadata,
+    config: Value,
+    rows: &[PerQuestionResult],
+    metric_families: &[MetricFamily],
+) -> RunSummary {
     let metric_rows = rows
         .iter()
         .filter_map(|row| row.metrics.as_object().cloned())
@@ -195,15 +222,21 @@ pub fn summarize_rows(
         .iter()
         .map(|row| row.latency_ms as f64)
         .collect::<Vec<_>>();
+    let embedding_provider = config
+        .pointer("/backend/embedding/provider")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     RunSummary {
+        schema_version: RESULT_SCHEMA_VERSION.to_string(),
         run_id,
         dataset,
         adapter,
         config,
+        embedding_provider,
         num_questions: rows.len(),
         metrics: aggregate_numeric_metrics(&metric_rows),
         metric_support: metric_support_summary(&metric_rows),
-        registry_coverage: registry_coverage_summary(&metric_rows),
+        registry_coverage: registry_coverage_summary_for(&metric_rows, metric_families),
         latency: serde_json::json!({
             "latency_ms": {
                 "mean": crate::mean(&latency_values),
@@ -224,7 +257,17 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<PerQuestionResult>> {
         if line.trim().is_empty() {
             continue;
         }
-        rows.push(serde_json::from_str(&line)?);
+        let value = serde_json::from_str::<Value>(&line)?;
+        match value.get("schema_version").and_then(Value::as_str) {
+            Some(RESULT_SCHEMA_VERSION) => {}
+            Some(version) => anyhow::bail!(
+                "unsupported result schema_version {version:?}; expected {RESULT_SCHEMA_VERSION:?}"
+            ),
+            None => {
+                anyhow::bail!("missing result schema_version; expected {RESULT_SCHEMA_VERSION:?}")
+            }
+        }
+        rows.push(serde_json::from_value(value)?);
     }
     Ok(rows)
 }
@@ -255,8 +298,9 @@ mod tests {
             integrity: ResultIntegrityDetails::default(),
             reader: ReaderResult::default(),
         };
-        let value = serde_json::to_value(row).unwrap();
+        let value = versioned_row_value(&row).unwrap();
         assert_eq!(value["question_id"], "q");
+        assert_eq!(value["schema_version"], RESULT_SCHEMA_VERSION);
         assert_eq!(value["adapter"]["mode"], "mock_smoke");
     }
 
@@ -301,5 +345,45 @@ mod tests {
                 .as_array()
                 .is_some_and(|missing| !missing.is_empty())
         );
+    }
+
+    #[test]
+    fn summary_records_schema_provider_and_separate_latency() {
+        let row = PerQuestionResult {
+            run_id: "r".into(),
+            dataset: "synthetic".into(),
+            adapter: RunAdapterMetadata::mock_smoke(),
+            question_id: "q".into(),
+            question_type: None,
+            question: "question".into(),
+            gold_episode_ids: vec![],
+            gold_observation_ids: vec![],
+            retrieved: vec![],
+            metrics: serde_json::json!({"session_recall_any@5": 1.0}),
+            latency_ms: 7,
+            context_char_count: 0,
+            context_word_count: 0,
+            context: ResultContextMetrics::default(),
+            telemetry: RetrievalTelemetry::default(),
+            composition: ResultCompositionMetrics::default(),
+            integrity: ResultIntegrityDetails::default(),
+            reader: ReaderResult::default(),
+        };
+        let family = crate::retrieval_metric_family("synthetic", [("session", [5].as_slice())]);
+
+        let summary = summarize_rows_with_metric_families(
+            "r".into(),
+            "synthetic".into(),
+            RunAdapterMetadata::mock_smoke(),
+            serde_json::json!({"backend": {"embedding": {"provider": "openai"}}}),
+            &[row],
+            &[family],
+        );
+
+        assert_eq!(summary.schema_version, RESULT_SCHEMA_VERSION);
+        assert_eq!(summary.embedding_provider.as_deref(), Some("openai"));
+        assert_eq!(summary.latency["latency_ms"]["p95"], 7.0);
+        assert!(summary.metrics.get("retrieval_latency_ms").is_none());
+        assert_eq!(summary.registry_coverage["required_metrics_present"], 1);
     }
 }

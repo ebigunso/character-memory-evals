@@ -2,12 +2,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const REQUIRED_REGISTRY_METRICS: &[&str] = &[
+const CORE_BASE_METRICS: &[&str] = &[
     "retrieved_context_tokens",
     "full_history_tokens",
     "context_compression_ratio",
     "context_reduction_rate",
-    "retrieval_latency_ms",
     "num_retrieved_items",
     "num_relevant_episodes",
     "num_relevant_observations",
@@ -31,6 +30,60 @@ pub const REQUIRED_REGISTRY_METRICS: &[&str] = &[
     "abstention_accuracy",
     "unsupported_answer_rate",
 ];
+
+const RANKING_METRIC_NAMES: &[&str] =
+    &["recall_any", "recall_all", "recall_fraction", "mrr", "ndcg"];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetricFamily {
+    pub name: String,
+    pub required_metrics: BTreeSet<String>,
+}
+
+impl MetricFamily {
+    pub fn new(
+        name: impl Into<String>,
+        required_metrics: impl IntoIterator<Item = String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            required_metrics: required_metrics.into_iter().collect(),
+        }
+    }
+}
+
+pub fn core_base_metric_family() -> MetricFamily {
+    MetricFamily::new(
+        "core",
+        CORE_BASE_METRICS.iter().map(|metric| (*metric).to_string()),
+    )
+}
+
+pub fn retrieval_metric_family<'a>(
+    name: impl Into<String>,
+    rankings: impl IntoIterator<Item = (&'a str, &'a [usize])>,
+) -> MetricFamily {
+    let mut required_metrics = BTreeSet::new();
+    for (prefix, ks) in rankings {
+        for k in ks {
+            for metric in RANKING_METRIC_NAMES {
+                required_metrics.insert(format!("{prefix}_{metric}@{k}"));
+            }
+        }
+    }
+    MetricFamily {
+        name: name.into(),
+        required_metrics,
+    }
+}
+
+pub fn required_metric_set(families: &[MetricFamily]) -> BTreeSet<String> {
+    let mut required = core_base_metric_family().required_metrics;
+    for family in families {
+        required.extend(family.required_metrics.iter().cloned());
+    }
+    required
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RetrievalMetricSummary {
@@ -182,22 +235,34 @@ pub fn metric_support_summary(rows: &[Map<String, Value>]) -> Value {
 }
 
 pub fn initialize_registry_metrics(out: &mut Map<String, Value>) {
-    for key in REQUIRED_REGISTRY_METRICS {
-        out.entry((*key).to_string()).or_insert(Value::Null);
+    initialize_registry_metrics_for(out, &[]);
+}
+
+pub fn initialize_registry_metrics_for(out: &mut Map<String, Value>, families: &[MetricFamily]) {
+    for key in required_metric_set(families) {
+        out.entry(key).or_insert(Value::Null);
     }
 }
 
 pub fn registry_coverage_summary(rows: &[Map<String, Value>]) -> Value {
+    registry_coverage_summary_for(rows, &[])
+}
+
+pub fn registry_coverage_summary_for(
+    rows: &[Map<String, Value>],
+    families: &[MetricFamily],
+) -> Value {
+    let required_metrics = required_metric_set(families);
     let mut present = 0usize;
     let mut numeric = 0usize;
     let mut null = 0usize;
     let mut missing = Vec::new();
-    for key in REQUIRED_REGISTRY_METRICS {
+    for key in &required_metrics {
         let mut key_present = false;
         let mut key_numeric = false;
         let mut key_null = false;
         for row in rows {
-            if let Some(value) = row.get(*key) {
+            if let Some(value) = row.get(key) {
                 key_present = true;
                 key_numeric |= value.is_number();
                 key_null |= value.is_null();
@@ -206,7 +271,7 @@ pub fn registry_coverage_summary(rows: &[Map<String, Value>]) -> Value {
         if key_present {
             present += 1;
         } else {
-            missing.push(*key);
+            missing.push(key.clone());
         }
         if key_numeric {
             numeric += 1;
@@ -217,7 +282,7 @@ pub fn registry_coverage_summary(rows: &[Map<String, Value>]) -> Value {
     }
     let required_metrics_null_only = null;
     serde_json::json!({
-        "required_metrics_total": REQUIRED_REGISTRY_METRICS.len(),
+        "required_metrics_total": required_metrics.len(),
         "required_metrics_present": present,
         "required_metrics_numeric": numeric,
         "required_metrics_null_only": required_metrics_null_only,
@@ -734,5 +799,31 @@ mod tests {
         assert_eq!(support["unsupported_metric"]["numeric_rows"], 0);
         assert_eq!(support["unsupported_metric"]["null_rows"], 2);
         assert_eq!(support["unsupported_metric"]["unsupported"], true);
+    }
+
+    #[test]
+    fn runtime_registry_combines_core_and_dataset_families() {
+        let family = retrieval_metric_family("example_retrieval", [("dialog", [3].as_slice())]);
+        let mut metrics = Map::new();
+        metrics.insert("dialog_ndcg@3".to_string(), Value::from(0.75));
+        initialize_registry_metrics_for(&mut metrics, std::slice::from_ref(&family));
+
+        assert_eq!(metrics["dialog_ndcg@3"], 0.75);
+        assert!(metrics["dialog_mrr@3"].is_null());
+        assert!(metrics["retrieved_context_tokens"].is_null());
+        assert!(!metrics.contains_key("session_ndcg@5"));
+        assert!(!metrics.contains_key("retrieval_latency_ms"));
+
+        let coverage = registry_coverage_summary_for(&[metrics], &[family]);
+        assert_eq!(
+            coverage["required_metrics_total"],
+            CORE_BASE_METRICS.len() + RANKING_METRIC_NAMES.len()
+        );
+        assert_eq!(coverage["required_metrics_numeric"], 1);
+        assert_eq!(
+            coverage["required_metrics_null_only"],
+            CORE_BASE_METRICS.len() + RANKING_METRIC_NAMES.len() - 1
+        );
+        assert_eq!(coverage["missing_required_metrics"], serde_json::json!([]));
     }
 }
