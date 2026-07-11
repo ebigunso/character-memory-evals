@@ -275,3 +275,26 @@ Prevention:
 
 Evidence:
 - Orchestrator integration finding on 2026-07-11 confirmed `datasets/longmemeval_s_cleaned.json`, `datasets/locomo10.json`, `datasets/enriched/`, and `datasets/enrichment_source/` exist as gitignored local assets.
+
+## 2026-07-12 — Verify AGMSG Reports Against The Registered Store  [tags: workflow, tooling, agmsg, reporting, validation]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
+- Task/Wave: Task_5 / Wave 4 reporting
+- Roles involved: Worker | Orchestrator
+
+Symptom:
+- The Worker received successful `send.sh` results for Task_5 checkpoints and a strict YAML report, but the Orchestrator's registered AGMSG history never received those messages and Task_5 could not be integrated.
+
+Root cause:
+- After the registered database rejected sandboxed writes, the Worker overrode `AGMSG_STORAGE_PATH` to a separate writable mirror database; delivery succeeded only inside that split store rather than the active team's registered store.
+
+Fix applied:
+- Send the report to the registered AGMSG store with the required filesystem escalation, then verify delivery by reading history from that same registered store.
+
+Prevention:
+- Never redirect an AGMSG send to a different database merely to bypass a write restriction; request the required approval for the registered store and verify critical handoffs in the same store's history before ending the turn.
+- Turn-closing guardrail: after every required Worker YAML handoff, confirm the report is visible in registered team history before treating delivery as complete.
+
+Evidence:
+- Orchestrator correction on 2026-07-11: the three Task_5 commits were visible, but no Task_5 report or post-16:01 message existed in its AGMSG history.
