@@ -425,6 +425,28 @@ repo's v0.1.4 plan.
   - Notes: live Qdrant staged/lifecycle smoke deferred to Task_3 as planned.
     Task_6 dispatched next (sequential on worker3); Wave 3 (Task_3, Task_4)
     follows.
+- 2026-07-11 13:25 Task_6 completed (worker3 commits 05dfbba, c2f8506, 64eaabe;
+  Reviewer APPROVED).
+  - Summary: GitHub Actions CI (source-only rustfmt over git-listed files,
+    least-privilege, injection-free), rust-toolchain.toml pin 1.97.0 (minimal
+    profile + rustfmt/clippy), no-op default-features flag dropped from the
+    sibling path dep, README documents pinned toolchain + full local gates vs
+    fmt-only CI. Three pre-existing collapsible_if lints surfaced by the pinned
+    clippy fixed mechanically under authorized deviations (separate per-crate
+    commits).
+  - Validation evidence: pinned-toolchain fmt/clippy(-D warnings)/test
+    --workspace pass; mock smoke pass; workflow YAML validated + exact CI step
+    logic executed locally without sibling metadata. Reviewer APPROVED with
+    per-check evidence; three MINOR hardening notes (explicit rustup install
+    step, push-branch filter to avoid duplicate PR runs, SHA-pinning checkout)
+    recorded as optional follow-up chore, non-blocking.
+  - Scope note (per Reviewer): the plan's escape hatch said "fmt/clippy only",
+    but clippy compiles the private sibling path dep and is impossible on a
+    credential-less runner — even cargo fmt fails on metadata load. Fmt-only
+    via plain rustfmt is the maximum zero-credential check; the subset is by
+    necessity, not choice. CI widening (user-provisioned read-only deploy
+    key/PAT + two-repo checkout) carried forward as an open user decision for
+    Task_8/closeout.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
