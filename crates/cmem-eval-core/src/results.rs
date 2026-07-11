@@ -258,18 +258,22 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<PerQuestionResult>> {
             continue;
         }
         let value = serde_json::from_str::<Value>(&line)?;
-        match value.get("schema_version").and_then(Value::as_str) {
-            Some(RESULT_SCHEMA_VERSION) => {}
-            Some(version) => anyhow::bail!(
-                "unsupported result schema_version {version:?}; expected {RESULT_SCHEMA_VERSION:?}"
-            ),
-            None => {
-                anyhow::bail!("missing result schema_version; expected {RESULT_SCHEMA_VERSION:?}")
-            }
-        }
+        validate_row_schema(&value)?;
         rows.push(serde_json::from_value(value)?);
     }
     Ok(rows)
+}
+
+fn validate_row_schema(value: &Value) -> Result<()> {
+    match value.get("schema_version").and_then(Value::as_str) {
+        Some(RESULT_SCHEMA_VERSION) => Ok(()),
+        Some(version) => anyhow::bail!(
+            "unsupported result schema_version {version:?}; expected {RESULT_SCHEMA_VERSION:?}"
+        ),
+        None => {
+            anyhow::bail!("missing result schema_version; expected {RESULT_SCHEMA_VERSION:?}")
+        }
+    }
 }
 
 #[cfg(test)]
@@ -385,5 +389,26 @@ mod tests {
         assert_eq!(summary.latency["latency_ms"]["p95"], 7.0);
         assert!(summary.metrics.get("retrieval_latency_ms").is_none());
         assert_eq!(summary.registry_coverage["required_metrics_present"], 1);
+    }
+
+    #[test]
+    fn row_schema_has_no_compatibility_mode() {
+        validate_row_schema(&serde_json::json!({
+            "schema_version": RESULT_SCHEMA_VERSION
+        }))
+        .unwrap();
+        let missing = validate_row_schema(&serde_json::json!({})).unwrap_err();
+        assert!(
+            missing
+                .to_string()
+                .contains("missing result schema_version")
+        );
+        let unsupported =
+            validate_row_schema(&serde_json::json!({"schema_version": "0.9.0"})).unwrap_err();
+        assert!(
+            unsupported
+                .to_string()
+                .contains("unsupported result schema_version")
+        );
     }
 }
