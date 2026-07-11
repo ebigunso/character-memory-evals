@@ -399,7 +399,10 @@ def _validate_snapshot(snapshot: dict[str, Any], dataset: str, item: Item) -> No
             endpoint = link.get(side)
             _require(isinstance(endpoint, dict), f"link.{side} must be an object")
             _exact_keys(endpoint, {"object_type", "external_id"}, f"link.{side}")
-            pair = (endpoint.get("object_type"), endpoint.get("external_id"))
+            pair = (
+                _string(endpoint.get("object_type"), f"link.{side}.object_type"),
+                _string(endpoint.get("external_id"), f"link.{side}.external_id"),
+            )
             _require(pair in endpoints, f"unresolved graph endpoint {pair[0]}:{pair[1]}")
     _require(snapshot == _snapshot(dataset, item), "snapshot differs from deterministic source replay")
 
@@ -510,6 +513,16 @@ def self_test() -> None:
         _require(duplicate_memories[1]["source_episode_external_ids"] == ["dup"] and duplicate_memories[1]["source_observation_external_ids"] == ["dup:turn:1"], "winning duplicate provenance mismatch")
         duplicate_typed_ids = [(kind, obj["external_id"]) for kind, objects in (("thread", duplicate_snapshot["graph"]["threads"]), ("memory", duplicate_memories), ("link", duplicate_snapshot["graph"]["links"])) for obj in objects]
         _require(len(duplicate_typed_ids) == len(set(duplicate_typed_ids)), "effective duplicate sessions produced duplicate typed IDs")
+        first_item = _parse_source(lme, "longmemeval-s")[0]
+        for field, invalid in (("object_type", []), ("external_id", "")):
+            malformed_endpoint = _snapshot("longmemeval-s", first_item)
+            malformed_endpoint["graph"]["links"][0]["from"][field] = invalid
+            try:
+                _validate_snapshot(malformed_endpoint, "longmemeval-s", first_item)
+            except ValidationError as exc:
+                _require(f"link.from.{field} must be a non-empty string" in str(exc), f"malformed endpoint {field} error mismatch")
+            else:
+                raise AssertionError(f"malformed endpoint {field} was accepted")
         generate("longmemeval-s", lme_source, artifact, manifest, report, enforce_canonical=False)
         _require(first == artifact.read_bytes(), "deterministic rerun changed artifact bytes")
         rejected_artifact = root / "canonical-rejected.jsonl"
