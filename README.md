@@ -118,6 +118,21 @@ cargo run -p cmem-eval-runner -- run locomo \
 
 Gold evidence labels are used only for scoring. They are not copied into `EpisodeInput`, `ObservationInput`, or adapter metadata.
 
+## Architecture
+
+The workspace separates shared evaluation contracts, dataset-specific behavior, live Character Memory integration, and CLI orchestration:
+
+- `crates/cmem-eval-core` owns backend-neutral configuration, the `MemoryAdapter` contract and DTOs, deterministic metric primitives, runtime metric-family composition, and versioned result/summary types. Core contains no dataset-name dispatch.
+- `crates/cmem-eval-adapter-cmem` is the reusable live Character Memory adapter. It maps the core contract to the sibling library, derives deterministic collection names from the configured prefix, run ID, and namespace, and persists a BTreeMap-backed external-ID registry so a new adapter process can reattach to existing stores without losing benchmark IDs.
+- `crates/cmem-eval-longmemeval` and `crates/cmem-eval-locomo` own their loaders, ingest mapping, scorers, full-history construction, config-name validation, and retrieval metric-family declarations.
+- `crates/cmem-eval-runner` owns the CLI and static dataset selection. Its `DatasetSpec` seam feeds per-dataset loader/mapper/scorer/full-history/metric-family behavior into one generic ingest → enrich → retrieve → score → result pipeline.
+
+Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementation, but no `cmem-eval-core` change. The future continuity benchmark belongs in `crates/cmem-eval-continuity`, with its loader, mapping, scoring, full-history logic, and metric-family declaration kept inside that crate.
+
+JSONL rows and summaries use report schema version `1.0.0`; readers reject missing or different versions rather than entering a compatibility mode. The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains first-class as per-row `latency_ms` and summary `latency.latency_ms` mean/median/p50/p95 values, but it is excluded from deterministic `metrics`; summaries also record the embedding provider.
+
+Live namespace lifecycle is explicit: `open_namespace` creates fresh run state, while `reattach_namespace` restores the persisted identity registry and reconnects to deterministic collections. Cleanup remains guarded by the configured eval prefix.
+
 ## Precomputed Graph Enrichment
 
 The runner can inject graph-shaped memory objects after raw episodes and

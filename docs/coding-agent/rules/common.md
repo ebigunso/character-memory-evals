@@ -1,8 +1,10 @@
 # Common Rules
 
+<!-- last_updated: 2026-07-12 -->
+
 ## Repository Reference Documents
 
-- `C:\Users\Kohta\Downloads\character_memory_eval_repo_setup_guide.md`
+- `../../../README.md` is the source of truth for current benchmark commands, workspace architecture, report shape, and runtime lifecycle.
 
 ## Repository-Specific Validation Commands
 
@@ -21,7 +23,11 @@
 
 ## Repo Naming / Structure
 
-- Keep dataset-specific logic in the dataset crates and shared adapter/result/metric contracts in `cmem-eval-core`.
+- Keep backend-neutral adapter/result/metric contracts in `cmem-eval-core`; core must not dispatch on dataset names.
+- Keep the live Character Memory integration in `crates/cmem-eval-adapter-cmem`, including deterministic collection naming and persisted external-ID reattach state.
+- Each dataset crate must own its loader, ingest mapper, scorer, full-history builder, config-name validation, and metric-family declaration; adding a dataset may add a runner `DatasetSpec` but must not require core edits.
+- Put the future continuity benchmark in `crates/cmem-eval-continuity`.
+- Emit report schema version `1.0.0` on rows and summaries; keep latency in dedicated row/summary fields rather than deterministic metrics, record the embedding provider, and represent unsupported required metrics as `null`.
 
 ## Global Migration Candidates (Placeholder)
 
