@@ -1818,6 +1818,26 @@ mod tests {
             })
             .await
             .unwrap();
+        adapter
+            .state
+            .lock()
+            .unwrap()
+            .get_mut("n")
+            .unwrap()
+            .suppressed_derived_memory_ids
+            .insert("preexisting-suppression".into());
+        let (before_memories, before_suppressions) = {
+            let state = adapter.state.lock().unwrap();
+            let namespace = &state["n"];
+            (
+                namespace
+                    .derived_memories
+                    .iter()
+                    .map(|memory| (memory.external_id.clone(), memory.text.clone()))
+                    .collect::<BTreeMap<_, _>>(),
+                namespace.suppressed_derived_memory_ids.clone(),
+            )
+        };
         let origin = SourceProvenanceInput {
             episode_external_ids: vec!["s1".into()],
             ..SourceProvenanceInput::default()
@@ -1853,9 +1873,14 @@ mod tests {
         assert!(error.to_string().contains("text must not be empty"));
         let state = adapter.state.lock().unwrap();
         let namespace = &state["n"];
-        assert_eq!(namespace.derived_memories.len(), 1);
-        assert_eq!(namespace.derived_memories[0].external_id, "old");
-        assert!(namespace.suppressed_derived_memory_ids.is_empty());
+        let after_memories = namespace
+            .derived_memories
+            .iter()
+            .map(|memory| (memory.external_id.clone(), memory.text.clone()))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(after_memories, before_memories);
+        assert_eq!(after_memories["old"], "old preference");
+        assert_eq!(namespace.suppressed_derived_memory_ids, before_suppressions);
     }
 
     #[tokio::test]
@@ -1869,7 +1894,6 @@ mod tests {
             })
             .await
             .unwrap();
-
         let outcome = adapter
             .forget(ForgetMemoryInput {
                 namespace: "n".into(),
@@ -1907,6 +1931,26 @@ mod tests {
             })
             .await
             .unwrap();
+        adapter
+            .state
+            .lock()
+            .unwrap()
+            .get_mut("n")
+            .unwrap()
+            .suppressed_derived_memory_ids
+            .insert("preexisting-suppression".into());
+        let (before_memories, before_suppressions) = {
+            let state = adapter.state.lock().unwrap();
+            let namespace = &state["n"];
+            (
+                namespace
+                    .derived_memories
+                    .iter()
+                    .map(|memory| (memory.external_id.clone(), memory.text.clone()))
+                    .collect::<BTreeMap<_, _>>(),
+                namespace.suppressed_derived_memory_ids.clone(),
+            )
+        };
 
         let error = adapter
             .forget(ForgetMemoryInput {
@@ -1933,7 +1977,16 @@ mod tests {
             .unwrap_err();
 
         assert!(error.to_string().contains("unsupported forget target"));
-        assert_eq!(adapter.state.lock().unwrap()["n"].derived_memories.len(), 1);
+        let state = adapter.state.lock().unwrap();
+        let namespace = &state["n"];
+        let after_memories = namespace
+            .derived_memories
+            .iter()
+            .map(|memory| (memory.external_id.clone(), memory.text.clone()))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(after_memories, before_memories);
+        assert_eq!(after_memories["dm1"], "keep me");
+        assert_eq!(namespace.suppressed_derived_memory_ids, before_suppressions);
     }
 
     fn derived_memory(

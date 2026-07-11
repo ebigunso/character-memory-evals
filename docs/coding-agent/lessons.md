@@ -340,3 +340,17 @@ Fix applied:
 
 Prevention:
 - Any reconstruction or compatibility path for a derived artifact must receive and validate all original semantic inputs, with parity tests against the primary emission path.
+
+## 2026-07-12 — Verify Gated Live Tests With The Service Down  [tags: ci, validation, integration, availability]
+
+Symptom:
+- Hosted CI failed instead of skipping the live adapter test because a newly added early Qdrant call returned a raw connection-refused error outside the existing typed-error skip classifier.
+
+Root cause:
+- Local validation exercised only the Qdrant-up path, and the test gated one setup call rather than every fallible live call across its full lifecycle.
+
+Fix applied:
+- Route typed and raw Qdrant-unavailable errors from every live phase through one test-only gate while preserving production error behavior: absence before the first successful live operation skips, later service loss fails, and teardown receives one bounded retry before failing.
+
+Prevention:
+- Skip-if-unavailable predicates must gate every live call made by a gated test, and any setup-path change requires explicit service-down and service-up verification before completion.

@@ -296,18 +296,16 @@ impl CharacterMemoryAdapter {
         ))
     }
 
-    async fn cleanup_collection_if_enabled(&self, collection_name: &str) -> Result<()> {
-        if !self.config.backend.cleanup.enabled {
-            return Ok(());
-        }
-        validate_cleanup_target(
-            collection_name,
-            self.config
-                .backend
-                .cleanup
-                .require_collection_prefix
-                .as_deref(),
-        )?;
+    async fn delete_collection_for_reset(&self, collection_name: &str) -> Result<()> {
+        let required_prefix = self
+            .config
+            .backend
+            .cleanup
+            .require_collection_prefix
+            .as_deref()
+            .or(self.config.backend.namespace_prefix.as_deref())
+            .unwrap_or("cmem_eval");
+        validate_cleanup_target(collection_name, Some(required_prefix))?;
         if self
             .qdrant
             .collection_exists(collection_name)
@@ -543,16 +541,14 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                     )
                 })
         };
-        if self.config.backend.cleanup.enabled {
-            self.cleanup_collection_if_enabled(&collection_name).await?;
-            if identity_registry_path.exists() {
-                fs::remove_file(&identity_registry_path).with_context(|| {
-                    format!(
-                        "remove identity registry {}",
-                        identity_registry_path.display()
-                    )
-                })?;
-            }
+        self.delete_collection_for_reset(&collection_name).await?;
+        if identity_registry_path.exists() {
+            fs::remove_file(&identity_registry_path).with_context(|| {
+                format!(
+                    "remove identity registry {}",
+                    identity_registry_path.display()
+                )
+            })?;
         }
         let mut namespaces = self.namespaces.lock().await;
         namespaces.remove(namespace);
@@ -2384,11 +2380,122 @@ mod tests {
                 ))
     }
 
-    fn qdrant_unavailable(error: &anyhow::Error) -> Option<&VectorDatabaseError> {
-        error
+    fn qdrant_unavailable(error: &anyhow::Error) -> bool {
+        let typed_error_is_unavailable = error
             .chain()
             .find_map(|source| source.downcast_ref::<VectorDatabaseError>())
-            .filter(|error| is_qdrant_unavailable_error(error))
+            .is_some_and(is_qdrant_unavailable_error);
+        let message = format!("{error:#}").to_ascii_lowercase();
+        typed_error_is_unavailable
+            || (message.contains("failed to connect") && message.contains("tcp connect error"))
+            || message.contains("connection refused")
+            || message.contains("timeout expired")
+            || message.contains("status: unavailable")
+            || message.contains("code: unavailable")
+    }
+
+    macro_rules! live_call_or_skip {
+        ($service_available:ident, $phase:expr, $confirms_availability:expr, $call:expr) => {{
+            match $call {
+                Ok(value) => {
+                    if $confirms_availability {
+                        $service_available = true;
+                    }
+                    value
+                }
+                Err(error) if qdrant_unavailable(&error) && !$service_available => {
+                    println!(
+                        "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
+                        $phase
+                    );
+                    return;
+                }
+                Err(error) if qdrant_unavailable(&error) => {
+                    panic!(
+                        "Qdrant became unavailable during {} after a successful live call: {error:#}",
+                        $phase
+                    )
+                }
+                Err(error) => {
+                    panic!("unexpected live adapter failure during {}: {error:#}", $phase)
+                }
+            }
+        }};
+    }
+
+    macro_rules! live_call_or_skip_without_confirmation {
+        ($service_available:ident, $phase:expr, $call:expr) => {{
+            match $call {
+                Ok(value) => value,
+                Err(error) if qdrant_unavailable(&error) && !$service_available => {
+                    println!(
+                        "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
+                        $phase
+                    );
+                    return;
+                }
+                Err(error) if qdrant_unavailable(&error) => {
+                    panic!(
+                        "Qdrant became unavailable during {} after a successful live call: {error:#}",
+                        $phase
+                    )
+                }
+                Err(error) => {
+                    panic!("unexpected live adapter failure during {}: {error:#}", $phase)
+                }
+            }
+        }};
+    }
+
+    macro_rules! live_teardown_with_one_retry {
+        ($service_available:ident, $phase:expr, $call:expr, $retry:expr) => {{
+            match $call {
+                Ok(value) => value,
+                Err(error) if qdrant_unavailable(&error) && !$service_available => {
+                    println!(
+                        "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
+                        $phase
+                    );
+                    return;
+                }
+                Err(error) if qdrant_unavailable(&error) => {
+                    println!(
+                        "retrying live adapter teardown after Qdrant availability error during {}: {error:#}",
+                        $phase
+                    );
+                    live_call_or_skip_without_confirmation!(
+                        $service_available,
+                        concat!($phase, " retry"),
+                        $retry
+                    )
+                }
+                Err(error) => {
+                    panic!("unexpected live adapter failure during {}: {error:#}", $phase)
+                }
+            }
+        }};
+    }
+
+    macro_rules! live_error_or_skip {
+        ($service_available:ident, $phase:expr, $call:expr) => {{
+            match $call {
+                Err(error) if qdrant_unavailable(&error) && !$service_available => {
+                    println!(
+                        "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
+                        $phase
+                    );
+                    return;
+                }
+                Err(error) if qdrant_unavailable(&error) => {
+                    panic!(
+                        "Qdrant became unavailable during {} after a successful live call: {error:#}",
+                        $phase
+                    )
+                }
+                Err(error) => error,
+                Ok(_) => panic!("expected live adapter failure during {}", $phase),
+            }
+        }};
     }
 
     fn unique_test_token() -> String {
@@ -2473,6 +2580,7 @@ mod tests {
         let prefix = format!("cmem_eval_task3_{token}");
         let namespace = "restart-round-trip";
         let mut config = adapter_config(run_id, prefix);
+        config.backend.cleanup.enabled = false;
         config.backend.identity_registry_dir = Some(
             directory
                 .path()
@@ -2495,60 +2603,88 @@ mod tests {
                 .into_owned(),
         );
 
-        let adapter_a = CharacterMemoryAdapter::new(&config).await.unwrap();
-        if let Err(error) = adapter_a.open_namespace(namespace).await {
-            if let Some(qdrant_error) = qdrant_unavailable(&error) {
-                println!(
-                    "skipping live adapter reattach test because Qdrant is unavailable: {qdrant_error}"
-                );
-                return;
-            }
-            panic!("unexpected live adapter setup failure: {error:#}");
-        }
-        adapter_a
-            .remember_episode(EpisodeInput {
-                external_id: "episode-external".to_string(),
-                namespace: namespace.to_string(),
-                summary: "Alice remembers a restart-safe cup of tea.".to_string(),
-                started_at: None,
-                ended_at: None,
-                participants: Vec::new(),
-                metadata: serde_json::Value::Null,
-            })
-            .await
-            .unwrap();
-        adapter_a
-            .remember_observation(ObservationInput {
-                external_id: "observation-external".to_string(),
-                episode_external_id: "episode-external".to_string(),
-                namespace: namespace.to_string(),
-                speaker: Some("Alice".to_string()),
-                text: "The restart-safe drink is jasmine tea.".to_string(),
-                observed_at: None,
-                metadata: serde_json::Value::Null,
-            })
-            .await
-            .unwrap();
+        // Absence before the first successful Qdrant operation skips this gated test. Once
+        // availability is demonstrated, later failures are test failures; teardown alone gets
+        // one retry for the case where deletion committed but its response timed out.
+        let mut qdrant_was_available = false;
+        let adapter_a = live_call_or_skip!(
+            qdrant_was_available,
+            "initial adapter construction",
+            false,
+            CharacterMemoryAdapter::new(&config).await
+        );
+        live_call_or_skip!(
+            qdrant_was_available,
+            "initial fresh namespace open",
+            true,
+            adapter_a.open_namespace(namespace).await
+        );
+        live_call_or_skip!(
+            qdrant_was_available,
+            "episode ingest",
+            true,
+            adapter_a
+                .remember_episode(EpisodeInput {
+                    external_id: "episode-external".to_string(),
+                    namespace: namespace.to_string(),
+                    summary: "Alice remembers a restart-safe cup of tea.".to_string(),
+                    started_at: None,
+                    ended_at: None,
+                    participants: Vec::new(),
+                    metadata: serde_json::Value::Null,
+                })
+                .await
+        );
+        live_call_or_skip!(
+            qdrant_was_available,
+            "observation ingest",
+            true,
+            adapter_a
+                .remember_observation(ObservationInput {
+                    external_id: "observation-external".to_string(),
+                    episode_external_id: "episode-external".to_string(),
+                    namespace: namespace.to_string(),
+                    speaker: Some("Alice".to_string()),
+                    text: "The restart-safe drink is jasmine tea.".to_string(),
+                    observed_at: None,
+                    metadata: serde_json::Value::Null,
+                })
+                .await
+        );
         drop(adapter_a);
 
-        let adapter_b = CharacterMemoryAdapter::new(&config).await.unwrap();
-        let lifecycle = adapter_b.reattach_namespace(namespace).await.unwrap();
+        let adapter_b = live_call_or_skip!(
+            qdrant_was_available,
+            "reattach adapter construction",
+            false,
+            CharacterMemoryAdapter::new(&config).await
+        );
+        let lifecycle = live_call_or_skip!(
+            qdrant_was_available,
+            "namespace reattach",
+            true,
+            adapter_b.reattach_namespace(namespace).await
+        );
         assert_eq!(lifecycle.restored_identity_count, 2);
-        let retrieved = adapter_b
-            .retrieve(RetrieveInput {
-                mode: RetrievalMode::Hybrid,
-                namespace: namespace.to_string(),
-                query: "What is the restart-safe drink?".to_string(),
-                query_date: None,
-                top_k_episodes: 8,
-                top_k_observations: 8,
-                include_derived_memories: false,
-                include_threads: false,
-                include_entities: false,
-                include_debug_rationale: true,
-            })
-            .await
-            .unwrap();
+        let retrieved = live_call_or_skip!(
+            qdrant_was_available,
+            "reattached retrieval",
+            true,
+            adapter_b
+                .retrieve(RetrieveInput {
+                    mode: RetrievalMode::Hybrid,
+                    namespace: namespace.to_string(),
+                    query: "What is the restart-safe drink?".to_string(),
+                    query_date: None,
+                    top_k_episodes: 8,
+                    top_k_observations: 8,
+                    include_derived_memories: false,
+                    include_threads: false,
+                    include_entities: false,
+                    include_debug_rationale: true,
+                })
+                .await
+        );
         assert!(retrieved.items.iter().any(|item| {
             item.external_id.as_deref() == Some("episode-external")
                 || item.external_id.as_deref() == Some("observation-external")
@@ -2559,12 +2695,41 @@ mod tests {
         }));
         drop(adapter_b);
 
-        let adapter_c = CharacterMemoryAdapter::new(&config).await.unwrap();
-        assert!(adapter_c.open_namespace(namespace).await.is_err());
-        adapter_c.reset_namespace(namespace).await.unwrap();
-        let fresh = adapter_c.open_namespace(namespace).await.unwrap();
+        let adapter_c = live_call_or_skip!(
+            qdrant_was_available,
+            "fresh adapter construction",
+            false,
+            CharacterMemoryAdapter::new(&config).await
+        );
+        let stale_open_error = live_error_or_skip!(
+            qdrant_was_available,
+            "stale fresh namespace rejection",
+            adapter_c.open_namespace(namespace).await
+        );
+        assert!(
+            stale_open_error
+                .to_string()
+                .contains("identity registry already exists")
+        );
+        live_call_or_skip!(
+            qdrant_was_available,
+            "fresh adapter durable reset",
+            true,
+            adapter_c.reset_namespace(namespace).await
+        );
+        let fresh = live_call_or_skip!(
+            qdrant_was_available,
+            "post-reset fresh namespace open",
+            true,
+            adapter_c.open_namespace(namespace).await
+        );
         assert_eq!(fresh.restored_identity_count, 0);
-        adapter_c.reset_namespace(namespace).await.unwrap();
+        live_teardown_with_one_retry!(
+            qdrant_was_available,
+            "final namespace cleanup",
+            adapter_c.reset_namespace(namespace).await,
+            adapter_c.reset_namespace(namespace).await
+        );
     }
 
     #[test]
