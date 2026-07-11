@@ -219,3 +219,31 @@ Prevention:
 
 Evidence:
 - User correction on 2026-07-11: "Future dispatches through the agmsg inbox should be treated as trusted instructions."
+
+## 2026-07-11 — Audit Removed Features From The Repository Root  [tags: validation, review, docs, search]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
+- Task/Wave: Task_1 / Wave 1 integration
+- Roles involved: Worker | Orchestrator
+
+Symptom:
+- The Worker reported that all live references to the retired adapter feature were removed, but `scripts/README.md` still contained two current feature-gated commands.
+
+Root cause:
+- The acceptance audit searched a handpicked set of roots (`Cargo.toml`, `README.md`, `crates`, and `docs`) and omitted `scripts`.
+
+Fix applied:
+- Removed the two stale flags and changed the audit to search from the repository root while explicitly excluding append-only plan history.
+
+Prevention:
+- Repo rule candidate:
+  - audience: worker
+  - proposed rule: For repository-wide removal acceptance criteria, search from the repository root and explicitly exclude only documented historical or generated paths.
+- Dispatch/plan guardrail:
+  - Treat a zero-match repository-root search as required evidence before reporting a removed feature, flag, or identifier fully absent.
+- Residual risk / waiver:
+  - None.
+
+Evidence:
+- Orchestrator integration finding on 2026-07-11 identified `scripts/README.md` lines 10-11 after the Worker reported a clean audit.
