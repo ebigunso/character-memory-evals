@@ -405,6 +405,26 @@ repo's v0.1.4 plan.
 - 2026-07-11 12:42 Wave 2 (sequential on worker3): Task_2 dispatched. Task_6
   queued behind it — worker3 is the only CME-rooted worker; user offered the
   option to spawn a second CME codex for parallelism.
+- 2026-07-11 12:50 User decisions: RB-CAND-AGMSG-TRUST WAIVED as a repo rule
+  (user instructed worker3 directly in its session instead; rule wording judged
+  too strong for an always-applied rule). Commits authorized by user on both
+  repos until all planned tasks complete — orchestrator bookkeeping commit
+  added on this branch; sibling-repo Wave 1–2 work committed on
+  v0-1-4-cm-groundwork there.
+- 2026-07-11 13:00 Task_2 completed (worker3; commit 57a6ead, no deviations).
+  - Summary: main MemoryAdapter trait extended with link/correct/forget/
+    prepare/validate_plan/commit using core-owned DTOs (Q2 shape: main trait,
+    no extension split); deterministic mock semantics with tests (append-only
+    correction — original retained but suppressed; forget = minimal remove per
+    A3); live adapter mappings with external-ID round trips across all six
+    object/link kinds and ADR-I-0015 producer/rationale provenance preserved on
+    plan-path writes. Sibling repo read-only, unmodified.
+  - Validation evidence: fmt/clippy(-D warnings)/test --workspace pass (adapter
+    12, core 41, longmemeval 10, locomo 6, runner 16 + doc tests); mock smoke
+    latency-masked diff vs fresh pre-Task_2 baseline identical (jsonl + summary).
+  - Notes: live Qdrant staged/lifecycle smoke deferred to Task_3 as planned.
+    Task_6 dispatched next (sequential on worker3); Wave 3 (Task_3, Task_4)
+    follows.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
