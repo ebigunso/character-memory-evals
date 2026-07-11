@@ -118,7 +118,10 @@ def _parse_date(value: Any, field: str) -> tuple[str, datetime]:
     )
     if official_longmem:
         year, month, day, hour, minute = map(int, official_longmem.groups())
-        parsed = datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+        try:
+            parsed = datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+        except ValueError as exc:
+            raise ValidationError(f"{field} is not a valid calendar date/time") from exc
     else:
         parsed = None
     if parsed is None:
@@ -465,6 +468,12 @@ def validate(dataset: str, source: Path, artifact: Path, manifest: Path, report:
 def self_test() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
+        try:
+            _parse_date("2024/99/01 (Mon) 00:00", "invalid_date")
+        except ValidationError as exc:
+            _require("valid calendar date/time" in str(exc), "invalid calendar date error mismatch")
+        else:
+            raise AssertionError("regex-valid calendar-invalid date was accepted")
         lme_source = root / "lme.json"
         lme = [
             {"question_id": "q-unicode", "question_date": "2023/05/31 (Wed) 00:00", "haystack_session_ids": ["s1", "s2"], "haystack_dates": ["2023/05/30 (Tue) 23:40", "2023/06/01 (Thu) 00:00"], "haystack_sessions": [[{"role": "user", "content": ""}, {"role": "assistant", "content": " \t "}, {"role": "user", "content": "alpha\u2028βeta"}], [{"role": "assistant", "content": "future"}]]},
@@ -578,7 +587,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             generate(args.dataset, args.source, args.artifact, args.manifest, args.report)
         else:
             validate(args.dataset, args.source, args.artifact, args.manifest, args.report)
-    except (ValidationError, OSError) as exc:
+    except (ValidationError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=__import__("sys").stderr)
         return 2
     print(json.dumps({"command": args.command, "status": "ok"}, sort_keys=True))

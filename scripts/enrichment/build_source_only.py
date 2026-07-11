@@ -252,6 +252,21 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def success_record(
+    dataset: str,
+    rows: list[JsonValue],
+    input_path: Path,
+    input_bytes: bytes,
+    output_path: Path,
+    output_bytes: bytes,
+) -> str:
+    return (
+        f"dataset={dataset} rows={len(rows)} input_path={input_path} "
+        f"input_sha256={sha256(input_bytes)} output_path={output_path} "
+        f"output_sha256={sha256(output_bytes)}"
+    )
+
+
 def read_json(path: Path) -> tuple[JsonValue, bytes]:
     try:
         raw_bytes = path.read_bytes()
@@ -307,6 +322,17 @@ class SanitizerSelfTests(unittest.TestCase):
             validate_forbidden_keys({"safe": {"retrieval_results": []}})
         validate_forbidden_keys({"question_id": "q1", "question_date": "date"})
 
+    def test_success_record_identifies_dataset_mode(self) -> None:
+        record = success_record(
+            "locomo",
+            [],
+            Path("input.json"),
+            b"input",
+            Path("output.json"),
+            b"output",
+        )
+        self.assertTrue(record.startswith("dataset=locomo rows=0 "))
+
 
 def run_self_tests() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(SanitizerSelfTests)
@@ -345,9 +371,14 @@ def main() -> int:
         return 1
 
     print(
-        f"rows={len(clean)} input_path={args.input} "
-        f"input_sha256={sha256(input_bytes)} output_path={args.output} "
-        f"output_sha256={sha256(output_bytes)}"
+        success_record(
+            args.dataset,
+            clean,
+            args.input,
+            input_bytes,
+            args.output,
+            output_bytes,
+        )
     )
     return 0
 
