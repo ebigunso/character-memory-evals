@@ -550,3 +550,17 @@ Fix applied:
 
 Prevention:
 - Run the strict package lint immediately after new Rust test-support types compile, before expensive live reproducibility probes or final workspace validation.
+
+## 2026-07-12 — Treat Every Public Reader As An Admission Boundary  [tags: review, validation, rust, artifacts]
+
+Symptom:
+- The continuity trace reader silently discarded invalid UTF-8 or other line-read failures and accepted syntactically valid traces with an incompatible schema version.
+
+Root cause:
+- Valid round-trip coverage proved the writer output but did not challenge the public reader with corrupt transport bytes or version skew, and the boundary sweep stopped at the fixture parser instead of covering every public `Result`-returning reader.
+
+Fix applied:
+- Propagate line decoding and I/O failures before blank filtering, validate each trace schema version before returning it, and add public-reader regressions for a valid prefix followed by invalid UTF-8 and for schema version `9.9.9`.
+
+Prevention:
+- For every public artifact reader returning `Result`, test corrupt or invalid encoding, partial input, and incompatible schema versions before claiming the admission boundary is closed; sweep sibling readers by return path, not only by parser name.
