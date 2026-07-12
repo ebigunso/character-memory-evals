@@ -73,6 +73,17 @@ def require_string(value: JsonValue, context: str) -> str:
     return value
 
 
+def require_non_empty_strings(value: JsonValue, context: str) -> list[str]:
+    items = require_list(value, context)
+    strings: list[str] = []
+    for index, item in enumerate(items):
+        text = require_string(item, f"{context}[{index}]")
+        if not text.strip():
+            fail(f"{context}[{index}] must be a non-empty string")
+        strings.append(text)
+    return strings
+
+
 def require_rows(raw: JsonValue, wrapper_keys: tuple[str, ...]) -> list[JsonValue]:
     if isinstance(raw, list):
         return raw
@@ -87,8 +98,8 @@ def sanitize_longmemeval(raw: JsonValue) -> list[JsonValue]:
     output: list[JsonValue] = []
     for row_index, raw_row in enumerate(require_rows(raw, ("data", "instances", "questions"))):
         row = require_object(raw_row, f"row {row_index}")
-        session_ids = require_list(row.get("haystack_session_ids"), f"row {row_index} session IDs")
-        dates = require_list(row.get("haystack_dates"), f"row {row_index} dates")
+        session_ids = require_non_empty_strings(row.get("haystack_session_ids"), f"row {row_index} session IDs")
+        dates = require_non_empty_strings(row.get("haystack_dates"), f"row {row_index} dates")
         sessions = require_list(row.get("haystack_sessions"), f"row {row_index} sessions")
         if not (len(session_ids) == len(dates) == len(sessions)):
             fail(f"row {row_index} haystack arrays are not aligned")
@@ -111,10 +122,8 @@ def sanitize_longmemeval(raw: JsonValue) -> list[JsonValue]:
             {
                 "question_id": require_string(row.get("question_id"), "LongMemEval question_id"),
                 "question_date": require_string(row.get("question_date"), "LongMemEval question_date"),
-                "haystack_session_ids": [
-                    require_string(item, "LongMemEval session ID") for item in session_ids
-                ],
-                "haystack_dates": [require_string(item, "LongMemEval date") for item in dates],
+                "haystack_session_ids": session_ids,
+                "haystack_dates": dates,
                 "haystack_sessions": clean_sessions,
             }
         )
@@ -131,6 +140,8 @@ def sanitize_locomo(raw: JsonValue) -> list[JsonValue]:
         )
         numbered_sessions: list[tuple[int, str, list[JsonValue]]] = []
         for key, value in conversation.items():
+            if not isinstance(key, str):
+                fail(f"row {row_index} conversation key must be a string")
             match = SESSION_KEY.fullmatch(key)
             if match:
                 turns = require_list(value, f"row {row_index} {key}")
@@ -174,6 +185,8 @@ def sanitize_locomo(raw: JsonValue) -> list[JsonValue]:
 def validate_forbidden_keys(value: JsonValue) -> None:
     if isinstance(value, dict):
         for key, nested in value.items():
+            if not isinstance(key, str):
+                fail("source-only output object key must be a string")
             folded = key.casefold()
             tokens = re.findall(r"[a-z0-9]+", folded)
             normalized_tokens = {token[:-1] if token.endswith("s") else token for token in tokens}
@@ -197,8 +210,8 @@ def validate_source(value: JsonValue, dataset: str) -> None:
         row = require_object(raw_row, f"source row {row_index}")
         if dataset == "longmemeval-s":
             require_exact_keys(row, LONGMEM_TOP_KEYS, "LongMemEval row")
-            session_ids = require_list(row["haystack_session_ids"], "LongMemEval session IDs")
-            dates = require_list(row["haystack_dates"], "LongMemEval dates")
+            session_ids = require_non_empty_strings(row["haystack_session_ids"], "LongMemEval session IDs")
+            dates = require_non_empty_strings(row["haystack_dates"], "LongMemEval dates")
             sessions = require_list(row["haystack_sessions"], "LongMemEval sessions")
             if not (len(session_ids) == len(dates) == len(sessions)):
                 fail("LongMemEval source arrays are not aligned")
@@ -327,6 +340,39 @@ class SanitizerSelfTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SanitizerError, r"row 0 session_1 must be an array"):
             sanitize_locomo(raw)
+
+    def test_longmemeval_rejects_malformed_string_arrays(self) -> None:
+        base: dict[str, JsonValue] = {
+            "question_id": "q1",
+            "question_date": "2024-01-02",
+            "haystack_session_ids": ["s1"],
+            "haystack_dates": ["2024-01-01"],
+            "haystack_sessions": [[{"role": "user", "content": "text"}]],
+        }
+        for field, context in (
+            ("haystack_session_ids", "row 0 session IDs"),
+            ("haystack_dates", "row 0 dates"),
+        ):
+            for malformed, suffix in (([[]], r"\[0\] must be a string"), ({}, " must be an array")):
+                row = dict(base)
+                row[field] = malformed
+                with self.subTest(field=field, malformed=malformed):
+                    with self.assertRaisesRegex(SanitizerError, re.escape(context) + suffix):
+                        sanitize_longmemeval([row])
+
+    def test_direct_python_keys_fail_with_sanitizer_errors(self) -> None:
+        raw = [{
+            "sample_id": "p1",
+            "conversation": {
+                "speaker_a": "A",
+                "speaker_b": "B",
+                1: [],
+            },
+        }]
+        with self.assertRaisesRegex(SanitizerError, r"row 0 conversation key must be a string"):
+            sanitize_locomo(raw)  # type: ignore[arg-type]
+        with self.assertRaisesRegex(SanitizerError, r"source-only output object key must be a string"):
+            validate_forbidden_keys({1: "value"})  # type: ignore[dict-item]
 
     def test_recursive_validator_rejects_forbidden_fields(self) -> None:
         with self.assertRaises(SanitizerError):

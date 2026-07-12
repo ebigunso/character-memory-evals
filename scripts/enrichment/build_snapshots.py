@@ -91,6 +91,11 @@ def _text(value: Any, field: str) -> str:
     return value
 
 
+def _strings(value: Any, field: str) -> list[str]:
+    _require(isinstance(value, list), f"{field} must be an array")
+    return [_string(item, f"{field}[{index}]") for index, item in enumerate(value)]
+
+
 def _scan_forbidden(value: Any, path: str = "$") -> None:
     if isinstance(value, dict):
         for key, child in value.items():
@@ -347,7 +352,8 @@ def _validate_snapshot(snapshot: dict[str, Any], dataset: str, item: Item) -> No
     _scan_forbidden(snapshot)
     _exact_keys(snapshot, {"snapshot_id", "namespace", "dataset_item_id", "cutoff", "graph"}, "snapshot")
     expected_namespace = _namespace(dataset, item.item_id)
-    _require(snapshot.get("dataset_item_id") == item.item_id, "snapshot dataset_item_id mismatch")
+    dataset_item_id = _string(snapshot.get("dataset_item_id"), "snapshot.dataset_item_id")
+    _require(dataset_item_id == item.item_id, "snapshot dataset_item_id mismatch")
     _require(snapshot.get("namespace") == expected_namespace, "snapshot namespace mismatch")
     _require(snapshot.get("snapshot_id") == f"{expected_namespace}@{item.cutoff_type}", "snapshot_id mismatch")
     cutoff = snapshot.get("cutoff")
@@ -374,27 +380,34 @@ def _validate_snapshot(snapshot: dict[str, Any], dataset: str, item: Item) -> No
     episodes = {session.session_id: session for session in visible}
     observations = {turn.observation_id: (session.session_id, turn.text) for session in visible for turn in session.turns}
     for entity in graph["entities"]:
-        _require(entity.get("entity_type") in ENTITY_TYPES, "invalid entity_type enum")
+        entity_type = _string(entity.get("entity_type"), "graph.entities.entity_type")
+        _require(entity_type in ENTITY_TYPES, "invalid entity_type enum")
     thread_ids = {obj["external_id"] for obj in graph["threads"]}
     entity_ids = {obj["external_id"] for obj in graph["entities"]}
     memory_ids = {obj["external_id"] for obj in graph["derived_memories"]}
     for memory in graph["derived_memories"]:
-        _require(memory.get("derived_type") in DERIVED_TYPES, "invalid derived_type enum")
-        _require(memory.get("stability") in {"low", "medium", "high"}, "invalid stability enum")
-        source_episodes = memory.get("source_episode_external_ids")
-        source_observations = memory.get("source_observation_external_ids")
-        _require(isinstance(source_episodes, list) and isinstance(source_observations, list) and (source_episodes or source_observations), "derived memory has no source provenance")
+        derived_type = _string(memory.get("derived_type"), "graph.derived_memories.derived_type")
+        stability = _string(memory.get("stability"), "graph.derived_memories.stability")
+        _require(derived_type in DERIVED_TYPES, "invalid derived_type enum")
+        _require(stability in {"low", "medium", "high"}, "invalid stability enum")
+        source_episodes = _strings(memory.get("source_episode_external_ids"), "graph.derived_memories.source_episode_external_ids")
+        source_observations = _strings(memory.get("source_observation_external_ids"), "graph.derived_memories.source_observation_external_ids")
+        _require(source_episodes or source_observations, "derived memory has no source provenance")
         _require(all(source in episodes for source in source_episodes), "unresolved source episode provenance")
         _require(all(source in observations for source in source_observations), "unresolved source observation provenance")
         _require(len(source_observations) == 1, "exact-source derived memory must cite one observation")
         cited_episode, cited_text = observations[source_observations[0]]
         _require(cited_episode in source_episodes, "source episode/observation provenance mismatch")
         _require(memory.get("text") == cited_text, "derived text is not exactly equal to cited visible source")
-        _require(set(memory.get("thread_external_ids", [])) <= thread_ids, "unresolved derived-memory thread reference")
-        _require(set(memory.get("entity_external_ids", [])) <= entity_ids, "unresolved derived-memory entity reference")
-        _require(set(memory.get("supersedes_external_ids", [])) <= memory_ids, "unresolved supersedes reference")
+        thread_references = _strings(memory.get("thread_external_ids", []), "graph.derived_memories.thread_external_ids")
+        entity_references = _strings(memory.get("entity_external_ids", []), "graph.derived_memories.entity_external_ids")
+        supersedes_references = _strings(memory.get("supersedes_external_ids", []), "graph.derived_memories.supersedes_external_ids")
+        _require(set(thread_references) <= thread_ids, "unresolved derived-memory thread reference")
+        _require(set(entity_references) <= entity_ids, "unresolved derived-memory entity reference")
+        _require(set(supersedes_references) <= memory_ids, "unresolved supersedes reference")
     for link in graph["links"]:
-        _require(link.get("relation") in RELATIONS, "invalid relation enum")
+        relation = _string(link.get("relation"), "graph.links.relation")
+        _require(relation in RELATIONS, "invalid relation enum")
         for side in ("from", "to"):
             endpoint = link.get(side)
             _require(isinstance(endpoint, dict), f"link.{side} must be an object")
@@ -451,9 +464,12 @@ def validate(dataset: str, source: Path, artifact: Path, manifest: Path, report:
     snapshots = _read_jsonl(artifact)
     if enforce_canonical:
         _validate_canonical_counts(dataset, _expected_manifest_counts(dataset, snapshots, items))
-    _require([row.get("dataset_item_id") for row in snapshots] == sorted(by_id), "artifact snapshot ordering or coverage mismatch")
-    for snapshot in snapshots:
-        item_id = snapshot.get("dataset_item_id")
+    snapshot_item_ids = [
+        _string(row.get("dataset_item_id"), f"artifact snapshot {index}.dataset_item_id")
+        for index, row in enumerate(snapshots)
+    ]
+    _require(snapshot_item_ids == sorted(by_id), "artifact snapshot ordering or coverage mismatch")
+    for snapshot, item_id in zip(snapshots, snapshot_item_ids):
         _require(item_id in by_id, "snapshot references unknown source item")
         _validate_snapshot(snapshot, dataset, by_id[item_id])
     expected = _expected_manifest(dataset, source, artifact, snapshots, items)
@@ -523,6 +539,43 @@ def self_test() -> None:
                 _require(f"link.from.{field} must be a non-empty string" in str(exc), f"malformed endpoint {field} error mismatch")
             else:
                 raise AssertionError(f"malformed endpoint {field} was accepted")
+        for field in ("source_episode_external_ids", "source_observation_external_ids"):
+            for invalid, expected in (([[]], f"graph.derived_memories.{field}[0] must be a non-empty string"), ({}, f"graph.derived_memories.{field} must be an array")):
+                malformed_provenance = _snapshot("longmemeval-s", first_item)
+                malformed_provenance["graph"]["derived_memories"][0][field] = invalid
+                try:
+                    _validate_snapshot(malformed_provenance, "longmemeval-s", first_item)
+                except ValidationError as exc:
+                    _require(expected in str(exc), f"malformed provenance {field} error mismatch")
+                else:
+                    raise AssertionError(f"malformed provenance {field} was accepted")
+        for field in ("thread_external_ids", "entity_external_ids", "supersedes_external_ids"):
+            for invalid, expected in (([[]], f"graph.derived_memories.{field}[0] must be a non-empty string"), ({}, f"graph.derived_memories.{field} must be an array")):
+                malformed_reference = _snapshot("longmemeval-s", first_item)
+                malformed_reference["graph"]["derived_memories"][0][field] = invalid
+                try:
+                    _validate_snapshot(malformed_reference, "longmemeval-s", first_item)
+                except ValidationError as exc:
+                    _require(expected in str(exc), f"malformed reference {field} error mismatch")
+                else:
+                    raise AssertionError(f"malformed reference {field} was accepted")
+        for object_name, field in (("entities", "entity_type"), ("derived_memories", "derived_type"), ("derived_memories", "stability"), ("links", "relation")):
+            malformed_enum = _snapshot("longmemeval-s", first_item)
+            malformed_enum["graph"][object_name][0][field] = []
+            try:
+                _validate_snapshot(malformed_enum, "longmemeval-s", first_item)
+            except ValidationError as exc:
+                _require(f"graph.{object_name}.{field} must be a non-empty string" in str(exc), f"malformed {field} error mismatch")
+            else:
+                raise AssertionError(f"malformed {field} was accepted")
+        malformed_item_id = _snapshot("longmemeval-s", first_item)
+        malformed_item_id["dataset_item_id"] = []
+        try:
+            _validate_snapshot(malformed_item_id, "longmemeval-s", first_item)
+        except ValidationError as exc:
+            _require("snapshot.dataset_item_id must be a non-empty string" in str(exc), "malformed dataset_item_id error mismatch")
+        else:
+            raise AssertionError("malformed dataset_item_id was accepted")
         generate("longmemeval-s", lme_source, artifact, manifest, report, enforce_canonical=False)
         _require(first == artifact.read_bytes(), "deterministic rerun changed artifact bytes")
         rejected_artifact = root / "canonical-rejected.jsonl"
