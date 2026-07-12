@@ -452,3 +452,17 @@ Fix applied:
 
 Prevention:
 - Turn-closing guardrail: for any destructive scoped operation, map every acceptance item to evidence for the target, a surviving sibling, the shared parent/root, every resource-kind failure case, and current operator documentation before reporting the review fix complete.
+
+## 2026-07-12 — Validate Coupled Configuration And Fix Deterministic Widths  [tags: review, validation, configuration, reproducibility, portability]
+
+Symptom:
+- A positive deterministic embedding dimension could pass configuration validation but fail when paired with the selected model at Character Memory construction, while the supposedly stable token hash used architecture-width `usize` state.
+
+Root cause:
+- Validation treated individually valid fields as independent instead of enforcing their construction-time relationship, and deterministic arithmetic relied on the host pointer width rather than an explicit data-format width.
+
+Fix applied:
+- Validate the effective deterministic dimension against the model-derived dimension with both values in the error, and use `u64` hash state with literal bucket regressions plus an x86_64 byte-identity comparison against the legacy algorithm.
+
+Prevention:
+- At configuration boundaries, test cross-field invariants against the downstream constructor contract; for reproducible fixtures, prohibit pointer-width integers in hashes, IDs, seeds, counters, or bucket selection unless architecture dependence is explicitly intended.
