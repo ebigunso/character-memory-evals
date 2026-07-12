@@ -37,6 +37,48 @@ pub struct ContinuityQueryTrace {
 pub struct ContinuityScenarioRun {
     pub traces: Vec<ContinuityQueryTrace>,
     pub operation_counts: BTreeMap<String, usize>,
+    pub restart_observations: Vec<RestartObservation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RestartProbeSnapshot {
+    pub returned_object_ids: Vec<String>,
+    pub relevant_returned_count: usize,
+    pub expected_relevant_count: usize,
+    pub recall: Option<f64>,
+    pub graph_relation_count: Option<usize>,
+    pub graph_verified_count: Option<usize>,
+    pub fanout_decision_count: Option<usize>,
+    pub selectivity_decision_count: Option<usize>,
+    pub scored_selectivity_count: Option<usize>,
+    pub fallback_selectivity_count: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RestartProbeDelta {
+    pub returned_object_count: i64,
+    pub relevant_returned_count: i64,
+    pub recall: Option<f64>,
+    pub graph_relation_count: Option<i64>,
+    pub graph_verified_count: Option<i64>,
+    pub fanout_decision_count: Option<i64>,
+    pub selectivity_decision_count: Option<i64>,
+    pub scored_selectivity_count: Option<i64>,
+    pub fallback_selectivity_count: Option<i64>,
+    pub stable_returned_objects: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RestartObservation {
+    pub event_id: String,
+    pub timestamp: chrono::DateTime<Utc>,
+    pub reopen_graph: bool,
+    pub reopen_stats: bool,
+    pub lifecycle: NamespaceLifecycleResult,
+    pub probe_query_id: String,
+    pub before_restart: RestartProbeSnapshot,
+    pub after_restart: RestartProbeSnapshot,
+    pub delta: RestartProbeDelta,
 }
 
 pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> Result<()> {
@@ -149,7 +191,7 @@ pub async fn run_continuity_scenario(
         .await?;
     increment(&mut run.operation_counts, "remember");
 
-    for event in &scenario.events {
+    for (event_index, event) in scenario.events.iter().enumerate() {
         match event {
             InteractionEvent::Remember {
                 event_id,
@@ -454,8 +496,62 @@ pub async fn run_continuity_scenario(
                     timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)
                 ));
             }
-            InteractionEvent::Restart { timestamp, .. } => {
-                runtime.restart(scenario).await?;
+            InteractionEvent::Restart {
+                event_id,
+                timestamp,
+                reopen_graph,
+                reopen_stats,
+            } => {
+                let (probe_query_id, probe_timestamp, probe_text, probe_expected) = scenario.events
+                    [event_index + 1..]
+                    .iter()
+                    .find_map(|event| match event {
+                        InteractionEvent::Query {
+                            query_id,
+                            timestamp,
+                            text,
+                            expected,
+                            ..
+                        } => Some((query_id, timestamp, text, expected)),
+                        _ => None,
+                    })
+                    .with_context(|| {
+                        format!(
+                            "scenario {:?} restart event {:?} has no following scripted query for re-measurement",
+                            scenario.fixture_id, event_id
+                        )
+                    })?;
+                let before_pack = retrieve_query(
+                    runtime.adapter(),
+                    scenario,
+                    retrieval,
+                    probe_timestamp,
+                    probe_text,
+                )
+                .await?;
+                let before_restart = restart_probe_snapshot(&before_pack, probe_expected);
+                let lifecycle = runtime.restart(scenario).await?;
+                let after_pack = retrieve_query(
+                    runtime.adapter(),
+                    scenario,
+                    retrieval,
+                    probe_timestamp,
+                    probe_text,
+                )
+                .await?;
+                let after_restart = restart_probe_snapshot(&after_pack, probe_expected);
+                let delta = restart_probe_delta(&before_restart, &after_restart);
+                run.restart_observations.push(RestartObservation {
+                    event_id: event_id.clone(),
+                    timestamp: *timestamp,
+                    reopen_graph: *reopen_graph,
+                    reopen_stats: *reopen_stats,
+                    lifecycle,
+                    probe_query_id: probe_query_id.clone(),
+                    before_restart,
+                    after_restart,
+                    delta,
+                });
                 increment(&mut run.operation_counts, "restart");
                 history.push(format!(
                     "{}|restart",
@@ -469,21 +565,8 @@ pub async fn run_continuity_scenario(
                 text,
                 expected,
             } => {
-                let pack = runtime
-                    .adapter()
-                    .retrieve(RetrieveInput {
-                        mode: retrieval.mode,
-                        namespace: scenario.namespace.clone(),
-                        query: text.clone(),
-                        query_date: Some(timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)),
-                        top_k_episodes: retrieval.top_k_episodes,
-                        top_k_observations: retrieval.top_k_observations,
-                        include_derived_memories: retrieval.include_derived_memories,
-                        include_threads: retrieval.include_threads,
-                        include_entities: retrieval.include_entities,
-                        include_debug_rationale: true,
-                    })
-                    .await?;
+                let pack =
+                    retrieve_query(runtime.adapter(), scenario, retrieval, timestamp, text).await?;
                 increment(&mut run.operation_counts, "retrieve");
                 run.traces.push(ContinuityQueryTrace {
                     schema_version: CONTINUITY_TRACE_SCHEMA_VERSION.to_string(),
@@ -503,6 +586,130 @@ pub async fn run_continuity_scenario(
     }
 
     Ok(run)
+}
+
+async fn retrieve_query(
+    adapter: &dyn MemoryAdapter,
+    scenario: &ContinuityScenario,
+    retrieval: &RetrievalConfig,
+    timestamp: &chrono::DateTime<Utc>,
+    text: &str,
+) -> Result<RetrievedContextPack> {
+    adapter
+        .retrieve(RetrieveInput {
+            mode: retrieval.mode,
+            namespace: scenario.namespace.clone(),
+            query: text.to_string(),
+            query_date: Some(timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)),
+            top_k_episodes: retrieval.top_k_episodes,
+            top_k_observations: retrieval.top_k_observations,
+            include_derived_memories: retrieval.include_derived_memories,
+            include_threads: retrieval.include_threads,
+            include_entities: retrieval.include_entities,
+            include_debug_rationale: true,
+        })
+        .await
+}
+
+fn restart_probe_snapshot(
+    pack: &RetrievedContextPack,
+    expected: &ExpectedRelevance,
+) -> RestartProbeSnapshot {
+    let mut returned_object_ids = pack
+        .items
+        .iter()
+        .map(|item| {
+            item.external_id
+                .clone()
+                .unwrap_or_else(|| format!("{}:{}", item.kind, item.internal_id))
+        })
+        .collect::<Vec<_>>();
+    returned_object_ids.sort();
+    returned_object_ids.dedup();
+    let relevant_returned_count = expected
+        .relevant_external_ids
+        .iter()
+        .filter(|external_id| returned_object_ids.binary_search(external_id).is_ok())
+        .count();
+    let expected_relevant_count = expected.relevant_external_ids.len();
+    let telemetry = &pack.telemetry;
+    RestartProbeSnapshot {
+        returned_object_ids,
+        relevant_returned_count,
+        expected_relevant_count,
+        recall: (expected_relevant_count > 0)
+            .then_some(relevant_returned_count as f64 / expected_relevant_count as f64),
+        graph_relation_count: telemetry.graph_relation_count,
+        graph_verified_count: telemetry.graph_verified_count,
+        fanout_decision_count: telemetry.fanout_utilization.as_ref().map(Vec::len),
+        selectivity_decision_count: telemetry.selectivity_decisions.as_ref().map(Vec::len),
+        scored_selectivity_count: telemetry.selectivity_decisions.as_ref().map(|decisions| {
+            decisions
+                .iter()
+                .filter(|decision| decision.score.is_some())
+                .count()
+        }),
+        fallback_selectivity_count: telemetry.selectivity_decisions.as_ref().map(|decisions| {
+            decisions
+                .iter()
+                .filter(|decision| decision.fallback)
+                .count()
+        }),
+    }
+}
+
+fn restart_probe_delta(
+    before: &RestartProbeSnapshot,
+    after: &RestartProbeSnapshot,
+) -> RestartProbeDelta {
+    RestartProbeDelta {
+        returned_object_count: signed_delta(
+            before.returned_object_ids.len(),
+            after.returned_object_ids.len(),
+        ),
+        relevant_returned_count: signed_delta(
+            before.relevant_returned_count,
+            after.relevant_returned_count,
+        ),
+        recall: option_f64_delta(before.recall, after.recall),
+        graph_relation_count: option_usize_delta(
+            before.graph_relation_count,
+            after.graph_relation_count,
+        ),
+        graph_verified_count: option_usize_delta(
+            before.graph_verified_count,
+            after.graph_verified_count,
+        ),
+        fanout_decision_count: option_usize_delta(
+            before.fanout_decision_count,
+            after.fanout_decision_count,
+        ),
+        selectivity_decision_count: option_usize_delta(
+            before.selectivity_decision_count,
+            after.selectivity_decision_count,
+        ),
+        scored_selectivity_count: option_usize_delta(
+            before.scored_selectivity_count,
+            after.scored_selectivity_count,
+        ),
+        fallback_selectivity_count: option_usize_delta(
+            before.fallback_selectivity_count,
+            after.fallback_selectivity_count,
+        ),
+        stable_returned_objects: before.returned_object_ids == after.returned_object_ids,
+    }
+}
+
+fn signed_delta(before: usize, after: usize) -> i64 {
+    after as i64 - before as i64
+}
+
+fn option_usize_delta(before: Option<usize>, after: Option<usize>) -> Option<i64> {
+    Some(signed_delta(before?, after?))
+}
+
+fn option_f64_delta(before: Option<f64>, after: Option<f64>) -> Option<f64> {
+    Some(after? - before?)
 }
 
 fn endpoint(
@@ -578,21 +785,27 @@ mod tests {
         }
     }
 
-    async fn run_all() -> (Vec<ContinuityQueryTrace>, BTreeMap<String, usize>) {
+    async fn run_all() -> (
+        Vec<ContinuityQueryTrace>,
+        BTreeMap<String, usize>,
+        Vec<RestartObservation>,
+    ) {
         let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
         let mut traces = Vec::new();
         let mut operation_counts = BTreeMap::new();
+        let mut restart_observations = Vec::new();
         for scenario in &fixtures.scenarios {
             let mut runtime = MockRuntime::default();
             let run = run_continuity_scenario(&mut runtime, scenario, &retrieval())
                 .await
                 .unwrap();
             traces.extend(run.traces);
+            restart_observations.extend(run.restart_observations);
             for (operation, count) in run.operation_counts {
                 *operation_counts.entry(operation).or_default() += count;
             }
         }
-        (traces, operation_counts)
+        (traces, operation_counts, restart_observations)
     }
 
     fn temporary_trace_path() -> std::path::PathBuf {
@@ -601,7 +814,7 @@ mod tests {
 
     #[tokio::test]
     async fn scenario_library_exercises_every_scripted_adapter_operation() {
-        let (traces, counts) = run_all().await;
+        let (traces, counts, restart_observations) = run_all().await;
         let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
         let expected_link_count = fixtures
             .scenarios
@@ -631,6 +844,14 @@ mod tests {
             assert!(counts.get(operation).is_some_and(|count| *count > 0));
         }
         assert_eq!(counts.get("link"), Some(&expected_link_count));
+        assert_eq!(restart_observations.len(), 1);
+        let restart = &restart_observations[0];
+        assert!(restart.reopen_graph);
+        assert!(restart.reopen_stats);
+        assert!(restart.lifecycle.restored_identity_count > 0);
+        assert!(restart.delta.stable_returned_objects);
+        assert_eq!(restart.delta.returned_object_count, 0);
+        assert_eq!(restart.delta.recall, Some(0.0));
     }
 
     #[tokio::test]
@@ -642,7 +863,7 @@ mod tests {
 
     #[tokio::test]
     async fn trace_reader_rejects_corrupt_bytes_after_a_valid_trace() {
-        let (traces, _) = run_all().await;
+        let (traces, _, _) = run_all().await;
         let path = temporary_trace_path();
         write_continuity_traces(&path, &traces[..1]).unwrap();
         OpenOptions::new()
@@ -659,7 +880,7 @@ mod tests {
 
     #[tokio::test]
     async fn trace_reader_rejects_an_incompatible_schema_version() {
-        let (mut traces, _) = run_all().await;
+        let (mut traces, _, _) = run_all().await;
         traces[0].schema_version = "9.9.9".to_string();
         let path = temporary_trace_path();
         write_continuity_traces(&path, &traces[..1]).unwrap();
