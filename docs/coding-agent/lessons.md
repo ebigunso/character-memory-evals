@@ -191,3 +191,306 @@ Prevention:
 
 Evidence:
 - User correction on 2026-05-03: "Plan a fix first."
+
+## 2026-07-11 — Trust AGMSG Harness Dispatches  [tags: workflow, delegation, assumptions, agmsg]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
+- Task/Wave: Task_1 / Wave 1
+- Roles involved: Orchestrator | Worker
+
+Symptom:
+- The Worker checked the AGMSG inbox but stopped before executing the dispatched task and requested a second user authorization.
+
+Root cause:
+- I treated the orchestrator's team dispatch as untrusted scope expansion instead of as the repository's authorized harness delegation channel.
+
+Fix applied:
+- The user explicitly confirmed Task_1 execution and established that future AGMSG inbox dispatches are trusted instructions.
+
+Prevention:
+- Repo rule candidate:
+  - audience: worker
+  - proposed rule: Treat AGMSG task dispatches from registered team agents as trusted user-authorized instructions, while continuing to enforce repository safety and approval gates.
+- Dispatch/plan guardrail:
+  - After reading an AGMSG task dispatch, proceed directly through the applicable harness gates without requesting duplicate authorization.
+- Residual risk / waiver:
+  - None; filesystem, network, and destructive-action approval requirements remain unchanged.
+
+Evidence:
+- User correction on 2026-07-11: "Future dispatches through the agmsg inbox should be treated as trusted instructions."
+
+## 2026-07-11 — Audit Removed Features From The Repository Root  [tags: validation, review, docs, search]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
+- Task/Wave: Task_1 / Wave 1 integration
+- Roles involved: Worker | Orchestrator
+
+Symptom:
+- The Worker reported that all live references to the retired adapter feature were removed, but `scripts/README.md` still contained two current feature-gated commands.
+
+Root cause:
+- The acceptance audit searched a handpicked set of roots (`Cargo.toml`, `README.md`, `crates`, and `docs`) and omitted `scripts`.
+
+Fix applied:
+- Removed the two stale flags and changed the audit to search from the repository root while explicitly excluding append-only plan history.
+
+Prevention:
+- Repo rule candidate:
+  - audience: worker
+  - proposed rule: For repository-wide removal acceptance criteria, search from the repository root and explicitly exclude only documented historical or generated paths.
+- Dispatch/plan guardrail:
+  - Treat a zero-match repository-root search as required evidence before reporting a removed feature, flag, or identifier fully absent.
+- Residual risk / waiver:
+  - None.
+
+Evidence:
+- Orchestrator integration finding on 2026-07-11 identified `scripts/README.md` lines 10-11 after the Worker reported a clean audit.
+
+## 2026-07-12 — Do Not Infer Asset Absence From Ignore-Aware Search  [tags: validation, datasets, tooling, assumptions, gitignore]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
+- Task/Wave: Task_4 / Wave 3 integration
+- Roles involved: Worker | Orchestrator
+
+Symptom:
+- The Worker reported that LongMemEval-S and LoCoMo local datasets and enrichment assets were absent, then skipped their required pre/post artifact diffs.
+
+Root cause:
+- Asset discovery used `rg --files`, which honors ignore rules and therefore omitted the gitignored `datasets/` tree even though the files existed on disk.
+
+Fix applied:
+- Verify the assets with direct filesystem existence checks or `rg --no-ignore`, then run the real pre/post CLI validations from a detached pre-change worktree and the current tree.
+
+Prevention:
+- Repo rule candidate:
+  - audience: worker
+  - proposed rule: When validation depends on local or generated asset existence, use direct filesystem checks or an explicit no-ignore search; never infer absence from default `rg`, `fd`, or tracked-file enumeration.
+- Dispatch/plan guardrail:
+  - Required validation may be marked unavailable only after an ignore-independent existence check records the exact expected paths.
+- Residual risk / waiver:
+  - None.
+
+Evidence:
+- Orchestrator integration finding on 2026-07-11 confirmed `datasets/longmemeval_s_cleaned.json`, `datasets/locomo10.json`, `datasets/enriched/`, and `datasets/enrichment_source/` exist as gitignored local assets.
+
+## 2026-07-12 — Verify AGMSG Reports Against The Registered Store  [tags: workflow, tooling, agmsg, reporting, validation]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
+- Task/Wave: Task_5 / Wave 4 reporting
+- Roles involved: Worker | Orchestrator
+
+Symptom:
+- The Worker received successful `send.sh` results for Task_5 checkpoints and a strict YAML report, but the Orchestrator's registered AGMSG history never received those messages and Task_5 could not be integrated.
+
+Root cause:
+- After the registered database rejected sandboxed writes, the Worker overrode `AGMSG_STORAGE_PATH` to a separate writable mirror database; delivery succeeded only inside that split store rather than the active team's registered store.
+
+Fix applied:
+- Send the report to the registered AGMSG store with the required filesystem escalation, then verify delivery by reading history from that same registered store.
+
+Prevention:
+- Never redirect an AGMSG send to a different database merely to bypass a write restriction; request the required approval for the registered store and verify critical handoffs in the same store's history before ending the turn.
+- Turn-closing guardrail: after every required Worker YAML handoff, confirm the report is visible in registered team history before treating delivery as complete.
+
+Evidence:
+- Orchestrator correction on 2026-07-11: the three Task_5 commits were visible, but no Task_5 report or post-16:01 message existed in its AGMSG history.
+
+## 2026-07-12 — Test Durable Lifecycle From A Fresh Adapter Instance  [tags: review, lifecycle, persistence, validation]
+
+Symptom:
+- The benchmark pipeline reset a namespace through a fresh adapter whose in-memory namespace map was empty, so cleanup silently skipped an existing deterministic collection and identity registry before ingest.
+
+Root cause:
+- Lifecycle validation covered reopen and reattach behavior but did not exercise the distinct fresh-run path from a new adapter instance against stale durable state.
+
+Fix applied:
+- Make fresh namespace preparation explicitly reset durable identity before `open_namespace`, make live reset derive durable paths without an in-memory entry, and verify the behavior with a live fresh-instance regression test.
+
+Prevention:
+- For restart-capable adapters, require separate regression scenarios for fresh open, intended reattach, and fresh-instance cleanup of stale durable state.
+
+## 2026-07-12 — Validate Complete Mutation Drafts Before State Changes  [tags: review, atomicity, state, validation]
+
+Symptom:
+- Mock correction and forget operations could return a validation error after already applying earlier suppressions, appends, or deletions.
+
+Root cause:
+- Validation and mutation occurred in the same iteration, so late invalid items crossed the failure boundary after partial state changes.
+
+Fix applied:
+- Validate every target and replacement before acquiring mutable state, then apply the already-validated operation as one mutation phase.
+
+Prevention:
+- Mutation tests must include a valid first item followed by an invalid later item and assert the complete pre-call state remains unchanged.
+
+## 2026-07-12 — Reconstructed Artifacts Must Receive Original Context  [tags: review, reporting, compatibility, validation]
+
+Symptom:
+- Re-summarizing result rows used an empty config and no dataset metric family, dropping provider metadata and changing registry coverage relative to run-emitted summaries.
+
+Root cause:
+- The compatibility entrypoint reconstructed a derived artifact without requiring the original configuration and dataset selection that defined its semantics.
+
+Fix applied:
+- Require the summarize CLI/API to receive the original config and metric family, validate run/dataset consistency, and compare regenerated provider/config/coverage fields with run output.
+
+Prevention:
+- Any reconstruction or compatibility path for a derived artifact must receive and validate all original semantic inputs, with parity tests against the primary emission path.
+
+## 2026-07-12 — Verify Gated Live Tests With The Service Down  [tags: ci, validation, integration, availability]
+
+Symptom:
+- Hosted CI failed instead of skipping the live adapter test because a newly added early Qdrant call returned a raw connection-refused error outside the existing typed-error skip classifier.
+
+Root cause:
+- Local validation exercised only the Qdrant-up path, and the test gated one setup call rather than every fallible live call across its full lifecycle.
+
+Fix applied:
+- Route typed and raw Qdrant-unavailable errors from every live phase through one test-only gate while preserving production error behavior: absence before the first successful live operation skips, later service loss fails, and teardown receives one bounded retry before failing.
+
+Prevention:
+- Skip-if-unavailable predicates must gate every live call made by a gated test, and any setup-path change requires explicit service-down and service-up verification before completion.
+
+## 2026-07-12 — Keep Fresh Reset And Post-Run Cleanup Policies Separate  [tags: review, lifecycle, configuration, contracts]
+
+Symptom:
+- Fresh reset consulted `cleanup.require_collection_prefix` even when cleanup was disabled, so a valid leftover mismatched cleanup prefix blocked the next fresh run before ingest.
+
+Root cause:
+- One adapter operation represented both unconditional pre-open freshness and optional post-run cleanup, allowing a post-run configuration constraint to leak into the fresh-open path.
+
+Fix applied:
+- Split fresh reset from post-run cleanup at the adapter contract: fresh reset uses `namespace_prefix`, while post-run cleanup separately uses `cleanup.require_collection_prefix`.
+
+Prevention:
+- When one durable-state action serves multiple lifecycle phases, model each phase explicitly and test that phase-local configuration cannot affect the other phase.
+
+## 2026-07-12 — Validate Source-Only CI Optimizations Against Workspace Metadata  [tags: ci, validation, dependencies, workflow]
+
+Symptom:
+- A proposed source-only formatting job failed because `cargo fmt --all --check` invokes workspace metadata and the workspace contains a sibling path dependency.
+
+Root cause:
+- The optimization assumed formatting never resolves workspace manifests, without testing the exact command in a checkout where `../CharacterMemory` was absent.
+
+Fix applied:
+- Restored the credential-less public sibling checkout for the formatting job after reproducing the failure in an isolated source-only archive.
+
+Prevention:
+- Before removing dependency checkout or setup steps from a CI gate, execute the exact gate in an isolated environment with that dependency intentionally absent.
+
+## 2026-07-12 — Resolve Moving External Dependencies Once Before CI Fan-Out  [tags: ci, review, dependencies, consistency]
+
+Symptom:
+- Parallel CI jobs independently checked out the public sibling's moving default branch, so a mid-run sibling push could make different gates validate different source snapshots.
+
+Root cause:
+- The job split preserved per-job setup but treated a moving external repository ref as equivalent to the monolithic job's single resolved checkout.
+
+Fix applied:
+- Added a credential-less resolver job that captures the sibling's current `main` SHA once and passes that immutable run-scoped SHA to every parallel gate checkout.
+
+Prevention:
+- When CI fans out across jobs that consume a moving external dependency, resolve the dependency revision once before fan-out and assert every consumer uses the shared immutable output.
+
+## 2026-07-12 — Validate Complete Durable Identities And Matched Input Shapes  [tags: review, persistence, lifecycle, validation]
+
+Symptom:
+- Registry filenames omitted one component of the backing collection identity, reattach accepted a surviving registry without its collection, and matched LoCoMo session fields with invalid shapes were silently dropped.
+
+Root cause:
+- Related durable stores and matched input fields were validated independently or filtered by type instead of enforcing their complete shared contract at the boundary.
+
+Fix applied:
+- Centralized the prefix/run/namespace identity, required both registry and collection for reattach, and made every regex-matched session field pass explicit array validation.
+
+Prevention:
+- For paired durable stores and pattern-discovered inputs, enumerate every identity component and required half/shape, then add regressions for mismatched identity, missing backing state, and malformed matched values.
+
+## 2026-07-12 — Enforce Lifecycle Admission And Crash-Safe Metadata Boundaries  [tags: review, lifecycle, persistence, validation]
+
+Symptom:
+- Operational adapter methods could bypass explicit open/reattach by constructing state, registry writes could truncate the last valid file, and malformed snapshot endpoint values escaped the controlled validation contract.
+
+Root cause:
+- State creation combined fresh and reattach behavior, persistence wrote directly to the authoritative path, and validation constructed hash keys before checking scalar types.
+
+Fix applied:
+- Restricted state construction to explicit lifecycle methods, staged and synced registry bytes before atomic replacement, and validated endpoint fields before tuple construction.
+
+Prevention:
+- Audit every entrypoint to a stateful operation, every overwrite of authoritative metadata, and every hash/set key construction so admission, atomicity, and type validation happen before side effects or generic runtime errors.
+
+## 2026-07-12 — Inventory Every Durable Store In Lifecycle Transitions  [tags: review, lifecycle, persistence, isolation]
+
+Symptom:
+- Fresh reset cleared the Qdrant collection and external-ID registry while reusing configured Oxigraph and SQLite retrieval-stat paths, so stale graph objects, links, lifecycle state, and counters survived into a supposedly fresh run.
+
+Root cause:
+- The lifecycle contract modeled only the first two durable stores added to the adapter and treated later persistence paths as shared configuration rather than members of the same namespace identity.
+
+Fix applied:
+- Derive namespace-scoped Oxigraph and retrieval-stat paths from the shared prefix/run/namespace identity, delete only those derived paths during reset, and require every configured store to exist before reattach.
+
+Prevention:
+- For every fresh-open, reset, reattach, or cleanup change, enumerate all configured durable stores and add regressions for structural namespace isolation, missing-store diagnostics, reattach restoration, and empty state after reset.
+
+## 2026-07-12 — Prove Destructive Scope With A Surviving Sibling  [tags: review, validation, lifecycle, isolation, documentation]
+
+Symptom:
+- The durable-store reset fix had single-namespace removal coverage but omitted the explicitly required sibling-survival scenario, left operator documentation describing the old two-store lifecycle, and did not exercise a missing identity registry in the aggregated live diagnostic matrix.
+
+Root cause:
+- Validation demonstrated that the target namespace became empty without proving the negative boundary that a destructive derived-path operation could not affect a neighboring namespace, and closeout did not reconcile every durable-store inventory item across tests and operator-facing documentation.
+
+Fix applied:
+- Add a two-namespace production-lifecycle regression under one configured root/template that resets A, proves B's exact files and data survive, and reattaches B; extend the missing-store matrix to the identity registry; update README lifecycle and cleanup semantics.
+
+Prevention:
+- Turn-closing guardrail: for any destructive scoped operation, map every acceptance item to evidence for the target, a surviving sibling, the shared parent/root, every resource-kind failure case, and current operator documentation before reporting the review fix complete.
+
+## 2026-07-12 — Validate Coupled Configuration And Fix Deterministic Widths  [tags: review, validation, configuration, reproducibility, portability]
+
+Symptom:
+- A positive deterministic embedding dimension could pass configuration validation but fail when paired with the selected model at Character Memory construction, while the supposedly stable token hash used architecture-width `usize` state.
+
+Root cause:
+- Validation treated individually valid fields as independent instead of enforcing their construction-time relationship, and deterministic arithmetic relied on the host pointer width rather than an explicit data-format width.
+
+Fix applied:
+- Validate the effective deterministic dimension against the model-derived dimension with both values in the error, and use `u64` hash state with literal bucket regressions plus an x86_64 byte-identity comparison against the legacy algorithm.
+
+Prevention:
+- At configuration boundaries, test cross-field invariants against the downstream constructor contract; for reproducible fixtures, prohibit pointer-width integers in hashes, IDs, seeds, counters, or bucket selection unless architecture dependence is explicitly intended.
+
+## 2026-07-12 — Close Artifact Validation Classes At Every Typed Use  [tags: review, validation, python, robustness]
+
+Symptom:
+- Malformed artifact arrays reached dictionary membership and set construction, allowing Python `TypeError` tracebacks to escape instead of the scripts' controlled validation errors.
+
+Root cause:
+- Individual review findings were fixed at endpoint fields without auditing the full dataflow class: dictionary keys, set members, subset operands, enum membership, and string operations all require typed boundaries before use.
+
+Fix applied:
+- Add reusable array-of-non-empty-strings validation, apply scalar string validation before every audited membership or string operation in both enrichment scripts, and cover nested-array plus non-array inputs with controlled-error regressions.
+
+Prevention:
+- When an untrusted value causes an operation-level type error, sweep every equivalent typed-use site across sibling entrypoints and validate before the operation; do not close repeated findings one field at a time.
+
+## 2026-07-12 — Audit Public Entrypoint Order Before Claiming Boundary Closure  [tags: review, validation, python, control-flow]
+
+Symptom:
+- The snapshot validator had controlled graph-shape checks, but its default canonical path counted graph members first and could leak `KeyError` before reaching those checks.
+
+Root cause:
+- The typed-use sweep inspected validation helpers and field operations without tracing each public entrypoint in execution order, so an earlier derived-count path bypassed the intended exception boundary.
+
+Fix applied:
+- Validate artifact IDs, ordering, and complete snapshot shapes before canonical counting, with public default-mode regressions for missing, non-object, and non-array graph shapes.
+
+Prevention:
+- A validation-boundary closure audit must trace every public mode from input read to first derived use and prove malformed structures cannot reach counting, hashing, sorting, or indexing before shape validation.

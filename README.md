@@ -10,8 +10,28 @@ Benchmark CLI runs default to the live Character Memory adapter. Mock runs are a
 cargo test --workspace
 ```
 
-Benchmark commands default to the live Character Memory adapter. Build live runs with
-the `real-character-memory` feature and provide backend settings:
+The repository pins Rust 1.97.0 with the `rustfmt` and `clippy` components. Each GitHub Actions validation job installs and verifies that toolchain explicitly and checks out this repository beside the public `ebigunso/character-memory` repository so the `../CharacterMemory` path dependency resolves. The sibling checkout requires no deploy key, PAT, or repository secret.
+
+- The Resolve Character Memory revision job captures the public sibling's current `main` commit once so every gate validates the same snapshot.
+- The Formatting job checks `cargo fmt --all --check` without compiling the workspace.
+- The Clippy job enforces warnings-as-errors across the workspace and all targets.
+- The Tests job runs the complete workspace test suite.
+- The Mock smoke job runs the guarded service-free synthetic CLI and verifies that both output artifacts are non-empty.
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo run -p cmem-eval-runner -- run synthetic \
+  --dataset ./fixtures/synthetic_small.json \
+  --config ./configs/synthetic_retrieval.toml \
+  --out ./runs/synthetic.jsonl \
+  --summary-out ./runs/synthetic_summary.json \
+  --adapter mock \
+  --allow-mock-benchmark
+```
+
+Benchmark commands default to the live Character Memory adapter. Provide backend settings:
 
 ```bash
 export QDRANT_CONNECTION_STRING=http://localhost:6334
@@ -33,10 +53,10 @@ cargo run -p cmem-eval-runner -- run synthetic \
   --allow-mock-benchmark
 ```
 
-Live synthetic runs use the default adapter and require the real feature:
+Live synthetic runs use the default adapter:
 
 ```bash
-cargo run -p cmem-eval-runner --features real-character-memory -- run synthetic \
+cargo run -p cmem-eval-runner -- run synthetic \
   --dataset ./fixtures/synthetic_small.json \
   --config ./configs/synthetic_retrieval.toml \
   --out ./runs/synthetic.jsonl \
@@ -70,11 +90,10 @@ Vector-only retrieval is a live baseline selected in TOML with
 the eval runner bypasses Character Memory retrieval and searches the namespace
 Qdrant collection directly with basic vector similarity over benchmark-provided
 raw candidates: episodes and observations. It uses the configured embedding
-provider for query embeddings, requires the `real-character-memory` feature,
-and cannot run with `--adapter mock`.
+provider for query embeddings and cannot run with `--adapter mock`.
 
 ```bash
-cargo run -p cmem-eval-runner --features real-character-memory -- run synthetic \
+cargo run -p cmem-eval-runner -- run synthetic \
   --dataset ./fixtures/synthetic_small.json \
   --config ./configs/synthetic_vector.toml \
   --out ./runs/synthetic_vector.jsonl \
@@ -90,13 +109,13 @@ OpenAI resources unless sharing that load is intentional.
 LongMemEval-S and LoCoMo expect local dataset files:
 
 ```bash
-cargo run -p cmem-eval-runner --features real-character-memory -- run longmemeval-s \
+cargo run -p cmem-eval-runner -- run longmemeval-s \
   --dataset ./datasets/longmemeval_s_cleaned.json \
   --config ./configs/longmemeval_s_retrieval.toml \
   --out ./runs/longmemeval_s_v0_1.jsonl \
   --summary-out ./runs/longmemeval_s_v0_1_summary.json
 
-cargo run -p cmem-eval-runner --features real-character-memory -- run locomo \
+cargo run -p cmem-eval-runner -- run locomo \
   --dataset ./datasets/locomo10.json \
   --config ./configs/locomo_retrieval.toml \
   --out ./runs/locomo_v0_1.jsonl \
@@ -104,6 +123,21 @@ cargo run -p cmem-eval-runner --features real-character-memory -- run locomo \
 ```
 
 Gold evidence labels are used only for scoring. They are not copied into `EpisodeInput`, `ObservationInput`, or adapter metadata.
+
+## Architecture
+
+The workspace separates shared evaluation contracts, dataset-specific behavior, live Character Memory integration, and CLI orchestration:
+
+- `crates/cmem-eval-core` owns backend-neutral configuration, the `MemoryAdapter` contract and DTOs, deterministic metric primitives, runtime metric-family composition, and versioned result/summary types. Core contains no dataset-name dispatch.
+- `crates/cmem-eval-adapter-cmem` is the reusable live Character Memory adapter. It maps the core contract to the sibling library, derives deterministic collection names from the configured prefix, run ID, and namespace, and persists a BTreeMap-backed external-ID registry so a new adapter process can reattach to existing stores without losing benchmark IDs.
+- `crates/cmem-eval-longmemeval` and `crates/cmem-eval-locomo` own their loaders, ingest mapping, scorers, full-history construction, config-name validation, and retrieval metric-family declarations.
+- `crates/cmem-eval-runner` owns the CLI and static dataset selection. Its `DatasetSpec` seam feeds per-dataset loader/mapper/scorer/full-history/metric-family behavior into one generic ingest → enrich → retrieve → score → result pipeline.
+
+Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementation, but no `cmem-eval-core` change. The future continuity benchmark belongs in `crates/cmem-eval-continuity`, with its loader, mapping, scoring, full-history logic, and metric-family declaration kept inside that crate.
+
+JSONL rows and summaries use report schema version `1.0.0`; readers reject missing or different versions rather than entering a compatibility mode. The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains first-class as per-row `latency_ms` and summary `latency.latency_ms` mean/median/p50/p95 values, but it is excluded from deterministic `metrics`; summaries also record the embedding provider.
+
+Live namespace lifecycle is explicit: `open_namespace` creates fresh run state, while `reattach_namespace` requires and restores the complete durable identity consisting of the external-ID registry, deterministic Qdrant collection, and every configured namespace-scoped Oxigraph and retrieval-stat store. Configured `oxigraph_persistence_path` values are shared roots whose namespace child directories use the same prefix/run/namespace UUID identity as Qdrant; configured `retrieval_stats_path` values are filename templates whose derived sibling files use that identity while preserving the configured extension. Cleanup remains guarded by the configured eval prefix and never deletes a configured shared root.
 
 ## Precomputed Graph Enrichment
 
@@ -246,20 +280,14 @@ timestamp remains in eval metadata for debugging, but the live adapter stays
 strict: any non-RFC3339 timestamp that reaches it fails with context instead of
 being guessed at the backend boundary.
 
-Backend cleanup is disabled by default. When `[backend.cleanup] enabled = true`,
-the runner deletes only live Qdrant collections it created for completed eval
-namespaces, and only when `require_collection_prefix` matches the configured
-`namespace_prefix` after Qdrant-name sanitization. Cleanup never deletes files
-under `runs/`, `reports/`, `datasets/`, or other result artifacts. Leaving
-cleanup disabled preserves backend collections for inspection; enabling it makes
-repeat runs practical after the JSONL and summary artifacts have been written
-successfully.
+Backend post-run cleanup is disabled by default. When `[backend.cleanup] enabled = true`, the runner deletes the deterministic Qdrant collection, external-ID registry, namespace-scoped Oxigraph directory, and namespace-scoped retrieval-stat database plus SQLite sidecars for each completed eval namespace, and only when `require_collection_prefix` matches the configured `namespace_prefix` after Qdrant-name sanitization. Post-run cleanup targets only those exact derived durable-store paths; it does not delete configured shared roots or unrelated files under `runs/`, `reports/`, `datasets/`, or other result locations.
+
+Fresh runs always remove every prior namespace-scoped durable store for the same `(namespace_prefix, run_id, namespace)` before ingest, using `namespace_prefix` as the Qdrant deletion safety guard and derived namespace identities to avoid deleting sibling stores. Disabling post-run cleanup therefore preserves completed registry, Qdrant, Oxigraph, and retrieval-stat state for inspection only until the next fresh run with the same identity. Use the explicit reattach lifecycle when all of that state must be preserved intentionally across adapter instances or runs; reattach fails and names every missing configured store rather than admitting partial state.
 
 ## Character Memory API
 
-The eval-side adapter contract is in `cmem-eval-core::memory_adapter`. It is written as the target public API boundary for Character Memory: external IDs, namespaces, ranks, scores, rationale, and context text must survive round trip. Live runs require the `real-character-memory` feature and backend settings; the initial embedding default is OpenAI `text-embedding-3-large`.
+The eval-side adapter contract is in `cmem-eval-core::memory_adapter`. It is written as the target public API boundary for Character Memory: external IDs, namespaces, ranks, scores, rationale, and context text must survive round trip. Live runs require backend settings; the initial embedding default is OpenAI `text-embedding-3-large`.
 
-If the binary is built without `real-character-memory`, omitted `--adapter` and
-`--adapter real` fail loudly instead of falling back to mock. Mock output is for
-unit/integration smoke checks only and is marked with `adapter.mode =
+Omitted `--adapter` and explicit `--adapter real` both select the live adapter.
+Mock output is for unit/integration smoke checks only and is marked with `adapter.mode =
 "mock_smoke"` in result artifacts.

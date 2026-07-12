@@ -424,6 +424,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmem-eval-adapter-cmem"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "character_memory",
+ "chrono",
+ "cmem-eval-core",
+ "config",
+ "qdrant-client",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "cmem-eval-core"
 version = "0.1.0"
 dependencies = [
@@ -467,16 +486,11 @@ name = "cmem-eval-runner"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
- "character_memory",
- "chrono",
  "clap",
+ "cmem-eval-adapter-cmem",
  "cmem-eval-core",
  "cmem-eval-locomo",
  "cmem-eval-longmemeval",
- "config",
- "qdrant-client",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tempfile",
@@ -484,7 +498,6 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-sibling:
+    name: Resolve Character Memory revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve public sibling main revision
+        id: resolve
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          sha="$(git ls-remote https://github.com/ebigunso/character-memory.git refs/heads/main | awk '{print $1}')"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+
+  format:
+    name: Formatting
+    needs: [resolve-sibling]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+        working-directory: CharacterMemoryEvals
+    steps:
+      - name: Check out evaluation harness
+        uses: actions/checkout@v6
+        with:
+          path: CharacterMemoryEvals
+          persist-credentials: false
+
+      - name: Check out public Character Memory sibling
+        uses: actions/checkout@v6
+        with:
+          repository: ebigunso/character-memory
+          ref: ${{ needs.resolve-sibling.outputs.sha }}
+          path: CharacterMemory
+          persist-credentials: false
+
+      - name: Install and verify pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt --component clippy
+          test "$(rustc --version | awk '{print $2}')" = "1.97.0"
+          rustc --version --verbose
+          cargo --version --verbose
+
+      - name: Cache Rust build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CharacterMemoryEvals
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy
+    needs: [resolve-sibling]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: CharacterMemoryEvals
+    steps:
+      - name: Check out evaluation harness
+        uses: actions/checkout@v6
+        with:
+          path: CharacterMemoryEvals
+          persist-credentials: false
+
+      - name: Check out public Character Memory sibling
+        uses: actions/checkout@v6
+        with:
+          repository: ebigunso/character-memory
+          ref: ${{ needs.resolve-sibling.outputs.sha }}
+          path: CharacterMemory
+          persist-credentials: false
+
+      - name: Install and verify pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt --component clippy
+          test "$(rustc --version | awk '{print $2}')" = "1.97.0"
+          rustc --version --verbose
+          cargo --version --verbose
+
+      - name: Cache Rust build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CharacterMemoryEvals
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  tests:
+    name: Tests
+    needs: [resolve-sibling]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: CharacterMemoryEvals
+    steps:
+      - name: Check out evaluation harness
+        uses: actions/checkout@v6
+        with:
+          path: CharacterMemoryEvals
+          persist-credentials: false
+
+      - name: Check out public Character Memory sibling
+        uses: actions/checkout@v6
+        with:
+          repository: ebigunso/character-memory
+          ref: ${{ needs.resolve-sibling.outputs.sha }}
+          path: CharacterMemory
+          persist-credentials: false
+
+      - name: Install and verify pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt --component clippy
+          test "$(rustc --version | awk '{print $2}')" = "1.97.0"
+          rustc --version --verbose
+          cargo --version --verbose
+
+      - name: Cache Rust build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CharacterMemoryEvals
+
+      - name: Run tests
+        run: cargo test --workspace
+
+  mock-smoke:
+    name: Mock smoke
+    needs: [resolve-sibling]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: CharacterMemoryEvals
+    steps:
+      - name: Check out evaluation harness
+        uses: actions/checkout@v6
+        with:
+          path: CharacterMemoryEvals
+          persist-credentials: false
+
+      - name: Check out public Character Memory sibling
+        uses: actions/checkout@v6
+        with:
+          repository: ebigunso/character-memory
+          ref: ${{ needs.resolve-sibling.outputs.sha }}
+          path: CharacterMemory
+          persist-credentials: false
+
+      - name: Install and verify pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt --component clippy
+          test "$(rustc --version | awk '{print $2}')" = "1.97.0"
+          rustc --version --verbose
+          cargo --version --verbose
+
+      - name: Cache Rust build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CharacterMemoryEvals
+
+      - name: Run mock synthetic smoke test
+        run: |
+          smoke_dir="$RUNNER_TEMP/cmem-eval-smoke"
+          mkdir -p "$smoke_dir"
+          cargo run -p cmem-eval-runner -- run synthetic \
+            --dataset ./fixtures/synthetic_small.json \
+            --config ./configs/synthetic_retrieval.toml \
+            --out "$smoke_dir/synthetic.jsonl" \
+            --summary-out "$smoke_dir/synthetic_summary.json" \
+            --adapter mock \
+            --allow-mock-benchmark
+          test -s "$smoke_dir/synthetic.jsonl"
+          test -s "$smoke_dir/synthetic_summary.json"

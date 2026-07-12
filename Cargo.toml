@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/cmem-eval-adapter-cmem",
   "crates/cmem-eval-core",
   "crates/cmem-eval-longmemeval",
   "crates/cmem-eval-locomo",
@@ -23,4 +24,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["serde", "v4", "v5"] }
 
 # Local development target for the forthcoming Character Memory public API.
-character-memory = { package = "character_memory", path = "../CharacterMemory", default-features = false }
+character-memory = { package = "character_memory", path = "../CharacterMemory" }

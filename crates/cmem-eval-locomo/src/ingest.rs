@@ -61,32 +61,31 @@ pub fn to_memory_inputs(
                 }),
             });
         }
-        if index_session_summaries {
-            if let Some(summary) = session
+        if index_session_summaries
+            && let Some(summary) = session
                 .summary
                 .as_deref()
                 .map(str::trim)
                 .filter(|summary| !summary.is_empty())
-            {
-                derived_memories.push(DerivedMemoryInput {
-                    external_id: format!("{}:derived:session_summary", session.session_id),
-                    derived_type: "reflection".to_string(),
-                    text: summary.to_string(),
-                    source_episode_external_ids: vec![session.session_id.clone()],
-                    source_observation_external_ids: vec![],
-                    thread_external_ids: vec![],
-                    entity_external_ids: vec![],
-                    confidence: 1.0,
-                    salience_score: 0.6,
-                    stability: "medium".to_string(),
-                    is_current: true,
-                    supersedes_external_ids: vec![],
-                    metadata: serde_json::json!({
-                        "source": "locomo",
-                        "source_field": "session_summary"
-                    }),
-                });
-            }
+        {
+            derived_memories.push(DerivedMemoryInput {
+                external_id: format!("{}:derived:session_summary", session.session_id),
+                derived_type: "reflection".to_string(),
+                text: summary.to_string(),
+                source_episode_external_ids: vec![session.session_id.clone()],
+                source_observation_external_ids: vec![],
+                thread_external_ids: vec![],
+                entity_external_ids: vec![],
+                confidence: 1.0,
+                salience_score: 0.6,
+                stability: "medium".to_string(),
+                is_current: true,
+                supersedes_external_ids: vec![],
+                metadata: serde_json::json!({
+                    "source": "locomo",
+                    "source_field": "session_summary"
+                }),
+            });
         }
         if index_generated_observations {
             for (idx, observation) in session.generated_observations.iter().enumerate() {
@@ -128,19 +127,18 @@ pub fn to_memory_inputs(
 
 fn observation_text(turn: &crate::LoCoMoTurn, include_image_captions: bool) -> String {
     let mut text = turn.text.clone();
-    if include_image_captions {
-        if let Some(caption) = turn
+    if include_image_captions
+        && let Some(caption) = turn
             .blip_caption
             .as_deref()
             .map(str::trim)
             .filter(|caption| !caption.is_empty())
-        {
-            if !text.is_empty() {
-                text.push('\n');
-            }
-            text.push_str("Image caption: ");
-            text.push_str(caption);
+    {
+        if !text.is_empty() {
+            text.push('\n');
         }
+        text.push_str("Image caption: ");
+        text.push_str(caption);
     }
     text
 }

@@ -1,13 +1,19 @@
 # Common Rules
 
+<!-- last_updated: 2026-07-12 -->
+
 ## Repository Reference Documents
 
-- `C:\Users\Kohta\Downloads\character_memory_eval_repo_setup_guide.md`
+- `../../../README.md` is the source of truth for current benchmark commands, workspace architecture, report shape, and runtime lifecycle.
 
 ## Repository-Specific Validation Commands
 
 - Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` before reporting implementation done.
 - Run the service-free synthetic smoke command before reporting benchmark CLI changes done: `cargo run -p cmem-eval-runner -- run synthetic --dataset ./fixtures/synthetic_small.json --config ./configs/synthetic_retrieval.toml --out ./runs/synthetic.jsonl --summary-out ./runs/synthetic_summary.json --adapter mock --allow-mock-benchmark`.
+
+## Repo Documentation Wording
+
+- Do not hard-wrap prose in committed documents: never insert line breaks mid-sentence to fit a column width. Write each sentence/paragraph/list item as one line and let editors soft-wrap. Structural line breaks (list items, headings, YAML keys, code) are fine.
 
 ## Repo Safety / Boundaries
 
@@ -17,7 +23,11 @@
 
 ## Repo Naming / Structure
 
-- Keep dataset-specific logic in the dataset crates and shared adapter/result/metric contracts in `cmem-eval-core`.
+- Keep backend-neutral adapter/result/metric contracts in `cmem-eval-core`; core must not dispatch on dataset names.
+- Keep the live Character Memory integration in `crates/cmem-eval-adapter-cmem`, including deterministic collection naming and persisted external-ID reattach state.
+- Each dataset crate must own its loader, ingest mapper, scorer, full-history builder, config-name validation, and metric-family declaration; adding a dataset may add a runner `DatasetSpec` but must not require core edits.
+- Put the future continuity benchmark in `crates/cmem-eval-continuity`.
+- Emit report schema version `1.0.0` on rows and summaries; keep latency in dedicated row/summary fields rather than deterministic metrics, record the embedding provider, and represent unsupported required metrics as `null`.
 
 ## Global Migration Candidates (Placeholder)
 

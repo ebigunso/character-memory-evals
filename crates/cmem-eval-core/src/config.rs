@@ -45,18 +45,6 @@ impl BenchmarkRunConfig {
         self.ingest.validate()?;
         self.retrieval.validate()?;
         self.backend.validate()?;
-        match self.dataset.as_str() {
-            "longmemeval_s" => {
-                require_non_empty("metrics.ks_session", &self.metrics.ks_session)?;
-                require_non_empty("metrics.ks_turn", &self.metrics.ks_turn)?;
-            }
-            "locomo" => {
-                require_non_empty("metrics.ks_dialog", &self.metrics.ks_dialog)?;
-                require_non_empty("metrics.ks_session", &self.metrics.ks_session)?;
-            }
-            "synthetic" => {}
-            other => bail!("unsupported dataset in config: {other}"),
-        }
         Ok(())
     }
 }
@@ -69,6 +57,12 @@ pub struct BackendConfig {
     pub qdrant_connection_string: Option<String>,
     #[serde(default)]
     pub oxigraph_connection_string: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oxigraph_persistence_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_stats_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_registry_dir: Option<String>,
     #[serde(default = "default_openai_api_key_env")]
     pub openai_api_key_env: String,
     #[serde(default)]
@@ -87,6 +81,9 @@ impl Default for BackendConfig {
             namespace_prefix: None,
             qdrant_connection_string: None,
             oxigraph_connection_string: None,
+            oxigraph_persistence_path: None,
+            retrieval_stats_path: None,
+            identity_registry_dir: None,
             openai_api_key_env: default_openai_api_key_env(),
             reset_namespace_before_each_question: false,
             reset_namespace_before_each_sample: false,
@@ -99,6 +96,37 @@ impl Default for BackendConfig {
 impl BackendConfig {
     pub fn validate(&self) -> Result<()> {
         self.cleanup.validate()?;
+        if self.embedding.vector_size == Some(0) {
+            bail!("backend.embedding.vector_size must be greater than zero");
+        }
+        if self.embedding.provider == "deterministic" {
+            let configured_size = self.embedding.vector_size.unwrap_or(3072);
+            let model_size = embedding_model_vector_size(&self.embedding.model)?;
+            if configured_size != model_size {
+                bail!(
+                    "backend.embedding.vector_size {configured_size} does not match backend.embedding.model {:?} dimension {model_size} for deterministic provider",
+                    self.embedding.model
+                );
+            }
+        }
+        for (field, value) in [
+            (
+                "backend.oxigraph_persistence_path",
+                self.oxigraph_persistence_path.as_deref(),
+            ),
+            (
+                "backend.retrieval_stats_path",
+                self.retrieval_stats_path.as_deref(),
+            ),
+            (
+                "backend.identity_registry_dir",
+                self.identity_registry_dir.as_deref(),
+            ),
+        ] {
+            if value.is_some_and(|value| value.trim().is_empty()) {
+                bail!("{field} must not be empty when configured");
+            }
+        }
         if self.cleanup.enabled {
             let Some(namespace_prefix) = self
                 .namespace_prefix
@@ -320,6 +348,16 @@ fn default_embedding_model() -> String {
     "text-embedding-3-large".to_string()
 }
 
+fn embedding_model_vector_size(model: &str) -> Result<usize> {
+    match model.trim() {
+        "text-embedding-3-small" | "text-embedding-ada-002" => Ok(1536),
+        "text-embedding-3-large" => Ok(3072),
+        _ => bail!(
+            "backend.embedding.model {model:?} is unsupported for deterministic provider; expected text-embedding-3-small, text-embedding-3-large, or text-embedding-ada-002"
+        ),
+    }
+}
+
 fn default_openai_api_key_env() -> String {
     "OPENAI_API_KEY".to_string()
 }
@@ -367,6 +405,7 @@ fn sanitized_collection_prefix(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DeterministicEmbeddingProvider;
 
     #[test]
     fn backend_defaults_to_openai_large_embeddings() {
@@ -378,6 +417,80 @@ mod tests {
 
         assert_eq!(config.backend.embedding.provider, "openai");
         assert_eq!(config.backend.embedding.model, "text-embedding-3-large");
+    }
+
+    #[test]
+    fn rejects_zero_embedding_vector_size() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "backend": {"embedding": {"provider": "deterministic", "vector_size": 0}},
+            "ingest": {"index_observations": true, "index_episode_summaries": true}
+        }))
+        .unwrap();
+
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("backend.embedding.vector_size"));
+        assert!(error.contains("greater than zero"));
+    }
+
+    #[test]
+    fn deterministic_embedding_dimension_must_match_model_at_validation_boundary() {
+        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "backend": {
+                "embedding": {
+                    "provider": "deterministic",
+                    "model": "text-embedding-3-small",
+                    "vector_size": 3072
+                }
+            },
+            "ingest": {"index_observations": true, "index_episode_summaries": true}
+        }))
+        .unwrap();
+
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("backend.embedding.vector_size 3072"));
+        assert!(error.contains("text-embedding-3-small"));
+        assert!(error.contains("dimension 1536"));
+
+        config.backend.embedding.vector_size = Some(1536);
+        config.validate().unwrap();
+        DeterministicEmbeddingProvider::new(1536).unwrap();
+    }
+
+    #[test]
+    fn parses_restart_persistence_paths_and_rejects_empty_values() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "backend": {
+                "oxigraph_persistence_path": "runs/r/oxigraph",
+                "retrieval_stats_path": "runs/r/retrieval.sqlite",
+                "identity_registry_dir": "runs/r/identities"
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+        config.validate().unwrap();
+        assert_eq!(
+            config.backend.identity_registry_dir.as_deref(),
+            Some("runs/r/identities")
+        );
+
+        let mut invalid = config;
+        invalid.backend.retrieval_stats_path = Some("  ".to_string());
+        assert!(
+            invalid
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("backend.retrieval_stats_path")
+        );
     }
 
     #[test]
@@ -452,6 +565,21 @@ mod tests {
         .to_string();
 
         assert!(err.contains("unknown variant"));
+    }
+
+    #[test]
+    fn core_validation_leaves_dataset_dispatch_to_the_runner_seam() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "future_dataset",
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        config.validate().unwrap();
     }
 
     #[test]
