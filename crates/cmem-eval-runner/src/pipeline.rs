@@ -612,6 +612,7 @@ async fn run_continuity_pipeline(
         traces: &traces,
         rows: &rows,
         summary: &summary,
+        metric_family: &metric_family,
         restart_observations: &restart_observations,
     })?;
     write_continuity_report(&args.report_out, &report)?;
@@ -1642,7 +1643,7 @@ mod tests {
         let traces = cmem_eval_continuity::read_continuity_traces(&trace_path).unwrap();
         crate::commands::summarize(crate::commands::SummarizeArgs {
             input: result_path.clone(),
-            config: config_path,
+            config: config_path.clone(),
             out: resummary_path.clone(),
             dataset: Some(dataset_path.clone()),
             scenario: None,
@@ -1688,6 +1689,7 @@ mod tests {
                 && scenario.rationale_samples.len() == 1
                 && scenario.fanout_decisions.len() == 1
                 && scenario.stats_health_events.len() == 1
+                && scenario.registry_coverage["missing_required_metrics"] == serde_json::json!([])
         }));
         assert_eq!(report.content.tuning_observations.len(), 1);
         assert!(
@@ -1695,7 +1697,26 @@ mod tests {
                 .delta
                 .stable_returned_objects
         );
+        let sample = &report.content.scenarios["cross-store-stress"].rationale_samples[0];
+        assert_eq!(sample.query, "What marker must survive the restart?");
+        assert!(!sample.context_pack.items.is_empty());
+        let sample_value = serde_json::to_value(sample).unwrap();
+        assert!(sample_value.pointer("/context_pack/items/0/kind").is_some());
+        assert!(sample_value.pointer("/context_pack/items/0/text").is_some());
+        assert!(
+            sample_value
+                .pointer("/context_pack/items/0/score")
+                .is_some()
+        );
+        assert!(
+            sample_value
+                .pointer("/context_pack/telemetry/selectivity_decisions")
+                .is_some()
+        );
         let fixture = parse_fixture_bytes(&fs::read(dataset_path).unwrap()).unwrap();
+        let report_config = read_config(&config_path).unwrap();
+        let report_metric_family =
+            continuity_metric_family(&report_config.metrics, &fixture.scenarios);
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
             fixture_seed: fixture.seed,
@@ -1705,11 +1726,32 @@ mod tests {
             traces: &traces,
             rows: &rows[..rows.len() - 1],
             summary: &summary,
+            metric_family: &report_metric_family,
             restart_observations: &BTreeMap::new(),
         })
         .unwrap_err()
         .to_string();
         assert!(error.contains("8 traces but 7 result rows"), "{error}");
+        let mut swapped_rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
+        swapped_rows.swap(0, 1);
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_seed: fixture.seed,
+            config: summary.config.clone(),
+            adapter: summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &traces,
+            rows: &swapped_rows,
+            summary: &summary,
+            metric_family: &report_metric_family,
+            restart_observations: &BTreeMap::new(),
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("trace/result mismatch at index 0"),
+            "{error}"
+        );
         assert_eq!(
             summary.registry_coverage["missing_required_metrics"],
             serde_json::json!([])

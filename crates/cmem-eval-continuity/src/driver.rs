@@ -134,6 +134,8 @@ pub trait ContinuityRuntime: Send {
 struct AdmittedObject {
     object_type: String,
     source_episode_external_id: Option<String>,
+    original_raw_ref: Option<String>,
+    original_source_ref: Option<String>,
 }
 
 pub async fn run_continuity_scenario(
@@ -161,6 +163,8 @@ pub async fn run_continuity_scenario(
                 AdmittedObject {
                     object_type: "entity".to_string(),
                     source_episode_external_id: None,
+                    original_raw_ref: None,
+                    original_source_ref: None,
                 },
             )
         })
@@ -203,6 +207,11 @@ pub async fn run_continuity_scenario(
                 ..
             } => {
                 let observation_external_id = format!("{external_id}:observation");
+                let original_raw_ref = format!(
+                    "continuity://{}/{event_id}?at={}",
+                    scenario.fixture_id,
+                    timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)
+                );
                 let mut plan = runtime
                     .adapter()
                     .prepare(PrepareWriteInput {
@@ -210,11 +219,7 @@ pub async fn run_continuity_scenario(
                         content: text.clone(),
                         episode_external_id: external_id.clone(),
                         observation_external_id,
-                        raw_refs: vec![format!(
-                            "continuity://{}/{event_id}?at={}",
-                            scenario.fixture_id,
-                            timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)
-                        )],
+                        raw_refs: vec![original_raw_ref.clone()],
                         idempotency_key: Some(format!(
                             "continuity:{}:{event_id}:{memory_id}",
                             scenario.fixture_id
@@ -259,6 +264,8 @@ pub async fn run_continuity_scenario(
                     AdmittedObject {
                         object_type: "episode".to_string(),
                         source_episode_external_id: Some(external_id.clone()),
+                        original_raw_ref: Some(original_raw_ref),
+                        original_source_ref: Some(external_id.clone()),
                     },
                 );
                 let association_links = entity_external_ids
@@ -342,27 +349,8 @@ pub async fn run_continuity_scenario(
                     episode_external_ids: vec![source_episode_external_id.clone()],
                     ..SourceProvenanceInput::default()
                 };
-                let (target, supersedes_external_ids) = match target.object_type.as_str() {
-                    "episode" | "observation" => (
-                        CorrectionTargetInput::SourceObject {
-                            object_type: target.object_type.clone(),
-                            external_id: target_external_id.clone(),
-                            original_raw_ref: None,
-                            original_source_ref: None,
-                        },
-                        Vec::new(),
-                    ),
-                    "derived_memory" => (
-                        CorrectionTargetInput::DerivedMemory {
-                            external_id: target_external_id.clone(),
-                        },
-                        vec![target_external_id.clone()],
-                    ),
-                    object_type => bail!(
-                        "scenario {:?} cannot correct object type {object_type:?}",
-                        scenario.fixture_id
-                    ),
-                };
+                let (target, supersedes_external_ids) =
+                    correction_target_input(&scenario.fixture_id, target_external_id, target)?;
                 runtime
                     .adapter()
                     .correct(CorrectMemoryInput {
@@ -407,6 +395,8 @@ pub async fn run_continuity_scenario(
                     AdmittedObject {
                         object_type: "derived_memory".to_string(),
                         source_episode_external_id: Some(source_episode_external_id),
+                        original_raw_ref: None,
+                        original_source_ref: None,
                     },
                 );
                 history.push(format!(
@@ -489,6 +479,8 @@ pub async fn run_continuity_scenario(
                     AdmittedObject {
                         object_type: "memory_link".to_string(),
                         source_episode_external_id: None,
+                        original_raw_ref: None,
+                        original_source_ref: None,
                     },
                 );
                 history.push(format!(
@@ -729,6 +721,38 @@ fn endpoint(
     })
 }
 
+fn correction_target_input(
+    fixture_id: &str,
+    target_external_id: &str,
+    target: &AdmittedObject,
+) -> Result<(CorrectionTargetInput, Vec<String>)> {
+    match target.object_type.as_str() {
+        "episode" | "observation" => {
+            if target.original_raw_ref.is_none() && target.original_source_ref.is_none() {
+                bail!(
+                    "scenario {fixture_id:?} source correction target {target_external_id:?} has no authoritative original reference"
+                );
+            }
+            Ok((
+                CorrectionTargetInput::SourceObject {
+                    object_type: target.object_type.clone(),
+                    external_id: target_external_id.to_string(),
+                    original_raw_ref: target.original_raw_ref.clone(),
+                    original_source_ref: target.original_source_ref.clone(),
+                },
+                Vec::new(),
+            ))
+        }
+        "derived_memory" => Ok((
+            CorrectionTargetInput::DerivedMemory {
+                external_id: target_external_id.to_string(),
+            },
+            vec![target_external_id.to_string()],
+        )),
+        object_type => bail!("scenario {fixture_id:?} cannot correct object type {object_type:?}"),
+    }
+}
+
 fn increment(counts: &mut BTreeMap<String, usize>, operation: &str) {
     *counts.entry(operation.to_string()).or_default() += 1;
 }
@@ -852,6 +876,34 @@ mod tests {
         assert!(restart.delta.stable_returned_objects);
         assert_eq!(restart.delta.returned_object_count, 0);
         assert_eq!(restart.delta.recall, Some(0.0));
+    }
+
+    #[test]
+    fn source_correction_target_preserves_authoritative_write_references() {
+        let admitted = AdmittedObject {
+            object_type: "episode".to_string(),
+            source_episode_external_id: Some("delivery-v1".to_string()),
+            original_raw_ref: Some(
+                "continuity://correction-chains/event-001?at=2025-01-01T08:00:00Z".to_string(),
+            ),
+            original_source_ref: Some("delivery-v1".to_string()),
+        };
+
+        let (target, supersedes) =
+            correction_target_input("correction-chains", "delivery-v1", &admitted).unwrap();
+
+        assert_eq!(supersedes, Vec::<String>::new());
+        assert_eq!(
+            target,
+            CorrectionTargetInput::SourceObject {
+                object_type: "episode".to_string(),
+                external_id: "delivery-v1".to_string(),
+                original_raw_ref: Some(
+                    "continuity://correction-chains/event-001?at=2025-01-01T08:00:00Z".to_string()
+                ),
+                original_source_ref: Some("delivery-v1".to_string()),
+            }
+        );
     }
 
     #[tokio::test]

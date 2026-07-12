@@ -7,8 +7,8 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{
     PerQuestionResult, RetrievalFanoutUtilization, RetrievalRationaleCategory,
-    RetrievalSelectivityDecision, RunAdapterMetadata, RunSummary, aggregate_numeric_metrics,
-    metric_support_summary,
+    RetrievalSelectivityDecision, RetrievedContextPack, RunAdapterMetadata, RunSummary,
+    aggregate_numeric_metrics, metric_support_summary, registry_coverage_summary_for,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -70,6 +70,7 @@ pub struct ScenarioContinuityReport {
     pub query_count: usize,
     pub metrics: Value,
     pub metric_support: Value,
+    pub registry_coverage: Value,
     pub rationale_samples: Vec<QueryRationaleSample>,
     pub fanout_decisions: Vec<QueryFanoutDecisions>,
     pub stats_health_events: Vec<StatsHealthEvent>,
@@ -79,6 +80,8 @@ pub struct ScenarioContinuityReport {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QueryRationaleSample {
     pub query_id: String,
+    pub query: String,
+    pub context_pack: RetrievedContextPack,
     pub items: Vec<RationaleSampleItem>,
 }
 
@@ -123,6 +126,7 @@ pub struct ContinuityReportInput<'a> {
     pub traces: &'a [ContinuityQueryTrace],
     pub rows: &'a [PerQuestionResult],
     pub summary: &'a RunSummary,
+    pub metric_family: &'a cmem_eval_core::MetricFamily,
     pub restart_observations: &'a BTreeMap<String, Vec<RestartObservation>>,
 }
 
@@ -160,11 +164,22 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         );
     }
     for (index, (trace, row)) in input.traces.iter().zip(input.rows).enumerate() {
-        if trace.query_id != row.question_id {
+        let trace_question_type = serde_json::to_value(trace.pattern)?
+            .as_str()
+            .expect("ScenarioPattern serializes as a string")
+            .to_string();
+        if trace.query_id != row.question_id
+            || trace.query != row.question
+            || row.question_type.as_deref() != Some(trace_question_type.as_str())
+        {
             bail!(
-                "continuity report trace/result mismatch at index {index}: trace query {:?}, result question {:?}",
+                "continuity report trace/result mismatch at index {index}: trace ({:?}, {:?}, {:?}), result ({:?}, {:?}, {:?})",
                 trace.query_id,
-                row.question_id
+                trace_question_type,
+                trace.query,
+                row.question_id,
+                row.question_type,
+                row.question
             );
         }
     }
@@ -216,6 +231,10 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
                 query_count: scenario_traces.len(),
                 metrics: aggregate_numeric_metrics(&metric_rows),
                 metric_support: metric_support_summary(&metric_rows),
+                registry_coverage: registry_coverage_summary_for(
+                    &metric_rows,
+                    std::slice::from_ref(input.metric_family),
+                ),
                 rationale_samples,
                 fanout_decisions,
                 stats_health_events,
@@ -290,6 +309,8 @@ fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
         .as_ref();
     QueryRationaleSample {
         query_id: trace.query_id.clone(),
+        query: trace.query.clone(),
+        context_pack: trace.retrieval.clone(),
         items: trace
             .retrieval
             .items

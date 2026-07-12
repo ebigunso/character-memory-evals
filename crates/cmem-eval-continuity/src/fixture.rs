@@ -134,6 +134,7 @@ impl ContinuityFixtureSet {
         let mut fixture_ids = BTreeSet::new();
         let mut namespaces = BTreeSet::new();
         let mut collections = BTreeSet::new();
+        let mut query_ids = BTreeSet::new();
         for scenario in &self.scenarios {
             require_non_empty("fixture_id", &scenario.fixture_id)?;
             require_non_empty("namespace", &scenario.namespace)?;
@@ -151,6 +152,13 @@ impl ContinuityFixtureSet {
                 );
             }
             scenario.validate()?;
+            for event in &scenario.events {
+                if let InteractionEvent::Query { query_id, .. } = event
+                    && !query_ids.insert(query_id)
+                {
+                    bail!("continuity fixture set has duplicate query_id {query_id:?}");
+                }
+            }
         }
         Ok(())
     }
@@ -191,6 +199,7 @@ impl ContinuityScenario {
         }
 
         let mut event_ids = BTreeSet::new();
+        let mut query_ids = BTreeSet::new();
         let mut admitted_external_ids = self
             .entities
             .iter()
@@ -313,7 +322,19 @@ impl ContinuityScenario {
                         &mut admitted_external_ids,
                     )?;
                 }
-                InteractionEvent::Query { text, expected, .. } => {
+                InteractionEvent::Query {
+                    query_id,
+                    text,
+                    expected,
+                    ..
+                } => {
+                    require_non_empty("query.query_id", query_id)?;
+                    if !query_ids.insert(query_id) {
+                        bail!(
+                            "scenario {:?} has duplicate query_id {query_id:?}",
+                            self.fixture_id
+                        );
+                    }
                     require_embedding_input(&self.fixture_id, &assigned_inputs, text)?;
                     validate_expected_relevance(
                         &self.fixture_id,
@@ -637,6 +658,39 @@ mod tests {
         let error = parse_error(&fixtures);
         assert!(error.contains("remember.external_id"), "{error}");
         assert!(error.contains("duplicates existing external ID"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_duplicate_query_ids() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let duplicate = scenario
+            .events
+            .iter()
+            .find(|event| matches!(event, InteractionEvent::Query { .. }))
+            .cloned()
+            .unwrap();
+        scenario.events.push(duplicate);
+
+        let error = parse_error(&fixtures);
+
+        assert!(error.contains("duplicate event_id"), "{error}");
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let mut duplicate = scenario
+            .events
+            .iter()
+            .find(|event| matches!(event, InteractionEvent::Query { .. }))
+            .cloned()
+            .unwrap();
+        let InteractionEvent::Query { event_id, .. } = &mut duplicate else {
+            unreachable!()
+        };
+        *event_id = "event-duplicate-query-id".to_string();
+        scenario.events.push(duplicate);
+        let error = parse_error(&fixtures);
+        assert!(error.contains("duplicate query_id"), "{error}");
     }
 
     #[test]
