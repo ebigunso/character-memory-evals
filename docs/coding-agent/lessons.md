@@ -494,3 +494,17 @@ Fix applied:
 
 Prevention:
 - A validation-boundary closure audit must trace every public mode from input read to first derived use and prove malformed structures cannot reach counting, hashing, sorting, or indexing before shape validation.
+
+## 2026-07-12 — Treat Checked Fixtures As Portable State Machines  [tags: review, fixtures, portability, validation, lifecycle]
+
+Symptom:
+- Canonical fixture tests failed on Windows because checkout line endings changed the checked bytes, while the public parser accepted dangling lifecycle references and ambiguous relevance labels.
+
+Root cause:
+- The fixture contract covered generator determinism but not Git checkout normalization or the event-order invariants that make serialized identities meaningful after parsing.
+
+Fix applied:
+- Pin checked fixture JSON to LF, renormalize it, and validate external-ID admission order plus non-empty, unique, disjoint, previously admitted relevance labels at the public parser boundary.
+
+Prevention:
+- For checked generated fixtures, verify both repository transport bytes and semantic state transitions: scope line-ending attributes, test the worktree artifact byte-for-byte on each supported platform, and mutate every public lifecycle reference class through the parser.
