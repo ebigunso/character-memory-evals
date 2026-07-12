@@ -62,6 +62,18 @@ impl BenchmarkRunConfig {
                 self.backend.embedding.provider
             );
         }
+        if dataset_kind == DatasetKind::Continuity {
+            if self.backend.oxigraph_persistence_path.is_none() {
+                bail!(
+                    "continuity dataset requires backend.oxigraph_persistence_path for restart durability"
+                );
+            }
+            if self.backend.retrieval_stats_path.is_none() {
+                bail!(
+                    "continuity dataset requires backend.retrieval_stats_path for restart durability"
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -482,7 +494,11 @@ mod tests {
         let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "continuity-run",
             "dataset": "continuity",
-            "backend": {"embedding": {"provider": "openai"}},
+            "backend": {
+                "embedding": {"provider": "openai"},
+                "oxigraph_persistence_path": "runs/continuity/oxigraph",
+                "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
+            },
             "ingest": {"index_observations": true, "index_episode_summaries": true}
         }))
         .unwrap();
@@ -512,6 +528,43 @@ mod tests {
         config
             .validate_for_dataset_kind(DatasetKind::Continuity)
             .unwrap();
+    }
+
+    #[test]
+    fn continuity_dataset_requires_each_persistent_store_path() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "continuity-run",
+            "dataset": "continuity",
+            "backend": {
+                "embedding": {
+                    "provider": "controllable_similarity",
+                    "model": "fixture-declared",
+                    "vector_size": 8
+                },
+                "oxigraph_persistence_path": "runs/continuity/oxigraph",
+                "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
+            },
+            "ingest": {"index_observations": true, "index_episode_summaries": true}
+        }))
+        .unwrap();
+
+        let mut missing_oxigraph = config.clone();
+        missing_oxigraph.backend.oxigraph_persistence_path = None;
+        let error = missing_oxigraph
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("backend.oxigraph_persistence_path"));
+        assert!(error.contains("restart durability"));
+
+        let mut missing_stats = config;
+        missing_stats.backend.retrieval_stats_path = None;
+        let error = missing_stats
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("backend.retrieval_stats_path"));
+        assert!(error.contains("restart durability"));
     }
 
     #[test]

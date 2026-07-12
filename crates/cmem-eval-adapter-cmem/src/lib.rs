@@ -205,6 +205,7 @@ impl CharacterMemoryAdapter {
         config: &BenchmarkRunConfig,
         namespace: &str,
     ) -> Result<(Self, NamespaceLifecycleResult)> {
+        config.validate()?;
         let adapter = Self::new(config).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
@@ -2981,6 +2982,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reconstruct_validates_config_before_qdrant_or_store_io() {
+        let mut config = adapter_config(
+            "invalid-reconstruct".to_string(),
+            "cmem_eval_invalid_reconstruct".to_string(),
+        );
+        config.backend.qdrant_connection_string = Some("http://127.0.0.1:1".to_string());
+        config.backend.embedding.vector_size = Some(0);
+        config.ingest.index_observations = true;
+        config.ingest.index_episode_summaries = true;
+
+        let error = match CharacterMemoryAdapter::reconstruct(&config, "never-opened").await {
+            Ok(_) => panic!("invalid reconstruct config was accepted"),
+            Err(error) => error.to_string(),
+        };
+
+        assert!(error.contains("backend.embedding.vector_size"));
+        assert!(error.contains("greater than zero"));
+        assert!(!error.contains("QDRANT_CONNECTION_STRING"));
+        assert!(!error.contains("failed to connect"));
+    }
+
+    #[tokio::test]
     async fn live_adapter_reattaches_with_external_ids() {
         let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
         let directory = tempdir().unwrap();
@@ -2989,6 +3012,8 @@ mod tests {
         let prefix = format!("cmem_eval_task3_{token}");
         let namespace = "restart-round-trip";
         let mut config = adapter_config(run_id, prefix);
+        config.ingest.index_observations = true;
+        config.ingest.index_episode_summaries = true;
         config.backend.cleanup.enabled = false;
         config.backend.cleanup.require_collection_prefix = Some("unrelated:prefix".to_string());
         config.backend.identity_registry_dir = Some(
@@ -3228,6 +3253,46 @@ mod tests {
             CharacterMemoryAdapter::reconstruct(&config, namespace).await
         );
         assert_eq!(lifecycle.restored_identity_count, 6);
+        {
+            let namespaces = adapter_b.namespaces.lock().await;
+            let state = namespaces.get(namespace).unwrap();
+            let episode_id = state.episode_ids["episode-external"];
+            assert_eq!(
+                state
+                    .reverse_episode_ids
+                    .get(&episode_id)
+                    .map(String::as_str),
+                Some("episode-external")
+            );
+            let observation_id = state.observation_ids["observation-external"];
+            assert_eq!(
+                state.reverse_observation_ids.get(&observation_id),
+                Some(&(
+                    "observation-external".to_string(),
+                    "episode-external".to_string()
+                ))
+            );
+            let entity_id = state.entity_ids["alice-entity"];
+            assert_eq!(
+                state.reverse_entity_ids.get(&entity_id).map(String::as_str),
+                Some("alice-entity")
+            );
+            for external_id in ["pre-correction-memory", "corrected-memory"] {
+                let memory_id = state.derived_memory_ids[external_id];
+                assert_eq!(
+                    state
+                        .reverse_derived_memory_ids
+                        .get(&memory_id)
+                        .map(String::as_str),
+                    Some(external_id)
+                );
+            }
+            let link_id = state.link_ids["alice-episode-link"];
+            assert_eq!(
+                state.reverse_link_ids.get(&link_id).map(String::as_str),
+                Some("alice-episode-link")
+            );
+        }
         let retrieved = live_call_or_skip!(
             qdrant_was_available,
             "reattached retrieval",
@@ -3248,12 +3313,35 @@ mod tests {
                 .await
         );
         assert!(retrieved.items.iter().any(|item| {
-            item.external_id.as_deref() == Some("episode-external")
-                || item.external_id.as_deref() == Some("observation-external")
+            item.kind == "episode" && item.external_id.as_deref() == Some("episode-external")
         }));
         assert!(retrieved.items.iter().any(|item| {
-            item.external_id.as_deref() == Some("observation-external")
+            item.kind == "observation"
+                && item.external_id.as_deref() == Some("observation-external")
                 && item.episode_external_id.as_deref() == Some("episode-external")
+        }));
+        let suppression_check = live_call_or_skip!(
+            qdrant_was_available,
+            "post-reconstruct suppression retrieval",
+            true,
+            adapter_b
+                .retrieve(RetrieveInput {
+                    mode: RetrievalMode::Hybrid,
+                    namespace: namespace.to_string(),
+                    query: "What is the corrected restart-safe drink?".to_string(),
+                    query_date: None,
+                    top_k_episodes: 8,
+                    top_k_observations: 8,
+                    include_derived_memories: true,
+                    include_threads: false,
+                    include_entities: false,
+                    include_debug_rationale: true,
+                })
+                .await
+        );
+        assert!(suppression_check.items.iter().all(|item| {
+            item.external_id.as_deref() != Some("corrected-memory")
+                && item.external_id.as_deref() != Some("pre-correction-memory")
         }));
         drop(adapter_b);
 
