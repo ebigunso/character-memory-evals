@@ -466,3 +466,17 @@ Fix applied:
 
 Prevention:
 - At configuration boundaries, test cross-field invariants against the downstream constructor contract; for reproducible fixtures, prohibit pointer-width integers in hashes, IDs, seeds, counters, or bucket selection unless architecture dependence is explicitly intended.
+
+## 2026-07-12 — Close Artifact Validation Classes At Every Typed Use  [tags: review, validation, python, robustness]
+
+Symptom:
+- Malformed artifact arrays reached dictionary membership and set construction, allowing Python `TypeError` tracebacks to escape instead of the scripts' controlled validation errors.
+
+Root cause:
+- Individual review findings were fixed at endpoint fields without auditing the full dataflow class: dictionary keys, set members, subset operands, enum membership, and string operations all require typed boundaries before use.
+
+Fix applied:
+- Add reusable array-of-non-empty-strings validation, apply scalar string validation before every audited membership or string operation in both enrichment scripts, and cover nested-array plus non-array inputs with controlled-error regressions.
+
+Prevention:
+- When an untrusted value causes an operation-level type error, sweep every equivalent typed-use site across sibling entrypoints and validate before the operation; do not close repeated findings one field at a time.
