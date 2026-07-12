@@ -1,5 +1,7 @@
 # Worker Rules
 
+<!-- last_updated: 2026-07-12 -->
+
 ## Repo-Specific Worker Notes
 
 - Workers must not edit files outside their `owns` scope unless they report the reason and the exact paths changed.
@@ -9,6 +11,7 @@
 - Any change touching a gated live test's setup, live-call phases, or skip predicate requires BOTH verification runs before completion: service deliberately unavailable (test must skip with its documented marker, full suite green) and service up (test must exercise and pass). Skip semantics: absence before the first successful live operation skips; unavailability after confirmed success fails.
 - When validation depends on local or generated asset existence (datasets, fixtures, snapshots, manifests), use direct filesystem checks (`Test-Path`/`test -f`) or an explicit no-ignore search (`rg --files --no-ignore`); never infer absence from default rg/fd or tracked-file enumeration — gitignored assets can exist and be required.
 - For repository-wide removal acceptance criteria (features, flags, identifiers, command forms), run the audit search from the repository root and explicitly exclude only documented historical or generated paths (e.g. `rg -n <removed-token> . --glob '!docs/coding-agent/plans/**'`); handpicked-path searches do not count as acceptance evidence.
+- Every new public `Result`-returning artifact reader must ship corrupt or invalid-encoding, partial-input, and schema-version-rejection tests before completion.
 
 ## Repo CI / Checks Mapping
 
