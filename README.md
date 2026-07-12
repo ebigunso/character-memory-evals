@@ -63,7 +63,7 @@ cargo run -p cmem-eval-runner -- run synthetic \
   --summary-out ./runs/synthetic_summary.json
 ```
 
-Continuity fixtures run through the scripted lifecycle driver and write both standard result artifacts and a deterministic per-query trace JSONL containing the complete retrieved context pack, item rationales, expected relevance labels, and telemetry. Mock runs are service-free; live runs use the fixture-specific controllable-similarity provider and require Qdrant plus the persistent store paths in `configs/continuity_retrieval.toml`:
+Continuity fixtures run through the scripted lifecycle driver and write standard result artifacts, a deterministic per-query trace JSONL, and a continuity report. The report isolates the run timestamp and other provenance in `metadata`; its `content` block contains aggregate/per-scenario metrics, rationale samples, fanout and stats-health decisions, tuning observations, and before/after restart measurements. Mock runs are service-free; live runs use the fixture-specific controllable-similarity provider and require Qdrant plus the persistent store paths in `configs/continuity_retrieval.toml`:
 
 ```bash
 cargo run -p cmem-eval-runner -- run continuity \
@@ -72,6 +72,7 @@ cargo run -p cmem-eval-runner -- run continuity \
   --out ./runs/continuity.jsonl \
   --summary-out ./runs/continuity_summary.json \
   --trace-out ./runs/continuity_traces.jsonl \
+  --report-out ./runs/continuity_report.json \
   --adapter mock \
   --allow-mock-benchmark
 ```

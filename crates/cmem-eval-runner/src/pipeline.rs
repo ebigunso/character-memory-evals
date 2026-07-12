@@ -2,11 +2,13 @@ use crate::commands::{AdapterKind, ContinuityRunArgs, RunArgs, read_config};
 use crate::enrichment;
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
+use chrono::Utc;
 use cmem_eval_adapter_cmem::CharacterMemoryAdapter;
 use cmem_eval_continuity::{
-    ContinuityQueryTrace, ContinuityRuntime, ContinuityScenario, InteractionEvent,
-    continuity_metric_family, insert_continuity_metrics, parse_fixture_bytes,
-    run_continuity_scenario, write_continuity_traces,
+    ContinuityQueryTrace, ContinuityReportInput, ContinuityRuntime, ContinuityScenario,
+    InteractionEvent, RestartObservation, assemble_continuity_report, continuity_metric_family,
+    insert_continuity_metrics, parse_fixture_bytes, run_continuity_scenario,
+    write_continuity_report, write_continuity_traces,
 };
 use cmem_eval_core::{
     BenchmarkRunConfig, DatasetKind, EpisodeInput, GraphEnrichmentInput, GraphSnapshotInput,
@@ -33,8 +35,10 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
     let config = read_config(&args.run.config)?;
     ContinuitySpec::validate_config(&config)?;
     args.run.validate_adapter_selection(&config)?;
-    let scenarios = load_continuity_scenarios(&args.run.dataset, args.scenario.as_deref())?;
-    run_continuity_pipeline(args, config, scenarios).await
+    let fixture = load_continuity_fixture(&args.run.dataset)?;
+    let fixture_seed = fixture.seed;
+    let scenarios = select_continuity_scenarios(fixture.scenarios, args.scenario.as_deref())?;
+    run_continuity_pipeline(args, config, fixture_seed, scenarios).await
 }
 
 pub(crate) async fn run_longmemeval(args: RunArgs) -> Result<()> {
@@ -79,7 +83,20 @@ fn load_continuity_scenarios(
     path: &Path,
     selected_scenario: Option<&str>,
 ) -> Result<Vec<ContinuityScenario>> {
-    let mut scenarios = ContinuitySpec::load(path)?;
+    let fixture = load_continuity_fixture(path)?;
+    select_continuity_scenarios(fixture.scenarios, selected_scenario)
+}
+
+fn load_continuity_fixture(path: &Path) -> Result<cmem_eval_continuity::ContinuityFixtureSet> {
+    let bytes =
+        fs::read(path).with_context(|| format!("read continuity fixture {}", path.display()))?;
+    parse_fixture_bytes(&bytes)
+}
+
+fn select_continuity_scenarios(
+    mut scenarios: Vec<ContinuityScenario>,
+    selected_scenario: Option<&str>,
+) -> Result<Vec<ContinuityScenario>> {
     if let Some(selected_scenario) = selected_scenario {
         scenarios.retain(|scenario| scenario.fixture_id == selected_scenario);
         if scenarios.is_empty() {
@@ -532,6 +549,7 @@ impl ContinuityRuntime for RunnerContinuityRuntime {
 async fn run_continuity_pipeline(
     args: ContinuityRunArgs,
     config: BenchmarkRunConfig,
+    fixture_seed: u64,
     scenarios: Vec<ContinuityScenario>,
 ) -> Result<()> {
     let selected = args.run.selected_adapter();
@@ -542,13 +560,15 @@ async fn run_continuity_pipeline(
     let mut rows = Vec::with_capacity(total_queries);
     let mut traces = Vec::with_capacity(total_queries);
     let mut operation_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut restart_observations: BTreeMap<String, Vec<RestartObservation>> = BTreeMap::new();
     let mut runtimes = Vec::with_capacity(scenarios.len());
 
-    for (index, scenario) in scenarios.into_iter().enumerate() {
+    for (index, scenario) in scenarios.iter().enumerate() {
         let item_number = index + 1;
         progress.item_started(item_number, &scenario.fixture_id);
-        let mut runtime = RunnerContinuityRuntime::new(selected, &config, &scenario).await?;
-        let run = run_continuity_scenario(&mut runtime, &scenario, &config.retrieval).await?;
+        let mut runtime = RunnerContinuityRuntime::new(selected, &config, scenario).await?;
+        let run = run_continuity_scenario(&mut runtime, scenario, &config.retrieval).await?;
+        restart_observations.insert(scenario.fixture_id.clone(), run.restart_observations);
         for (operation, count) in run.operation_counts {
             *operation_counts.entry(operation).or_default() += count;
         }
@@ -557,7 +577,7 @@ async fn run_continuity_pipeline(
                 &config,
                 &adapter_metadata,
                 &metric_family,
-                &scenario,
+                scenario,
                 &trace,
             )?);
             traces.push(trace);
@@ -569,8 +589,32 @@ async fn run_continuity_pipeline(
     if let Some(parent) = args.trace_out.parent() {
         fs::create_dir_all(parent)?;
     }
+    if let Some(parent) = args.report_out.parent() {
+        fs::create_dir_all(parent)?;
+    }
     progress.write_outputs_started(rows.len());
     write_continuity_traces(&args.trace_out, &traces)?;
+    let config_value = serde_json::to_value(&config)?;
+    let summary = summarize_rows(
+        config.run_id.clone(),
+        config.dataset.clone(),
+        adapter_metadata.clone(),
+        config_value.clone(),
+        &rows,
+        std::slice::from_ref(&metric_family),
+    );
+    let report = assemble_continuity_report(ContinuityReportInput {
+        generated_at: Utc::now(),
+        fixture_seed,
+        config: config_value,
+        adapter: adapter_metadata,
+        scenarios: &scenarios,
+        traces: &traces,
+        rows: &rows,
+        summary: &summary,
+        restart_observations: &restart_observations,
+    })?;
+    write_continuity_report(&args.report_out, &report)?;
     write_outputs(
         args.run,
         config.clone(),
@@ -1420,6 +1464,7 @@ mod tests {
                 allow_mock_benchmark: true,
             },
             trace_out: directory.join("continuity-traces.jsonl"),
+            report_out: directory.join("continuity-report.json"),
             scenario: None,
         }
     }
@@ -1579,15 +1624,19 @@ mod tests {
     #[tokio::test]
     async fn continuity_command_runs_scripted_scenarios_and_writes_full_traces() {
         let directory = tempfile::tempdir().unwrap();
+        let second_directory = tempfile::tempdir().unwrap();
         let args = continuity_mock_args(directory.path());
+        let second_args = continuity_mock_args(second_directory.path());
         let result_path = args.run.out.clone();
         let summary_path = args.run.summary_out.clone();
         let resummary_path = directory.path().join("continuity-resummary.json");
         let trace_path = args.trace_out.clone();
+        let report_path = args.report_out.clone();
         let config_path = args.run.config.clone();
         let dataset_path = args.run.dataset.clone();
 
         run_continuity(args).await.unwrap();
+        run_continuity(second_args).await.unwrap();
 
         let rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
         let traces = cmem_eval_continuity::read_continuity_traces(&trace_path).unwrap();
@@ -1595,18 +1644,72 @@ mod tests {
             input: result_path.clone(),
             config: config_path,
             out: resummary_path.clone(),
-            dataset: Some(dataset_path),
+            dataset: Some(dataset_path.clone()),
             scenario: None,
         })
         .unwrap();
         let summary = cmem_eval_core::read_summary(&summary_path).unwrap();
         let resummary = cmem_eval_core::read_summary(&resummary_path).unwrap();
+        let report: cmem_eval_continuity::ContinuityReport =
+            serde_json::from_slice(&fs::read(report_path).unwrap()).unwrap();
+        let second_report: cmem_eval_continuity::ContinuityReport = serde_json::from_slice(
+            &fs::read(second_directory.path().join("continuity-report.json")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(rows.len(), 8);
         assert_eq!(traces.len(), 8);
         assert_eq!(summary.num_questions, 8);
         assert_eq!(resummary.config, summary.config);
         assert_eq!(resummary.metric_support, summary.metric_support);
         assert_eq!(resummary.registry_coverage, summary.registry_coverage);
+        assert_eq!(report.content.aggregate.query_count, 8);
+        assert_eq!(report.content.aggregate.restart_count, 1);
+        assert_eq!(report.content, second_report.content);
+        assert_eq!(
+            report.schema_version,
+            cmem_eval_continuity::CONTINUITY_REPORT_SCHEMA_VERSION
+        );
+        assert_eq!(report.metadata.embedding_seeds.len(), 8);
+        assert_eq!(
+            report.metadata.normalization.nondeterministic_paths,
+            vec!["metadata.generated_at"]
+        );
+        assert_eq!(
+            report.metadata.config["retrieval"]["max_graph_roots"],
+            serde_json::json!(48)
+        );
+        assert_eq!(
+            report.metadata.schema_versions["continuity_report"],
+            cmem_eval_continuity::CONTINUITY_REPORT_SCHEMA_VERSION
+        );
+        assert_eq!(report.content.scenarios.len(), 8);
+        assert!(report.content.scenarios.values().all(|scenario| {
+            scenario.query_count == 1
+                && scenario.rationale_samples.len() == 1
+                && scenario.fanout_decisions.len() == 1
+                && scenario.stats_health_events.len() == 1
+        }));
+        assert_eq!(report.content.tuning_observations.len(), 1);
+        assert!(
+            report.content.scenarios["cross-store-stress"].restart_observations[0]
+                .delta
+                .stable_returned_objects
+        );
+        let fixture = parse_fixture_bytes(&fs::read(dataset_path).unwrap()).unwrap();
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_seed: fixture.seed,
+            config: summary.config.clone(),
+            adapter: summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &traces,
+            rows: &rows[..rows.len() - 1],
+            summary: &summary,
+            restart_observations: &BTreeMap::new(),
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("8 traces but 7 result rows"), "{error}");
         assert_eq!(
             summary.registry_coverage["missing_required_metrics"],
             serde_json::json!([])

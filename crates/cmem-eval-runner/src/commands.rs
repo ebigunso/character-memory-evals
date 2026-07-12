@@ -67,6 +67,8 @@ pub(crate) struct ContinuityRunArgs {
     pub(crate) run: RunArgs,
     #[arg(long = "trace-out")]
     pub(crate) trace_out: PathBuf,
+    #[arg(long = "report-out")]
+    pub(crate) report_out: PathBuf,
     #[arg(long)]
     pub(crate) scenario: Option<String>,
 }
