@@ -508,3 +508,17 @@ Fix applied:
 
 Prevention:
 - For checked generated fixtures, verify both repository transport bytes and semantic state transitions: scope line-ending attributes, test the worktree artifact byte-for-byte on each supported platform, and mutate every public lifecycle reference class through the parser.
+
+## 2026-07-12 — Prove Restart Contracts Store By Store And Identity By Identity  [tags: review, validation, persistence, lifecycle]
+
+Symptom:
+- Continuity validation accepted configs without persistent graph or stats paths, reconstruct performed external I/O before generic validation, and restart evidence asserted only an aggregate registry count.
+
+Root cause:
+- The implementation treated durable-store configuration, construction-time validation, and identity restoration as separate concerns instead of one restart contract spanning admission through post-restart behavior.
+
+Fix applied:
+- Require both persistent paths for continuity, validate before reconstruct construction, and assert every restored identity category plus suppressed graph state after live reconstruction.
+
+Prevention:
+- For restart features, use a turn-closing matrix covering every required store, validation-before-I/O ordering, every identity category, and at least one behavioral state that must survive reconstruction; aggregate counts alone are insufficient evidence.

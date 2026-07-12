@@ -1,12 +1,13 @@
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DatasetKind {
     LongMemEvalS,
     LoCoMo,
     Synthetic,
+    Continuity,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -45,6 +46,34 @@ impl BenchmarkRunConfig {
         self.ingest.validate()?;
         self.retrieval.validate()?;
         self.backend.validate()?;
+        Ok(())
+    }
+
+    pub fn validate_for_dataset_kind(&self, dataset_kind: DatasetKind) -> Result<()> {
+        self.validate()?;
+        if dataset_kind == DatasetKind::Continuity
+            && !matches!(
+                self.backend.embedding.provider.as_str(),
+                "deterministic" | "controllable_similarity"
+            )
+        {
+            bail!(
+                "continuity dataset requires a deterministic embedding provider; got backend.embedding.provider {:?}",
+                self.backend.embedding.provider
+            );
+        }
+        if dataset_kind == DatasetKind::Continuity {
+            if self.backend.oxigraph_persistence_path.is_none() {
+                bail!(
+                    "continuity dataset requires backend.oxigraph_persistence_path for restart durability"
+                );
+            }
+            if self.backend.retrieval_stats_path.is_none() {
+                bail!(
+                    "continuity dataset requires backend.retrieval_stats_path for restart durability"
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -458,6 +487,84 @@ mod tests {
         config.backend.embedding.vector_size = Some(1536);
         config.validate().unwrap();
         DeterministicEmbeddingProvider::new(1536).unwrap();
+    }
+
+    #[test]
+    fn continuity_dataset_rejects_non_deterministic_embedding_provider_at_validation() {
+        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "continuity-run",
+            "dataset": "continuity",
+            "backend": {
+                "embedding": {"provider": "openai"},
+                "oxigraph_persistence_path": "runs/continuity/oxigraph",
+                "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
+            },
+            "ingest": {"index_observations": true, "index_episode_summaries": true}
+        }))
+        .unwrap();
+
+        let error = config
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("continuity dataset"));
+        assert!(error.contains("deterministic embedding provider"));
+        assert!(error.contains("openai"));
+
+        config.backend.embedding = EmbeddingConfig {
+            provider: "deterministic".into(),
+            model: "text-embedding-3-large".into(),
+            vector_size: Some(3072),
+        };
+        config
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap();
+
+        config.backend.embedding = EmbeddingConfig {
+            provider: "controllable_similarity".into(),
+            model: "fixture-declared".into(),
+            vector_size: Some(8),
+        };
+        config
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap();
+    }
+
+    #[test]
+    fn continuity_dataset_requires_each_persistent_store_path() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "continuity-run",
+            "dataset": "continuity",
+            "backend": {
+                "embedding": {
+                    "provider": "controllable_similarity",
+                    "model": "fixture-declared",
+                    "vector_size": 8
+                },
+                "oxigraph_persistence_path": "runs/continuity/oxigraph",
+                "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
+            },
+            "ingest": {"index_observations": true, "index_episode_summaries": true}
+        }))
+        .unwrap();
+
+        let mut missing_oxigraph = config.clone();
+        missing_oxigraph.backend.oxigraph_persistence_path = None;
+        let error = missing_oxigraph
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("backend.oxigraph_persistence_path"));
+        assert!(error.contains("restart durability"));
+
+        let mut missing_stats = config;
+        missing_stats.backend.retrieval_stats_path = None;
+        let error = missing_stats
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("backend.retrieval_stats_path"));
+        assert!(error.contains("restart durability"));
     }
 
     #[test]
