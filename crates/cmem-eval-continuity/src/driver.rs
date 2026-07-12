@@ -50,11 +50,35 @@ pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> 
 
 pub fn read_continuity_traces(path: &Path) -> Result<Vec<ContinuityQueryTrace>> {
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
-    BufReader::new(file)
-        .lines()
-        .filter(|line| line.as_ref().is_ok_and(|line| !line.trim().is_empty()))
-        .map(|line| Ok(serde_json::from_str(&line?)?))
-        .collect()
+    let mut traces = Vec::new();
+    for (index, line) in BufReader::new(file).lines().enumerate() {
+        let line_number = index + 1;
+        let line = line.with_context(|| {
+            format!(
+                "read continuity trace line {line_number} from {}",
+                path.display()
+            )
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let trace: ContinuityQueryTrace = serde_json::from_str(&line).with_context(|| {
+            format!(
+                "parse continuity trace line {line_number} from {}",
+                path.display()
+            )
+        })?;
+        if trace.schema_version != CONTINUITY_TRACE_SCHEMA_VERSION {
+            bail!(
+                "continuity trace line {line_number} in {} has schema_version {:?}; expected {:?}",
+                path.display(),
+                trace.schema_version,
+                CONTINUITY_TRACE_SCHEMA_VERSION
+            );
+        }
+        traces.push(trace);
+    }
+    Ok(traces)
 }
 
 #[async_trait]
@@ -460,9 +484,12 @@ fn adapter_entity_type(fixture_entity_type: &str) -> Result<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::OpenOptions;
+
     use super::*;
     use crate::{CHECKED_FIXTURE_SEED, generate_fixture_set};
     use cmem_eval_core::{MockMemoryAdapter, RetrievalMode};
+    use uuid::Uuid;
 
     #[derive(Default)]
     struct MockRuntime {
@@ -512,6 +539,10 @@ mod tests {
         (traces, operation_counts)
     }
 
+    fn temporary_trace_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("cmem-continuity-{}.jsonl", Uuid::new_v4()))
+    }
+
     #[tokio::test]
     async fn scenario_library_exercises_every_scripted_adapter_operation() {
         let (traces, counts) = run_all().await;
@@ -536,6 +567,36 @@ mod tests {
         let first = run_all().await;
         let second = run_all().await;
         assert_eq!(first, second);
+    }
+
+    #[tokio::test]
+    async fn trace_reader_rejects_corrupt_bytes_after_a_valid_trace() {
+        let (traces, _) = run_all().await;
+        let path = temporary_trace_path();
+        write_continuity_traces(&path, &traces[..1]).unwrap();
+        OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(&[0xff, b'\n'])
+            .unwrap();
+
+        let error = read_continuity_traces(&path).unwrap_err().to_string();
+        std::fs::remove_file(&path).unwrap();
+        assert!(error.contains("read continuity trace line 2"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn trace_reader_rejects_an_incompatible_schema_version() {
+        let (mut traces, _) = run_all().await;
+        traces[0].schema_version = "9.9.9".to_string();
+        let path = temporary_trace_path();
+        write_continuity_traces(&path, &traces[..1]).unwrap();
+
+        let error = read_continuity_traces(&path).unwrap_err().to_string();
+        std::fs::remove_file(&path).unwrap();
+        assert!(error.contains("9.9.9"), "{error}");
+        assert!(error.contains(CONTINUITY_TRACE_SCHEMA_VERSION), "{error}");
     }
 
     #[test]
