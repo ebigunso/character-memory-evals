@@ -438,3 +438,17 @@ Fix applied:
 
 Prevention:
 - For every fresh-open, reset, reattach, or cleanup change, enumerate all configured durable stores and add regressions for structural namespace isolation, missing-store diagnostics, reattach restoration, and empty state after reset.
+
+## 2026-07-12 — Prove Destructive Scope With A Surviving Sibling  [tags: review, validation, lifecycle, isolation, documentation]
+
+Symptom:
+- The durable-store reset fix had single-namespace removal coverage but omitted the explicitly required sibling-survival scenario, left operator documentation describing the old two-store lifecycle, and did not exercise a missing identity registry in the aggregated live diagnostic matrix.
+
+Root cause:
+- Validation demonstrated that the target namespace became empty without proving the negative boundary that a destructive derived-path operation could not affect a neighboring namespace, and closeout did not reconcile every durable-store inventory item across tests and operator-facing documentation.
+
+Fix applied:
+- Add a two-namespace production-lifecycle regression under one configured root/template that resets A, proves B's exact files and data survive, and reattaches B; extend the missing-store matrix to the identity registry; update README lifecycle and cleanup semantics.
+
+Prevention:
+- Turn-closing guardrail: for any destructive scoped operation, map every acceptance item to evidence for the target, a surviving sibling, the shared parent/root, every resource-kind failure case, and current operator documentation before reporting the review fix complete.
