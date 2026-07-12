@@ -33,13 +33,7 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
     let config = read_config(&args.run.config)?;
     ContinuitySpec::validate_config(&config)?;
     args.run.validate_adapter_selection(&config)?;
-    let mut scenarios = ContinuitySpec::load(&args.run.dataset)?;
-    if let Some(selected_scenario) = args.scenario.as_deref() {
-        scenarios.retain(|scenario| scenario.fixture_id == selected_scenario);
-        if scenarios.is_empty() {
-            bail!("continuity fixture has no scenario {selected_scenario:?}");
-        }
-    }
+    let scenarios = load_continuity_scenarios(&args.run.dataset, args.scenario.as_deref())?;
     run_continuity_pipeline(args, config, scenarios).await
 }
 
@@ -51,7 +45,11 @@ pub(crate) async fn run_locomo(args: RunArgs) -> Result<()> {
     run_pipeline::<LoCoMoSpec>(args).await
 }
 
-pub(crate) fn metric_family_for_config(config: &BenchmarkRunConfig) -> Result<MetricFamily> {
+pub(crate) fn metric_family_for_config(
+    config: &BenchmarkRunConfig,
+    continuity_dataset: Option<&Path>,
+    continuity_scenario: Option<&str>,
+) -> Result<MetricFamily> {
     match config.dataset.as_str() {
         "synthetic" => {
             SyntheticSpec::validate_config(config)?;
@@ -59,7 +57,11 @@ pub(crate) fn metric_family_for_config(config: &BenchmarkRunConfig) -> Result<Me
         }
         "continuity" => {
             ContinuitySpec::validate_config(config)?;
-            Ok(ContinuitySpec::metric_family(&config.metrics))
+            let dataset = continuity_dataset.context(
+                "summarizing continuity results requires --dataset with the source fixture path",
+            )?;
+            let scenarios = load_continuity_scenarios(dataset, continuity_scenario)?;
+            Ok(continuity_metric_family(&config.metrics, &scenarios))
         }
         "longmemeval_s" => {
             LongMemEvalSpec::validate_config(config)?;
@@ -71,6 +73,20 @@ pub(crate) fn metric_family_for_config(config: &BenchmarkRunConfig) -> Result<Me
         }
         dataset => bail!("unsupported summarize dataset in config: {dataset}"),
     }
+}
+
+fn load_continuity_scenarios(
+    path: &Path,
+    selected_scenario: Option<&str>,
+) -> Result<Vec<ContinuityScenario>> {
+    let mut scenarios = ContinuitySpec::load(path)?;
+    if let Some(selected_scenario) = selected_scenario {
+        scenarios.retain(|scenario| scenario.fixture_id == selected_scenario);
+        if scenarios.is_empty() {
+            bail!("continuity fixture has no scenario {selected_scenario:?}");
+        }
+    }
+    Ok(scenarios)
 }
 
 struct MemoryBatch {
@@ -1476,6 +1492,8 @@ mod tests {
             input: out,
             config,
             out: resummary.clone(),
+            dataset: None,
+            scenario: None,
         })
         .unwrap();
         let original = cmem_eval_core::read_summary(&summary).unwrap();
@@ -1564,17 +1582,31 @@ mod tests {
         let args = continuity_mock_args(directory.path());
         let result_path = args.run.out.clone();
         let summary_path = args.run.summary_out.clone();
+        let resummary_path = directory.path().join("continuity-resummary.json");
         let trace_path = args.trace_out.clone();
+        let config_path = args.run.config.clone();
+        let dataset_path = args.run.dataset.clone();
 
         run_continuity(args).await.unwrap();
 
         let rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
         let traces = cmem_eval_continuity::read_continuity_traces(&trace_path).unwrap();
-        let summary: cmem_eval_core::RunSummary =
-            serde_json::from_slice(&fs::read(summary_path).unwrap()).unwrap();
+        crate::commands::summarize(crate::commands::SummarizeArgs {
+            input: result_path.clone(),
+            config: config_path,
+            out: resummary_path.clone(),
+            dataset: Some(dataset_path),
+            scenario: None,
+        })
+        .unwrap();
+        let summary = cmem_eval_core::read_summary(&summary_path).unwrap();
+        let resummary = cmem_eval_core::read_summary(&resummary_path).unwrap();
         assert_eq!(rows.len(), 8);
         assert_eq!(traces.len(), 8);
         assert_eq!(summary.num_questions, 8);
+        assert_eq!(resummary.config, summary.config);
+        assert_eq!(resummary.metric_support, summary.metric_support);
+        assert_eq!(resummary.registry_coverage, summary.registry_coverage);
         assert_eq!(
             summary.registry_coverage["missing_required_metrics"],
             serde_json::json!([])

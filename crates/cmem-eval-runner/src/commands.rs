@@ -198,6 +198,10 @@ struct SummarizeArgs {
     config: PathBuf,
     #[arg(long)]
     out: PathBuf,
+    #[arg(long)]
+    dataset: Option<PathBuf>,
+    #[arg(long)]
+    scenario: Option<String>,
 }
 
 fn export_official(args: ExportOfficialCommand) -> Result<()> {
@@ -247,7 +251,11 @@ fn summarize(args: SummarizeArgs) -> Result<()> {
     {
         bail!("summary input contains mixed run_id or dataset values");
     }
-    let metric_family = pipeline::metric_family_for_config(&config)?;
+    let metric_family = pipeline::metric_family_for_config(
+        &config,
+        args.dataset.as_deref(),
+        args.scenario.as_deref(),
+    )?;
     let summary = summarize_rows(
         first.run_id.clone(),
         first.dataset.clone(),

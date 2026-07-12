@@ -228,18 +228,15 @@ fn insert_correction_metrics(
 ) {
     let telemetry = &trace.retrieval.telemetry;
     if telemetry.trace_available
-        && let (Some(suppressed), Some(superseded)) = (
-            telemetry.suppressed_or_deleted_returned_count,
-            telemetry.superseded_current_returned_count,
-        )
+        && let Some(unsafe_count) = telemetry.unsafe_lifecycle_returned_count
     {
-        let leaked = (suppressed + superseded).min(trace.retrieval.items.len());
         out.insert(
             "correction_lifecycle_safe_admission_rate".to_string(),
             Value::from(if trace.retrieval.items.is_empty() {
                 1.0
             } else {
-                1.0 - leaked as f64 / trace.retrieval.items.len() as f64
+                1.0 - unsafe_count.min(trace.retrieval.items.len()) as f64
+                    / trace.retrieval.items.len() as f64
             }),
         );
     }
@@ -697,6 +694,7 @@ mod tests {
                     trace_available: true,
                     suppressed_or_deleted_returned_count: Some(0),
                     superseded_current_returned_count: Some(0),
+                    unsafe_lifecycle_returned_count: Some(0),
                     fanout_utilization: Some(vec![RetrievalFanoutUtilization {
                         root_internal_id: "root".to_string(),
                         root_object_type: "entity".to_string(),
@@ -779,6 +777,24 @@ mod tests {
         let out = metrics(ScenarioPattern::CorrectionChains);
         assert_eq!(out["correction_lifecycle_safe_admission_rate"], 1.0);
         assert_eq!(out["supersession_replacement_recall"], 1.0);
+    }
+
+    #[test]
+    fn correction_safety_counts_overlapping_lifecycle_failures_once() {
+        let scenario = scenario(ScenarioPattern::CorrectionChains);
+        let mut trace = trace(ScenarioPattern::CorrectionChains);
+        trace
+            .retrieval
+            .telemetry
+            .suppressed_or_deleted_returned_count = Some(1);
+        trace.retrieval.telemetry.superseded_current_returned_count = Some(1);
+        trace.retrieval.telemetry.unsafe_lifecycle_returned_count = Some(1);
+        let mut out = Map::new();
+
+        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+
+        assert_eq!(trace.retrieval.items.len(), 2);
+        assert_eq!(out["correction_lifecycle_safe_admission_rate"], 0.5);
     }
 
     #[test]

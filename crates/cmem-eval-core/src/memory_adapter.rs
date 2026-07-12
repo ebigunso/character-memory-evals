@@ -182,6 +182,8 @@ pub struct RetrievalTelemetry {
     #[serde(default)]
     pub superseded_current_returned_count: Option<usize>,
     #[serde(default)]
+    pub unsafe_lifecycle_returned_count: Option<usize>,
+    #[serde(default)]
     pub graph_object_missing_omitted_count: Option<usize>,
     #[serde(default)]
     pub graph_object_missing_returned_count: Option<usize>,

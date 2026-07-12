@@ -1657,6 +1657,7 @@ fn vector_hits_to_context_pack(
             lifecycle_filter_decision_count: None,
             suppressed_or_deleted_returned_count: None,
             superseded_current_returned_count: None,
+            unsafe_lifecycle_returned_count: None,
             graph_object_missing_omitted_count: None,
             graph_object_missing_returned_count: None,
             section_assignment_count: None,
@@ -1720,36 +1721,27 @@ fn telemetry_from_outcome(
         trace
             .lifecycle_filter_decisions
             .iter()
-            .filter(|decision| {
-                returned_ids.contains(&decision.object.id)
-                    && decision.action == LifecycleFilterAction::Included
-                    && (matches!(
-                        decision.retention_state,
-                        Some(RetentionState::Suppressed | RetentionState::Deleted)
-                    ) || matches!(
-                        decision.reason,
-                        LifecycleFilterReason::SuppressedIncludedByPolicy
-                            | LifecycleFilterReason::DeletedIncludedByPolicy
-                    ))
-            })
+            .filter(|decision| is_suppressed_or_deleted_returned(decision, &returned_ids))
             .count()
     });
     let superseded_current_returned_count = trace.map(|trace| {
         trace
             .lifecycle_filter_decisions
             .iter()
-            .filter(|decision| {
-                returned_ids.contains(&decision.object.id)
-                    && decision.action == LifecycleFilterAction::Included
-                    && (decision.is_current == Some(false)
-                        || !decision.superseded_by.is_empty()
-                        || matches!(
-                            decision.reason,
-                            LifecycleFilterReason::NonCurrentIncludedByPolicy
-                                | LifecycleFilterReason::SupersededIncludedByPolicy
-                        ))
-            })
+            .filter(|decision| is_superseded_current_returned(decision, &returned_ids))
             .count()
+    });
+    let unsafe_lifecycle_returned_count = trace.map(|trace| {
+        trace
+            .lifecycle_filter_decisions
+            .iter()
+            .filter(|decision| {
+                is_suppressed_or_deleted_returned(decision, &returned_ids)
+                    || is_superseded_current_returned(decision, &returned_ids)
+            })
+            .map(|decision| decision.object.id)
+            .collect::<HashSet<_>>()
+            .len()
     });
     let graph_object_missing_omitted_count = trace.map(|trace| {
         trace
@@ -1793,6 +1785,7 @@ fn telemetry_from_outcome(
         lifecycle_filter_decision_count: trace.map(|trace| trace.lifecycle_filter_decisions.len()),
         suppressed_or_deleted_returned_count,
         superseded_current_returned_count,
+        unsafe_lifecycle_returned_count,
         graph_object_missing_omitted_count,
         graph_object_missing_returned_count,
         section_assignment_count: trace.map(|trace| trace.section_assignments.len()),
@@ -1889,6 +1882,37 @@ fn telemetry_from_outcome(
             categories_by_id
         }),
     }
+}
+
+fn is_suppressed_or_deleted_returned(
+    decision: &character_memory::LifecycleFilterDecision,
+    returned_ids: &HashSet<MemoryId>,
+) -> bool {
+    returned_ids.contains(&decision.object.id)
+        && decision.action == LifecycleFilterAction::Included
+        && (matches!(
+            decision.retention_state,
+            Some(RetentionState::Suppressed | RetentionState::Deleted)
+        ) || matches!(
+            decision.reason,
+            LifecycleFilterReason::SuppressedIncludedByPolicy
+                | LifecycleFilterReason::DeletedIncludedByPolicy
+        ))
+}
+
+fn is_superseded_current_returned(
+    decision: &character_memory::LifecycleFilterDecision,
+    returned_ids: &HashSet<MemoryId>,
+) -> bool {
+    returned_ids.contains(&decision.object.id)
+        && decision.action == LifecycleFilterAction::Included
+        && (decision.is_current == Some(false)
+            || !decision.superseded_by.is_empty()
+            || matches!(
+                decision.reason,
+                LifecycleFilterReason::NonCurrentIncludedByPolicy
+                    | LifecycleFilterReason::SupersededIncludedByPolicy
+            ))
 }
 
 fn external_id_for_object(
@@ -4240,7 +4264,7 @@ mod tests {
     }
 
     #[test]
-    fn telemetry_leakage_counts_only_final_returned_items() {
+    fn telemetry_leakage_counts_only_unique_final_returned_items() {
         let returned_id = deterministic_id("n", "episode", "returned");
         let omitted_id = deterministic_id("n", "episode", "omitted");
         let mut trace = RetrievalTrace::empty();
@@ -4248,8 +4272,8 @@ mod tests {
             LifecycleFilterDecision {
                 object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
                 retention_state: Some(RetentionState::Suppressed),
-                is_current: None,
-                superseded_by: Vec::new(),
+                is_current: Some(false),
+                superseded_by: vec![omitted_id],
                 action: LifecycleFilterAction::Included,
                 reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
             },
@@ -4258,6 +4282,14 @@ mod tests {
                 retention_state: Some(RetentionState::Suppressed),
                 is_current: None,
                 superseded_by: Vec::new(),
+                action: LifecycleFilterAction::Included,
+                reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+            },
+            LifecycleFilterDecision {
+                object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
+                retention_state: Some(RetentionState::Suppressed),
+                is_current: Some(false),
+                superseded_by: vec![omitted_id],
                 action: LifecycleFilterAction::Included,
                 reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
             },
@@ -4273,7 +4305,9 @@ mod tests {
 
         let telemetry = telemetry_from_outcome(&ExternalIdRegistry::new("n"), &outcome);
 
-        assert_eq!(telemetry.suppressed_or_deleted_returned_count, Some(1));
+        assert_eq!(telemetry.suppressed_or_deleted_returned_count, Some(2));
+        assert_eq!(telemetry.superseded_current_returned_count, Some(2));
+        assert_eq!(telemetry.unsafe_lifecycle_returned_count, Some(1));
     }
 
     #[test]
