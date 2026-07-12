@@ -63,21 +63,109 @@ cargo run -p cmem-eval-runner -- run synthetic \
   --summary-out ./runs/synthetic_summary.json
 ```
 
-Continuity fixtures run through the scripted lifecycle driver and write standard result artifacts, a deterministic per-query trace JSONL, and a continuity report. The report isolates the run timestamp and other provenance in `metadata`; its `content` block contains aggregate/per-scenario metrics, rationale samples, fanout and stats-health decisions, tuning observations, and before/after restart measurements. Mock runs are service-free; live runs use the fixture-specific controllable-similarity provider and require Qdrant plus the persistent store paths in `configs/continuity_retrieval.toml`:
+## Continuity Evaluation
+
+Continuity fixtures run an ordered, fixture-scripted lifecycle through remember, staged prepare/validate/commit, retrieve, correct, forget, link, and restart operations. The harness observes and reports retrieval and lifecycle measurements; it does not enforce metric thresholds as CI pass/fail gates.
+
+### Configuration and prerequisites
+
+`configs/continuity_retrieval.toml` is the single committed continuity config for both mock smoke runs and live evaluations. A separate mock config is unnecessary because mock selection is an explicit CLI adapter choice. Continuity validation requires the `controllable_similarity` deterministic provider, the fixture's small vector size of 8, and persistent Oxigraph, retrieval-stat SQLite, and identity-registry paths so restart scenarios can reconstruct every store. The config records `max_vector_candidates = 48` and `max_graph_roots = 48` so report tuning observations remain correlated with the measured candidate-limit regime.
+
+Mock runs require Rust 1.97.0 and the checked fixture only; they do not connect to Qdrant, Oxigraph, SQLite, OpenAI, or another service. Live runs additionally require the sibling `../CharacterMemory` checkout, a local Qdrant gRPC endpoint such as `http://localhost:6334`, and writable paths under `runs/continuity/stores/`. The controllable-similarity provider does not require `OPENAI_API_KEY`.
+
+Set the live endpoint in the current shell before a live run:
+
+```bash
+export QDRANT_CONNECTION_STRING=http://localhost:6334
+```
+
+PowerShell uses `$env:QDRANT_CONNECTION_STRING = "http://localhost:6334"` for the same setting.
+
+### Run a service-free mock smoke
+
+The guarded mock command runs all eight checked scenarios, writes visibly marked `mock_smoke` artifacts, and uses the same config and metric registry as the live path:
 
 ```bash
 cargo run -p cmem-eval-runner -- run continuity \
   --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v1.json \
   --config ./configs/continuity_retrieval.toml \
-  --out ./runs/continuity.jsonl \
-  --summary-out ./runs/continuity_summary.json \
-  --trace-out ./runs/continuity_traces.jsonl \
-  --report-out ./runs/continuity_report.json \
+  --out ./runs/continuity/mock/results.jsonl \
+  --summary-out ./runs/continuity/mock/summary.json \
+  --trace-out ./runs/continuity/mock/traces.jsonl \
+  --report-out ./runs/continuity/mock/report.json \
   --adapter mock \
   --allow-mock-benchmark
 ```
 
-Pass `--scenario cross-store-stress` to run one named scenario. Omit the mock flags for a live run; restart events then drop the active adapter and reconstruct it against the namespace-scoped Qdrant, Oxigraph, retrieval-stat, and identity-registry stores.
+### Run a live restart scenario
+
+This bounded live command exercises Qdrant plus the configured persistent stores and performs the mid-scenario drop/reconstruct path. Remove `--scenario cross-store-stress` to run the complete scenario set.
+
+```bash
+cargo run -p cmem-eval-runner -- run continuity \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v1.json \
+  --config ./configs/continuity_retrieval.toml \
+  --out ./runs/continuity/live/results.jsonl \
+  --summary-out ./runs/continuity/live/summary.json \
+  --trace-out ./runs/continuity/live/traces.jsonl \
+  --report-out ./runs/continuity/live/report.json \
+  --scenario cross-store-stress
+```
+
+Fresh runs reset only the deterministic namespace-scoped stores derived from the config's prefix, run ID, and fixture namespace. The restart event inside `cross-store-stress` drops the active adapter without deleting those stores, reconstructs Qdrant/Oxigraph/SQLite/identity state, and remeasures the next scripted query before and after reconstruction.
+
+### Re-summarize existing results
+
+Continuity metric families include fixture-derived entity-kind keys, so `summarize` must receive the original config and source fixture. Repeat `--scenario <fixture-id>` when the original run selected one scenario.
+
+```bash
+cargo run -p cmem-eval-runner -- summarize \
+  --input ./runs/continuity/mock/results.jsonl \
+  --config ./configs/continuity_retrieval.toml \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v1.json \
+  --out ./runs/continuity/mock/resummary.json
+```
+
+### Generate a fixture candidate
+
+The checked fixture seed is `20260712`. Generate into `runs/` for inspection instead of overwriting the checked fixture before reviewing the diff:
+
+```bash
+cargo run -p cmem-eval-continuity --bin generate_continuity_fixtures -- \
+  ./runs/continuity/generated/continuity_v1.json 20260712
+```
+
+The generated file should match `crates/cmem-eval-continuity/fixtures/continuity_v1.json` byte-for-byte when the generator and seed are unchanged.
+
+### Read the continuity artifacts
+
+- `results.jsonl` contains one schema-versioned retrieval result per query. `summary.json` contains numeric aggregates, support counts, registry coverage, and latency.
+- `traces.jsonl` contains the deterministic query, expected labels, history text, complete retrieved context pack, rationales, and backend-neutral telemetry used by continuity metrics.
+- `report.json` has a top-level `metadata` block and deterministic `content`. `metadata` contains the generation timestamp, adapter identity, fixture/config snapshots, seeds, schema versions, and the normalization policy. Compare repeat runs by removing `metadata`; correction/forget library mutation timestamps are excluded from deterministic content.
+- `content.aggregate` reports metrics, `metric_support`, and registry coverage across the selected run. `content.scenarios` repeats those views per fixture and includes full query/context/rationale samples, fanout/selectivity decisions, stats-health observations, and any restart observations.
+- A restart observation records the lifecycle restoration count, before/after returned object IDs and recall, graph/fanout/selectivity snapshots, signed deltas, and whether the returned object set stayed stable.
+- `tuning_observations` records measured behavior together with the relevant config regime. These are tuning signals, not assertions that a Character Memory default passed or failed.
+
+Required registry keys are initialized to JSON `null` when a row cannot measure them. In `metric_support`, `numeric_rows` counts measured values, `null_rows` counts explicitly unsupported rows, and `unsupported = true` means every present row was null. A null is not zero and does not mean the evaluation failed. `registry_coverage.missing_required_metrics` instead identifies required keys that were absent entirely.
+
+Fixture `irrelevant_external_ids` are sampled negatives, not an exhaustive complement of the relevant set. `sampled_context_pollution_rate` and its rationale attribution classify only explicitly relevant IDs and explicitly sampled-negative IDs; unlabeled retrieved items are not silently treated as negative.
+
+### Extend the scenario library
+
+1. Add or update a deterministic scenario constructor in `crates/cmem-eval-continuity/src/generator.rs`; add a `ScenarioPattern` variant in `fixture.rs` only when the scenario represents a new pattern.
+2. Give every event, query, created object, and memory object a stable unique identity. Events must be chronological, and correction, forget, link, and relevance references must target objects admitted earlier in that scenario.
+3. Declare non-empty, unique, disjoint `relevant_external_ids` and sampled `irrelevant_external_ids` for every query. Keep these labels in fixture/scoring paths only; do not copy them into adapter inputs or metadata.
+4. Assign every text that reaches the controllable-similarity provider to exactly one embedding concept. Entity labels are embedding inputs as well as display text, so every entity label must also appear exactly once in `embedding.concepts`; the generator assigns referenced entity labels to the first referencing concept and unreferenced labels to `entity_background`.
+5. Regenerate a candidate with the checked seed, inspect the semantic and byte diff, and run the fixture parser, generator determinism, mock driver, and workspace tests before replacing the checked JSON.
+
+### Add a continuity metric
+
+1. Implement the measurement in `crates/cmem-eval-continuity/src/metrics.rs` using only fixture labels and backend-neutral trace telemetry. Keep entity handling type-neutral and preserve deterministic ordering.
+2. Register every required key in `continuity_metric_family`; add dynamic keys from the selected scenarios when the metric varies by fixture vocabulary.
+3. Initialize unsupported values as `null`, never a fabricated zero. Add hand-computed tests for measured values and an explicit missing-telemetry test for null support.
+4. Confirm run and `summarize` produce identical config, `metric_support`, and `registry_coverage`, and confirm the metric appears in aggregate and per-scenario report sections.
+
+Continuity metrics are measurements for comparison and tuning. Adding a metric does not create a CI threshold or a pass/fail policy.
 
 BM25 retrieval is a service-free lexical baseline selected in TOML with
 `[retrieval] mode = "bm25_only"`. It ranks ingested episodes and observations
