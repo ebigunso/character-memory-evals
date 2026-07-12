@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "crates/cmem-eval-adapter-cmem",
   "crates/cmem-eval-core",
+  "crates/cmem-eval-continuity",
   "crates/cmem-eval-longmemeval",
   "crates/cmem-eval-locomo",
   "crates/cmem-eval-runner"

@@ -443,6 +443,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmem-eval-continuity"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "cmem-eval-core",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "cmem-eval-core"
 version = "0.1.0"
 dependencies = [
