@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use cmem_eval_adapter_cmem::CharacterMemoryAdapter;
 use cmem_eval_continuity::{
     ContinuityQueryTrace, ContinuityRuntime, ContinuityScenario, InteractionEvent,
-    parse_fixture_bytes, run_continuity_scenario, write_continuity_traces,
+    continuity_metric_family, insert_continuity_metrics, parse_fixture_bytes,
+    run_continuity_scenario, write_continuity_traces,
 };
 use cmem_eval_core::{
     BenchmarkRunConfig, DatasetKind, EpisodeInput, GraphEnrichmentInput, GraphSnapshotInput,
@@ -318,8 +319,8 @@ impl DatasetSpec for ContinuitySpec {
     const REPORT_QA_PROGRESS: bool = true;
     const USES_ENRICHMENT: bool = false;
 
-    fn metric_family(_config: &MetricsConfig) -> MetricFamily {
-        MetricFamily::new("continuity_driver", std::iter::empty::<String>())
+    fn metric_family(config: &MetricsConfig) -> MetricFamily {
+        continuity_metric_family(config, &[])
     }
 
     fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
@@ -519,7 +520,7 @@ async fn run_continuity_pipeline(
 ) -> Result<()> {
     let selected = args.run.selected_adapter();
     let adapter_metadata = selected.metadata();
-    let metric_family = ContinuitySpec::metric_family(&config.metrics);
+    let metric_family = continuity_metric_family(&config.metrics, &scenarios);
     let total_queries = ContinuitySpec::total_questions(&scenarios);
     let progress = RunProgress::new(&config.dataset, scenarios.len(), Some(total_queries));
     let mut rows = Vec::with_capacity(total_queries);
@@ -540,6 +541,7 @@ async fn run_continuity_pipeline(
                 &config,
                 &adapter_metadata,
                 &metric_family,
+                &scenario,
                 &trace,
             )?);
             traces.push(trace);
@@ -577,6 +579,7 @@ fn continuity_result_row(
     config: &BenchmarkRunConfig,
     adapter: &RunAdapterMetadata,
     metric_family: &MetricFamily,
+    scenario: &ContinuityScenario,
     trace: &ContinuityQueryTrace,
 ) -> Result<PerQuestionResult> {
     let full_history = full_history_context_metrics(Some(&trace.history_text));
@@ -593,6 +596,7 @@ fn continuity_result_row(
         &trace.retrieval.telemetry,
         std::slice::from_ref(metric_family),
     );
+    insert_continuity_metrics(&mut metrics, scenario, trace, &config.metrics);
     let question_type = serde_json::to_value(trace.pattern)?
         .as_str()
         .map(str::to_string);
@@ -1571,6 +1575,25 @@ mod tests {
         assert_eq!(rows.len(), 8);
         assert_eq!(traces.len(), 8);
         assert_eq!(summary.num_questions, 8);
+        assert_eq!(
+            summary.registry_coverage["missing_required_metrics"],
+            serde_json::json!([])
+        );
+        assert_eq!(
+            summary.metric_support["fanout_over_budget_count"]["unsupported"],
+            true
+        );
+        assert!(rows.iter().all(|row| {
+            row.metrics["typed_rationale_coverage"].is_null()
+                && row.metrics["fanout_over_budget_count"].is_null()
+        }));
+        assert!(rows.iter().any(|row| {
+            row.metrics.as_object().is_some_and(|metrics| {
+                metrics.iter().any(|(key, value)| {
+                    key.starts_with("continuity_recall_fraction_gap_") && value.is_number()
+                })
+            })
+        }));
         assert!(traces.iter().all(|trace| {
             !trace.history_text.is_empty()
                 && !trace.retrieval.context_text.is_empty()
