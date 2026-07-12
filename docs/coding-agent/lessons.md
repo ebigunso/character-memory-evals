@@ -330,16 +330,16 @@ Prevention:
 ## 2026-07-12 — Reconstructed Artifacts Must Receive Original Context  [tags: review, reporting, compatibility, validation]
 
 Symptom:
-- Re-summarizing result rows used an empty config and no dataset metric family, dropping provider metadata and changing registry coverage relative to run-emitted summaries.
+- Re-summarizing result rows used incomplete semantic context, first dropping provider/config coverage and later dropping fixture-derived entity-kind registry keys relative to run-emitted summaries.
 
 Root cause:
-- The compatibility entrypoint reconstructed a derived artifact without requiring the original configuration and dataset selection that defined its semantics.
+- The compatibility entrypoint reconstructed a derived artifact without requiring every original source input—configuration, dataset fixture, and scenario selection—that defined its semantics.
 
 Fix applied:
-- Require the summarize CLI/API to receive the original config and metric family, validate run/dataset consistency, and compare regenerated provider/config/coverage fields with run output.
+- Require the summarize CLI/API to receive the original config plus continuity fixture/scenario source, route run and summarize through the same metric-family constructor, validate run/dataset consistency, and compare regenerated provider/config/support/coverage fields with run output.
 
 Prevention:
-- Any reconstruction or compatibility path for a derived artifact must receive and validate all original semantic inputs, with parity tests against the primary emission path.
+- Any reconstruction or compatibility path for a derived artifact must receive and validate all original semantic inputs through one canonical constructor, with parity tests against the primary emission path for configuration, support, and coverage.
 
 ## 2026-07-12 — Verify Gated Live Tests With The Service Down  [tags: ci, validation, integration, availability]
 
@@ -564,3 +564,17 @@ Fix applied:
 
 Prevention:
 - For every public artifact reader returning `Result`, test corrupt or invalid encoding, partial input, and incompatible schema versions before claiming the admission boundary is closed; sweep sibling readers by return path, not only by parser name.
+
+## 2026-07-12 — Aggregate Unsafe State By Identity Union  [tags: review, metrics, lifecycle, correctness]
+
+Symptom:
+- Correction safety added suppressed and superseded totals even though one returned object can satisfy both predicates, allowing one unsafe object to be counted twice.
+
+Root cause:
+- Category counts were treated as disjoint without proving that invariant at the telemetry boundary.
+
+Fix applied:
+- Project a unique unsafe lifecycle union count from the authoritative lifecycle decisions and compute safe admission from that union, with an overlap hand-calculation regression.
+
+Prevention:
+- Before combining category counts into a rate, prove the categories are disjoint; otherwise aggregate a set of stable object identities or project one authoritative union count and test an overlapping member explicitly.
