@@ -578,3 +578,31 @@ Fix applied:
 
 Prevention:
 - Before combining category counts into a rate, prove the categories are disjoint; independently require every item/object count to deduplicate stable identities, reserve multiplicity for explicitly named decision-volume fields, and test duplicate decisions plus overlapping categories against rate bounds.
+
+## 2026-07-12 — Preserve Authoritative References Across Live Mutations  [tags: review, integration, lifecycle, validation]
+
+Symptom:
+- The scripted correction path passed source-object targets without either original reference, while the permissive mock accepted the request and the live Character Memory facade rejected it.
+
+Root cause:
+- The driver retained object identity and source episode identity but discarded the authoritative raw/source references established during the original write.
+
+Fix applied:
+- Retain the adapter's deterministic original reference contract in admitted driver state, require at least one reference for source correction targets, and exercise that production constructor plus the full live scenario suite.
+
+Prevention:
+- For every mutation contract, inventory all provenance/reference fields established at admission, preserve them through driver state, and validate the live facade path; mock success alone is not contract evidence.
+
+## 2026-07-12 — Label Live Evidence Scope At The Point Of Claim  [tags: validation, reporting, evidence, review]
+
+Symptom:
+- A two-run live result was described as using the committed config without stating that it selected only the cross-store scenario, so it read as evidence for the full suite and concealed an unexercised correction failure.
+
+Root cause:
+- The evidence report named configuration identity and hashes but omitted scenario scope and exact sibling dependency provenance.
+
+Fix applied:
+- Withdraw the full-suite interpretation, audit the Character Memory commit/branch state, and replace the scoped hashes with two full-suite committed-config runs.
+
+Prevention:
+- Every live-evidence claim must state scenario scope, config identity, and sibling dependency commit/branch provenance inline; label scoped evidence as scoped when first reported.
