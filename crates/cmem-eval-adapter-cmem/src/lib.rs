@@ -1722,14 +1722,18 @@ fn telemetry_from_outcome(
             .lifecycle_filter_decisions
             .iter()
             .filter(|decision| is_suppressed_or_deleted_returned(decision, &returned_ids))
-            .count()
+            .map(|decision| decision.object.id)
+            .collect::<HashSet<_>>()
+            .len()
     });
     let superseded_current_returned_count = trace.map(|trace| {
         trace
             .lifecycle_filter_decisions
             .iter()
             .filter(|decision| is_superseded_current_returned(decision, &returned_ids))
-            .count()
+            .map(|decision| decision.object.id)
+            .collect::<HashSet<_>>()
+            .len()
     });
     let unsafe_lifecycle_returned_count = trace.map(|trace| {
         trace
@@ -4305,9 +4309,25 @@ mod tests {
 
         let telemetry = telemetry_from_outcome(&ExternalIdRegistry::new("n"), &outcome);
 
-        assert_eq!(telemetry.suppressed_or_deleted_returned_count, Some(2));
-        assert_eq!(telemetry.superseded_current_returned_count, Some(2));
+        assert_eq!(telemetry.suppressed_or_deleted_returned_count, Some(1));
+        assert_eq!(telemetry.superseded_current_returned_count, Some(1));
         assert_eq!(telemetry.unsafe_lifecycle_returned_count, Some(1));
+
+        let integrity = cmem_eval_core::integrity_details_with_telemetry(
+            &[RetrievedItem {
+                kind: "episode".to_string(),
+                internal_id: returned_id.to_string(),
+                external_id: Some("returned".to_string()),
+                episode_external_id: None,
+                score: None,
+                rank: 1,
+                rationale: Vec::new(),
+                text: None,
+            }],
+            &telemetry,
+        );
+        assert_eq!(integrity.suppressed_memory_leakage_rate, Some(1.0));
+        assert_eq!(integrity.superseded_current_leakage_rate, Some(1.0));
     }
 
     #[test]
