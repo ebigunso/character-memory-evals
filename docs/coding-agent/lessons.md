@@ -568,13 +568,13 @@ Prevention:
 ## 2026-07-12 — Aggregate Unsafe State By Identity Union  [tags: review, metrics, lifecycle, correctness]
 
 Symptom:
-- Correction safety added suppressed and superseded totals even though one returned object can satisfy both predicates, allowing one unsafe object to be counted twice.
+- Correction safety added suppressed and superseded totals even though one returned object can satisfy both predicates, and the category item counts themselves counted duplicate lifecycle decisions, allowing rates above 1.0.
 
 Root cause:
-- Category counts were treated as disjoint without proving that invariant at the telemetry boundary.
+- Category counts were treated as disjoint without proving that invariant, and fields named as returned-object counts inherited raw decision multiplicity at the telemetry boundary.
 
 Fix applied:
-- Project a unique unsafe lifecycle union count from the authoritative lifecycle decisions and compute safe admission from that union, with an overlap hand-calculation regression.
+- Project every returned-object category count and the unsafe union as unique stable-identity sets, retain a separate raw lifecycle-decision count, and cover overlap plus duplicate-decision rate bounds in hand-calculation regressions.
 
 Prevention:
-- Before combining category counts into a rate, prove the categories are disjoint; otherwise aggregate a set of stable object identities or project one authoritative union count and test an overlapping member explicitly.
+- Before combining category counts into a rate, prove the categories are disjoint; independently require every item/object count to deduplicate stable identities, reserve multiplicity for explicitly named decision-volume fields, and test duplicate decisions plus overlapping categories against rate bounds.
