@@ -201,6 +201,15 @@ impl CharacterMemoryAdapter {
         })
     }
 
+    pub async fn reconstruct(
+        config: &BenchmarkRunConfig,
+        namespace: &str,
+    ) -> Result<(Self, NamespaceLifecycleResult)> {
+        let adapter = Self::new(config).await?;
+        let lifecycle = adapter.reattach_namespace(namespace).await?;
+        Ok((adapter, lifecycle))
+    }
+
     async fn create_namespace_state(
         &self,
         namespace: &str,
@@ -2501,7 +2510,9 @@ mod tests {
         MemoryObjectRef, Modality, RetrievalRationale, RetrievalTrace, RetrieveOutcome,
         VectorDatabaseError,
     };
-    use cmem_eval_core::{CleanupConfig, EmbeddingConfig, EntityInput, MemoryLinkInput};
+    use cmem_eval_core::{
+        CleanupConfig, DerivedMemoryInput, EmbeddingConfig, EntityInput, MemoryLinkInput,
+    };
     use tempfile::tempdir;
 
     static LIVE_QDRANT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -3023,38 +3034,49 @@ mod tests {
             true,
             adapter_a.open_namespace(namespace).await
         );
-        live_call_or_skip!(
+        let staged_plan = live_call_or_skip!(
             qdrant_was_available,
-            "episode ingest",
+            "staged write preparation",
             true,
             adapter_a
-                .remember_episode(EpisodeInput {
-                    external_id: "episode-external".to_string(),
+                .prepare(PrepareWriteInput {
                     namespace: namespace.to_string(),
-                    summary: "Alice remembers a restart-safe cup of tea.".to_string(),
-                    started_at: None,
-                    ended_at: None,
-                    participants: Vec::new(),
-                    metadata: serde_json::Value::Null,
-                })
-                .await
-        );
-        live_call_or_skip!(
-            qdrant_was_available,
-            "observation ingest",
-            true,
-            adapter_a
-                .remember_observation(ObservationInput {
-                    external_id: "observation-external".to_string(),
+                    content: "The restart-safe drink is jasmine tea.".to_string(),
                     episode_external_id: "episode-external".to_string(),
-                    namespace: namespace.to_string(),
-                    speaker: Some("Alice".to_string()),
-                    text: "The restart-safe drink is jasmine tea.".to_string(),
-                    observed_at: None,
-                    metadata: serde_json::Value::Null,
+                    observation_external_id: "observation-external".to_string(),
+                    raw_refs: vec!["fixture://continuity/restart".to_string()],
+                    idempotency_key: Some("continuity-restart-write".to_string()),
+                    include_vector_index_candidates: true,
+                    include_stats_update_candidates: true,
                 })
                 .await
         );
+        let staged_validations = live_call_or_skip!(
+            qdrant_was_available,
+            "staged write validation",
+            true,
+            adapter_a.validate_plan(&staged_plan).await
+        );
+        assert!(
+            staged_validations
+                .iter()
+                .all(|validation| validation.status == "valid")
+        );
+        let staged_commit = live_call_or_skip!(
+            qdrant_was_available,
+            "staged write commit",
+            true,
+            adapter_a
+                .commit(staged_plan, CommitWriteOptions::default())
+                .await
+        );
+        assert!(staged_commit.persisted_object_refs.iter().any(|reference| {
+            reference.object_type == "episode" && reference.external_id == "episode-external"
+        }));
+        assert!(staged_commit.persisted_object_refs.iter().any(|reference| {
+            reference.object_type == "observation"
+                && reference.external_id == "observation-external"
+        }));
         live_call_or_skip!(
             qdrant_was_available,
             "graph enrichment ingest",
@@ -3070,7 +3092,33 @@ mod tests {
                         canonical_key: None,
                         summary: Some("A restart-safe graph entity.".to_string()),
                     }],
-                    links: vec![MemoryLinkInput {
+                    derived_memories: vec![DerivedMemoryInput {
+                        external_id: "pre-correction-memory".to_string(),
+                        derived_type: "reflection".to_string(),
+                        text: "The restart-safe drink is jasmine tea.".to_string(),
+                        source_episode_external_ids: vec!["episode-external".to_string()],
+                        source_observation_external_ids: vec!["observation-external".to_string(),],
+                        thread_external_ids: Vec::new(),
+                        entity_external_ids: vec!["alice-entity".to_string()],
+                        confidence: 1.0,
+                        salience_score: 0.8,
+                        stability: "medium".to_string(),
+                        is_current: true,
+                        supersedes_external_ids: Vec::new(),
+                        metadata: serde_json::Value::Null,
+                    }],
+                    ..GraphEnrichmentInput::default()
+                })
+                .await
+        );
+        let link = live_call_or_skip!(
+            qdrant_was_available,
+            "public link round-trip",
+            true,
+            adapter_a
+                .link(LinkMemoryInput {
+                    namespace: namespace.to_string(),
+                    link: MemoryLinkInput {
                         external_id: "alice-episode-link".to_string(),
                         from: MemoryEndpointInput {
                             object_type: "entity".to_string(),
@@ -3083,11 +3131,87 @@ mod tests {
                         },
                         confidence: 1.0,
                         rationale: Some("exercise graph and stats persistence".to_string()),
-                    }],
-                    ..GraphEnrichmentInput::default()
+                    },
                 })
                 .await
         );
+        assert_eq!(link.external_id, "alice-episode-link");
+
+        let origin = SourceProvenanceInput {
+            episode_external_ids: vec!["episode-external".to_string()],
+            observation_external_ids: vec!["observation-external".to_string()],
+            ..SourceProvenanceInput::default()
+        };
+        let correction = live_call_or_skip!(
+            qdrant_was_available,
+            "public correction round-trip",
+            true,
+            adapter_a
+                .correct(CorrectMemoryInput {
+                    namespace: namespace.to_string(),
+                    targets: vec![CorrectionTargetInput::DerivedMemory {
+                        external_id: "pre-correction-memory".to_string(),
+                    }],
+                    replacements: vec![ReplacementDerivedMemoryInput {
+                        memory: DerivedMemoryInput {
+                            external_id: "corrected-memory".to_string(),
+                            derived_type: "reflection".to_string(),
+                            text: "The restart-safe drink is oolong tea.".to_string(),
+                            source_episode_external_ids: vec!["episode-external".to_string()],
+                            source_observation_external_ids: vec![
+                                "observation-external".to_string(),
+                            ],
+                            thread_external_ids: Vec::new(),
+                            entity_external_ids: vec!["alice-entity".to_string()],
+                            confidence: 1.0,
+                            salience_score: 0.8,
+                            stability: "medium".to_string(),
+                            is_current: true,
+                            supersedes_external_ids: vec!["pre-correction-memory".to_string(),],
+                            metadata: serde_json::Value::Null,
+                        },
+                        original_source_provenance: origin.clone(),
+                        correction_origin_provenance: origin.clone(),
+                    }],
+                    superseded_derived_memory_external_ids: vec![
+                        "pre-correction-memory".to_string(),
+                    ],
+                    correction_origin: origin,
+                    rationale: "The fixture scripted a correction.".to_string(),
+                    lifecycle_policy: Default::default(),
+                    cascade_policy: Default::default(),
+                    include_trace: true,
+                })
+                .await
+        );
+        assert!(correction.mutated_object_refs.iter().any(|reference| {
+            reference.object_type == "derived_memory" && reference.external_id == "corrected-memory"
+        }));
+
+        let forgotten = live_call_or_skip!(
+            qdrant_was_available,
+            "public forget round-trip",
+            true,
+            adapter_a
+                .forget(ForgetMemoryInput {
+                    namespace: namespace.to_string(),
+                    targets: vec![MemoryEndpointInput {
+                        object_type: "derived_memory".to_string(),
+                        external_id: "corrected-memory".to_string(),
+                    }],
+                    rationale: "The fixture scripted suppression.".to_string(),
+                    suppression_policy: Default::default(),
+                    archive_policy: Default::default(),
+                    cascade_policy: Default::default(),
+                    target_retention_state: "suppressed".to_string(),
+                    target_thread_status: None,
+                    include_trace: true,
+                })
+                .await
+        );
+        assert!(forgotten.mutated_object_refs.iter().any(|reference| {
+            reference.object_type == "derived_memory" && reference.external_id == "corrected-memory"
+        }));
         drop(adapter_a);
         assert!(oxigraph_path.exists());
         assert!(retrieval_stats_path.exists());
@@ -3097,19 +3221,13 @@ mod tests {
             persisted_entity_id.as_bytes()
         ));
 
-        let adapter_b = live_call_or_skip!(
+        let (adapter_b, lifecycle) = live_call_or_skip!(
             qdrant_was_available,
-            "reattach adapter construction",
-            false,
-            CharacterMemoryAdapter::new(&config).await
-        );
-        let lifecycle = live_call_or_skip!(
-            qdrant_was_available,
-            "namespace reattach",
+            "public adapter reconstruction",
             true,
-            adapter_b.reattach_namespace(namespace).await
+            CharacterMemoryAdapter::reconstruct(&config, namespace).await
         );
-        assert_eq!(lifecycle.restored_identity_count, 4);
+        assert_eq!(lifecycle.restored_identity_count, 6);
         let retrieved = live_call_or_skip!(
             qdrant_was_available,
             "reattached retrieval",
@@ -3209,7 +3327,7 @@ mod tests {
             true,
             adapter_restored_stores.reattach_namespace(namespace).await
         );
-        assert_eq!(restored_stores.restored_identity_count, 4);
+        assert_eq!(restored_stores.restored_identity_count, 6);
         let collection_name = adapter_restored_stores.collection_name(namespace);
         live_call_or_skip!(
             qdrant_was_available,
