@@ -2804,6 +2804,25 @@ mod tests {
             .unwrap();
     }
 
+    #[tokio::test]
+    async fn matched_deterministic_dimension_satisfies_construction_contract() {
+        let mut config = adapter_config(
+            "dimension-contract".to_string(),
+            "cmem_eval_dimension".to_string(),
+        );
+        config.backend.embedding.model = "text-embedding-3-small".to_string();
+        config.backend.embedding.vector_size = Some(1536);
+        config.ingest.index_observations = true;
+        config.ingest.index_episode_summaries = true;
+        config.validate().unwrap();
+
+        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let settings = adapter.settings("namespace").unwrap();
+        let provider = CharacterMemoryEmbeddingProvider::new(1536).unwrap();
+        assert_eq!(settings.get_embedding_vector_size().unwrap(), 1536);
+        assert_eq!(provider.vector_size(), 1536);
+    }
+
     #[test]
     fn identity_registry_serialization_is_stable_and_sorted() {
         let directory = tempdir().unwrap();

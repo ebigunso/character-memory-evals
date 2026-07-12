@@ -99,6 +99,16 @@ impl BackendConfig {
         if self.embedding.vector_size == Some(0) {
             bail!("backend.embedding.vector_size must be greater than zero");
         }
+        if self.embedding.provider == "deterministic" {
+            let configured_size = self.embedding.vector_size.unwrap_or(3072);
+            let model_size = embedding_model_vector_size(&self.embedding.model)?;
+            if configured_size != model_size {
+                bail!(
+                    "backend.embedding.vector_size {configured_size} does not match backend.embedding.model {:?} dimension {model_size} for deterministic provider",
+                    self.embedding.model
+                );
+            }
+        }
         for (field, value) in [
             (
                 "backend.oxigraph_persistence_path",
@@ -338,6 +348,16 @@ fn default_embedding_model() -> String {
     "text-embedding-3-large".to_string()
 }
 
+fn embedding_model_vector_size(model: &str) -> Result<usize> {
+    match model.trim() {
+        "text-embedding-3-small" | "text-embedding-ada-002" => Ok(1536),
+        "text-embedding-3-large" => Ok(3072),
+        _ => bail!(
+            "backend.embedding.model {model:?} is unsupported for deterministic provider; expected text-embedding-3-small, text-embedding-3-large, or text-embedding-ada-002"
+        ),
+    }
+}
+
 fn default_openai_api_key_env() -> String {
     "OPENAI_API_KEY".to_string()
 }
@@ -385,6 +405,7 @@ fn sanitized_collection_prefix(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DeterministicEmbeddingProvider;
 
     #[test]
     fn backend_defaults_to_openai_large_embeddings() {
@@ -411,6 +432,32 @@ mod tests {
         let error = config.validate().unwrap_err().to_string();
         assert!(error.contains("backend.embedding.vector_size"));
         assert!(error.contains("greater than zero"));
+    }
+
+    #[test]
+    fn deterministic_embedding_dimension_must_match_model_at_validation_boundary() {
+        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "backend": {
+                "embedding": {
+                    "provider": "deterministic",
+                    "model": "text-embedding-3-small",
+                    "vector_size": 3072
+                }
+            },
+            "ingest": {"index_observations": true, "index_episode_summaries": true}
+        }))
+        .unwrap();
+
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("backend.embedding.vector_size 3072"));
+        assert!(error.contains("text-embedding-3-small"));
+        assert!(error.contains("dimension 1536"));
+
+        config.backend.embedding.vector_size = Some(1536);
+        config.validate().unwrap();
+        DeterministicEmbeddingProvider::new(1536).unwrap();
     }
 
     #[test]
