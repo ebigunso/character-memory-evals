@@ -1,25 +1,45 @@
-use crate::commands::{AdapterKind, RunArgs, read_config};
+use crate::commands::{AdapterKind, ContinuityRunArgs, RunArgs, read_config};
 use crate::enrichment;
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use async_trait::async_trait;
 use cmem_eval_adapter_cmem::CharacterMemoryAdapter;
+use cmem_eval_continuity::{
+    ContinuityQueryTrace, ContinuityRuntime, ContinuityScenario, InteractionEvent,
+    parse_fixture_bytes, run_continuity_scenario, write_continuity_traces,
+};
 use cmem_eval_core::{
-    BenchmarkRunConfig, EpisodeInput, GraphEnrichmentInput, GraphSnapshotInput, MemoryAdapter,
-    MetricFamily, MetricsConfig, MockMemoryAdapter, ObservationInput, PerQuestionResult,
-    ReaderResult, ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem,
-    RunAdapterMetadata, Timer, composition_metrics, count_tokens, estimate_word_count,
-    initialize_registry_metrics_for, insert_composition_metrics, insert_context_metrics,
-    insert_integrity_detail_metrics, insert_retrieval_metrics, insert_telemetry_metrics,
-    integrity_details_with_telemetry, summarize_rows, write_jsonl, write_summary,
+    BenchmarkRunConfig, DatasetKind, EpisodeInput, GraphEnrichmentInput, GraphSnapshotInput,
+    MemoryAdapter, MetricFamily, MetricsConfig, MockMemoryAdapter, NamespaceLifecycleResult,
+    ObservationInput, PerQuestionResult, ReaderResult, ResultContextMetrics, RetrieveInput,
+    RetrievedContextPack, RetrievedItem, RunAdapterMetadata, Timer, composition_metrics,
+    count_tokens, estimate_word_count, initialize_registry_metrics_for, insert_composition_metrics,
+    insert_context_metrics, insert_integrity_detail_metrics, insert_retrieval_metrics,
+    insert_telemetry_metrics, integrity_details_with_telemetry, summarize_rows, write_jsonl,
+    write_summary,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
 pub(crate) async fn run_synthetic(args: RunArgs) -> Result<()> {
     run_pipeline::<SyntheticSpec>(args).await
+}
+
+pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
+    let config = read_config(&args.run.config)?;
+    ContinuitySpec::validate_config(&config)?;
+    args.run.validate_adapter_selection(&config)?;
+    let mut scenarios = ContinuitySpec::load(&args.run.dataset)?;
+    if let Some(selected_scenario) = args.scenario.as_deref() {
+        scenarios.retain(|scenario| scenario.fixture_id == selected_scenario);
+        if scenarios.is_empty() {
+            bail!("continuity fixture has no scenario {selected_scenario:?}");
+        }
+    }
+    run_continuity_pipeline(args, config, scenarios).await
 }
 
 pub(crate) async fn run_longmemeval(args: RunArgs) -> Result<()> {
@@ -35,6 +55,10 @@ pub(crate) fn metric_family_for_config(config: &BenchmarkRunConfig) -> Result<Me
         "synthetic" => {
             SyntheticSpec::validate_config(config)?;
             Ok(SyntheticSpec::metric_family(&config.metrics))
+        }
+        "continuity" => {
+            ContinuitySpec::validate_config(config)?;
+            Ok(ContinuitySpec::metric_family(&config.metrics))
         }
         "longmemeval_s" => {
             LongMemEvalSpec::validate_config(config)?;
@@ -282,6 +306,316 @@ async fn prepare_fresh_namespace(adapter: &dyn MemoryAdapter, namespace: &str) -
     adapter.reset_namespace(namespace).await?;
     adapter.open_namespace(namespace).await?;
     Ok(())
+}
+
+struct ContinuitySpec;
+
+impl DatasetSpec for ContinuitySpec {
+    type Item = ContinuityScenario;
+    type Question = InteractionEvent;
+
+    const LATENCY_INCLUDES_INGEST: bool = false;
+    const REPORT_QA_PROGRESS: bool = true;
+    const USES_ENRICHMENT: bool = false;
+
+    fn metric_family(_config: &MetricsConfig) -> MetricFamily {
+        MetricFamily::new("continuity_driver", std::iter::empty::<String>())
+    }
+
+    fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
+        validate_dataset_name(config, "continuity")?;
+        config.validate_for_dataset_kind(DatasetKind::Continuity)
+    }
+
+    fn load(path: &Path) -> Result<Vec<Self::Item>> {
+        let bytes = fs::read(path)
+            .with_context(|| format!("read continuity fixture {}", path.display()))?;
+        Ok(parse_fixture_bytes(&bytes)?.scenarios)
+    }
+
+    fn item_id(item: &Self::Item) -> &str {
+        &item.fixture_id
+    }
+
+    fn namespace(item: &Self::Item) -> String {
+        item.namespace.clone()
+    }
+
+    fn memory_inputs(_item: &Self::Item, _config: &BenchmarkRunConfig) -> MemoryBatch {
+        // Continuity events are executed in order by the scripted driver rather
+        // than flattened into the batch-retrieval ingestion path.
+        MemoryBatch {
+            episodes: Vec::new(),
+            observations: Vec::new(),
+            derived_memories: Vec::new(),
+        }
+    }
+
+    fn questions(item: &Self::Item) -> Vec<&Self::Question> {
+        item.events
+            .iter()
+            .filter(|event| matches!(event, InteractionEvent::Query { .. }))
+            .collect()
+    }
+
+    fn question_id(question: &Self::Question) -> &str {
+        match question {
+            InteractionEvent::Query { query_id, .. } => query_id,
+            _ => unreachable!("ContinuitySpec::questions returns query events only"),
+        }
+    }
+
+    fn question_type(_question: &Self::Question) -> Option<String> {
+        Some("continuity".to_string())
+    }
+
+    fn question_text(question: &Self::Question) -> &str {
+        match question {
+            InteractionEvent::Query { text, .. } => text,
+            _ => unreachable!("ContinuitySpec::questions returns query events only"),
+        }
+    }
+
+    fn query_date(question: &Self::Question) -> Option<String> {
+        match question {
+            InteractionEvent::Query { timestamp, .. } => Some(timestamp.to_rfc3339()),
+            _ => unreachable!("ContinuitySpec::questions returns query events only"),
+        }
+    }
+
+    fn gold_episode_ids(_item: &Self::Item, _question: &Self::Question) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn gold_observation_ids(_item: &Self::Item, _question: &Self::Question) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn score(
+        _item: &Self::Item,
+        _question: &Self::Question,
+        _items: &[RetrievedItem],
+        _config: &BenchmarkRunConfig,
+    ) -> Value {
+        Value::Object(Map::new())
+    }
+
+    fn full_history_text(item: &Self::Item) -> String {
+        item.events
+            .iter()
+            .filter_map(|event| match event {
+                InteractionEvent::Remember { text, .. } | InteractionEvent::Query { text, .. } => {
+                    Some(text.as_str())
+                }
+                InteractionEvent::Correct {
+                    replacement_text, ..
+                } => Some(replacement_text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn enrichment(
+        _item: &Self::Item,
+        _namespace: &str,
+        _derived_memories: Vec<cmem_eval_core::DerivedMemoryInput>,
+        _config: &BenchmarkRunConfig,
+        _configured: &HashMap<String, GraphEnrichmentInput>,
+        _snapshots: &HashMap<String, GraphSnapshotInput>,
+    ) -> Result<Option<GraphEnrichmentInput>> {
+        Ok(None)
+    }
+}
+
+enum RunnerContinuityRuntime {
+    Mock {
+        active: MockMemoryAdapter,
+        durable: MockMemoryAdapter,
+    },
+    Real {
+        active: Option<Box<CharacterMemoryAdapter>>,
+        config: Box<BenchmarkRunConfig>,
+        scenario: Box<ContinuityScenario>,
+    },
+}
+
+impl RunnerContinuityRuntime {
+    async fn new(
+        selected: AdapterKind,
+        config: &BenchmarkRunConfig,
+        scenario: &ContinuityScenario,
+    ) -> Result<Self> {
+        match selected {
+            AdapterKind::Mock => {
+                let active = MockMemoryAdapter::default();
+                Ok(Self::Mock {
+                    durable: active.clone(),
+                    active,
+                })
+            }
+            AdapterKind::Real => Ok(Self::Real {
+                active: Some(Box::new(
+                    CharacterMemoryAdapter::new_with_controllable_similarity(
+                        config,
+                        scenario.embedding.clone(),
+                    )
+                    .await?,
+                )),
+                config: Box::new(config.clone()),
+                scenario: Box::new(scenario.clone()),
+            }),
+        }
+    }
+}
+
+#[async_trait]
+impl ContinuityRuntime for RunnerContinuityRuntime {
+    fn adapter(&self) -> &dyn MemoryAdapter {
+        match self {
+            Self::Mock { active, .. } => active,
+            Self::Real { active, .. } => active
+                .as_ref()
+                .expect("real continuity runtime always holds an active adapter")
+                .as_ref(),
+        }
+    }
+
+    async fn restart(&mut self, scenario: &ContinuityScenario) -> Result<NamespaceLifecycleResult> {
+        match self {
+            Self::Mock { active, durable } => {
+                let replacement = durable.clone();
+                let previous = std::mem::replace(active, replacement);
+                drop(previous);
+                active.reattach_namespace(&scenario.namespace).await
+            }
+            Self::Real {
+                active,
+                config,
+                scenario: configured_scenario,
+            } => {
+                let previous = active
+                    .take()
+                    .context("real continuity runtime lost its active adapter")?;
+                drop(previous);
+                let (replacement, lifecycle) =
+                    CharacterMemoryAdapter::reconstruct_with_controllable_similarity(
+                        config.as_ref(),
+                        &scenario.namespace,
+                        configured_scenario.embedding.clone(),
+                    )
+                    .await?;
+                *active = Some(Box::new(replacement));
+                Ok(lifecycle)
+            }
+        }
+    }
+}
+
+async fn run_continuity_pipeline(
+    args: ContinuityRunArgs,
+    config: BenchmarkRunConfig,
+    scenarios: Vec<ContinuityScenario>,
+) -> Result<()> {
+    let selected = args.run.selected_adapter();
+    let adapter_metadata = selected.metadata();
+    let metric_family = ContinuitySpec::metric_family(&config.metrics);
+    let total_queries = ContinuitySpec::total_questions(&scenarios);
+    let progress = RunProgress::new(&config.dataset, scenarios.len(), Some(total_queries));
+    let mut rows = Vec::with_capacity(total_queries);
+    let mut traces = Vec::with_capacity(total_queries);
+    let mut operation_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut runtimes = Vec::with_capacity(scenarios.len());
+
+    for (index, scenario) in scenarios.into_iter().enumerate() {
+        let item_number = index + 1;
+        progress.item_started(item_number, &scenario.fixture_id);
+        let mut runtime = RunnerContinuityRuntime::new(selected, &config, &scenario).await?;
+        let run = run_continuity_scenario(&mut runtime, &scenario, &config.retrieval).await?;
+        for (operation, count) in run.operation_counts {
+            *operation_counts.entry(operation).or_default() += count;
+        }
+        for trace in run.traces {
+            rows.push(continuity_result_row(
+                &config,
+                &adapter_metadata,
+                &metric_family,
+                &trace,
+            )?);
+            traces.push(trace);
+        }
+        progress.item_finished(item_number, &scenario.fixture_id, 0);
+        runtimes.push((scenario.namespace.clone(), runtime));
+    }
+
+    if let Some(parent) = args.trace_out.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    progress.write_outputs_started(rows.len());
+    write_continuity_traces(&args.trace_out, &traces)?;
+    write_outputs(
+        args.run,
+        config.clone(),
+        rows,
+        std::slice::from_ref(&metric_family),
+    )?;
+    eprintln!(
+        "[cmem-eval][continuity][operations] {}",
+        serde_json::to_string(&operation_counts)?
+    );
+
+    progress.cleanup_started(runtimes.len());
+    if config.backend.cleanup.enabled {
+        for (namespace, runtime) in runtimes {
+            runtime.adapter().cleanup_namespace(&namespace).await?;
+        }
+    }
+    Ok(())
+}
+
+fn continuity_result_row(
+    config: &BenchmarkRunConfig,
+    adapter: &RunAdapterMetadata,
+    metric_family: &MetricFamily,
+    trace: &ContinuityQueryTrace,
+) -> Result<PerQuestionResult> {
+    let full_history = full_history_context_metrics(Some(&trace.history_text));
+    let context = context_metrics_with_full_history(&trace.retrieval, full_history);
+    let composition = composition_metrics(&trace.retrieval.items);
+    let integrity =
+        integrity_details_with_telemetry(&trace.retrieval.items, &trace.retrieval.telemetry);
+    let mut metrics = Map::new();
+    insert_common_metrics(
+        &mut metrics,
+        &context,
+        &composition,
+        &integrity,
+        &trace.retrieval.telemetry,
+        std::slice::from_ref(metric_family),
+    );
+    let question_type = serde_json::to_value(trace.pattern)?
+        .as_str()
+        .map(str::to_string);
+    Ok(PerQuestionResult {
+        run_id: config.run_id.clone(),
+        dataset: config.dataset.clone(),
+        adapter: adapter.clone(),
+        question_id: trace.query_id.clone(),
+        question_type,
+        question: trace.query.clone(),
+        gold_episode_ids: Vec::new(),
+        gold_observation_ids: Vec::new(),
+        retrieved: trace.retrieval.items.clone(),
+        metrics: Value::Object(metrics),
+        latency_ms: 0,
+        context_char_count: context.retrieved_context_chars,
+        context_word_count: context.retrieved_context_words,
+        context,
+        telemetry: trace.retrieval.telemetry.clone(),
+        composition,
+        integrity,
+        reader: ReaderResult::default(),
+    })
 }
 
 struct SyntheticSpec;
@@ -1055,6 +1389,21 @@ mod tests {
         }
     }
 
+    fn continuity_mock_args(directory: &Path) -> ContinuityRunArgs {
+        ContinuityRunArgs {
+            run: RunArgs {
+                dataset: PathBuf::from("../cmem-eval-continuity/fixtures/continuity_v1.json"),
+                config: PathBuf::from("../../configs/continuity_retrieval.toml"),
+                out: directory.join("continuity.jsonl"),
+                summary_out: directory.join("continuity-summary.json"),
+                adapter: Some(AdapterKind::Mock),
+                allow_mock_benchmark: true,
+            },
+            trace_out: directory.join("continuity-traces.jsonl"),
+            scenario: None,
+        }
+    }
+
     fn service_free_config(source: &str, directory: &Path) -> PathBuf {
         let config = fs::read_to_string(source).unwrap();
         let config = config
@@ -1203,5 +1552,45 @@ mod tests {
         assert_eq!(rows[1].question_id, "q2");
         assert_eq!(rows[0].gold_episode_ids, vec!["s1"]);
         assert_eq!(rows[0].gold_observation_ids, vec!["d1"]);
+    }
+
+    #[tokio::test]
+    async fn continuity_command_runs_scripted_scenarios_and_writes_full_traces() {
+        let directory = tempfile::tempdir().unwrap();
+        let args = continuity_mock_args(directory.path());
+        let result_path = args.run.out.clone();
+        let summary_path = args.run.summary_out.clone();
+        let trace_path = args.trace_out.clone();
+
+        run_continuity(args).await.unwrap();
+
+        let rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
+        let traces = cmem_eval_continuity::read_continuity_traces(&trace_path).unwrap();
+        let summary: cmem_eval_core::RunSummary =
+            serde_json::from_slice(&fs::read(summary_path).unwrap()).unwrap();
+        assert_eq!(rows.len(), 8);
+        assert_eq!(traces.len(), 8);
+        assert_eq!(summary.num_questions, 8);
+        assert!(traces.iter().all(|trace| {
+            !trace.history_text.is_empty()
+                && !trace.retrieval.context_text.is_empty()
+                && trace
+                    .retrieval
+                    .items
+                    .iter()
+                    .all(|item| !item.rationale.is_empty())
+        }));
+    }
+
+    #[test]
+    fn continuity_spec_is_the_production_dataset_kind_validation_caller() {
+        let mut config =
+            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        config.backend.embedding.provider = "openai".to_string();
+        let error = ContinuitySpec::validate_config(&config)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("deterministic embedding provider"));
+        assert!(error.contains("openai"));
     }
 }

@@ -45,6 +45,7 @@ struct RunCommand {
 impl RunCommand {
     async fn run(self) -> Result<()> {
         match self.dataset {
+            RunDataset::Continuity(args) => pipeline::run_continuity(args).await,
             RunDataset::Synthetic(args) => pipeline::run_synthetic(args).await,
             RunDataset::LongmemevalS(args) => pipeline::run_longmemeval(args).await,
             RunDataset::Locomo(args) => pipeline::run_locomo(args).await,
@@ -54,9 +55,20 @@ impl RunCommand {
 
 #[derive(Debug, Subcommand)]
 enum RunDataset {
+    Continuity(ContinuityRunArgs),
     LongmemevalS(RunArgs),
     Locomo(RunArgs),
     Synthetic(RunArgs),
+}
+
+#[derive(Debug, Args, Clone)]
+pub(crate) struct ContinuityRunArgs {
+    #[command(flatten)]
+    pub(crate) run: RunArgs,
+    #[arg(long = "trace-out")]
+    pub(crate) trace_out: PathBuf,
+    #[arg(long)]
+    pub(crate) scenario: Option<String>,
 }
 
 #[derive(Debug, Args)]

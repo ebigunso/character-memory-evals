@@ -447,10 +447,12 @@ name = "cmem-eval-continuity"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "chrono",
  "cmem-eval-core",
  "serde",
  "serde_json",
+ "tokio",
  "uuid",
 ]
 
@@ -498,8 +500,10 @@ name = "cmem-eval-runner"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
  "cmem-eval-adapter-cmem",
+ "cmem-eval-continuity",
  "cmem-eval-core",
  "cmem-eval-locomo",
  "cmem-eval-longmemeval",

@@ -63,6 +63,21 @@ cargo run -p cmem-eval-runner -- run synthetic \
   --summary-out ./runs/synthetic_summary.json
 ```
 
+Continuity fixtures run through the scripted lifecycle driver and write both standard result artifacts and a deterministic per-query trace JSONL containing the complete retrieved context pack, item rationales, expected relevance labels, and telemetry. Mock runs are service-free; live runs use the fixture-specific controllable-similarity provider and require Qdrant plus the persistent store paths in `configs/continuity_retrieval.toml`:
+
+```bash
+cargo run -p cmem-eval-runner -- run continuity \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v1.json \
+  --config ./configs/continuity_retrieval.toml \
+  --out ./runs/continuity.jsonl \
+  --summary-out ./runs/continuity_summary.json \
+  --trace-out ./runs/continuity_traces.jsonl \
+  --adapter mock \
+  --allow-mock-benchmark
+```
+
+Pass `--scenario cross-store-stress` to run one named scenario. Omit the mock flags for a live run; restart events then drop the active adapter and reconstruct it against the namespace-scoped Qdrant, Oxigraph, retrieval-stat, and identity-registry stores.
+
 BM25 retrieval is a service-free lexical baseline selected in TOML with
 `[retrieval] mode = "bm25_only"`. It ranks ingested episodes and observations
 inside the eval harness and does not connect to Qdrant, Oxigraph, OpenAI, or
@@ -130,10 +145,10 @@ The workspace separates shared evaluation contracts, dataset-specific behavior, 
 
 - `crates/cmem-eval-core` owns backend-neutral configuration, the `MemoryAdapter` contract and DTOs, deterministic metric primitives, runtime metric-family composition, and versioned result/summary types. Core contains no dataset-name dispatch.
 - `crates/cmem-eval-adapter-cmem` is the reusable live Character Memory adapter. It maps the core contract to the sibling library, derives deterministic collection names from the configured prefix, run ID, and namespace, and persists a BTreeMap-backed external-ID registry so a new adapter process can reattach to existing stores without losing benchmark IDs.
-- `crates/cmem-eval-longmemeval` and `crates/cmem-eval-locomo` own their loaders, ingest mapping, scorers, full-history construction, config-name validation, and retrieval metric-family declarations.
-- `crates/cmem-eval-runner` owns the CLI and static dataset selection. Its `DatasetSpec` seam feeds per-dataset loader/mapper/scorer/full-history/metric-family behavior into one generic ingest → enrich → retrieve → score → result pipeline.
+- `crates/cmem-eval-longmemeval`, `crates/cmem-eval-locomo`, and `crates/cmem-eval-continuity` own their loaders, ingest or event mapping, scorers or trace contracts, full-history construction, config-name validation, and metric-family declarations.
+- `crates/cmem-eval-runner` owns the CLI and static dataset selection. Its `DatasetSpec` seam feeds conventional datasets into the generic ingest → enrich → retrieve → score → result pipeline and routes continuity fixtures through their ordered scripted lifecycle driver.
 
-Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementation, but no `cmem-eval-core` change. The future continuity benchmark belongs in `crates/cmem-eval-continuity`, with its loader, mapping, scoring, full-history logic, and metric-family declaration kept inside that crate.
+Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementation, but no `cmem-eval-core` change. Continuity-specific fixture parsing, ordered event execution, and query trace serialization remain in `crates/cmem-eval-continuity`.
 
 JSONL rows and summaries use report schema version `1.0.0`; readers reject missing or different versions rather than entering a compatibility mode. The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains first-class as per-row `latency_ms` and summary `latency.latency_ms` mean/median/p50/p95 values, but it is excluded from deterministic `metrics`; summaries also record the embedding provider.
 
