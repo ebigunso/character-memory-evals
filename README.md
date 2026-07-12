@@ -137,7 +137,7 @@ Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementa
 
 JSONL rows and summaries use report schema version `1.0.0`; readers reject missing or different versions rather than entering a compatibility mode. The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains first-class as per-row `latency_ms` and summary `latency.latency_ms` mean/median/p50/p95 values, but it is excluded from deterministic `metrics`; summaries also record the embedding provider.
 
-Live namespace lifecycle is explicit: `open_namespace` creates fresh run state, while `reattach_namespace` restores the persisted identity registry and reconnects to deterministic collections. Cleanup remains guarded by the configured eval prefix.
+Live namespace lifecycle is explicit: `open_namespace` creates fresh run state, while `reattach_namespace` requires and restores the complete durable identity consisting of the external-ID registry, deterministic Qdrant collection, and every configured namespace-scoped Oxigraph and retrieval-stat store. Configured `oxigraph_persistence_path` values are shared roots whose namespace child directories use the same prefix/run/namespace UUID identity as Qdrant; configured `retrieval_stats_path` values are filename templates whose derived sibling files use that identity while preserving the configured extension. Cleanup remains guarded by the configured eval prefix and never deletes a configured shared root.
 
 ## Precomputed Graph Enrichment
 
@@ -280,9 +280,9 @@ timestamp remains in eval metadata for debugging, but the live adapter stays
 strict: any non-RFC3339 timestamp that reaches it fails with context instead of
 being guessed at the backend boundary.
 
-Backend post-run cleanup is disabled by default. When `[backend.cleanup] enabled = true`, the runner deletes only live Qdrant collections it created for completed eval namespaces, and only when `require_collection_prefix` matches the configured `namespace_prefix` after Qdrant-name sanitization. Post-run cleanup never deletes files under `runs/`, `reports/`, `datasets/`, or other result artifacts.
+Backend post-run cleanup is disabled by default. When `[backend.cleanup] enabled = true`, the runner deletes the deterministic Qdrant collection, external-ID registry, namespace-scoped Oxigraph directory, and namespace-scoped retrieval-stat database plus SQLite sidecars for each completed eval namespace, and only when `require_collection_prefix` matches the configured `namespace_prefix` after Qdrant-name sanitization. Post-run cleanup targets only those exact derived durable-store paths; it does not delete configured shared roots or unrelated files under `runs/`, `reports/`, `datasets/`, or other result locations.
 
-Fresh runs always remove any prior deterministic collection and identity registry for the same `(namespace_prefix, run_id, namespace)` before ingest, using `namespace_prefix` as the deletion safety guard. Disabling post-run cleanup therefore preserves a completed collection for inspection only until the next fresh run with the same identity. Use the explicit reattach lifecycle when state must be preserved intentionally across adapter instances or runs.
+Fresh runs always remove every prior namespace-scoped durable store for the same `(namespace_prefix, run_id, namespace)` before ingest, using `namespace_prefix` as the Qdrant deletion safety guard and derived namespace identities to avoid deleting sibling stores. Disabling post-run cleanup therefore preserves completed registry, Qdrant, Oxigraph, and retrieval-stat state for inspection only until the next fresh run with the same identity. Use the explicit reattach lifecycle when all of that state must be preserved intentionally across adapter instances or runs; reattach fails and names every missing configured store rather than admitting partial state.
 
 ## Character Memory API
 

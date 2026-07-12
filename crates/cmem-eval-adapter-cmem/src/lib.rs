@@ -2504,6 +2504,8 @@ mod tests {
     use cmem_eval_core::{CleanupConfig, EmbeddingConfig, EntityInput, MemoryLinkInput};
     use tempfile::tempdir;
 
+    static LIVE_QDRANT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     fn adapter_config(run_id: String, namespace_prefix: String) -> BenchmarkRunConfig {
         let mut backend = cmem_eval_core::BackendConfig {
             namespace_prefix: Some(namespace_prefix.clone()),
@@ -2538,6 +2540,12 @@ mod tests {
             .unwrap()
             .windows(needle.len())
             .any(|window| window == needle)
+    }
+
+    fn path_with_appended_suffix(path: &Path, suffix: &str) -> PathBuf {
+        let mut value = path.as_os_str().to_os_string();
+        value.push(suffix);
+        PathBuf::from(value)
     }
 
     fn is_qdrant_unavailable_error(error: &VectorDatabaseError) -> bool {
@@ -2944,6 +2952,7 @@ mod tests {
 
     #[tokio::test]
     async fn live_adapter_reattaches_with_external_ids() {
+        let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
         let directory = tempdir().unwrap();
         let token = unique_test_token();
         let run_id = format!("task3-{token}");
@@ -2974,6 +2983,7 @@ mod tests {
                 .into_owned(),
         );
         let path_adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let identity_registry_path = path_adapter.identity_registry_path(namespace);
         let oxigraph_path = path_adapter.oxigraph_persistence_path(namespace).unwrap();
         let retrieval_stats_path = path_adapter.retrieval_stats_path(namespace).unwrap();
         drop(path_adapter);
@@ -3148,6 +3158,26 @@ mod tests {
         drop(adapter_missing_stats);
         fs::rename(&retrieval_stats_backup, &retrieval_stats_path).unwrap();
 
+        let identity_registry_backup = identity_registry_path.with_extension("missing-test-backup");
+        fs::rename(&identity_registry_path, &identity_registry_backup).unwrap();
+        let adapter_missing_registry = live_call_or_skip!(
+            qdrant_was_available,
+            "missing-registry adapter construction",
+            false,
+            CharacterMemoryAdapter::new(&config).await
+        );
+        let missing_registry_error = live_error_or_skip!(
+            qdrant_was_available,
+            "missing-registry namespace reattach",
+            adapter_missing_registry.reattach_namespace(namespace).await
+        );
+        let missing_registry_message = missing_registry_error.to_string();
+        assert!(missing_registry_message.contains("identity registry"));
+        assert!(missing_registry_message.contains(&identity_registry_path.display().to_string()));
+        assert!(adapter_missing_registry.namespaces.lock().await.is_empty());
+        drop(adapter_missing_registry);
+        fs::rename(&identity_registry_backup, &identity_registry_path).unwrap();
+
         let adapter_restored_stores = live_call_or_skip!(
             qdrant_was_available,
             "all-stores adapter construction",
@@ -3257,6 +3287,214 @@ mod tests {
             "final namespace cleanup",
             adapter_c.reset_namespace(namespace).await,
             adapter_c.reset_namespace(namespace).await
+        );
+    }
+
+    #[tokio::test]
+    async fn live_reset_preserves_sibling_namespace_durable_stores() {
+        let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
+        let directory = tempdir().unwrap();
+        let token = unique_test_token();
+        let run_id = format!("sibling-isolation-{token}");
+        let prefix = format!("cmem_eval_sibling_{token}");
+        let namespace_a = "namespace-a";
+        let namespace_b = "namespace-b";
+        let oxigraph_root = directory.path().join("shared-oxigraph-root");
+        let stats_template = directory.path().join("shared-retrieval-stats.sqlite");
+        let mut config = adapter_config(run_id, prefix);
+        config.backend.cleanup.enabled = false;
+        config.backend.identity_registry_dir = Some(
+            directory
+                .path()
+                .join("identities")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        config.backend.oxigraph_persistence_path =
+            Some(oxigraph_root.to_string_lossy().into_owned());
+        config.backend.retrieval_stats_path = Some(stats_template.to_string_lossy().into_owned());
+
+        let mut qdrant_was_available = false;
+        let writer = live_call_or_skip!(
+            qdrant_was_available,
+            "sibling writer construction",
+            false,
+            CharacterMemoryAdapter::new(&config).await
+        );
+        live_call_or_skip!(
+            qdrant_was_available,
+            "namespace A fresh open",
+            true,
+            writer.open_namespace(namespace_a).await
+        );
+        live_call_or_skip!(
+            qdrant_was_available,
+            "namespace B fresh open",
+            true,
+            writer.open_namespace(namespace_b).await
+        );
+        for (namespace, label) in [(namespace_a, "a"), (namespace_b, "b")] {
+            live_call_or_skip!(
+                qdrant_was_available,
+                "sibling episode ingest",
+                true,
+                writer
+                    .remember_episode(EpisodeInput {
+                        external_id: format!("episode-{label}"),
+                        namespace: namespace.to_string(),
+                        summary: format!("Sibling namespace {label} must survive independently."),
+                        started_at: None,
+                        ended_at: None,
+                        participants: Vec::new(),
+                        metadata: serde_json::Value::Null,
+                    })
+                    .await
+            );
+            live_call_or_skip!(
+                qdrant_was_available,
+                "sibling graph and stats ingest",
+                true,
+                writer
+                    .remember_enrichment(GraphEnrichmentInput {
+                        namespace: namespace.to_string(),
+                        entities: vec![EntityInput {
+                            external_id: format!("entity-{label}"),
+                            entity_type: "person".to_string(),
+                            name: format!("Sibling {label}"),
+                            aliases: Vec::new(),
+                            canonical_key: None,
+                            summary: Some(format!("Graph sentinel for namespace {label}.")),
+                        }],
+                        links: vec![MemoryLinkInput {
+                            external_id: format!("link-{label}"),
+                            from: MemoryEndpointInput {
+                                object_type: "entity".to_string(),
+                                external_id: format!("entity-{label}"),
+                            },
+                            relation: "involves".to_string(),
+                            to: MemoryEndpointInput {
+                                object_type: "episode".to_string(),
+                                external_id: format!("episode-{label}"),
+                            },
+                            confidence: 1.0,
+                            rationale: Some("sibling isolation sentinel".to_string()),
+                        }],
+                        ..GraphEnrichmentInput::default()
+                    })
+                    .await
+            );
+        }
+
+        let registry_a = writer.identity_registry_path(namespace_a);
+        let registry_b = writer.identity_registry_path(namespace_b);
+        let oxigraph_a = writer.oxigraph_persistence_path(namespace_a).unwrap();
+        let oxigraph_b = writer.oxigraph_persistence_path(namespace_b).unwrap();
+        let stats_a = writer.retrieval_stats_path(namespace_a).unwrap();
+        let stats_b = writer.retrieval_stats_path(namespace_b).unwrap();
+        let collection_a = writer.collection_name(namespace_a);
+        let collection_b = writer.collection_name(namespace_b);
+        assert_eq!(oxigraph_a.parent(), Some(oxigraph_root.as_path()));
+        assert_eq!(oxigraph_b.parent(), Some(oxigraph_root.as_path()));
+        assert_eq!(stats_a.parent(), stats_template.parent());
+        assert_eq!(stats_b.parent(), stats_template.parent());
+        assert_ne!(oxigraph_a, oxigraph_b);
+        assert_ne!(stats_a, stats_b);
+        assert!(!stats_template.exists());
+        drop(writer);
+
+        let stats_a_wal = path_with_appended_suffix(&stats_a, "-wal");
+        let stats_a_shm = path_with_appended_suffix(&stats_a, "-shm");
+        fs::write(&stats_a_wal, b"namespace-a-wal-sentinel").unwrap();
+        fs::write(&stats_a_shm, b"namespace-a-shm-sentinel").unwrap();
+        let registry_b_before = fs::read(&registry_b).unwrap();
+        let stats_b_before = fs::read(&stats_b).unwrap();
+        let entity_b_id = deterministic_id(namespace_b, "entity", "entity-b").to_string();
+        assert!(file_contains(&stats_b, entity_b_id.as_bytes()));
+
+        let resetter = live_call_or_skip!(
+            qdrant_was_available,
+            "sibling resetter construction",
+            false,
+            CharacterMemoryAdapter::new(&config).await
+        );
+        live_call_or_skip!(
+            qdrant_was_available,
+            "namespace A production reset",
+            true,
+            resetter.reset_namespace(namespace_a).await
+        );
+
+        assert!(!registry_a.exists());
+        assert!(!oxigraph_a.exists());
+        assert!(!stats_a.exists());
+        assert!(!stats_a_wal.exists());
+        assert!(!stats_a_shm.exists());
+        assert!(oxigraph_root.exists());
+        assert!(registry_b.exists());
+        assert!(oxigraph_b.exists());
+        assert!(stats_b.exists());
+        assert_eq!(fs::read(&registry_b).unwrap(), registry_b_before);
+        assert_eq!(fs::read(&stats_b).unwrap(), stats_b_before);
+        let collection_a_exists = live_call_or_skip!(
+            qdrant_was_available,
+            "namespace A collection absence check",
+            true,
+            resetter
+                .qdrant
+                .collection_exists(&collection_a)
+                .await
+                .with_context(|| format!("check sibling collection {collection_a}"))
+        );
+        let collection_b_exists = live_call_or_skip!(
+            qdrant_was_available,
+            "namespace B collection survival check",
+            true,
+            resetter
+                .qdrant
+                .collection_exists(&collection_b)
+                .await
+                .with_context(|| format!("check sibling collection {collection_b}"))
+        );
+        assert!(!collection_a_exists);
+        assert!(collection_b_exists);
+
+        let reattached_b = live_call_or_skip!(
+            qdrant_was_available,
+            "namespace B reattach after sibling reset",
+            true,
+            resetter.reattach_namespace(namespace_b).await
+        );
+        assert_eq!(reattached_b.restored_identity_count, 3);
+        let surviving_b = live_call_or_skip!(
+            qdrant_was_available,
+            "namespace B retrieval after sibling reset",
+            true,
+            resetter
+                .retrieve(RetrieveInput {
+                    mode: RetrievalMode::Hybrid,
+                    namespace: namespace_b.to_string(),
+                    query: "Which sibling namespace must survive?".to_string(),
+                    query_date: None,
+                    top_k_episodes: 8,
+                    top_k_observations: 8,
+                    include_derived_memories: false,
+                    include_threads: false,
+                    include_entities: true,
+                    include_debug_rationale: true,
+                })
+                .await
+        );
+        assert!(
+            surviving_b
+                .items
+                .iter()
+                .any(|item| item.external_id.as_deref() == Some("episode-b"))
+        );
+        live_teardown_with_one_retry!(
+            qdrant_was_available,
+            "sibling namespace B cleanup",
+            resetter.reset_namespace(namespace_b).await,
+            resetter.reset_namespace(namespace_b).await
         );
     }
 
