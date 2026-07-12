@@ -522,3 +522,31 @@ Fix applied:
 
 Prevention:
 - For restart features, use a turn-closing matrix covering every required store, validation-before-I/O ordering, every identity category, and at least one behavioral state that must survive reconstruction; aggregate counts alone are insufficient evidence.
+
+## 2026-07-12 — Validate Fixture Vocabulary At The Facade Boundary  [tags: integration, validation, fixtures, enums]
+
+Symptom:
+- The first live continuity run stopped before writing because the fixture entity kind `location` did not match the Character Memory facade enum spelling `place`, even though mock execution accepted the string.
+
+Root cause:
+- The scripted-driver design validated event ordering and identity references but did not audit dataset vocabulary against the live adapter's closed enum boundary before the live probe.
+
+Fix applied:
+- Add an explicit schema-to-facade entity-kind mapping for `location` to `place`, while leaving labels, text, and all scripted actions uninterpreted.
+
+Prevention:
+- Before live validation of fixture-driven integrations, enumerate every closed-enum field across the fixture and facade schemas, test each translation directly, and reject unknown values rather than passing them through the mock path.
+
+## 2026-07-12 — Run Strict Lints After Adding Test Harness Types  [tags: validation, rust, clippy, tests]
+
+Symptom:
+- The required strict Clippy gate rejected a manually implemented `Default` for a test runtime and an oversized real/mock runtime enum even though targeted tests and formatting had passed.
+
+Root cause:
+- Runtime and test helper types were written for clarity during rapid driver iteration without checking the warnings-as-errors lint surface immediately after their shapes stabilized.
+
+Fix applied:
+- Derive `Default`, box the large real-runtime fields, and rerun strict workspace Clippy.
+
+Prevention:
+- Run the strict package lint immediately after new Rust test-support types compile, before expensive live reproducibility probes or final workspace validation.
