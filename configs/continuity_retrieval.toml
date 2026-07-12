@@ -24,6 +24,8 @@ include_derived_memories = true
 include_threads = true
 include_entities = true
 include_debug_rationale = true
+max_vector_candidates = 48
+max_graph_roots = 48
 
 [ingest]
 index_observations = true

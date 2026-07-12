@@ -45,10 +45,20 @@
             0.0,
             0.0
           ],
-          "target": [
+          "entity_background": [
             0.0,
             1.0,
             0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target": [
+            0.0,
+            0.0,
+            1.0,
             0.0,
             0.0,
             0.0,
@@ -61,13 +71,21 @@
             "cluster": "target",
             "inputs": [
               "A dormant project uses the cobalt protocol.",
-              "Which protocol belongs to the dormant project?"
+              "Which protocol belongs to the dormant project?",
+              "Entity A"
+            ]
+          },
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity C"
             ]
           },
           "recent": {
             "cluster": "distractor",
             "inputs": [
-              "A recent project uses the amber protocol."
+              "A recent project uses the amber protocol.",
+              "Entity B"
             ]
           }
         }
@@ -170,7 +188,10 @@
               "Hub incident 3 connects all declared entity kinds.",
               "Hub incident 4 connects all declared entity kinds.",
               "Hub incident 5 connects all declared entity kinds.",
-              "Which incident most recently connected every hub?"
+              "Which incident most recently connected every hub?",
+              "Hub C",
+              "Hub B",
+              "Hub A"
             ]
           }
         }
@@ -326,10 +347,20 @@
             0.0,
             0.0
           ],
-          "target": [
+          "entity_background": [
             0.0,
             1.0,
             0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target": [
+            0.0,
+            0.0,
+            1.0,
             0.0,
             0.0,
             0.0,
@@ -341,14 +372,22 @@
           "common": {
             "cluster": "distractor",
             "inputs": [
-              "A frequent organization carries routine status updates."
+              "A frequent organization carries routine status updates.",
+              "Entity B"
+            ]
+          },
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity A"
             ]
           },
           "rare": {
             "cluster": "target",
             "inputs": [
               "A rare location carries the violet access token.",
-              "Which access token belongs to the rare location?"
+              "Which access token belongs to the rare location?",
+              "Entity C"
             ]
           }
         }
@@ -440,10 +479,20 @@
             0.0,
             0.0
           ],
-          "superseded": [
+          "entity_background": [
             0.0,
             1.0,
             0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "superseded": [
+            0.0,
+            0.0,
+            1.0,
             0.0,
             0.0,
             0.0,
@@ -459,11 +508,19 @@
               "What is the corrected delivery window?"
             ]
           },
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity C",
+              "Entity A"
+            ]
+          },
           "old": {
             "cluster": "superseded",
             "inputs": [
               "The delivery window is Monday.",
-              "The delivery window is Tuesday."
+              "The delivery window is Tuesday.",
+              "Entity B"
             ]
           }
         }
@@ -567,10 +624,20 @@
             0.0,
             0.0
           ],
-          "target": [
+          "entity_background": [
             0.0,
             1.0,
             0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target": [
+            0.0,
+            0.0,
+            1.0,
             0.0,
             0.0,
             0.0,
@@ -583,14 +650,22 @@
             "cluster": "distractor",
             "inputs": [
               "Thread broadens to deployment details.",
-              "Thread drifts into unrelated travel planning."
+              "Thread drifts into unrelated travel planning.",
+              "Entity C"
+            ]
+          },
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity A"
             ]
           },
           "focus": {
             "cluster": "target",
             "inputs": [
               "Thread starts with a focused migration.",
-              "What was the thread's original focus?"
+              "What was the thread's original focus?",
+              "Entity B"
             ]
           }
         }
@@ -704,10 +779,20 @@
             0.0,
             0.0
           ],
-          "past": [
+          "entity_background": [
             0.0,
             1.0,
             0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "past": [
+            0.0,
+            0.0,
+            1.0,
             0.0,
             0.0,
             0.0,
@@ -723,10 +808,18 @@
               "Where was the archive after the October move?"
             ]
           },
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity B",
+              "Entity A"
+            ]
+          },
           "old": {
             "cluster": "past",
             "inputs": [
-              "The archive was stored in the west wing in January."
+              "The archive was stored in the west wing in January.",
+              "Entity C"
             ]
           }
         }
@@ -834,14 +927,17 @@
             "cluster": "distractor",
             "inputs": [
               "A low-salience routine note was recorded.",
-              "A medium-salience schedule change was recorded."
+              "A medium-salience schedule change was recorded.",
+              "Entity B",
+              "Entity A"
             ]
           },
           "signal": {
             "cluster": "target",
             "inputs": [
               "A high-salience emergency access code is delta-nine.",
-              "What is the emergency access code?"
+              "What is the emergency access code?",
+              "Entity C"
             ]
           }
         }
@@ -937,9 +1033,19 @@
         "vector_size": 8,
         "noise_magnitude": 0.0009765625,
         "clusters": {
-          "target": [
+          "entity_background": [
             1.0,
             0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target": [
+            0.0,
+            1.0,
             0.0,
             0.0,
             0.0,
@@ -949,11 +1055,19 @@
           ]
         },
         "concepts": {
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity C"
+            ]
+          },
           "marker": {
             "cluster": "target",
             "inputs": [
               "The persistent cross-store marker is quartz-seven.",
-              "What marker must survive the restart?"
+              "What marker must survive the restart?",
+              "Entity B",
+              "Entity A"
             ]
           }
         }

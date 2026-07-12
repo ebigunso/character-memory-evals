@@ -247,6 +247,10 @@ pub struct RetrievalConfig {
     pub include_entities: bool,
     #[serde(default)]
     pub include_debug_rationale: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_vector_candidates: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_graph_roots: Option<usize>,
 }
 
 impl Default for RetrievalConfig {
@@ -259,6 +263,8 @@ impl Default for RetrievalConfig {
             include_threads: false,
             include_entities: false,
             include_debug_rationale: false,
+            max_vector_candidates: None,
+            max_graph_roots: None,
         }
     }
 }
@@ -270,6 +276,20 @@ impl RetrievalConfig {
         }
         if self.top_k_observations == 0 {
             bail!("retrieval.top_k_observations must be greater than zero");
+        }
+        if self.max_vector_candidates == Some(0) {
+            bail!("retrieval.max_vector_candidates must be greater than zero when set");
+        }
+        if self.max_graph_roots == Some(0) {
+            bail!("retrieval.max_graph_roots must be greater than zero when set");
+        }
+        if let (Some(max_vector_candidates), Some(max_graph_roots)) =
+            (self.max_vector_candidates, self.max_graph_roots)
+            && max_graph_roots > max_vector_candidates
+        {
+            bail!(
+                "retrieval.max_graph_roots ({max_graph_roots}) must not exceed retrieval.max_vector_candidates ({max_vector_candidates})"
+            );
         }
         Ok(())
     }
@@ -764,7 +784,9 @@ mod tests {
             "dataset": "synthetic",
             "retrieval": {
                 "include_threads": true,
-                "include_entities": true
+                "include_entities": true,
+                "max_vector_candidates": 48,
+                "max_graph_roots": 48
             },
             "ingest": {
                 "index_observations": true,
@@ -774,6 +796,29 @@ mod tests {
         .unwrap();
 
         config.validate().unwrap();
+        assert_eq!(config.retrieval.max_vector_candidates, Some(48));
+        assert_eq!(config.retrieval.max_graph_roots, Some(48));
+    }
+
+    #[test]
+    fn rejects_graph_root_limit_above_vector_candidate_limit() {
+        let mut retrieval = RetrievalConfig {
+            max_vector_candidates: Some(12),
+            max_graph_roots: Some(13),
+            ..RetrievalConfig::default()
+        };
+        let error = retrieval.validate().unwrap_err().to_string();
+        assert!(error.contains("max_graph_roots (13)"), "{error}");
+        assert!(error.contains("max_vector_candidates (12)"), "{error}");
+
+        retrieval.max_graph_roots = Some(0);
+        assert!(
+            retrieval
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("greater than zero")
+        );
     }
 
     #[test]

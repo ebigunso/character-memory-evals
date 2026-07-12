@@ -443,9 +443,10 @@ fn scenario(
     pattern: ScenarioPattern,
     mut entities: Vec<EntityDeclaration>,
     events: Vec<InteractionEvent>,
-    concepts: BTreeMap<String, SimilarityConceptFixture>,
+    mut concepts: BTreeMap<String, SimilarityConceptFixture>,
 ) -> ContinuityScenario {
     entities.sort_by(|left, right| left.external_id.cmp(&right.external_id));
+    assign_entity_embedding_inputs(&entities, &events, &mut concepts);
     let clusters = concepts
         .values()
         .map(|concept| concept.cluster.clone())
@@ -470,6 +471,46 @@ fn scenario(
             concepts,
         },
         events,
+    }
+}
+
+fn assign_entity_embedding_inputs(
+    entities: &[EntityDeclaration],
+    events: &[InteractionEvent],
+    concepts: &mut BTreeMap<String, SimilarityConceptFixture>,
+) {
+    let mut background_labels = Vec::new();
+    for entity in entities {
+        let first_referencing_text = events.iter().find_map(|event| match event {
+            InteractionEvent::Remember {
+                text,
+                entity_external_ids,
+                ..
+            } if entity_external_ids.contains(&entity.external_id) => Some(text),
+            _ => None,
+        });
+        if let Some(text) = first_referencing_text {
+            let concept = concepts
+                .values_mut()
+                .find(|concept| concept.inputs.contains(text))
+                .expect("every Remember text is assigned to exactly one fixture concept");
+            concept.inputs.push(entity.label.clone());
+        } else {
+            background_labels.push(entity.label.clone());
+        }
+    }
+    if !background_labels.is_empty() {
+        let previous = concepts.insert(
+            "entity_background".to_string(),
+            SimilarityConceptFixture {
+                cluster: "entity_background".to_string(),
+                inputs: background_labels,
+            },
+        );
+        assert!(
+            previous.is_none(),
+            "reserved entity background concept collided"
+        );
     }
 }
 
@@ -717,6 +758,27 @@ mod tests {
     }
 
     #[test]
+    fn public_parser_requires_every_entity_label_embedding_assignment() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = &mut fixtures.scenarios[0];
+        let entity_label = scenario
+            .entities
+            .iter()
+            .find(|entity| entity.external_id == "entity-person")
+            .unwrap()
+            .label
+            .clone();
+        for concept in scenario.embedding.concepts.values_mut() {
+            concept.inputs.retain(|input| input != &entity_label);
+        }
+        let bytes = serde_json::to_vec(&fixtures).unwrap();
+
+        let error = parse_fixture_bytes(&bytes).unwrap_err().to_string();
+        assert!(error.contains("entity label"), "{error}");
+        assert!(error.contains(&entity_label), "{error}");
+    }
+
+    #[test]
     fn recurring_hubs_span_three_entity_kinds_at_high_degree() {
         let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
         let hub = scenario(&fixtures, ScenarioPattern::RecurringHubEntity);
@@ -842,6 +904,9 @@ mod tests {
                 if let Some(text) = text {
                     provider.vector_for_text(text).unwrap();
                 }
+            }
+            for entity in &scenario.entities {
+                provider.vector_for_text(&entity.label).unwrap();
             }
         }
     }

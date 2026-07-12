@@ -44,6 +44,10 @@ pub struct EntityDeclaration {
     pub memory_id: Uuid,
     pub external_id: String,
     pub entity_type: String,
+    /// Embedding input as well as display text. Scenario authors must assign it
+    /// exactly once in `embedding.concepts`; the generator uses the concept of
+    /// the first `Remember` that explicitly references this entity, or the
+    /// deterministic `entity_background` concept when no event references it.
     pub label: String,
     pub is_hub: bool,
 }
@@ -168,6 +172,22 @@ impl ContinuityScenario {
         }
         for entity in &self.entities {
             require_non_empty("entity.external_id", &entity.external_id)?;
+            require_non_empty("entity.entity_type", &entity.entity_type)?;
+            require_non_empty("entity.label", &entity.label)?;
+            let assignment_count = self
+                .embedding
+                .concepts
+                .values()
+                .flat_map(|concept| &concept.inputs)
+                .filter(|input| *input == &entity.label)
+                .count();
+            if assignment_count != 1 {
+                bail!(
+                    "scenario {:?} entity label {:?} must have exactly one embedding concept assignment; found {assignment_count}",
+                    self.fixture_id,
+                    entity.label
+                );
+            }
         }
 
         let mut event_ids = BTreeSet::new();

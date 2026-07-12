@@ -193,6 +193,57 @@ pub struct RetrievalTelemetry {
     pub stale_candidate_omission_reasons: BTreeMap<String, usize>,
     #[serde(default)]
     pub lifecycle_omission_reasons: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub fanout_utilization: Option<Vec<RetrievalFanoutUtilization>>,
+    #[serde(default)]
+    pub selectivity_decisions: Option<Vec<RetrievalSelectivityDecision>>,
+    #[serde(default)]
+    pub rationale_categories_by_internal_id:
+        Option<BTreeMap<String, Vec<RetrievalRationaleCategory>>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RetrievalFanoutUtilization {
+    pub root_internal_id: String,
+    pub root_object_type: String,
+    pub root_external_id: Option<String>,
+    pub relation: String,
+    pub object_type: String,
+    pub configured_cap: usize,
+    pub selected_cap: usize,
+    pub retained_count: usize,
+    pub omitted_by_fanout_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RetrievalSelectivityDecision {
+    pub root_internal_id: String,
+    pub root_object_type: String,
+    pub root_external_id: Option<String>,
+    pub relation: String,
+    pub object_type: String,
+    pub count_scope: String,
+    pub score: Option<f64>,
+    pub entity_count: Option<u64>,
+    pub global_count: Option<u64>,
+    pub support_factor: f64,
+    pub chosen_fanout: usize,
+    pub max_fanout: usize,
+    pub decision: String,
+    pub fallback: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum RetrievalRationaleCategory {
+    Semantic,
+    Entity,
+    Thread,
+    Temporal,
+    Salience,
+    Scope,
+    Lifecycle,
+    GraphBound,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

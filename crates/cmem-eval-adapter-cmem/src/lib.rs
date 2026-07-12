@@ -21,7 +21,8 @@ use cmem_eval_core::{
     ForgetMemoryInput, GraphEnrichmentInput, LifecycleMutationResult, LinkMemoryInput,
     LinkMemoryResult, MemoryAdapter, MemoryEndpointInput, NamespaceLifecycleResult,
     ObservationInput, PrepareWriteInput, PreparedCandidate, PreparedWritePlan,
-    ReplacementDerivedMemoryInput, RetrievalMode, RetrievalTelemetry, RetrieveInput,
+    ReplacementDerivedMemoryInput, RetrievalFanoutUtilization, RetrievalMode,
+    RetrievalRationaleCategory, RetrievalSelectivityDecision, RetrievalTelemetry, RetrieveInput,
     RetrievedContextPack, RetrievedItem, SourceProvenanceInput, SupersessionResult,
 };
 use qdrant_client::Qdrant;
@@ -1394,6 +1395,12 @@ impl MemoryAdapter for CharacterMemoryAdapter {
 
         let mut context = RetrievalContext::new(input.query);
         context.include_trace = input.include_debug_rationale;
+        if let Some(max_vector_candidates) = self.config.retrieval.max_vector_candidates {
+            context.candidate_limits.max_vector_candidates = max_vector_candidates;
+        }
+        if let Some(max_graph_roots) = self.config.retrieval.max_graph_roots {
+            context.candidate_limits.max_graph_roots = max_graph_roots;
+        }
         context.section_limits = ContinuitySectionLimits {
             relevant_episodes: input.top_k_episodes,
             salient_observations: input.top_k_observations,
@@ -1429,7 +1436,7 @@ fn flatten_outcome(
     state: &NamespaceState,
     outcome: character_memory::RetrieveOutcome,
 ) -> RetrievedContextPack {
-    let telemetry = telemetry_from_outcome(&outcome);
+    let telemetry = telemetry_from_outcome(state, &outcome);
     let mut trace_by_id: HashMap<MemoryId, (Option<f64>, usize)> = HashMap::new();
     if let Some(trace) = &outcome.trace {
         for candidate in &trace.vector_candidates {
@@ -1656,6 +1663,9 @@ fn vector_hits_to_context_pack(
             section_assignment_counts: BTreeMap::new(),
             stale_candidate_omission_reasons: BTreeMap::new(),
             lifecycle_omission_reasons: BTreeMap::new(),
+            fanout_utilization: None,
+            selectivity_decisions: None,
+            rationale_categories_by_internal_id: None,
         },
     }
 }
@@ -1700,7 +1710,10 @@ fn optional_payload_string(
     }
 }
 
-fn telemetry_from_outcome(outcome: &character_memory::RetrieveOutcome) -> RetrievalTelemetry {
+fn telemetry_from_outcome(
+    state: &ExternalIdRegistry,
+    outcome: &character_memory::RetrieveOutcome,
+) -> RetrievalTelemetry {
     let trace = outcome.trace.as_ref();
     let returned_ids = returned_object_ids(outcome);
     let suppressed_or_deleted_returned_count = trace.map(|trace| {
@@ -1816,6 +1829,97 @@ fn telemetry_from_outcome(outcome: &character_memory::RetrieveOutcome) -> Retrie
                 )
             })
             .collect(),
+        fanout_utilization: trace.map(|trace| {
+            trace
+                .fanout_utilization
+                .iter()
+                .map(|entry| RetrievalFanoutUtilization {
+                    root_internal_id: entry.root.id.to_string(),
+                    root_object_type: format!("{:?}", entry.root.object_type).to_ascii_snake_case(),
+                    root_external_id: external_id_for_object(state, entry.root),
+                    relation: format!("{:?}", entry.relation).to_ascii_snake_case(),
+                    object_type: format!("{:?}", entry.object_type).to_ascii_snake_case(),
+                    configured_cap: entry.configured_cap,
+                    selected_cap: entry.selected_cap,
+                    retained_count: entry.retained_count,
+                    omitted_by_fanout_count: entry.omitted_by_fanout_count,
+                })
+                .collect()
+        }),
+        selectivity_decisions: trace.map(|trace| {
+            trace
+                .selectivity_decisions
+                .iter()
+                .map(|entry| RetrievalSelectivityDecision {
+                    root_internal_id: entry.root.id.to_string(),
+                    root_object_type: format!("{:?}", entry.root.object_type).to_ascii_snake_case(),
+                    root_external_id: external_id_for_object(state, entry.root),
+                    relation: format!("{:?}", entry.relation).to_ascii_snake_case(),
+                    object_type: format!("{:?}", entry.object_type).to_ascii_snake_case(),
+                    count_scope: format!("{:?}", entry.count_scope).to_ascii_snake_case(),
+                    score: entry.score,
+                    entity_count: entry.entity_count,
+                    global_count: entry.global_count,
+                    support_factor: entry.support_factor,
+                    chosen_fanout: entry.chosen_fanout,
+                    max_fanout: entry.max_fanout,
+                    decision: format!("{:?}", entry.decision).to_ascii_snake_case(),
+                    fallback: entry.fallback,
+                })
+                .collect()
+        }),
+        rationale_categories_by_internal_id: trace.map(|trace| {
+            let mut categories_by_id: BTreeMap<String, Vec<RetrievalRationaleCategory>> =
+                BTreeMap::new();
+            for assignment in &trace.section_assignments {
+                let categories = categories_by_id
+                    .entry(assignment.object.id.to_string())
+                    .or_default();
+                for category in assignment
+                    .rationale_categories
+                    .iter()
+                    .copied()
+                    .map(retrieval_rationale_category)
+                {
+                    if !categories.contains(&category) {
+                        categories.push(category);
+                    }
+                }
+            }
+            categories_by_id
+        }),
+    }
+}
+
+fn external_id_for_object(
+    state: &ExternalIdRegistry,
+    object: character_memory::MemoryObjectRef,
+) -> Option<String> {
+    match object.object_type {
+        ObjectType::Episode => state.reverse_episode_ids.get(&object.id).cloned(),
+        ObjectType::Observation => state
+            .reverse_observation_ids
+            .get(&object.id)
+            .map(|(external_id, _)| external_id.clone()),
+        ObjectType::Entity => state.reverse_entity_ids.get(&object.id).cloned(),
+        ObjectType::MemoryThread => state.reverse_thread_ids.get(&object.id).cloned(),
+        ObjectType::DerivedMemory => state.reverse_derived_memory_ids.get(&object.id).cloned(),
+        ObjectType::MemoryLink => state.reverse_link_ids.get(&object.id).cloned(),
+    }
+}
+
+fn retrieval_rationale_category(
+    category: character_memory::RationaleCategory,
+) -> RetrievalRationaleCategory {
+    match category {
+        character_memory::RationaleCategory::Semantic => RetrievalRationaleCategory::Semantic,
+        character_memory::RationaleCategory::Entity => RetrievalRationaleCategory::Entity,
+        character_memory::RationaleCategory::Thread => RetrievalRationaleCategory::Thread,
+        character_memory::RationaleCategory::Temporal => RetrievalRationaleCategory::Temporal,
+        character_memory::RationaleCategory::Salience => RetrievalRationaleCategory::Salience,
+        character_memory::RationaleCategory::Scope => RetrievalRationaleCategory::Scope,
+        character_memory::RationaleCategory::Lifecycle => RetrievalRationaleCategory::Lifecycle,
+        character_memory::RationaleCategory::GraphBound => RetrievalRationaleCategory::GraphBound,
     }
 }
 
@@ -2567,9 +2671,14 @@ impl CharacterMemoryControllableSimilarityEmbeddingProvider {
 
     fn vector_for_text(&self, text: &str) -> Result<Vec<f32>> {
         let mut vector = self.inner.vector_for_text(text).or_else(|original_error| {
-            let fixture_text = ["Episode summary: ", "Observation excerpt: ", "Reflection: "]
-                .into_iter()
-                .find_map(|prefix| text.strip_prefix(prefix));
+            let fixture_text = [
+                "Episode summary: ",
+                "Observation excerpt: ",
+                "Reflection: ",
+                "Entity: ",
+            ]
+            .into_iter()
+            .find_map(|prefix| text.strip_prefix(prefix));
             fixture_text
                 .map(|fixture_text| self.inner.vector_for_text(fixture_text))
                 .unwrap_or(Err(original_error))
@@ -2637,9 +2746,10 @@ impl EmbeddingProvider for CharacterMemoryControllableSimilarityEmbeddingProvide
 mod tests {
     use super::*;
     use character_memory::{
-        CURRENT_SCHEMA_VERSION, ContinuityContextPack, Episode, LifecycleFilterDecision,
-        MemoryObjectRef, Modality, RetrievalRationale, RetrievalTrace, RetrieveOutcome,
-        VectorDatabaseError,
+        CURRENT_SCHEMA_VERSION, ContextPackSection, ContinuityContextPack, Episode,
+        FanoutUtilizationTrace, LifecycleFilterDecision, MemoryObjectRef, Modality,
+        RationaleCategory, RetrievalRationale, RetrievalTrace, RetrieveOutcome, SectionAssignment,
+        SelectivityCountScope, SelectivityDecision, SelectivityTrace, VectorDatabaseError,
     };
     use cmem_eval_core::{
         CleanupConfig, DerivedMemoryInput, EmbeddingConfig, EntityInput, MemoryLinkInput,
@@ -2991,6 +3101,7 @@ mod tests {
             "Episode summary: fixture text",
             "Observation excerpt: fixture text",
             "Reflection: fixture text",
+            "Entity: fixture text",
         ] {
             assert_eq!(
                 provider.generate_embedding(surface_text).await.unwrap(),
@@ -4160,9 +4271,74 @@ mod tests {
             trace: Some(trace),
         };
 
-        let telemetry = telemetry_from_outcome(&outcome);
+        let telemetry = telemetry_from_outcome(&ExternalIdRegistry::new("n"), &outcome);
 
         assert_eq!(telemetry.suppressed_or_deleted_returned_count, Some(1));
+    }
+
+    #[test]
+    fn telemetry_projection_preserves_fanout_selectivity_and_typed_rationales() {
+        let entity_id = deterministic_id("n", "entity", "hub");
+        let episode_id = deterministic_id("n", "episode", "result");
+        let mut registry = ExternalIdRegistry::new("n");
+        registry
+            .reverse_entity_ids
+            .insert(entity_id, "entity-hub".to_string());
+        let mut trace = RetrievalTrace::empty();
+        trace.fanout_utilization = vec![FanoutUtilizationTrace {
+            root: MemoryObjectRef::new(ObjectType::Entity, entity_id),
+            relation: RelationType::Mentions,
+            object_type: ObjectType::Episode,
+            configured_cap: 8,
+            selected_cap: 4,
+            retained_count: 3,
+            omitted_by_fanout_count: 2,
+        }];
+        trace.selectivity_decisions = vec![SelectivityTrace {
+            root: MemoryObjectRef::new(ObjectType::Entity, entity_id),
+            relation: RelationType::Mentions,
+            object_type: ObjectType::Episode,
+            count_scope: SelectivityCountScope::Active,
+            score: Some(0.25),
+            entity_count: Some(5),
+            global_count: Some(20),
+            support_factor: 0.75,
+            chosen_fanout: 4,
+            max_fanout: 8,
+            decision: SelectivityDecision::LowSelectivitySupported,
+            fallback: false,
+        }];
+        trace.section_assignments = vec![SectionAssignment {
+            object: MemoryObjectRef::new(ObjectType::Episode, episode_id),
+            section: ContextPackSection::RelevantEpisodes,
+            rank: Some(1),
+            reason: Some("entity expansion".to_string()),
+            rationale_categories: vec![RationaleCategory::Entity, RationaleCategory::Semantic],
+        }];
+        let outcome = RetrieveOutcome {
+            pack: ContinuityContextPack::empty(),
+            rationale: RetrievalRationale::new("test"),
+            trace: Some(trace),
+        };
+
+        let telemetry = telemetry_from_outcome(&registry, &outcome);
+        let fanout = &telemetry.fanout_utilization.as_ref().unwrap()[0];
+        assert_eq!(fanout.root_external_id.as_deref(), Some("entity-hub"));
+        assert_eq!((fanout.configured_cap, fanout.selected_cap), (8, 4));
+        let selectivity = &telemetry.selectivity_decisions.as_ref().unwrap()[0];
+        assert_eq!(selectivity.score, Some(0.25));
+        assert_eq!(selectivity.count_scope, "active");
+        assert_eq!(
+            telemetry
+                .rationale_categories_by_internal_id
+                .as_ref()
+                .unwrap()
+                .get(&episode_id.to_string()),
+            Some(&vec![
+                RetrievalRationaleCategory::Entity,
+                RetrievalRationaleCategory::Semantic,
+            ])
+        );
     }
 
     #[test]

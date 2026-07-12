@@ -157,6 +157,7 @@ pub async fn run_continuity_scenario(
                 external_id,
                 timestamp,
                 text,
+                entity_external_ids,
                 ..
             } => {
                 let observation_external_id = format!("{external_id}:observation");
@@ -218,6 +219,60 @@ pub async fn run_continuity_scenario(
                         source_episode_external_id: Some(external_id.clone()),
                     },
                 );
+                let association_links = entity_external_ids
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(index, entity_external_id)| {
+                        [
+                            (
+                                "mentions",
+                                "mentions",
+                                ("episode", external_id),
+                                ("entity", entity_external_id),
+                            ),
+                            (
+                                "involves",
+                                "involves",
+                                ("entity", entity_external_id),
+                                ("episode", external_id),
+                            ),
+                        ]
+                        .into_iter()
+                        .map(move |(suffix, relation, from, to)| MemoryLinkInput {
+                            external_id: format!(
+                                "continuity:{}:{event_id}:entity-{suffix}-{index:04}",
+                                scenario.fixture_id
+                            ),
+                            from: MemoryEndpointInput {
+                                object_type: from.0.to_string(),
+                                external_id: from.1.clone(),
+                            },
+                            relation: relation.to_string(),
+                            to: MemoryEndpointInput {
+                                object_type: to.0.to_string(),
+                                external_id: to.1.clone(),
+                            },
+                            confidence: 1.0,
+                            rationale: Some(format!(
+                                "fixture-scripted entity association {event_id}"
+                            )),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                if !association_links.is_empty() {
+                    let association_count = association_links.len();
+                    runtime
+                        .adapter()
+                        .remember_enrichment(GraphEnrichmentInput {
+                            namespace: scenario.namespace.clone(),
+                            links: association_links,
+                            ..GraphEnrichmentInput::default()
+                        })
+                        .await?;
+                    for _ in 0..association_count {
+                        increment(&mut run.operation_counts, "link");
+                    }
+                }
                 history.push(format!(
                     "{}|remember|{external_id}|{text}",
                     timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)
@@ -519,6 +574,7 @@ mod tests {
             include_threads: true,
             include_entities: true,
             include_debug_rationale: true,
+            ..RetrievalConfig::default()
         }
     }
 
@@ -546,6 +602,20 @@ mod tests {
     #[tokio::test]
     async fn scenario_library_exercises_every_scripted_adapter_operation() {
         let (traces, counts) = run_all().await;
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let expected_link_count = fixtures
+            .scenarios
+            .iter()
+            .flat_map(|scenario| &scenario.events)
+            .map(|event| match event {
+                InteractionEvent::Remember {
+                    entity_external_ids,
+                    ..
+                } => 2 * entity_external_ids.len(),
+                InteractionEvent::Link { .. } => 1,
+                _ => 0,
+            })
+            .sum::<usize>();
         assert_eq!(traces.len(), 8);
         for operation in [
             "remember",
@@ -560,6 +630,7 @@ mod tests {
         ] {
             assert!(counts.get(operation).is_some_and(|count| *count > 0));
         }
+        assert_eq!(counts.get("link"), Some(&expected_link_count));
     }
 
     #[tokio::test]
