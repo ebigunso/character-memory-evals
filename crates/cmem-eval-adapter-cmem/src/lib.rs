@@ -41,6 +41,8 @@ const UUID_NAMESPACE: Uuid = Uuid::from_u128(0x9b6af7a4_9076_49bb_9231_84d1ed632
 const QDRANT_OBJECT_ID_FIELD: &str = "object_id";
 const QDRANT_OBJECT_TYPE_FIELD: &str = "object_type";
 const QDRANT_CONTENT_TEXT_FIELD: &str = "content_text";
+const IDENTITY_REGISTRY_PERSIST_ATTEMPTS: usize = 4;
+const IDENTITY_REGISTRY_PERSIST_BACKOFF_MS: u64 = 25;
 
 pub struct CharacterMemoryAdapter {
     config: BenchmarkRunConfig,
@@ -161,12 +163,47 @@ impl ExternalIdRegistry {
             .sync_all()
             .with_context(|| format!("sync temporary identity registry for {}", path.display()))?;
         before_persist(temporary.path())?;
-        temporary
-            .persist(path)
-            .map_err(|error| error.error)
-            .with_context(|| format!("atomically replace identity registry {}", path.display()))?;
-        Ok(())
+        persist_identity_registry_with_retry(temporary, path, |temporary, path| {
+            temporary.persist(path)
+        })
     }
+}
+
+fn persist_identity_registry_with_retry<F>(
+    mut temporary: tempfile::NamedTempFile,
+    path: &Path,
+    mut persist: F,
+) -> Result<()>
+where
+    F: FnMut(
+        tempfile::NamedTempFile,
+        &Path,
+    ) -> std::result::Result<std::fs::File, tempfile::PersistError>,
+{
+    for attempt in 1..=IDENTITY_REGISTRY_PERSIST_ATTEMPTS {
+        match persist(temporary, path) {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                let retryable = error.error.kind() == std::io::ErrorKind::PermissionDenied
+                    && attempt < IDENTITY_REGISTRY_PERSIST_ATTEMPTS;
+                if !retryable {
+                    return Err(error.error).with_context(|| {
+                        format!("atomically replace identity registry {}", path.display())
+                    });
+                }
+
+                // Windows AV/indexers can briefly hold the destination during
+                // MoveFileExW replacement. Retain the same complete staged file
+                // and retry only that transient error; all other errors remain
+                // immediate and RAII removes the stage after a final failure.
+                temporary = error.file;
+                std::thread::sleep(std::time::Duration::from_millis(
+                    IDENTITY_REGISTRY_PERSIST_BACKOFF_MS * attempt as u64,
+                ));
+            }
+        }
+    }
+    unreachable!("identity registry persist loop always returns")
 }
 
 #[derive(Clone)]
@@ -3233,6 +3270,37 @@ mod tests {
             ExternalIdRegistry::load(&path, "namespace").unwrap(),
             updated
         );
+    }
+
+    #[test]
+    fn identity_registry_persist_retries_permission_denied_with_same_staged_bytes() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("identity.json");
+        fs::write(&path, b"old complete registry\n").unwrap();
+        let staged_bytes = b"new complete registry\n";
+        let mut temporary = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
+        temporary.write_all(staged_bytes).unwrap();
+        temporary.as_file().sync_all().unwrap();
+        let mut attempts = 0;
+
+        persist_identity_registry_with_retry(temporary, &path, |temporary, path| {
+            attempts += 1;
+            assert_eq!(fs::read(temporary.path()).unwrap(), staged_bytes);
+            if attempts == 1 {
+                return Err(tempfile::PersistError {
+                    error: std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "injected Windows replace contention",
+                    ),
+                    file: temporary,
+                });
+            }
+            temporary.persist(path)
+        })
+        .unwrap();
+
+        assert_eq!(attempts, 2);
+        assert_eq!(fs::read(&path).unwrap(), staged_bytes);
     }
 
     #[tokio::test]
