@@ -462,8 +462,6 @@ def validate(dataset: str, source: Path, artifact: Path, manifest: Path, report:
     _require(len({item.item_id for item in items}) == len(items), "duplicate source item ID")
     by_id = {item.item_id: item for item in items}
     snapshots = _read_jsonl(artifact)
-    if enforce_canonical:
-        _validate_canonical_counts(dataset, _expected_manifest_counts(dataset, snapshots, items))
     snapshot_item_ids = [
         _string(row.get("dataset_item_id"), f"artifact snapshot {index}.dataset_item_id")
         for index, row in enumerate(snapshots)
@@ -472,6 +470,8 @@ def validate(dataset: str, source: Path, artifact: Path, manifest: Path, report:
     for snapshot, item_id in zip(snapshots, snapshot_item_ids):
         _require(item_id in by_id, "snapshot references unknown source item")
         _validate_snapshot(snapshot, dataset, by_id[item_id])
+    if enforce_canonical:
+        _validate_canonical_counts(dataset, _expected_manifest_counts(dataset, snapshots, items))
     expected = _expected_manifest(dataset, source, artifact, snapshots, items)
     actual = _load_json(manifest)
     _scan_forbidden(actual)
@@ -514,6 +514,21 @@ def self_test() -> None:
             raise AssertionError("altered validation report was accepted")
         _require(report.read_bytes() == stale_report, "validation rewrote an altered report")
         _atomic_write(report, original_report)
+        for case, mutation, expected_error in (
+            ("missing graph", lambda snapshot: snapshot.pop("graph"), "snapshot graph must be an object"),
+            ("non-object graph", lambda snapshot: snapshot.__setitem__("graph", []), "snapshot graph must be an object"),
+            ("non-array graph member", lambda snapshot: snapshot["graph"].__setitem__("entities", {}), "graph.entities must be an array"),
+        ):
+            malformed_snapshots = _read_jsonl(artifact)
+            mutation(malformed_snapshots[0])
+            _atomic_write(artifact, b"".join(_canonical_line(snapshot) for snapshot in malformed_snapshots))
+            try:
+                validate("longmemeval-s", lme_source, artifact, manifest)
+            except ValidationError as exc:
+                _require(expected_error in str(exc), f"default-canonical {case} error mismatch")
+            else:
+                raise AssertionError(f"default-canonical validation accepted {case}")
+            _atomic_write(artifact, first)
         generated = _read_jsonl(artifact)[0]
         _require(generated["namespace"] == "lme:q-unicode" and generated["snapshot_id"] == "lme:q-unicode@question_date", "LongMemEval runtime namespace mismatch")
         lme_memories = generated["graph"]["derived_memories"]
