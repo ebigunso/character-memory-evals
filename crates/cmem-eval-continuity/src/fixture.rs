@@ -106,7 +106,11 @@ pub struct ThreadMembership {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExpectedRelevance {
+    /// Previously admitted external IDs expected to be relevant to this query.
     pub relevant_external_ids: Vec<String>,
+    /// Sampled, previously admitted negative IDs used for pollution scoring.
+    ///
+    /// This is not an exhaustive list of every non-relevant ID in the scenario.
     pub irrelevant_external_ids: Vec<String>,
 }
 
@@ -162,8 +166,16 @@ impl ContinuityScenario {
                 self.fixture_id
             );
         }
+        for entity in &self.entities {
+            require_non_empty("entity.external_id", &entity.external_id)?;
+        }
 
         let mut event_ids = BTreeSet::new();
+        let mut admitted_external_ids = self
+            .entities
+            .iter()
+            .map(|entity| entity.external_id.clone())
+            .collect::<BTreeSet<_>>();
         let mut memory_ids = self
             .entities
             .iter()
@@ -203,36 +215,93 @@ impl ContinuityScenario {
                     self.fixture_id
                 );
             }
-            if let InteractionEvent::Remember {
-                entity_external_ids,
-                text,
-                ..
-            } = event
-            {
-                for entity_id in entity_external_ids {
-                    if !declared_entities.contains(entity_id.as_str()) {
-                        bail!(
-                            "scenario {:?} references undeclared entity {entity_id:?}",
-                            self.fixture_id
-                        );
+            match event {
+                InteractionEvent::Remember {
+                    external_id,
+                    entity_external_ids,
+                    text,
+                    ..
+                } => {
+                    for entity_id in entity_external_ids {
+                        if !declared_entities.contains(entity_id.as_str()) {
+                            bail!(
+                                "scenario {:?} references undeclared entity {entity_id:?}",
+                                self.fixture_id
+                            );
+                        }
                     }
+                    require_embedding_input(&self.fixture_id, &assigned_inputs, text)?;
+                    admit_external_id(
+                        &self.fixture_id,
+                        "remember.external_id",
+                        external_id,
+                        &mut admitted_external_ids,
+                    )?;
                 }
-                require_embedding_input(&self.fixture_id, &assigned_inputs, text)?;
-            }
-            if let InteractionEvent::Correct {
-                replacement_text, ..
-            } = event
-            {
-                require_embedding_input(&self.fixture_id, &assigned_inputs, replacement_text)?;
-            }
-            if let InteractionEvent::Query { text, expected, .. } = event {
-                require_embedding_input(&self.fixture_id, &assigned_inputs, text)?;
-                if expected.relevant_external_ids.is_empty() {
-                    bail!(
-                        "scenario {:?} query must declare relevant external IDs",
-                        self.fixture_id
-                    );
+                InteractionEvent::Correct {
+                    target_external_id,
+                    replacement_external_id,
+                    replacement_text,
+                    ..
+                } => {
+                    require_admitted_external_id(
+                        &self.fixture_id,
+                        "correct.target_external_id",
+                        target_external_id,
+                        &admitted_external_ids,
+                    )?;
+                    require_embedding_input(&self.fixture_id, &assigned_inputs, replacement_text)?;
+                    admit_external_id(
+                        &self.fixture_id,
+                        "correct.replacement_external_id",
+                        replacement_external_id,
+                        &mut admitted_external_ids,
+                    )?;
                 }
+                InteractionEvent::Forget {
+                    target_external_id, ..
+                } => {
+                    require_admitted_external_id(
+                        &self.fixture_id,
+                        "forget.target_external_id",
+                        target_external_id,
+                        &admitted_external_ids,
+                    )?;
+                }
+                InteractionEvent::Link {
+                    external_id,
+                    from_external_id,
+                    to_external_id,
+                    ..
+                } => {
+                    require_admitted_external_id(
+                        &self.fixture_id,
+                        "link.from_external_id",
+                        from_external_id,
+                        &admitted_external_ids,
+                    )?;
+                    require_admitted_external_id(
+                        &self.fixture_id,
+                        "link.to_external_id",
+                        to_external_id,
+                        &admitted_external_ids,
+                    )?;
+                    admit_external_id(
+                        &self.fixture_id,
+                        "link.external_id",
+                        external_id,
+                        &mut admitted_external_ids,
+                    )?;
+                }
+                InteractionEvent::Query { text, expected, .. } => {
+                    require_embedding_input(&self.fixture_id, &assigned_inputs, text)?;
+                    validate_expected_relevance(
+                        &self.fixture_id,
+                        expected,
+                        &admitted_external_ids,
+                    )?;
+                }
+                InteractionEvent::Restart { .. } => {}
             }
         }
         Ok(())
@@ -306,9 +375,259 @@ fn require_embedding_input(
     Ok(())
 }
 
+fn admit_external_id(
+    fixture_id: &str,
+    field: &str,
+    external_id: &str,
+    admitted_external_ids: &mut BTreeSet<String>,
+) -> Result<()> {
+    require_non_empty(field, external_id)?;
+    if !admitted_external_ids.insert(external_id.to_string()) {
+        bail!("scenario {fixture_id:?} {field} duplicates existing external ID {external_id:?}");
+    }
+    Ok(())
+}
+
+fn require_admitted_external_id(
+    fixture_id: &str,
+    field: &str,
+    external_id: &str,
+    admitted_external_ids: &BTreeSet<String>,
+) -> Result<()> {
+    if !admitted_external_ids.contains(external_id) {
+        bail!(
+            "scenario {fixture_id:?} {field} references external ID {external_id:?} before it is admitted"
+        );
+    }
+    Ok(())
+}
+
+fn validate_expected_relevance(
+    fixture_id: &str,
+    expected: &ExpectedRelevance,
+    admitted_external_ids: &BTreeSet<String>,
+) -> Result<()> {
+    if expected.relevant_external_ids.is_empty() {
+        bail!("scenario {fixture_id:?} query must declare relevant_external_ids");
+    }
+    if expected.irrelevant_external_ids.is_empty() {
+        bail!("scenario {fixture_id:?} query must declare irrelevant_external_ids");
+    }
+
+    let relevant = expected
+        .relevant_external_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if relevant.len() != expected.relevant_external_ids.len() {
+        bail!("scenario {fixture_id:?} query relevant_external_ids contains duplicates");
+    }
+    let irrelevant = expected
+        .irrelevant_external_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if irrelevant.len() != expected.irrelevant_external_ids.len() {
+        bail!("scenario {fixture_id:?} query irrelevant_external_ids contains duplicates");
+    }
+    if let Some(overlap) = relevant.intersection(&irrelevant).next() {
+        bail!("scenario {fixture_id:?} query relevance labels overlap at external ID {overlap:?}");
+    }
+    for external_id in relevant.iter().chain(irrelevant.iter()) {
+        require_admitted_external_id(
+            fixture_id,
+            "query relevance label",
+            external_id,
+            admitted_external_ids,
+        )?;
+    }
+    Ok(())
+}
+
 fn require_non_empty(field: &str, value: &str) -> Result<()> {
     if value.trim().is_empty() {
         bail!("continuity fixture {field} must be non-empty");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+
+    use super::*;
+    use crate::{CHECKED_FIXTURE_SEED, generate_fixture_set};
+
+    fn parse_error(fixtures: &ContinuityFixtureSet) -> String {
+        let bytes = serde_json::to_vec(fixtures).unwrap();
+        parse_fixture_bytes(&bytes).unwrap_err().to_string()
+    }
+
+    fn scenario_mut(
+        fixtures: &mut ContinuityFixtureSet,
+        pattern: ScenarioPattern,
+    ) -> &mut ContinuityScenario {
+        fixtures
+            .scenarios
+            .iter_mut()
+            .find(|scenario| scenario.pattern == pattern)
+            .unwrap()
+    }
+
+    fn expected_mut(scenario: &mut ContinuityScenario) -> &mut ExpectedRelevance {
+        scenario
+            .events
+            .iter_mut()
+            .find_map(|event| match event {
+                InteractionEvent::Query { expected, .. } => Some(expected),
+                _ => None,
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn public_parser_requires_pollution_labels_to_be_present_and_non_empty() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut value = serde_json::to_value(&fixtures).unwrap();
+        let scenarios = value["scenarios"].as_array_mut().unwrap();
+        let events = scenarios[0]["events"].as_array_mut().unwrap();
+        let expected = events
+            .iter_mut()
+            .find_map(|event| event.get_mut("expected"))
+            .unwrap()
+            .as_object_mut()
+            .unwrap();
+        expected.remove("irrelevant_external_ids");
+        let error = parse_fixture_bytes(&serde_json::to_vec(&value).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("irrelevant_external_ids"), "{error}");
+
+        let mut fixtures = fixtures;
+        expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall))
+            .irrelevant_external_ids
+            .clear();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("declare irrelevant_external_ids"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_duplicate_or_overlapping_relevance_labels() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let expected = expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall));
+        expected
+            .relevant_external_ids
+            .push(expected.relevant_external_ids[0].clone());
+        let error = parse_error(&fixtures);
+        assert!(
+            error.contains("relevant_external_ids contains duplicates"),
+            "{error}"
+        );
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let expected = expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall));
+        expected
+            .irrelevant_external_ids
+            .push(expected.irrelevant_external_ids[0].clone());
+        let error = parse_error(&fixtures);
+        assert!(
+            error.contains("irrelevant_external_ids contains duplicates"),
+            "{error}"
+        );
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let expected = expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall));
+        expected
+            .irrelevant_external_ids
+            .push(expected.relevant_external_ids[0].clone());
+        let error = parse_error(&fixtures);
+        assert!(error.contains("relevance labels overlap"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_relevance_labels_before_external_id_admission() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
+        scenario.events.swap(1, 2);
+        let error = parse_error(&fixtures);
+        assert!(error.contains("query relevance label"), "{error}");
+        assert!(error.contains("memory-recent"), "{error}");
+        assert!(error.contains("before it is admitted"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_dangling_correction_and_forget_targets() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let InteractionEvent::Correct {
+            target_external_id, ..
+        } = &mut scenario.events[1]
+        else {
+            panic!("expected correction event");
+        };
+        *target_external_id = "missing-correction-target".to_string();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("correct.target_external_id"), "{error}");
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let InteractionEvent::Forget {
+            target_external_id, ..
+        } = &mut scenario.events[3]
+        else {
+            panic!("expected forget event");
+        };
+        *target_external_id = "missing-forget-target".to_string();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("forget.target_external_id"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_dangling_link_endpoints() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
+        let InteractionEvent::Link {
+            from_external_id, ..
+        } = &mut scenario.events[1]
+        else {
+            panic!("expected link event");
+        };
+        *from_external_id = "missing-link-source".to_string();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("link.from_external_id"), "{error}");
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
+        let InteractionEvent::Link { to_external_id, .. } = &mut scenario.events[1] else {
+            panic!("expected link event");
+        };
+        *to_external_id = "missing-link-target".to_string();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("link.to_external_id"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_duplicate_created_external_ids() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
+        let InteractionEvent::Remember { external_id, .. } = &mut scenario.events[1] else {
+            panic!("expected remember event");
+        };
+        *external_id = "memory-dormant".to_string();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("remember.external_id"), "{error}");
+        assert!(error.contains("duplicates existing external ID"), "{error}");
+    }
+
+    #[test]
+    fn checked_fixture_json_shape_remains_publicly_parseable() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let value: Value =
+            serde_json::from_slice(&canonical_fixture_bytes(&fixtures).unwrap()).unwrap();
+        assert!(value["scenarios"].is_array());
+        assert_eq!(
+            parse_fixture_bytes(&serde_json::to_vec(&value).unwrap()).unwrap(),
+            fixtures
+        );
+    }
 }
