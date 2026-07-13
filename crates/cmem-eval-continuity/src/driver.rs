@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
@@ -9,8 +10,9 @@ use chrono::{SecondsFormat, Utc};
 use cmem_eval_core::{
     CommitWriteOptions, CorrectMemoryInput, CorrectionTargetInput, DerivedMemoryInput, EntityInput,
     ForgetMemoryInput, GraphEnrichmentInput, LinkMemoryInput, MemoryAdapter, MemoryEndpointInput,
-    MemoryLinkInput, NamespaceLifecycleResult, PrepareWriteInput, ReplacementDerivedMemoryInput,
-    RetrievalConfig, RetrieveInput, RetrievedContextPack, SourceProvenanceInput,
+    MemoryLinkInput, MemoryThreadInput, NamespaceLifecycleResult, PrepareWriteInput,
+    ReplacementDerivedMemoryInput, RetrievalConfig, RetrieveInput, RetrievedContextPack,
+    SourceProvenanceInput,
 };
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +38,7 @@ pub struct ContinuityQueryTrace {
 #[derive(Debug, Default, PartialEq)]
 pub struct ContinuityScenarioRun {
     pub traces: Vec<ContinuityQueryTrace>,
+    pub query_latencies_ms: BTreeMap<String, u128>,
     pub operation_counts: BTreeMap<String, usize>,
     pub restart_observations: Vec<RestartObservation>,
 }
@@ -204,13 +207,14 @@ pub async fn run_continuity_scenario(
                 timestamp,
                 text,
                 entity_external_ids,
-                ..
+                thread,
+                salience,
             } => {
                 let observation_external_id = format!("{external_id}:observation");
+                let scripted_timestamp = timestamp.to_rfc3339_opts(SecondsFormat::Secs, true);
                 let original_raw_ref = format!(
                     "continuity://{}/{event_id}?at={}",
-                    scenario.fixture_id,
-                    timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)
+                    scenario.fixture_id, scripted_timestamp
                 );
                 let mut plan = runtime
                     .adapter()
@@ -218,7 +222,9 @@ pub async fn run_continuity_scenario(
                         namespace: scenario.namespace.clone(),
                         content: text.clone(),
                         episode_external_id: external_id.clone(),
-                        observation_external_id,
+                        observation_external_id: observation_external_id.clone(),
+                        episode_started_at: Some(scripted_timestamp.clone()),
+                        observation_observed_at: Some(scripted_timestamp.clone()),
                         raw_refs: vec![original_raw_ref.clone()],
                         idempotency_key: Some(format!(
                             "continuity:{}:{event_id}:{memory_id}",
@@ -268,7 +274,9 @@ pub async fn run_continuity_scenario(
                         original_source_ref: Some(external_id.clone()),
                     },
                 );
-                let association_links = entity_external_ids
+                let derived_external_id = format!("{external_id}:derived");
+                let mut threads = Vec::new();
+                let mut association_links = entity_external_ids
                     .iter()
                     .enumerate()
                     .flat_map(|(index, entity_external_id)| {
@@ -308,20 +316,89 @@ pub async fn run_continuity_scenario(
                         })
                     })
                     .collect::<Vec<_>>();
-                if !association_links.is_empty() {
-                    let association_count = association_links.len();
-                    runtime
-                        .adapter()
-                        .remember_enrichment(GraphEnrichmentInput {
-                            namespace: scenario.namespace.clone(),
-                            links: association_links,
-                            ..GraphEnrichmentInput::default()
-                        })
-                        .await?;
-                    for _ in 0..association_count {
-                        increment(&mut run.operation_counts, "link");
+                let thread_external_ids = if let Some(thread) = thread {
+                    if !admitted.contains_key(&thread.thread_external_id) {
+                        threads.push(MemoryThreadInput {
+                            external_id: thread.thread_external_id.clone(),
+                            title: text.clone(),
+                            summary: String::new(),
+                            status: "active".to_string(),
+                            last_touched_at: Some(scripted_timestamp.clone()),
+                            salience_score: *salience,
+                            canonical_key: Some(thread.thread_external_id.clone()),
+                        });
+                        admitted.insert(
+                            thread.thread_external_id.clone(),
+                            AdmittedObject {
+                                object_type: "memory_thread".to_string(),
+                                source_episode_external_id: None,
+                                original_raw_ref: None,
+                                original_source_ref: None,
+                            },
+                        );
                     }
+                    association_links.push(MemoryLinkInput {
+                        external_id: format!(
+                            "continuity:{}:{event_id}:derived-thread",
+                            scenario.fixture_id
+                        ),
+                        from: MemoryEndpointInput {
+                            object_type: "derived_memory".to_string(),
+                            external_id: derived_external_id.clone(),
+                        },
+                        relation: "part_of_thread".to_string(),
+                        to: MemoryEndpointInput {
+                            object_type: "memory_thread".to_string(),
+                            external_id: thread.thread_external_id.clone(),
+                        },
+                        confidence: thread.confidence,
+                        rationale: Some(format!("fixture-scripted thread membership {event_id}")),
+                    });
+                    vec![thread.thread_external_id.clone()]
+                } else {
+                    Vec::new()
+                };
+                let association_count = association_links.len();
+                runtime
+                    .adapter()
+                    .remember_enrichment(GraphEnrichmentInput {
+                        namespace: scenario.namespace.clone(),
+                        threads,
+                        derived_memories: vec![DerivedMemoryInput {
+                            external_id: derived_external_id.clone(),
+                            derived_type: "reflection".to_string(),
+                            text: text.clone(),
+                            source_episode_external_ids: vec![external_id.clone()],
+                            source_observation_external_ids: vec![observation_external_id.clone()],
+                            thread_external_ids,
+                            entity_external_ids: entity_external_ids.clone(),
+                            confidence: thread.as_ref().map_or(1.0, |thread| thread.confidence),
+                            salience_score: *salience,
+                            stability: "medium".to_string(),
+                            is_current: true,
+                            supersedes_external_ids: Vec::new(),
+                            metadata: serde_json::json!({
+                                "continuity_event_id": event_id,
+                                "fixture_memory_id": memory_id,
+                                "timestamp": timestamp,
+                            }),
+                        }],
+                        links: association_links,
+                        ..GraphEnrichmentInput::default()
+                    })
+                    .await?;
+                for _ in 0..association_count {
+                    increment(&mut run.operation_counts, "link");
                 }
+                admitted.insert(
+                    derived_external_id,
+                    AdmittedObject {
+                        object_type: "derived_memory".to_string(),
+                        source_episode_external_id: Some(external_id.clone()),
+                        original_raw_ref: None,
+                        original_source_ref: None,
+                    },
+                );
                 history.push(format!(
                     "{}|remember|{external_id}|{text}",
                     timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)
@@ -557,9 +634,12 @@ pub async fn run_continuity_scenario(
                 text,
                 expected,
             } => {
+                let query_started_at = Instant::now();
                 let pack =
                     retrieve_query(runtime.adapter(), scenario, retrieval, timestamp, text).await?;
+                let latency_ms = query_started_at.elapsed().as_millis();
                 increment(&mut run.operation_counts, "retrieve");
+                run.query_latencies_ms.insert(query_id.clone(), latency_ms);
                 run.traces.push(ContinuityQueryTrace {
                     schema_version: CONTINUITY_TRACE_SCHEMA_VERSION.to_string(),
                     fixture_id: scenario.fixture_id.clone(),
@@ -771,15 +851,95 @@ fn adapter_entity_type(fixture_entity_type: &str) -> Result<&'static str> {
 #[cfg(test)]
 mod tests {
     use std::fs::OpenOptions;
+    use std::sync::{Arc, Mutex};
 
     use super::*;
     use crate::{CHECKED_FIXTURE_SEED, generate_fixture_set};
-    use cmem_eval_core::{MockMemoryAdapter, RetrievalMode};
+    use cmem_eval_core::{
+        CandidateValidationResult, CommitWriteResult, EpisodeInput, LifecycleMutationResult,
+        LinkMemoryResult, MockMemoryAdapter, ObservationInput, PreparedWritePlan, RetrievalMode,
+    };
     use uuid::Uuid;
 
     #[derive(Default)]
     struct MockRuntime {
         adapter: MockMemoryAdapter,
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordingAdapter {
+        inner: MockMemoryAdapter,
+        prepared: Arc<Mutex<Vec<PrepareWriteInput>>>,
+        enrichments: Arc<Mutex<Vec<GraphEnrichmentInput>>>,
+    }
+
+    #[async_trait]
+    impl MemoryAdapter for RecordingAdapter {
+        async fn open_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
+            self.inner.open_namespace(namespace).await
+        }
+
+        async fn reattach_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
+            self.inner.reattach_namespace(namespace).await
+        }
+
+        async fn reset_namespace(&self, namespace: &str) -> Result<()> {
+            self.inner.reset_namespace(namespace).await
+        }
+
+        async fn remember_episode(&self, input: EpisodeInput) -> Result<String> {
+            self.inner.remember_episode(input).await
+        }
+
+        async fn remember_observation(&self, input: ObservationInput) -> Result<String> {
+            self.inner.remember_observation(input).await
+        }
+
+        async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<()> {
+            self.enrichments.lock().unwrap().push(input.clone());
+            self.inner.remember_enrichment(input).await
+        }
+
+        async fn link(&self, input: LinkMemoryInput) -> Result<LinkMemoryResult> {
+            self.inner.link(input).await
+        }
+
+        async fn correct(&self, input: CorrectMemoryInput) -> Result<LifecycleMutationResult> {
+            self.inner.correct(input).await
+        }
+
+        async fn forget(&self, input: ForgetMemoryInput) -> Result<LifecycleMutationResult> {
+            self.inner.forget(input).await
+        }
+
+        async fn prepare(&self, input: PrepareWriteInput) -> Result<PreparedWritePlan> {
+            self.prepared.lock().unwrap().push(input.clone());
+            self.inner.prepare(input).await
+        }
+
+        async fn validate_plan(
+            &self,
+            plan: &PreparedWritePlan,
+        ) -> Result<Vec<CandidateValidationResult>> {
+            self.inner.validate_plan(plan).await
+        }
+
+        async fn commit(
+            &self,
+            plan: PreparedWritePlan,
+            options: CommitWriteOptions,
+        ) -> Result<CommitWriteResult> {
+            self.inner.commit(plan, options).await
+        }
+
+        async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
+            self.inner.retrieve(input).await
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingRuntime {
+        adapter: RecordingAdapter,
     }
 
     #[async_trait]
@@ -793,6 +953,23 @@ mod tests {
             scenario: &ContinuityScenario,
         ) -> Result<NamespaceLifecycleResult> {
             self.adapter.reattach_namespace(&scenario.namespace).await
+        }
+    }
+
+    #[async_trait]
+    impl ContinuityRuntime for RecordingRuntime {
+        fn adapter(&self) -> &dyn MemoryAdapter {
+            &self.adapter
+        }
+
+        async fn restart(
+            &mut self,
+            scenario: &ContinuityScenario,
+        ) -> Result<NamespaceLifecycleResult> {
+            self.adapter
+                .inner
+                .reattach_namespace(&scenario.namespace)
+                .await
         }
     }
 
@@ -847,8 +1024,9 @@ mod tests {
             .map(|event| match event {
                 InteractionEvent::Remember {
                     entity_external_ids,
+                    thread,
                     ..
-                } => 2 * entity_external_ids.len(),
+                } => 2 * entity_external_ids.len() + usize::from(thread.is_some()),
                 InteractionEvent::Link { .. } => 1,
                 _ => 0,
             })
@@ -876,6 +1054,89 @@ mod tests {
         assert!(restart.delta.stable_returned_objects);
         assert_eq!(restart.delta.returned_object_count, 0);
         assert_eq!(restart.delta.recall, Some(0.0));
+    }
+
+    #[tokio::test]
+    async fn scripted_remember_executes_timestamps_threads_and_salience() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let thread_scenario = fixtures
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.pattern == ScenarioPattern::ThreadDrift)
+            .unwrap();
+        let mut thread_runtime = RecordingRuntime::default();
+        run_continuity_scenario(&mut thread_runtime, thread_scenario, &retrieval())
+            .await
+            .unwrap();
+
+        let remember_events = thread_scenario
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                InteractionEvent::Remember { timestamp, .. } => Some(timestamp),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        {
+            let prepared = thread_runtime.adapter.prepared.lock().unwrap();
+            assert_eq!(prepared.len(), remember_events.len());
+            for (input, timestamp) in prepared.iter().zip(remember_events) {
+                let expected = timestamp.to_rfc3339_opts(SecondsFormat::Secs, true);
+                assert_eq!(input.episode_started_at.as_deref(), Some(expected.as_str()));
+                assert_eq!(
+                    input.observation_observed_at.as_deref(),
+                    Some(expected.as_str())
+                );
+            }
+        }
+
+        {
+            let enrichments = thread_runtime.adapter.enrichments.lock().unwrap();
+            let scripted = enrichments
+                .iter()
+                .filter(|input| !input.derived_memories.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(scripted.len(), 3);
+            assert_eq!(
+                scripted
+                    .iter()
+                    .map(|input| input.threads.len())
+                    .sum::<usize>(),
+                1
+            );
+            assert!(scripted.iter().all(|input| {
+                input.derived_memories.len() == 1
+                    && input.derived_memories[0].thread_external_ids == vec!["thread-1"]
+            }));
+            assert_eq!(
+                scripted
+                    .iter()
+                    .flat_map(|input| &input.links)
+                    .filter(|link| link.relation == "part_of_thread")
+                    .map(|link| link.confidence)
+                    .collect::<Vec<_>>(),
+                vec![0.95, 0.65, 0.25]
+            );
+        }
+
+        let salience_scenario = fixtures
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.pattern == ScenarioPattern::MixedSalienceAccumulation)
+            .unwrap();
+        let mut salience_runtime = RecordingRuntime::default();
+        run_continuity_scenario(&mut salience_runtime, salience_scenario, &retrieval())
+            .await
+            .unwrap();
+        let enrichments = salience_runtime.adapter.enrichments.lock().unwrap();
+        assert_eq!(
+            enrichments
+                .iter()
+                .flat_map(|input| &input.derived_memories)
+                .map(|memory| memory.salience_score)
+                .collect::<Vec<_>>(),
+            vec![0.1, 0.5, 0.95]
+        );
     }
 
     #[test]
@@ -928,6 +1189,23 @@ mod tests {
         let error = read_continuity_traces(&path).unwrap_err().to_string();
         std::fs::remove_file(&path).unwrap();
         assert!(error.contains("read continuity trace line 2"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn trace_reader_rejects_truncated_json_after_a_valid_trace() {
+        let (traces, _, _) = run_all().await;
+        let path = temporary_trace_path();
+        write_continuity_traces(&path, &traces[..1]).unwrap();
+        OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"{\"schema_version\":\"1.0.0\"")
+            .unwrap();
+
+        let error = read_continuity_traces(&path).unwrap_err().to_string();
+        std::fs::remove_file(&path).unwrap();
+        assert!(error.contains("parse continuity trace line 2"), "{error}");
     }
 
     #[tokio::test]

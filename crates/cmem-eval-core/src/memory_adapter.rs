@@ -451,6 +451,10 @@ pub struct PrepareWriteInput {
     pub episode_external_id: String,
     pub observation_external_id: String,
     #[serde(default)]
+    pub episode_started_at: Option<String>,
+    #[serde(default)]
+    pub observation_observed_at: Option<String>,
+    #[serde(default)]
     pub raw_refs: Vec<String>,
     pub idempotency_key: Option<String>,
     #[serde(default = "default_true")]
@@ -1741,6 +1745,8 @@ mod tests {
             content: "The user prefers a chat-native first version.".into(),
             episode_external_id: "s1".into(),
             observation_external_id: "s1:turn:1".into(),
+            episode_started_at: None,
+            observation_observed_at: None,
             raw_refs: vec!["raw://conversation/s1".into()],
             idempotency_key: Some("continuity-step-1".into()),
             include_vector_index_candidates: true,

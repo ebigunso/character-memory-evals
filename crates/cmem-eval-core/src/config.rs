@@ -52,13 +52,10 @@ impl BenchmarkRunConfig {
     pub fn validate_for_dataset_kind(&self, dataset_kind: DatasetKind) -> Result<()> {
         self.validate()?;
         if dataset_kind == DatasetKind::Continuity
-            && !matches!(
-                self.backend.embedding.provider.as_str(),
-                "deterministic" | "controllable_similarity"
-            )
+            && self.backend.embedding.provider != "controllable_similarity"
         {
             bail!(
-                "continuity dataset requires a deterministic embedding provider; got backend.embedding.provider {:?}",
+                "continuity dataset requires backend.embedding.provider=controllable_similarity; got {:?}",
                 self.backend.embedding.provider
             );
         }
@@ -510,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    fn continuity_dataset_rejects_non_deterministic_embedding_provider_at_validation() {
+    fn continuity_dataset_requires_the_live_supported_embedding_provider_at_validation() {
         let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "continuity-run",
             "dataset": "continuity",
@@ -528,7 +525,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("continuity dataset"));
-        assert!(error.contains("deterministic embedding provider"));
+        assert!(error.contains("backend.embedding.provider=controllable_similarity"));
         assert!(error.contains("openai"));
 
         config.backend.embedding = EmbeddingConfig {
@@ -536,9 +533,12 @@ mod tests {
             model: "text-embedding-3-large".into(),
             vector_size: Some(3072),
         };
-        config
+        let error = config
             .validate_for_dataset_kind(DatasetKind::Continuity)
-            .unwrap();
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("backend.embedding.provider=controllable_similarity"));
+        assert!(error.contains("deterministic"));
 
         config.backend.embedding = EmbeddingConfig {
             provider: "controllable_similarity".into(),

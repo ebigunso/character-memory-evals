@@ -15,7 +15,7 @@ use serde_json::{Map, Value};
 
 use crate::{
     CONTINUITY_FIXTURE_SCHEMA_VERSION, CONTINUITY_TRACE_SCHEMA_VERSION, ContinuityQueryTrace,
-    ContinuityScenario, RestartObservation,
+    ContinuityScenario, RestartObservation, ScenarioPattern,
 };
 
 pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "1.0.0";
@@ -260,6 +260,9 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
     }
 
     let restart_count = input.restart_observations.values().map(Vec::len).sum();
+    let tuning_observations = tuning_observation(&input.config, &input.adapter, input.traces)
+        .into_iter()
+        .collect();
     Ok(ContinuityReport {
         schema_version: CONTINUITY_REPORT_SCHEMA_VERSION.to_string(),
         metadata: ContinuityReportMetadata {
@@ -289,7 +292,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
                 registry_coverage: input.summary.registry_coverage.clone(),
             },
             scenarios: scenario_reports,
-            tuning_observations: vec![tuning_observation(&input.config, input.traces)],
+            tuning_observations,
         },
     })
 }
@@ -358,12 +361,23 @@ fn stats_health_event(trace: &ContinuityQueryTrace) -> StatsHealthEvent {
     }
 }
 
-fn tuning_observation(config: &Value, traces: &[ContinuityQueryTrace]) -> TuningObservation {
+fn tuning_observation(
+    config: &Value,
+    adapter: &RunAdapterMetadata,
+    traces: &[ContinuityQueryTrace],
+) -> Option<TuningObservation> {
+    if adapter.is_mock {
+        return None;
+    }
     let decisions = traces
         .iter()
+        .filter(|trace| trace.pattern == ScenarioPattern::RecurringHubEntity)
         .filter_map(|trace| trace.retrieval.telemetry.selectivity_decisions.as_ref())
         .flatten()
         .collect::<Vec<_>>();
+    if decisions.is_empty() {
+        return None;
+    }
     let scored_count = decisions
         .iter()
         .filter(|decision| decision.score.is_some())
@@ -372,7 +386,7 @@ fn tuning_observation(config: &Value, traces: &[ContinuityQueryTrace]) -> Tuning
         .iter()
         .filter(|decision| decision.fallback)
         .count();
-    TuningObservation {
+    Some(TuningObservation {
         id: "entity_root_candidate_limit".to_string(),
         finding: "Character Memory's default max_graph_roots=12 plus equal-score object-type ordering truncated entity roots in the hub fixture; this evaluation uses the caller-supplied candidate-limit regime recorded here without changing Character Memory defaults.".to_string(),
         measurement_regime: serde_json::json!({
@@ -384,5 +398,5 @@ fn tuning_observation(config: &Value, traces: &[ContinuityQueryTrace]) -> Tuning
             "scored_selectivity_count": scored_count,
             "fallback_selectivity_count": fallback_count,
         }),
-    }
+    })
 }

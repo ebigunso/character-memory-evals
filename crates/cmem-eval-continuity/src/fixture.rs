@@ -704,4 +704,33 @@ mod tests {
             fixtures
         );
     }
+
+    #[test]
+    fn fixture_reader_rejects_corrupt_encoding() {
+        let error = parse_fixture_bytes(b"{\"schema_version\":1,\xff")
+            .unwrap_err()
+            .to_string();
+        assert!(!error.is_empty());
+    }
+
+    #[test]
+    fn fixture_reader_rejects_truncated_json() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut bytes = canonical_fixture_bytes(&fixtures).unwrap();
+        bytes.truncate(bytes.len() - 10);
+        let error = parse_fixture_bytes(&bytes).unwrap_err().to_string();
+        assert!(!error.is_empty());
+    }
+
+    #[test]
+    fn fixture_reader_rejects_an_incompatible_schema_version() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        fixtures.schema_version = CONTINUITY_FIXTURE_SCHEMA_VERSION + 1;
+        let error = parse_fixture_bytes(&serde_json::to_vec(&fixtures).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unsupported continuity fixture schema_version"));
+        assert!(error.contains(&(CONTINUITY_FIXTURE_SCHEMA_VERSION + 1).to_string()));
+        assert!(error.contains(&CONTINUITY_FIXTURE_SCHEMA_VERSION.to_string()));
+    }
 }

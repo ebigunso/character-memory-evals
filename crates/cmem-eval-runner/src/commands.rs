@@ -253,6 +253,12 @@ fn summarize(args: SummarizeArgs) -> Result<()> {
     {
         bail!("summary input contains mixed run_id or dataset values");
     }
+    if config.dataset == "continuity" {
+        let dataset = args.dataset.as_deref().context(
+            "summarizing continuity results requires --dataset with the source fixture path",
+        )?;
+        pipeline::validate_continuity_summary_rows(&rows, dataset, args.scenario.as_deref())?;
+    }
     let metric_family = pipeline::metric_family_for_config(
         &config,
         args.dataset.as_deref(),

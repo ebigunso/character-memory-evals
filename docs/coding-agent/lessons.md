@@ -631,3 +631,29 @@ Prevention:
 
 Evidence:
 - Reviewer compared `README.md` with `ContinuityReportMetadata` in `crates/cmem-eval-continuity/src/report.rs`.
+
+## 2026-07-14 — Validate Benchmark Claims At The Stored Contract Boundary  [tags: review, benchmarks, integration, evidence]
+
+Context:
+- Plan: v0.1.4 continuity plan
+- Task/Wave: PR #9 Copilot review fixes
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Scripted timestamps, thread memberships, and salience values existed in fixtures but did not reach live stored objects, while result rows reported false zero latency and scoped reports could claim unsupported tuning observations.
+
+Root cause:
+- Fixture and mock coverage stopped before the live DTO, persistence, retrieval-telemetry, and report-claim boundaries.
+
+Fix applied:
+- Carry timestamps into episode and observation drafts, materialize thread and derived-memory structures with scripted confidence and salience, measure scripted query retrievals, and suppress tuning observations without a live recurring-hub trace.
+
+Prevention:
+- Dispatch/plan guardrail:
+  - For every benchmark field, trace fixture input through adapter DTO, persisted object, retrieval telemetry, metric, and report claim; unsupported observations remain absent rather than becoming zero or prose assertions.
+- Residual risk / waiver:
+  - Gap-day arithmetic is fixture-derived, so its old values were numerically correct, but old live evidence did not validate persisted temporal behavior.
+
+Evidence:
+- Two full eight-scenario live runs using `configs/continuity_retrieval.toml` produced identical trace, normalized-row, and report-content hashes.
+- Long-gap and temporal recall/gap values remained stable after timestamp persistence (`349/31` gap days and recall@5 `1.0`), while thread drift changed from `0` to `1` active thread and `0` to `3` derived memories; mixed salience changed from `0` to `3` derived memories.

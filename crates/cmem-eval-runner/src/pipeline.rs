@@ -79,6 +79,39 @@ pub(crate) fn metric_family_for_config(
     }
 }
 
+pub(crate) fn validate_continuity_summary_rows(
+    rows: &[PerQuestionResult],
+    dataset: &Path,
+    selected_scenario: Option<&str>,
+) -> Result<()> {
+    let scenarios = load_continuity_scenarios(dataset, selected_scenario)?;
+    let expected_query_ids = scenarios
+        .iter()
+        .flat_map(|scenario| scenario.events.iter())
+        .filter_map(|event| match event {
+            InteractionEvent::Query { query_id, .. } => Some(query_id.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if rows.len() != expected_query_ids.len() {
+        bail!(
+            "continuity summary input has {} rows but selected fixture scope requires {} queries",
+            rows.len(),
+            expected_query_ids.len()
+        );
+    }
+    for (index, (row, expected_query_id)) in rows.iter().zip(expected_query_ids).enumerate() {
+        if row.question_id != expected_query_id {
+            bail!(
+                "continuity summary row/query mismatch at index {index}: got {:?}, expected {:?} from the selected fixture scope",
+                row.question_id,
+                expected_query_id
+            );
+        }
+    }
+    Ok(())
+}
+
 fn load_continuity_scenarios(
     path: &Path,
     selected_scenario: Option<&str>,
@@ -573,12 +606,23 @@ async fn run_continuity_pipeline(
             *operation_counts.entry(operation).or_default() += count;
         }
         for trace in run.traces {
+            let latency_ms = run
+                .query_latencies_ms
+                .get(&trace.query_id)
+                .copied()
+                .with_context(|| {
+                    format!(
+                        "missing measured retrieval latency for continuity query {:?}",
+                        trace.query_id
+                    )
+                })?;
             rows.push(continuity_result_row(
                 &config,
                 &adapter_metadata,
                 &metric_family,
                 scenario,
                 &trace,
+                latency_ms,
             )?);
             traces.push(trace);
         }
@@ -642,6 +686,7 @@ fn continuity_result_row(
     metric_family: &MetricFamily,
     scenario: &ContinuityScenario,
     trace: &ContinuityQueryTrace,
+    latency_ms: u128,
 ) -> Result<PerQuestionResult> {
     let full_history = full_history_context_metrics(Some(&trace.history_text));
     let context = context_metrics_with_full_history(&trace.retrieval, full_history);
@@ -672,7 +717,7 @@ fn continuity_result_row(
         gold_observation_ids: Vec::new(),
         retrieved: trace.retrieval.items.clone(),
         metrics: Value::Object(metrics),
-        latency_ms: 0,
+        latency_ms,
         context_char_count: context.retrieved_context_chars,
         context_word_count: context.retrieved_context_words,
         context,
@@ -1641,6 +1686,14 @@ mod tests {
 
         let rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
         let traces = cmem_eval_continuity::read_continuity_traces(&trace_path).unwrap();
+        let wrong_scenario_error =
+            validate_continuity_summary_rows(&rows[..1], &dataset_path, Some("cross-store-stress"))
+                .unwrap_err()
+                .to_string();
+        assert!(
+            wrong_scenario_error.contains("row/query mismatch at index 0"),
+            "{wrong_scenario_error}"
+        );
         crate::commands::summarize(crate::commands::SummarizeArgs {
             input: result_path.clone(),
             config: config_path.clone(),
@@ -1691,7 +1744,7 @@ mod tests {
                 && scenario.stats_health_events.len() == 1
                 && scenario.registry_coverage["missing_required_metrics"] == serde_json::json!([])
         }));
-        assert_eq!(report.content.tuning_observations.len(), 1);
+        assert!(report.content.tuning_observations.is_empty());
         assert!(
             report.content.scenarios["cross-store-stress"].restart_observations[0]
                 .delta
@@ -1717,6 +1770,16 @@ mod tests {
         let report_config = read_config(&config_path).unwrap();
         let report_metric_family =
             continuity_metric_family(&report_config.metrics, &fixture.scenarios);
+        let measured_row = continuity_result_row(
+            &report_config,
+            &RunAdapterMetadata::mock_smoke(),
+            &report_metric_family,
+            &fixture.scenarios[0],
+            &traces[0],
+            37,
+        )
+        .unwrap();
+        assert_eq!(measured_row.latency_ms, 37);
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
             fixture_seed: fixture.seed,
@@ -1790,7 +1853,7 @@ mod tests {
         let error = ContinuitySpec::validate_config(&config)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("deterministic embedding provider"));
+        assert!(error.contains("backend.embedding.provider=controllable_similarity"));
         assert!(error.contains("openai"));
     }
 }

@@ -1254,23 +1254,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             "observation",
             &input.observation_external_id,
         );
-        let mut episode = EpisodeDraft::new(input.content.clone());
-        episode.id = Some(episode_id);
-        episode.source_conversation_id = Some(input.episode_external_id.clone());
-        episode.raw_ref = input.raw_refs.first().cloned().or_else(|| {
-            Some(format!(
-                "eval://{}/episode/{}",
-                input.namespace, input.episode_external_id
-            ))
-        });
-        let mut observation = ObservationDraft::new(episode_id, input.content.clone());
-        observation.id = Some(observation_id);
-        observation.raw_ref = input.raw_refs.first().cloned().or_else(|| {
-            Some(format!(
-                "eval://{}/observation/{}",
-                input.namespace, input.observation_external_id
-            ))
-        });
+        let (episode, observation) = staged_source_drafts(&input, episode_id, observation_id)?;
         let mut remember_input = RememberInput::new(input.content.clone());
         remember_input.raw_refs = input.raw_refs.clone();
         remember_input.episode_drafts.push(episode);
@@ -2133,6 +2117,33 @@ fn parse_timestamp(value: Option<&str>) -> Result<Option<DateTime<Utc>>> {
         .transpose()
 }
 
+fn staged_source_drafts(
+    input: &PrepareWriteInput,
+    episode_id: MemoryId,
+    observation_id: MemoryId,
+) -> Result<(EpisodeDraft, ObservationDraft)> {
+    let mut episode = EpisodeDraft::new(input.content.clone());
+    episode.id = Some(episode_id);
+    episode.source_conversation_id = Some(input.episode_external_id.clone());
+    episode.started_at = parse_timestamp(input.episode_started_at.as_deref())?;
+    episode.raw_ref = input.raw_refs.first().cloned().or_else(|| {
+        Some(format!(
+            "eval://{}/episode/{}",
+            input.namespace, input.episode_external_id
+        ))
+    });
+    let mut observation = ObservationDraft::new(episode_id, input.content.clone());
+    observation.id = Some(observation_id);
+    observation.observed_at = parse_timestamp(input.observation_observed_at.as_deref())?;
+    observation.raw_ref = input.raw_refs.first().cloned().or_else(|| {
+        Some(format!(
+            "eval://{}/observation/{}",
+            input.namespace, input.observation_external_id
+        ))
+    });
+    Ok((episode, observation))
+}
+
 fn resolve_ids(
     kind: &str,
     external_ids: &[String],
@@ -2741,6 +2752,7 @@ impl CharacterMemoryControllableSimilarityEmbeddingProvider {
                 "Observation excerpt: ",
                 "Reflection: ",
                 "Entity: ",
+                "Thread summary: ",
             ]
             .into_iter()
             .find_map(|prefix| text.strip_prefix(prefix));
@@ -3167,6 +3179,7 @@ mod tests {
             "Observation excerpt: fixture text",
             "Reflection: fixture text",
             "Entity: fixture text",
+            "Thread summary: fixture text",
         ] {
             assert_eq!(
                 provider.generate_embedding(surface_text).await.unwrap(),
@@ -3352,6 +3365,8 @@ mod tests {
                     content: "must not attach implicitly".to_string(),
                     episode_external_id: "new-episode".to_string(),
                     observation_external_id: "new-observation".to_string(),
+                    episode_started_at: None,
+                    observation_observed_at: None,
                     raw_refs: Vec::new(),
                     idempotency_key: None,
                     include_vector_index_candidates: true,
@@ -3480,6 +3495,8 @@ mod tests {
                     content: "The restart-safe drink is jasmine tea.".to_string(),
                     episode_external_id: "episode-external".to_string(),
                     observation_external_id: "observation-external".to_string(),
+                    episode_started_at: Some("2025-01-01T00:00:00Z".to_string()),
+                    observation_observed_at: Some("2025-01-01T00:00:00Z".to_string()),
                     raw_refs: vec!["fixture://continuity/restart".to_string()],
                     idempotency_key: Some("continuity-restart-write".to_string()),
                     include_vector_index_candidates: true,
@@ -4460,6 +4477,41 @@ mod tests {
                 RetrievalRationaleCategory::Entity,
                 RetrievalRationaleCategory::Semantic,
             ])
+        );
+    }
+
+    #[test]
+    fn staged_source_drafts_preserve_scripted_timestamps() {
+        let input = PrepareWriteInput {
+            namespace: "continuity:test".to_string(),
+            content: "scripted memory".to_string(),
+            episode_external_id: "episode".to_string(),
+            observation_external_id: "observation".to_string(),
+            episode_started_at: Some("2025-02-03T04:05:06Z".to_string()),
+            observation_observed_at: Some("2025-02-03T04:05:06Z".to_string()),
+            raw_refs: Vec::new(),
+            idempotency_key: None,
+            include_vector_index_candidates: true,
+            include_stats_update_candidates: true,
+        };
+        let (episode, observation) = staged_source_drafts(
+            &input,
+            deterministic_id(&input.namespace, "episode", &input.episode_external_id),
+            deterministic_id(
+                &input.namespace,
+                "observation",
+                &input.observation_external_id,
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(
+            episode.started_at.unwrap().to_rfc3339(),
+            "2025-02-03T04:05:06+00:00"
+        );
+        assert_eq!(
+            observation.observed_at.unwrap().to_rfc3339(),
+            "2025-02-03T04:05:06+00:00"
         );
     }
 
