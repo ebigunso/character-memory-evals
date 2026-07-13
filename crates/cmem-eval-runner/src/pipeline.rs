@@ -1729,6 +1729,16 @@ mod tests {
             vec!["metadata.generated_at"]
         );
         assert_eq!(
+            report
+                .metadata
+                .normalization
+                .excluded_nondeterministic_sources,
+            vec![
+                "correction and forget library mutation timestamps",
+                "measured query retrieval latency in results and summaries",
+            ]
+        );
+        assert_eq!(
             report.metadata.config["retrieval"]["max_graph_roots"],
             serde_json::json!(48)
         );

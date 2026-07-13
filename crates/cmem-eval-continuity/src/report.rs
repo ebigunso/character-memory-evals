@@ -280,6 +280,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
                 nondeterministic_paths: vec!["metadata.generated_at".to_string()],
                 excluded_nondeterministic_sources: vec![
                     "correction and forget library mutation timestamps".to_string(),
+                    "measured query retrieval latency in results and summaries".to_string(),
                 ],
             },
         },

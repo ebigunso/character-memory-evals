@@ -657,3 +657,25 @@ Prevention:
 Evidence:
 - Two full eight-scenario live runs using `configs/continuity_retrieval.toml` produced identical trace, normalized-row, and report-content hashes.
 - Long-gap and temporal recall/gap values remained stable after timestamp persistence (`349/31` gap days and recall@5 `1.0`), while thread drift changed from `0` to `1` active thread and `0` to `3` derived memories; mixed salience changed from `0` to `3` derived memories.
+
+## 2026-07-14 — Document Every Nondeterministic Artifact Source  [tags: review, determinism, reporting, latency]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Reviewer normalization-policy correction
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Live rows and summaries began carrying measured query latency, but report normalization metadata and README reproducibility guidance still named only generation and mutation timestamps, making raw cross-run hash differences look unexplained.
+
+Root cause:
+- The implementation preserved deterministic report content but did not update the cross-artifact normalization contract when a new nondeterministic source was added to rows and summaries.
+
+Fix applied:
+- Declare measured query latency as excluded from deterministic report content, document that raw rows and summaries vary, provide the canonical `latency_ms = 0` row-hashing recipe, and pin the policy metadata in a regression.
+
+Prevention:
+- When adding time-, randomness-, or service-derived output, update normalization metadata, artifact documentation, and a policy regression in the same change; specify whether canonicalization deletes or replaces the field, the serialization shape, encoding, and newline behavior.
+
+Evidence:
+- Independent reviewer runs reproduced different raw result/summary hashes but identical traces, latency-normalized rows, and report content.

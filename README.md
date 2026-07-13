@@ -139,12 +139,25 @@ The generated file should match `crates/cmem-eval-continuity/fixtures/continuity
 
 ### Read the continuity artifacts
 
-- `results.jsonl` contains one schema-versioned retrieval result per query. `summary.json` contains numeric aggregates, support counts, registry coverage, and latency.
+- `results.jsonl` contains one schema-versioned retrieval result per query. `summary.json` contains numeric aggregates, support counts, registry coverage, and latency. Live query latency is measured, so raw `results.jsonl` and `summary.json` bytes intentionally vary across repeat live runs.
 - `traces.jsonl` contains the deterministic query, expected labels, history text, complete retrieved context pack, rationales, and backend-neutral telemetry used by continuity metrics.
-- `report.json` has a top-level `metadata` block and deterministic `content`. `metadata` contains the generation timestamp, run, dataset, and adapter identity, fixture provenance (schema version, fixture seed, embedding seeds, and fixture IDs), the full config snapshot, schema versions, and normalization policy; it does not contain the fixture body. Compare repeat runs by removing `metadata`; correction/forget library mutation timestamps are excluded from deterministic content.
+- `report.json` has a top-level `metadata` block and deterministic `content`. `metadata` contains the generation timestamp, run, dataset, and adapter identity, fixture provenance (schema version, fixture seed, embedding seeds, and fixture IDs), the full config snapshot, schema versions, and normalization policy; it does not contain the fixture body. Compare repeat runs by removing `metadata`; correction/forget library mutation timestamps and measured query latency are excluded from deterministic content.
 - `content.aggregate` reports metrics, `metric_support`, and registry coverage across the selected run. `content.scenarios` repeats those views per fixture and includes full query/context/rationale samples, fanout/selectivity decisions, stats-health observations, and any restart observations.
 - A restart observation records the lifecycle restoration count, before/after returned object IDs and recall, graph/fanout/selectivity snapshots, signed deltas, and whether the returned object set stayed stable.
 - `tuning_observations` records measured behavior together with the relevant config regime. These are tuning signals, not assertions that a Character Memory default passed or failed.
+
+For canonical repeat-run row hashing, preserve JSONL row order, set every existing `latency_ms` property to numeric `0` without deleting it, serialize the rows as one compact JSON array, and hash the in-memory UTF-8 bytes without a BOM or trailing newline. Report content excludes latency entirely, so compare `report.json` runs by compact-serializing only the top-level `content` value. Raw `summary.json` remains intentionally variable because its latency aggregates summarize the measured row values.
+
+```powershell
+$rows = Get-Content ./runs/continuity/live/results.jsonl | ForEach-Object {
+  $row = $_ | ConvertFrom-Json
+  $row.latency_ms = 0
+  $row
+}
+$normalized = $rows | ConvertTo-Json -Compress -Depth 100
+$bytes = [Text.Encoding]::UTF8.GetBytes($normalized)
+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+```
 
 Required registry keys are initialized to JSON `null` when a row cannot measure them. In `metric_support`, `numeric_rows` counts measured values, `null_rows` counts explicitly unsupported rows, and `unsupported = true` means every present row was null. A null is not zero and does not mean the evaluation failed. `registry_coverage.missing_required_metrics` instead identifies required keys that were absent entirely.
 

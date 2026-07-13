@@ -1,6 +1,6 @@
 # Worker Rules
 
-<!-- last_updated: 2026-07-12 -->
+<!-- last_updated: 2026-07-14 -->
 
 ## Repo-Specific Worker Notes
 
@@ -12,6 +12,7 @@
 - When validation depends on local or generated asset existence (datasets, fixtures, snapshots, manifests), use direct filesystem checks (`Test-Path`/`test -f`) or an explicit no-ignore search (`rg --files --no-ignore`); never infer absence from default rg/fd or tracked-file enumeration — gitignored assets can exist and be required.
 - For repository-wide removal acceptance criteria (features, flags, identifiers, command forms), run the audit search from the repository root and explicitly exclude only documented historical or generated paths (e.g. `rg -n <removed-token> . --glob '!docs/coding-agent/plans/**'`); handpicked-path searches do not count as acceptance evidence.
 - Every new public `Result`-returning artifact reader must ship corrupt or invalid-encoding, partial-input, and schema-version-rejection tests before completion.
+- For every changed benchmark field, Workers must trace the value from fixture input through the live adapter DTO, persisted object, retrieval telemetry, metric, and report claim before accepting evidence.
 
 ## Repo CI / Checks Mapping
 
