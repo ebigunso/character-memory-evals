@@ -606,3 +606,28 @@ Fix applied:
 
 Prevention:
 - Every live-evidence claim must state scenario scope, config identity, and sibling dependency commit/branch provenance inline; label scoped evidence as scoped when first reported.
+
+## 2026-07-13 — Distinguish Artifact Snapshots From Provenance  [tags: docs, review, artifacts, accuracy]
+
+Context:
+- Plan: v0.1.4 continuity plan
+- Task/Wave: Task_12
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- The README said continuity report metadata contained a fixture snapshot even though it stores only fixture identity and seed provenance.
+
+Root cause:
+- The documentation grouped fixture and config metadata together without verifying whether each serialized field contained a full snapshot or provenance only.
+
+Fix applied:
+- Describe fixture identity and seeds separately from the full config snapshot, and state that the fixture body is not embedded in `report.json`.
+
+Prevention:
+- Dispatch/plan guardrail:
+  - Verify artifact documentation against the serialized metadata type field by field, and reserve “snapshot” for embedded content that is sufficient to reconstruct the source.
+- Residual risk / waiver:
+  - None.
+
+Evidence:
+- Reviewer compared `README.md` with `ContinuityReportMetadata` in `crates/cmem-eval-continuity/src/report.rs`.
