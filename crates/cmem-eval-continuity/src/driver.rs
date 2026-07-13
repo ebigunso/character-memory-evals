@@ -996,7 +996,7 @@ mod tests {
         BTreeMap<String, usize>,
         Vec<RestartObservation>,
     ) {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let mut traces = Vec::new();
         let mut operation_counts = BTreeMap::new();
         let mut restart_observations = Vec::new();
@@ -1021,7 +1021,7 @@ mod tests {
     #[tokio::test]
     async fn scenario_library_exercises_every_scripted_adapter_operation() {
         let (traces, counts, restart_observations) = run_all().await;
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let expected_link_count = fixtures
             .scenarios
             .iter()
@@ -1093,7 +1093,7 @@ mod tests {
 
     #[tokio::test]
     async fn scripted_remember_executes_timestamps_threads_and_salience() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let thread_scenario = fixtures
             .scenarios
             .iter()

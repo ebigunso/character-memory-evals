@@ -1971,7 +1971,8 @@ mod tests {
     #[test]
     fn continuity_fixture_dimensions_must_match_the_config_before_adapter_selection() {
         let fixture =
-            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED);
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
         let mut config =
             read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
 

@@ -703,3 +703,25 @@ Prevention:
 Evidence:
 - Direct regressions cover all nine review findings; strict formatting/clippy, targeted packages, and the workspace suite excluding the environment-gated teardown test passed, as did synthetic and full mock continuity CLI smoke.
 - Fresh live two-run evidence was blocked by reproducible Qdrant gRPC delete/check timeouts after successful live calls. The same test failed identically at known-good commit `20d5c4c`, so the orchestrator classified this as an environment regression outside the round-two delta.
+
+## 2026-07-14 — Bound Fixed-Width Fixture Encodings Before Indexing  [tags: review, rust, fixtures, validation, diagnostics]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 3
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- The continuity generator enumerated unique cluster IDs directly into a fixed eight-element one-hot vector, so adding a ninth cluster would panic at `vector[index]` instead of returning a controlled generator error.
+
+Root cause:
+- The cluster-count-to-vector-width invariant was implicit in today's scenarios and was checked only by the indexing operation rather than at the fixture-generation admission boundary.
+
+Fix applied:
+- Make fixture and scenario generation fallible, reject cluster counts larger than the declared vector size before allocating or indexing vectors, and report the scenario ID, cluster count, and configured size.
+
+Prevention:
+- Before indexing fixed-width buffers from deduplicated or extensible input sets, validate cardinality against the declared width at the owning boundary and test the first invalid cardinality through the production-return path.
+
+Evidence:
+- A nine-cluster regression receives the controlled error, while the canonical checked fixture remains byte-identical.

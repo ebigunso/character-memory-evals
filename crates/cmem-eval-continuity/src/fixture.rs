@@ -564,7 +564,7 @@ mod tests {
 
     #[test]
     fn public_parser_requires_pollution_labels_to_be_present_and_non_empty() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let mut value = serde_json::to_value(&fixtures).unwrap();
         let scenarios = value["scenarios"].as_array_mut().unwrap();
         let events = scenarios[0]["events"].as_array_mut().unwrap();
@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_duplicate_or_overlapping_relevance_labels() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let expected = expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall));
         expected
             .relevant_external_ids
@@ -601,7 +601,7 @@ mod tests {
             "{error}"
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let expected = expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall));
         expected
             .irrelevant_external_ids
@@ -612,7 +612,7 @@ mod tests {
             "{error}"
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let expected = expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall));
         expected
             .irrelevant_external_ids
@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_relevance_labels_before_external_id_admission() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
         scenario.events.swap(1, 2);
         let error = parse_error(&fixtures);
@@ -634,7 +634,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_dangling_correction_and_forget_targets() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
         let InteractionEvent::Correct {
             target_external_id, ..
@@ -646,7 +646,7 @@ mod tests {
         let error = parse_error(&fixtures);
         assert!(error.contains("correct.target_external_id"), "{error}");
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
         let InteractionEvent::Forget {
             target_external_id, ..
@@ -661,7 +661,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_dangling_link_endpoints() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
         let InteractionEvent::Link {
             from_external_id, ..
@@ -673,7 +673,7 @@ mod tests {
         let error = parse_error(&fixtures);
         assert!(error.contains("link.from_external_id"), "{error}");
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
         let InteractionEvent::Link { to_external_id, .. } = &mut scenario.events[1] else {
             panic!("expected link event");
@@ -685,7 +685,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_duplicate_created_external_ids() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
         let InteractionEvent::Remember { external_id, .. } = &mut scenario.events[1] else {
             panic!("expected remember event");
@@ -698,7 +698,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_duplicate_query_ids() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
         let duplicate = scenario
             .events
@@ -712,7 +712,7 @@ mod tests {
 
         assert!(error.contains("duplicate event_id"), "{error}");
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
         let mut duplicate = scenario
             .events
@@ -731,7 +731,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_invalid_salience_and_thread_confidence() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
         let InteractionEvent::Remember { salience, .. } = &mut scenario.events[0] else {
             panic!("expected remember event");
@@ -741,7 +741,7 @@ mod tests {
         assert!(error.contains("remember.salience"), "{error}");
         assert!(error.contains("0.0..=1.0"), "{error}");
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::ThreadDrift);
         let confidence = scenario
             .events
@@ -758,7 +758,7 @@ mod tests {
         let error = parse_error(&fixtures);
         assert!(error.contains("remember.thread.confidence"), "{error}");
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
         let InteractionEvent::Remember { salience, .. } = &mut scenario.events[0] else {
             panic!("expected remember event");
@@ -770,7 +770,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_restart_without_a_following_query() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
         let restart_index = scenario
             .events
@@ -789,7 +789,7 @@ mod tests {
     #[test]
     fn public_parser_rejects_restart_flags_the_runtime_cannot_honor() {
         for unsupported_field in ["reopen_graph", "reopen_stats"] {
-            let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+            let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
             let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
             let restart = scenario
                 .events
@@ -818,7 +818,7 @@ mod tests {
 
     #[test]
     fn checked_fixture_json_shape_remains_publicly_parseable() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let value: Value =
             serde_json::from_slice(&canonical_fixture_bytes(&fixtures).unwrap()).unwrap();
         assert!(value["scenarios"].is_array());
@@ -838,7 +838,7 @@ mod tests {
 
     #[test]
     fn fixture_reader_rejects_truncated_json() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let mut bytes = canonical_fixture_bytes(&fixtures).unwrap();
         bytes.truncate(bytes.len() - 10);
         let error = parse_fixture_bytes(&bytes).unwrap_err().to_string();
@@ -847,7 +847,7 @@ mod tests {
 
     #[test]
     fn fixture_reader_rejects_an_incompatible_schema_version() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         fixtures.schema_version = CONTINUITY_FIXTURE_SCHEMA_VERSION + 1;
         let error = parse_fixture_bytes(&serde_json::to_vec(&fixtures).unwrap())
             .unwrap_err()

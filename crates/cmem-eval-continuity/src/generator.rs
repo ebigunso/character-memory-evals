@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{ControllableSimilarityFixture, SimilarityConceptFixture};
 use uuid::{Uuid, uuid};
@@ -11,25 +12,26 @@ use crate::{
 
 pub const CHECKED_FIXTURE_SEED: u64 = 0x0000_0000_0135_2768;
 const FIXTURE_ID_NAMESPACE: Uuid = uuid!("d1bf5b8f-6d00-5e7b-b6a3-a2e73c7d40d1");
+const EMBEDDING_VECTOR_SIZE: usize = 8;
 
-pub fn generate_fixture_set(seed: u64) -> ContinuityFixtureSet {
-    ContinuityFixtureSet {
+pub fn generate_fixture_set(seed: u64) -> Result<ContinuityFixtureSet> {
+    Ok(ContinuityFixtureSet {
         schema_version: CONTINUITY_FIXTURE_SCHEMA_VERSION,
         seed,
         scenarios: vec![
-            long_gap_recall(seed),
-            recurring_hub_entity(seed),
-            selective_entity(seed),
-            correction_chains(seed),
-            thread_drift(seed),
-            temporal_structure(seed),
-            mixed_salience_accumulation(seed),
-            cross_store_stress(seed),
+            long_gap_recall(seed)?,
+            recurring_hub_entity(seed)?,
+            selective_entity(seed)?,
+            correction_chains(seed)?,
+            thread_drift(seed)?,
+            temporal_structure(seed)?,
+            mixed_salience_accumulation(seed)?,
+            cross_store_stress(seed)?,
         ],
-    }
+    })
 }
 
-fn long_gap_recall(seed: u64) -> ContinuityScenario {
+fn long_gap_recall(seed: u64) -> Result<ContinuityScenario> {
     let id = "long-gap-recall";
     let target = "A dormant project uses the cobalt protocol.";
     let distractor = "A recent project uses the amber protocol.";
@@ -76,7 +78,7 @@ fn long_gap_recall(seed: u64) -> ContinuityScenario {
     )
 }
 
-fn recurring_hub_entity(seed: u64) -> ContinuityScenario {
+fn recurring_hub_entity(seed: u64) -> Result<ContinuityScenario> {
     let id = "recurring-hub-entity";
     let entities = vec![
         entity(id, "entity-person", "person", "Hub A", true),
@@ -123,7 +125,7 @@ fn recurring_hub_entity(seed: u64) -> ContinuityScenario {
     )
 }
 
-fn selective_entity(seed: u64) -> ContinuityScenario {
+fn selective_entity(seed: u64) -> Result<ContinuityScenario> {
     let id = "selective-entity";
     let rare = "A rare location carries the violet access token.";
     let common = "A frequent organization carries routine status updates.";
@@ -170,7 +172,7 @@ fn selective_entity(seed: u64) -> ContinuityScenario {
     )
 }
 
-fn correction_chains(seed: u64) -> ContinuityScenario {
+fn correction_chains(seed: u64) -> Result<ContinuityScenario> {
     let id = "correction-chains";
     let original = "The delivery window is Monday.";
     let first = "The delivery window is Tuesday.";
@@ -225,7 +227,7 @@ fn correction_chains(seed: u64) -> ContinuityScenario {
     )
 }
 
-fn thread_drift(seed: u64) -> ContinuityScenario {
+fn thread_drift(seed: u64) -> Result<ContinuityScenario> {
     let id = "thread-drift";
     let texts = [
         "Thread starts with a focused migration.",
@@ -285,7 +287,7 @@ fn thread_drift(seed: u64) -> ContinuityScenario {
     )
 }
 
-fn temporal_structure(seed: u64) -> ContinuityScenario {
+fn temporal_structure(seed: u64) -> Result<ContinuityScenario> {
     let id = "temporal-structure";
     let old = "The archive was stored in the west wing in January.";
     let current = "The archive moved to the east wing in October.";
@@ -332,7 +334,7 @@ fn temporal_structure(seed: u64) -> ContinuityScenario {
     )
 }
 
-fn mixed_salience_accumulation(seed: u64) -> ContinuityScenario {
+fn mixed_salience_accumulation(seed: u64) -> Result<ContinuityScenario> {
     let id = "mixed-salience-accumulation";
     let low = "A low-salience routine note was recorded.";
     let medium = "A medium-salience schedule change was recorded.";
@@ -390,7 +392,7 @@ fn mixed_salience_accumulation(seed: u64) -> ContinuityScenario {
     )
 }
 
-fn cross_store_stress(seed: u64) -> ContinuityScenario {
+fn cross_store_stress(seed: u64) -> Result<ContinuityScenario> {
     let id = "cross-store-stress";
     let text = "The persistent cross-store marker is quartz-seven.";
     let query_text = "What marker must survive the restart?";
@@ -444,20 +446,26 @@ fn scenario(
     mut entities: Vec<EntityDeclaration>,
     events: Vec<InteractionEvent>,
     mut concepts: BTreeMap<String, SimilarityConceptFixture>,
-) -> ContinuityScenario {
+) -> Result<ContinuityScenario> {
     entities.sort_by(|left, right| left.external_id.cmp(&right.external_id));
     assign_entity_embedding_inputs(&entities, &events, &mut concepts);
     let clusters = concepts
         .values()
         .map(|concept| concept.cluster.clone())
         .collect::<BTreeSet<_>>();
+    let cluster_count = clusters.len();
+    if cluster_count > EMBEDDING_VECTOR_SIZE {
+        bail!(
+            "continuity scenario `{id}` declares {cluster_count} embedding clusters, exceeding configured vector_size {EMBEDDING_VECTOR_SIZE}"
+        );
+    }
     let mut cluster_vectors = BTreeMap::new();
     for (index, cluster) in clusters.into_iter().enumerate() {
-        let mut vector = vec![0.0; 8];
+        let mut vector = vec![0.0; EMBEDDING_VECTOR_SIZE];
         vector[index] = 1.0;
         cluster_vectors.insert(cluster, vector);
     }
-    ContinuityScenario {
+    Ok(ContinuityScenario {
         fixture_id: id.to_string(),
         namespace: format!("continuity-{id}-{seed:016x}"),
         collection_name: format!("cmem_continuity_{}_{seed:016x}", id.replace('-', "_")),
@@ -465,13 +473,13 @@ fn scenario(
         entities,
         embedding: ControllableSimilarityFixture {
             seed,
-            vector_size: 8,
+            vector_size: EMBEDDING_VECTOR_SIZE,
             noise_magnitude: 1.0 / 1024.0,
             clusters: cluster_vectors,
             concepts,
         },
         events,
-    }
+    })
 }
 
 fn assign_entity_embedding_inputs(
@@ -677,7 +685,7 @@ mod tests {
 
     #[test]
     fn checked_fixture_is_canonical_and_covers_every_scenario_pattern() {
-        let generated = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let generated = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let bytes = canonical_fixture_bytes(&generated).unwrap();
         assert_eq!(bytes, CHECKED_FIXTURE);
         assert_eq!(parse_fixture_bytes(CHECKED_FIXTURE).unwrap(), generated);
@@ -701,6 +709,37 @@ mod tests {
                 "mixed-salience-accumulation",
                 "cross-store-stress",
             ]
+        );
+    }
+
+    #[test]
+    fn scenario_rejects_more_clusters_than_the_declared_vector_size() {
+        let concepts = (0..=EMBEDDING_VECTOR_SIZE)
+            .map(|index| {
+                (
+                    format!("concept-{index}"),
+                    SimilarityConceptFixture {
+                        cluster: format!("cluster-{index}"),
+                        inputs: Vec::new(),
+                    },
+                )
+            })
+            .collect();
+
+        let error = super::scenario(
+            CHECKED_FIXTURE_SEED,
+            "too-many-clusters",
+            ScenarioPattern::LongGapRecall,
+            Vec::new(),
+            Vec::new(),
+            concepts,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(
+            error,
+            "continuity scenario `too-many-clusters` declares 9 embedding clusters, exceeding configured vector_size 8"
         );
     }
 
@@ -735,13 +774,14 @@ mod tests {
         let Ok(output_path) = env::var(PROCESS_PROBE_PATH) else {
             return;
         };
-        let bytes = canonical_fixture_bytes(&generate_fixture_set(CHECKED_FIXTURE_SEED)).unwrap();
+        let bytes =
+            canonical_fixture_bytes(&generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap()).unwrap();
         fs::write(output_path, bytes).unwrap();
     }
 
     #[test]
     fn long_gap_queries_and_pollution_labels_are_explicit() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let long_gap = scenario(&fixtures, ScenarioPattern::LongGapRecall);
         let first_write = long_gap.events.first().unwrap().timestamp();
         let query_time = long_gap.events.last().unwrap().timestamp();
@@ -759,7 +799,7 @@ mod tests {
 
     #[test]
     fn public_parser_requires_every_entity_label_embedding_assignment() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = &mut fixtures.scenarios[0];
         let entity_label = scenario
             .entities
@@ -780,7 +820,7 @@ mod tests {
 
     #[test]
     fn recurring_hubs_span_three_entity_kinds_at_high_degree() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let hub = scenario(&fixtures, ScenarioPattern::RecurringHubEntity);
         let hubs = hub
             .entities
@@ -812,7 +852,7 @@ mod tests {
 
     #[test]
     fn scripted_patterns_include_required_lifecycle_and_structure() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let corrections = scenario(&fixtures, ScenarioPattern::CorrectionChains);
         assert_eq!(
             corrections
@@ -884,7 +924,7 @@ mod tests {
 
     #[test]
     fn schema_is_role_free_and_all_embedding_inputs_are_fixture_assigned() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let serialized = String::from_utf8(canonical_fixture_bytes(&fixtures).unwrap()).unwrap();
         assert!(!serialized.contains("\"role\""));
         for scenario in &fixtures.scenarios {

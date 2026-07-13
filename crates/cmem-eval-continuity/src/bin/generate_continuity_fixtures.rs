@@ -18,7 +18,7 @@ fn main() -> Result<()> {
         anyhow::bail!("usage: generate_continuity_fixtures [output_path] [seed]");
     }
 
-    let bytes = canonical_fixture_bytes(&generate_fixture_set(seed))?;
+    let bytes = canonical_fixture_bytes(&generate_fixture_set(seed)?)?;
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create fixture directory {}", parent.display()))?;
