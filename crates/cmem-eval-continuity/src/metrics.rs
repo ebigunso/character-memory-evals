@@ -226,6 +226,9 @@ fn insert_correction_metrics(
     trace: &ContinuityQueryTrace,
     retrieved_ids: &[String],
 ) {
+    if scenario.pattern != ScenarioPattern::CorrectionChains {
+        return;
+    }
     let telemetry = &trace.retrieval.telemetry;
     if telemetry.trace_available
         && let Some(unsafe_count) = telemetry.unsafe_lifecycle_returned_count
@@ -795,6 +798,21 @@ mod tests {
 
         assert_eq!(trace.retrieval.items.len(), 2);
         assert_eq!(out["correction_lifecycle_safe_admission_rate"], 0.5);
+    }
+
+    #[test]
+    fn correction_metrics_stay_unsupported_for_unrelated_scenarios() {
+        let scenario = scenario(ScenarioPattern::LongGapRecall);
+        let trace = trace(ScenarioPattern::LongGapRecall);
+        let family =
+            continuity_metric_family(&MetricsConfig::default(), std::slice::from_ref(&scenario));
+        let mut out = Map::new();
+        cmem_eval_core::initialize_registry_metrics_for(&mut out, std::slice::from_ref(&family));
+
+        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+
+        assert_eq!(out["correction_lifecycle_safe_admission_rate"], Value::Null);
+        assert_eq!(out["supersession_replacement_recall"], Value::Null);
     }
 
     #[test]

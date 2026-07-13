@@ -9,13 +9,14 @@ use cmem_eval_core::{
     PerQuestionResult, RetrievalFanoutUtilization, RetrievalRationaleCategory,
     RetrievalSelectivityDecision, RetrievedContextPack, RunAdapterMetadata, RunSummary,
     aggregate_numeric_metrics, metric_support_summary, registry_coverage_summary_for,
+    summarize_rows,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::{
     CONTINUITY_FIXTURE_SCHEMA_VERSION, CONTINUITY_TRACE_SCHEMA_VERSION, ContinuityQueryTrace,
-    ContinuityScenario, RestartObservation, ScenarioPattern,
+    ContinuityScenario, InteractionEvent, RestartObservation, ScenarioPattern,
 };
 
 pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "1.0.0";
@@ -156,6 +157,55 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
     );
     schema_versions.insert("result".to_string(), input.summary.schema_version.clone());
 
+    let expected_queries = input
+        .scenarios
+        .iter()
+        .flat_map(|scenario| {
+            scenario.events.iter().filter_map(move |event| match event {
+                InteractionEvent::Query {
+                    event_id,
+                    query_id,
+                    text,
+                    ..
+                } => Some((
+                    scenario,
+                    event_id.as_str(),
+                    query_id.as_str(),
+                    text.as_str(),
+                )),
+                _ => None,
+            })
+        })
+        .collect::<Vec<_>>();
+    if input.traces.len() != expected_queries.len() {
+        bail!(
+            "continuity report received {} traces but selected scenarios script {} queries",
+            input.traces.len(),
+            expected_queries.len()
+        );
+    }
+    for (index, (trace, (scenario, event_id, query_id, query))) in
+        input.traces.iter().zip(expected_queries).enumerate()
+    {
+        if trace.fixture_id != scenario.fixture_id
+            || trace.namespace != scenario.namespace
+            || trace.pattern != scenario.pattern
+            || trace.event_id != event_id
+            || trace.query_id != query_id
+            || trace.query != query
+        {
+            bail!(
+                "continuity report scripted query mismatch at index {index}: trace ({:?}, {:?}, {:?}), fixture ({:?}, {:?}, {:?})",
+                trace.fixture_id,
+                trace.event_id,
+                trace.query_id,
+                scenario.fixture_id,
+                event_id,
+                query_id
+            );
+        }
+    }
+
     if input.traces.len() != input.rows.len() {
         bail!(
             "continuity report received {} traces but {} result rows",
@@ -181,6 +231,77 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
                 row.question_type,
                 row.question
             );
+        }
+    }
+
+    if input.summary.adapter != input.adapter {
+        bail!("continuity report summary adapter does not match report adapter metadata");
+    }
+    if input.summary.config != input.config {
+        bail!("continuity report summary config does not match report config snapshot");
+    }
+    for (index, row) in input.rows.iter().enumerate() {
+        if row.run_id != input.summary.run_id
+            || row.dataset != input.summary.dataset
+            || row.adapter != input.summary.adapter
+        {
+            bail!(
+                "continuity report summary/result identity mismatch at index {index}: row ({:?}, {:?}, {:?}), summary ({:?}, {:?}, {:?})",
+                row.run_id,
+                row.dataset,
+                row.adapter,
+                input.summary.run_id,
+                input.summary.dataset,
+                input.summary.adapter
+            );
+        }
+    }
+    let recomputed_summary = summarize_rows(
+        input.summary.run_id.clone(),
+        input.summary.dataset.clone(),
+        input.summary.adapter.clone(),
+        input.summary.config.clone(),
+        input.rows,
+        std::slice::from_ref(input.metric_family),
+    );
+    if input.summary.schema_version != recomputed_summary.schema_version
+        || input.summary.embedding_provider != recomputed_summary.embedding_provider
+        || input.summary.num_questions != recomputed_summary.num_questions
+    {
+        bail!(
+            "continuity report summary identity/count does not match result rows: summary schema/provider/count ({:?}, {:?}, {}), recomputed ({:?}, {:?}, {})",
+            input.summary.schema_version,
+            input.summary.embedding_provider,
+            input.summary.num_questions,
+            recomputed_summary.schema_version,
+            recomputed_summary.embedding_provider,
+            recomputed_summary.num_questions
+        );
+    }
+    for (field, actual, expected) in [
+        (
+            "metrics",
+            &input.summary.metrics,
+            &recomputed_summary.metrics,
+        ),
+        (
+            "metric_support",
+            &input.summary.metric_support,
+            &recomputed_summary.metric_support,
+        ),
+        (
+            "registry_coverage",
+            &input.summary.registry_coverage,
+            &recomputed_summary.registry_coverage,
+        ),
+        (
+            "latency",
+            &input.summary.latency,
+            &recomputed_summary.latency,
+        ),
+    ] {
+        if actual != expected {
+            bail!("continuity report summary {field} does not match result-row aggregates");
         }
     }
 

@@ -701,7 +701,12 @@ fn restart_probe_snapshot(
     let relevant_returned_count = expected
         .relevant_external_ids
         .iter()
-        .filter(|external_id| returned_object_ids.binary_search(external_id).is_ok())
+        .filter(|external_id| {
+            pack.items.iter().any(|item| {
+                item.external_id.as_ref() == Some(external_id)
+                    || item.episode_external_id.as_ref() == Some(external_id)
+            })
+        })
         .count();
     let expected_relevant_count = expected.relevant_external_ids.len();
     let telemetry = &pack.telemetry;
@@ -1054,6 +1059,36 @@ mod tests {
         assert!(restart.delta.stable_returned_objects);
         assert_eq!(restart.delta.returned_object_count, 0);
         assert_eq!(restart.delta.recall, Some(0.0));
+    }
+
+    #[test]
+    fn restart_recall_matches_items_by_represented_episode_identity() {
+        let pack = RetrievedContextPack {
+            items: vec![cmem_eval_core::RetrievedItem {
+                kind: "observation".to_string(),
+                internal_id: "observation-internal".to_string(),
+                external_id: Some("observation-external".to_string()),
+                episode_external_id: Some("episode-relevant".to_string()),
+                score: Some(1.0),
+                rank: 1,
+                rationale: Vec::new(),
+                text: None,
+            }],
+            ..RetrievedContextPack::default()
+        };
+        let expected = ExpectedRelevance {
+            relevant_external_ids: vec!["episode-relevant".to_string()],
+            irrelevant_external_ids: vec!["episode-negative".to_string()],
+        };
+
+        let snapshot = restart_probe_snapshot(&pack, &expected);
+
+        assert_eq!(snapshot.relevant_returned_count, 1);
+        assert_eq!(snapshot.recall, Some(1.0));
+        assert_eq!(
+            snapshot.returned_object_ids,
+            vec!["observation-external".to_string()]
+        );
     }
 
     #[tokio::test]

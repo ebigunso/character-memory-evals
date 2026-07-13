@@ -969,7 +969,7 @@ impl MemoryAdapter for MockMemoryAdapter {
             external_id: episode_external_id.clone(),
             namespace: namespace.clone(),
             summary: plan.input.content.clone(),
-            started_at: None,
+            started_at: plan.input.episode_started_at.clone(),
             ended_at: None,
             participants: Vec::new(),
             metadata: serde_json::Value::Null,
@@ -981,7 +981,7 @@ impl MemoryAdapter for MockMemoryAdapter {
             namespace,
             speaker: None,
             text: plan.input.content,
-            observed_at: None,
+            observed_at: plan.input.observation_observed_at,
             metadata: serde_json::Value::Null,
         })
         .await?;
@@ -1745,8 +1745,8 @@ mod tests {
             content: "The user prefers a chat-native first version.".into(),
             episode_external_id: "s1".into(),
             observation_external_id: "s1:turn:1".into(),
-            episode_started_at: None,
-            observation_observed_at: None,
+            episode_started_at: Some("2025-01-02T03:04:05Z".into()),
+            observation_observed_at: Some("2025-01-02T03:04:05Z".into()),
             raw_refs: vec!["raw://conversation/s1".into()],
             idempotency_key: Some("continuity-step-1".into()),
             include_vector_index_candidates: true,
@@ -1777,6 +1777,14 @@ mod tests {
         let namespace = state.get("n").unwrap();
         assert_eq!(namespace.episodes[0].external_id, "s1");
         assert_eq!(namespace.observations[0].external_id, "s1:turn:1");
+        assert_eq!(
+            namespace.episodes[0].started_at.as_deref(),
+            Some("2025-01-02T03:04:05Z")
+        );
+        assert_eq!(
+            namespace.observations[0].observed_at.as_deref(),
+            Some("2025-01-02T03:04:05Z")
+        );
     }
 
     #[tokio::test]

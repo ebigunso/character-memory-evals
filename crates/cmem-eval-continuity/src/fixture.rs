@@ -218,7 +218,7 @@ impl ContinuityScenario {
             .flat_map(|concept| concept.inputs.iter().map(String::as_str))
             .collect::<BTreeSet<_>>();
 
-        for event in &self.events {
+        for (event_index, event) in self.events.iter().enumerate() {
             let event_id = event.event_id();
             require_non_empty("event_id", event_id)?;
             if !event_ids.insert(event_id) {
@@ -248,9 +248,15 @@ impl ContinuityScenario {
                 InteractionEvent::Remember {
                     external_id,
                     entity_external_ids,
+                    thread,
+                    salience,
                     text,
                     ..
                 } => {
+                    require_unit_interval("remember.salience", *salience)?;
+                    if let Some(thread) = thread {
+                        require_unit_interval("remember.thread.confidence", thread.confidence)?;
+                    }
                     for entity_id in entity_external_ids {
                         if !declared_entities.contains(entity_id.as_str()) {
                             bail!(
@@ -342,7 +348,30 @@ impl ContinuityScenario {
                         &admitted_external_ids,
                     )?;
                 }
-                InteractionEvent::Restart { .. } => {}
+                InteractionEvent::Restart {
+                    event_id,
+                    reopen_graph,
+                    reopen_stats,
+                    ..
+                } => {
+                    if !reopen_graph || !reopen_stats {
+                        bail!(
+                            "scenario {:?} restart event {:?} must set reopen_graph=true and reopen_stats=true because the continuity runtime always reconstructs both stores",
+                            self.fixture_id,
+                            event_id
+                        );
+                    }
+                    if !self.events[event_index + 1..]
+                        .iter()
+                        .any(|event| matches!(event, InteractionEvent::Query { .. }))
+                    {
+                        bail!(
+                            "scenario {:?} restart event {:?} must have a following scripted query",
+                            self.fixture_id,
+                            event_id
+                        );
+                    }
+                }
             }
         }
         Ok(())
@@ -488,6 +517,13 @@ fn validate_expected_relevance(
 fn require_non_empty(field: &str, value: &str) -> Result<()> {
     if value.trim().is_empty() {
         bail!("continuity fixture {field} must be non-empty");
+    }
+    Ok(())
+}
+
+fn require_unit_interval(field: &str, value: f32) -> Result<()> {
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        bail!("continuity fixture {field} must be finite and within 0.0..=1.0; got {value}");
     }
     Ok(())
 }
@@ -691,6 +727,93 @@ mod tests {
         scenario.events.push(duplicate);
         let error = parse_error(&fixtures);
         assert!(error.contains("duplicate query_id"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_invalid_salience_and_thread_confidence() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
+        let InteractionEvent::Remember { salience, .. } = &mut scenario.events[0] else {
+            panic!("expected remember event");
+        };
+        *salience = 1.1;
+        let error = parse_error(&fixtures);
+        assert!(error.contains("remember.salience"), "{error}");
+        assert!(error.contains("0.0..=1.0"), "{error}");
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::ThreadDrift);
+        let confidence = scenario
+            .events
+            .iter_mut()
+            .find_map(|event| match event {
+                InteractionEvent::Remember {
+                    thread: Some(thread),
+                    ..
+                } => Some(&mut thread.confidence),
+                _ => None,
+            })
+            .expect("thread drift fixture has thread membership");
+        *confidence = -0.1;
+        let error = parse_error(&fixtures);
+        assert!(error.contains("remember.thread.confidence"), "{error}");
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
+        let InteractionEvent::Remember { salience, .. } = &mut scenario.events[0] else {
+            panic!("expected remember event");
+        };
+        *salience = f32::NAN;
+        let error = scenario.validate().unwrap_err().to_string();
+        assert!(error.contains("must be finite"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_restart_without_a_following_query() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
+        let restart_index = scenario
+            .events
+            .iter()
+            .position(|event| matches!(event, InteractionEvent::Restart { .. }))
+            .unwrap();
+        scenario.events.truncate(restart_index + 1);
+
+        let error = parse_error(&fixtures);
+        assert!(
+            error.contains("must have a following scripted query"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn public_parser_rejects_restart_flags_the_runtime_cannot_honor() {
+        for unsupported_field in ["reopen_graph", "reopen_stats"] {
+            let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED);
+            let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
+            let restart = scenario
+                .events
+                .iter_mut()
+                .find(|event| matches!(event, InteractionEvent::Restart { .. }))
+                .unwrap();
+            let InteractionEvent::Restart {
+                reopen_graph,
+                reopen_stats,
+                ..
+            } = restart
+            else {
+                unreachable!()
+            };
+            match unsupported_field {
+                "reopen_graph" => *reopen_graph = false,
+                "reopen_stats" => *reopen_stats = false,
+                _ => unreachable!(),
+            }
+
+            let error = parse_error(&fixtures);
+            assert!(error.contains("reopen_graph=true"), "{error}");
+            assert!(error.contains("reopen_stats=true"), "{error}");
+        }
     }
 
     #[test]

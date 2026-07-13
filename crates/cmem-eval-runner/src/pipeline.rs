@@ -34,10 +34,11 @@ pub(crate) async fn run_synthetic(args: RunArgs) -> Result<()> {
 pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
     let config = read_config(&args.run.config)?;
     ContinuitySpec::validate_config(&config)?;
-    args.run.validate_adapter_selection(&config)?;
     let fixture = load_continuity_fixture(&args.run.dataset)?;
     let fixture_seed = fixture.seed;
     let scenarios = select_continuity_scenarios(fixture.scenarios, args.scenario.as_deref())?;
+    validate_continuity_embedding_sizes(&config, &scenarios)?;
+    args.run.validate_adapter_selection(&config)?;
     run_continuity_pipeline(args, config, fixture_seed, scenarios).await
 }
 
@@ -65,6 +66,7 @@ pub(crate) fn metric_family_for_config(
                 "summarizing continuity results requires --dataset with the source fixture path",
             )?;
             let scenarios = load_continuity_scenarios(dataset, continuity_scenario)?;
+            validate_continuity_embedding_sizes(config, &scenarios)?;
             Ok(continuity_metric_family(&config.metrics, &scenarios))
         }
         "longmemeval_s" => {
@@ -124,6 +126,25 @@ fn load_continuity_fixture(path: &Path) -> Result<cmem_eval_continuity::Continui
     let bytes =
         fs::read(path).with_context(|| format!("read continuity fixture {}", path.display()))?;
     parse_fixture_bytes(&bytes)
+}
+
+fn validate_continuity_embedding_sizes(
+    config: &BenchmarkRunConfig,
+    scenarios: &[ContinuityScenario],
+) -> Result<()> {
+    let configured_size = config.backend.embedding.vector_size.context(
+        "continuity dataset requires backend.embedding.vector_size to match every selected fixture scenario",
+    )?;
+    for scenario in scenarios {
+        if scenario.embedding.vector_size != configured_size {
+            bail!(
+                "continuity scenario {:?} embedding vector_size {} does not match backend.embedding.vector_size {configured_size}",
+                scenario.fixture_id,
+                scenario.embedding.vector_size
+            );
+        }
+    }
+    Ok(())
 }
 
 fn select_continuity_scenarios(
@@ -1825,6 +1846,86 @@ mod tests {
             error.contains("trace/result mismatch at index 0"),
             "{error}"
         );
+        let mut invented_traces = traces.clone();
+        invented_traces[0].query_id = "invented-query".to_string();
+        let mut invented_rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
+        invented_rows[0].question_id = "invented-query".to_string();
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_seed: fixture.seed,
+            config: summary.config.clone(),
+            adapter: summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &invented_traces,
+            rows: &invented_rows,
+            summary: &summary,
+            metric_family: &report_metric_family,
+            restart_observations: &BTreeMap::new(),
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("scripted query mismatch at index 0"),
+            "{error}"
+        );
+        let mut duplicate_traces = traces.clone();
+        duplicate_traces[1].query_id = duplicate_traces[0].query_id.clone();
+        let mut duplicate_rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
+        duplicate_rows[1].question_id = duplicate_rows[0].question_id.clone();
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_seed: fixture.seed,
+            config: summary.config.clone(),
+            adapter: summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &duplicate_traces,
+            rows: &duplicate_rows,
+            summary: &summary,
+            metric_family: &report_metric_family,
+            restart_observations: &BTreeMap::new(),
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("scripted query mismatch at index 1"),
+            "{error}"
+        );
+
+        let mut stale_summary = cmem_eval_core::read_summary(&summary_path).unwrap();
+        stale_summary.num_questions -= 1;
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_seed: fixture.seed,
+            config: stale_summary.config.clone(),
+            adapter: stale_summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &traces,
+            rows: &rows,
+            summary: &stale_summary,
+            metric_family: &report_metric_family,
+            restart_observations: &BTreeMap::new(),
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("identity/count"), "{error}");
+
+        let mut stale_summary = cmem_eval_core::read_summary(&summary_path).unwrap();
+        stale_summary.metrics["continuity_gap_days"]["mean"] = serde_json::json!(-1.0);
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_seed: fixture.seed,
+            config: stale_summary.config.clone(),
+            adapter: stale_summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &traces,
+            rows: &rows,
+            summary: &stale_summary,
+            metric_family: &report_metric_family,
+            restart_observations: &BTreeMap::new(),
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("summary metrics"), "{error}");
         assert_eq!(
             summary.registry_coverage["missing_required_metrics"],
             serde_json::json!([])
@@ -1865,5 +1966,32 @@ mod tests {
             .to_string();
         assert!(error.contains("backend.embedding.provider=controllable_similarity"));
         assert!(error.contains("openai"));
+    }
+
+    #[test]
+    fn continuity_fixture_dimensions_must_match_the_config_before_adapter_selection() {
+        let fixture =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED);
+        let mut config =
+            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+
+        config.backend.embedding.vector_size = None;
+        let error = validate_continuity_embedding_sizes(&config, &fixture.scenarios)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("requires backend.embedding.vector_size"),
+            "{error}"
+        );
+
+        config.backend.embedding.vector_size = Some(fixture.scenarios[0].embedding.vector_size + 1);
+        let error = validate_continuity_embedding_sizes(&config, &fixture.scenarios)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("does not match"), "{error}");
+        assert!(error.contains(&fixture.scenarios[0].fixture_id), "{error}");
+
+        config.backend.embedding.vector_size = Some(fixture.scenarios[0].embedding.vector_size);
+        validate_continuity_embedding_sizes(&config, &fixture.scenarios).unwrap();
     }
 }
