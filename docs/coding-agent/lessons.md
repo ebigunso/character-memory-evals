@@ -798,3 +798,25 @@ Prevention:
 Evidence:
 - Parser regressions cover retired v1 fields, unknown entity kinds, unsupported correction/forget/link targets, derived-ID collisions, and valid observation/derived/thread references; driver coverage executes those valid implicit references through mock operations.
 - Strict workspace gates pass, and two full eight-scenario live runs produced identical trace, latency-normalized row, and report-content hashes.
+
+## 2026-07-14 — Verify Raw JSON Framing Before PowerShell Type Assertions  [tags: powershell, validation, json-array]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 5 recipe verification
+- Roles involved: Reviewer | Worker
+
+Symptom:
+- During reviewer verification, `ConvertFrom-Json` pipeline unrolling made a one-element JSON array appear scalar, briefly suggesting that the README's cardinality-stable array recipe had failed.
+
+Root cause:
+- Validation inspected the PowerShell object type after ordinary pipeline parsing instead of checking the raw JSON framing emitted by `ConvertTo-Json`.
+
+Fix applied:
+- Inspect the raw serialized value's first and last bytes to confirm `[` and `]` array framing before interpreting the parsed PowerShell value.
+
+Prevention:
+- When validating cardinality-stable JSON in PowerShell, assert raw leading and trailing brackets or parse with `ConvertFrom-Json -NoEnumerate`; never use an ordinary post-pipeline `-is [array]` check as proof of JSON array framing.
+
+Evidence:
+- The reviewer confirmed the one-row output's raw bracket framing and independently reproduced the documented array hash while reconciling the round-five recipe evidence.
