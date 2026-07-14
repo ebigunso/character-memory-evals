@@ -66,7 +66,7 @@ pub fn continuity_metric_family(
     for entity_type in scenarios
         .iter()
         .flat_map(|scenario| scenario.entities.iter())
-        .map(|entity| metric_slug(&entity.entity_type))
+        .map(|entity| metric_slug(entity.entity_type.as_str()))
     {
         required_metrics.insert(format!("selectivity_score_mean_entity_kind_{entity_type}"));
     }
@@ -586,15 +586,13 @@ fn metric_slug(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::{ContinuityEntityKind, EntityDeclaration, ExpectedRelevance};
     use chrono::{TimeZone, Utc};
     use cmem_eval_core::{
         RetrievalFanoutUtilization, RetrievalSelectivityDecision, RetrievalTelemetry,
         RetrievedContextPack,
     };
-    use uuid::Uuid;
-
-    use super::*;
-    use crate::{EntityDeclaration, ExpectedRelevance};
 
     fn item(id: &str, rank: usize) -> RetrievedItem {
         RetrievedItem {
@@ -616,9 +614,8 @@ mod tests {
             collection_name: "collection".to_string(),
             pattern,
             entities: vec![EntityDeclaration {
-                memory_id: Uuid::nil(),
                 external_id: "hub-person".to_string(),
-                entity_type: "person".to_string(),
+                entity_type: ContinuityEntityKind::Person,
                 label: "Hub".to_string(),
                 is_hub: true,
             }],
@@ -632,7 +629,6 @@ mod tests {
             events: vec![
                 InteractionEvent::Remember {
                     event_id: "remember".to_string(),
-                    memory_id: Uuid::nil(),
                     external_id: "relevant".to_string(),
                     timestamp: Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap(),
                     text: "relevant".to_string(),
@@ -642,7 +638,6 @@ mod tests {
                 },
                 InteractionEvent::Remember {
                     event_id: "negative".to_string(),
-                    memory_id: Uuid::from_u128(1),
                     external_id: "sampled-negative".to_string(),
                     timestamp: Utc.with_ymd_and_hms(2025, 6, 1, 0, 0, 0).unwrap(),
                     text: "negative".to_string(),
@@ -652,7 +647,6 @@ mod tests {
                 },
                 InteractionEvent::Correct {
                     event_id: "correct".to_string(),
-                    replacement_memory_id: Uuid::from_u128(2),
                     target_external_id: "old".to_string(),
                     replacement_external_id: "relevant".to_string(),
                     timestamp: Utc.with_ymd_and_hms(2025, 7, 1, 0, 0, 0).unwrap(),

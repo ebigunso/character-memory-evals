@@ -4,9 +4,8 @@ use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use cmem_eval_core::ControllableSimilarityFixture;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
-pub const CONTINUITY_FIXTURE_SCHEMA_VERSION: u32 = 1;
+pub const CONTINUITY_FIXTURE_SCHEMA_VERSION: u32 = 2;
 
 /// Relation names accepted by continuity fixtures and checked against the live
 /// CharacterMemory facade by the adapter crate's exhaustive parity test.
@@ -28,6 +27,7 @@ pub const CONTINUITY_RELATION_VOCABULARY: &[&str] = &[
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContinuityFixtureSet {
     pub schema_version: u32,
     pub seed: u64,
@@ -35,6 +35,7 @@ pub struct ContinuityFixtureSet {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContinuityScenario {
     pub fixture_id: String,
     pub namespace: String,
@@ -59,10 +60,10 @@ pub enum ScenarioPattern {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct EntityDeclaration {
-    pub memory_id: Uuid,
     pub external_id: String,
-    pub entity_type: String,
+    pub entity_type: ContinuityEntityKind,
     /// Embedding input as well as display text. Scenario authors must assign it
     /// exactly once in `embedding.concepts`; the generator uses the concept of
     /// the first `Remember` that explicitly references this entity, or the
@@ -71,12 +72,52 @@ pub struct EntityDeclaration {
     pub is_hub: bool,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ContinuityEntityKind {
+    Location,
+    Person,
+    Organization,
+}
+
+impl ContinuityEntityKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Location => "location",
+            Self::Person => "person",
+            Self::Organization => "organization",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContinuityObjectKind {
+    Episode,
+    Observation,
+    Entity,
+    MemoryThread,
+    DerivedMemory,
+    MemoryLink,
+}
+
+impl ContinuityObjectKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Episode => "episode",
+            Self::Observation => "observation",
+            Self::Entity => "entity",
+            Self::MemoryThread => "memory_thread",
+            Self::DerivedMemory => "derived_memory",
+            Self::MemoryLink => "memory_link",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InteractionEvent {
     Remember {
         event_id: String,
-        memory_id: Uuid,
         external_id: String,
         timestamp: DateTime<Utc>,
         text: String,
@@ -86,7 +127,6 @@ pub enum InteractionEvent {
     },
     Correct {
         event_id: String,
-        replacement_memory_id: Uuid,
         target_external_id: String,
         replacement_external_id: String,
         timestamp: DateTime<Utc>,
@@ -99,7 +139,6 @@ pub enum InteractionEvent {
     },
     Link {
         event_id: String,
-        memory_id: Uuid,
         external_id: String,
         timestamp: DateTime<Utc>,
         from_external_id: String,
@@ -122,12 +161,14 @@ pub enum InteractionEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ThreadMembership {
     pub thread_external_id: String,
     pub confidence: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedRelevance {
     /// Previously admitted external IDs expected to be relevant to this query.
     pub relevant_external_ids: Vec<String>,
@@ -199,7 +240,6 @@ impl ContinuityScenario {
         }
         for entity in &self.entities {
             require_non_empty("entity.external_id", &entity.external_id)?;
-            require_non_empty("entity.entity_type", &entity.entity_type)?;
             require_non_empty("entity.label", &entity.label)?;
             let assignment_count = self
                 .embedding
@@ -222,13 +262,8 @@ impl ContinuityScenario {
         let mut admitted_external_ids = self
             .entities
             .iter()
-            .map(|entity| entity.external_id.clone())
-            .collect::<BTreeSet<_>>();
-        let mut memory_ids = self
-            .entities
-            .iter()
-            .map(|entity| entity.memory_id)
-            .collect::<BTreeSet<_>>();
+            .map(|entity| (entity.external_id.clone(), ContinuityObjectKind::Entity))
+            .collect::<BTreeMap<_, _>>();
         let mut previous_timestamp = None;
         let assigned_inputs = self
             .embedding
@@ -255,14 +290,6 @@ impl ContinuityScenario {
             }
             previous_timestamp = Some(timestamp);
 
-            if let Some(memory_id) = event.created_memory_id()
-                && !memory_ids.insert(memory_id)
-            {
-                bail!(
-                    "scenario {:?} reuses memory_id {memory_id}",
-                    self.fixture_id
-                );
-            }
             match event {
                 InteractionEvent::Remember {
                     external_id,
@@ -289,8 +316,30 @@ impl ContinuityScenario {
                         &self.fixture_id,
                         "remember.external_id",
                         external_id,
+                        ContinuityObjectKind::Episode,
                         &mut admitted_external_ids,
                     )?;
+                    admit_external_id(
+                        &self.fixture_id,
+                        "remember.observation_external_id",
+                        &observation_external_id(external_id),
+                        ContinuityObjectKind::Observation,
+                        &mut admitted_external_ids,
+                    )?;
+                    admit_external_id(
+                        &self.fixture_id,
+                        "remember.derived_external_id",
+                        &derived_external_id(external_id),
+                        ContinuityObjectKind::DerivedMemory,
+                        &mut admitted_external_ids,
+                    )?;
+                    if let Some(thread) = thread {
+                        admit_thread_external_id(
+                            &self.fixture_id,
+                            &thread.thread_external_id,
+                            &mut admitted_external_ids,
+                        )?;
+                    }
                 }
                 InteractionEvent::Correct {
                     target_external_id,
@@ -298,10 +347,15 @@ impl ContinuityScenario {
                     replacement_text,
                     ..
                 } => {
-                    require_admitted_external_id(
+                    require_admitted_kind(
                         &self.fixture_id,
                         "correct.target_external_id",
                         target_external_id,
+                        &[
+                            ContinuityObjectKind::Episode,
+                            ContinuityObjectKind::Observation,
+                            ContinuityObjectKind::DerivedMemory,
+                        ],
                         &admitted_external_ids,
                     )?;
                     require_embedding_input(&self.fixture_id, &assigned_inputs, replacement_text)?;
@@ -309,16 +363,23 @@ impl ContinuityScenario {
                         &self.fixture_id,
                         "correct.replacement_external_id",
                         replacement_external_id,
+                        ContinuityObjectKind::DerivedMemory,
                         &mut admitted_external_ids,
                     )?;
                 }
                 InteractionEvent::Forget {
                     target_external_id, ..
                 } => {
-                    require_admitted_external_id(
+                    require_admitted_kind(
                         &self.fixture_id,
                         "forget.target_external_id",
                         target_external_id,
+                        &[
+                            ContinuityObjectKind::Episode,
+                            ContinuityObjectKind::Observation,
+                            ContinuityObjectKind::DerivedMemory,
+                            ContinuityObjectKind::MemoryThread,
+                        ],
                         &admitted_external_ids,
                     )?;
                 }
@@ -329,16 +390,30 @@ impl ContinuityScenario {
                     to_external_id,
                     ..
                 } => {
-                    require_admitted_external_id(
+                    require_admitted_kind(
                         &self.fixture_id,
                         "link.from_external_id",
                         from_external_id,
+                        &[
+                            ContinuityObjectKind::Episode,
+                            ContinuityObjectKind::Observation,
+                            ContinuityObjectKind::Entity,
+                            ContinuityObjectKind::MemoryThread,
+                            ContinuityObjectKind::DerivedMemory,
+                        ],
                         &admitted_external_ids,
                     )?;
-                    require_admitted_external_id(
+                    require_admitted_kind(
                         &self.fixture_id,
                         "link.to_external_id",
                         to_external_id,
+                        &[
+                            ContinuityObjectKind::Episode,
+                            ContinuityObjectKind::Observation,
+                            ContinuityObjectKind::Entity,
+                            ContinuityObjectKind::MemoryThread,
+                            ContinuityObjectKind::DerivedMemory,
+                        ],
                         &admitted_external_ids,
                     )?;
                     require_supported_relation(&self.fixture_id, relation)?;
@@ -346,6 +421,7 @@ impl ContinuityScenario {
                         &self.fixture_id,
                         "link.external_id",
                         external_id,
+                        ContinuityObjectKind::MemoryLink,
                         &mut admitted_external_ids,
                     )?;
                 }
@@ -427,17 +503,14 @@ impl InteractionEvent {
             | Self::Query { timestamp, .. } => *timestamp,
         }
     }
+}
 
-    fn created_memory_id(&self) -> Option<Uuid> {
-        match self {
-            Self::Remember { memory_id, .. } | Self::Link { memory_id, .. } => Some(*memory_id),
-            Self::Correct {
-                replacement_memory_id,
-                ..
-            } => Some(*replacement_memory_id),
-            Self::Forget { .. } | Self::Restart { .. } | Self::Query { .. } => None,
-        }
-    }
+pub(crate) fn observation_external_id(external_id: &str) -> String {
+    format!("{external_id}:observation")
+}
+
+pub(crate) fn derived_external_id(external_id: &str) -> String {
+    format!("{external_id}:derived")
 }
 
 pub fn canonical_fixture_bytes(fixtures: &ContinuityFixtureSet) -> Result<Vec<u8>> {
@@ -476,24 +549,69 @@ fn admit_external_id(
     fixture_id: &str,
     field: &str,
     external_id: &str,
-    admitted_external_ids: &mut BTreeSet<String>,
+    kind: ContinuityObjectKind,
+    admitted_external_ids: &mut BTreeMap<String, ContinuityObjectKind>,
 ) -> Result<()> {
     require_non_empty(field, external_id)?;
-    if !admitted_external_ids.insert(external_id.to_string()) {
+    if admitted_external_ids.contains_key(external_id) {
         bail!("scenario {fixture_id:?} {field} duplicates existing external ID {external_id:?}");
     }
+    admitted_external_ids.insert(external_id.to_string(), kind);
     Ok(())
+}
+
+fn admit_thread_external_id(
+    fixture_id: &str,
+    external_id: &str,
+    admitted_external_ids: &mut BTreeMap<String, ContinuityObjectKind>,
+) -> Result<()> {
+    require_non_empty("remember.thread.thread_external_id", external_id)?;
+    match admitted_external_ids.get(external_id) {
+        Some(ContinuityObjectKind::MemoryThread) => Ok(()),
+        Some(kind) => bail!(
+            "scenario {fixture_id:?} remember.thread.thread_external_id {external_id:?} collides with admitted {}",
+            kind.as_str()
+        ),
+        None => {
+            admitted_external_ids
+                .insert(external_id.to_string(), ContinuityObjectKind::MemoryThread);
+            Ok(())
+        }
+    }
 }
 
 fn require_admitted_external_id(
     fixture_id: &str,
     field: &str,
     external_id: &str,
-    admitted_external_ids: &BTreeSet<String>,
+    admitted_external_ids: &BTreeMap<String, ContinuityObjectKind>,
 ) -> Result<()> {
-    if !admitted_external_ids.contains(external_id) {
+    if !admitted_external_ids.contains_key(external_id) {
         bail!(
             "scenario {fixture_id:?} {field} references external ID {external_id:?} before it is admitted"
+        );
+    }
+    Ok(())
+}
+
+fn require_admitted_kind(
+    fixture_id: &str,
+    field: &str,
+    external_id: &str,
+    allowed: &[ContinuityObjectKind],
+    admitted_external_ids: &BTreeMap<String, ContinuityObjectKind>,
+) -> Result<()> {
+    require_admitted_external_id(fixture_id, field, external_id, admitted_external_ids)?;
+    let kind = admitted_external_ids[external_id];
+    if !allowed.contains(&kind) {
+        let allowed = allowed
+            .iter()
+            .map(|kind| kind.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        bail!(
+            "scenario {fixture_id:?} {field} references {external_id:?} with unsupported kind {}; expected one of [{allowed}]",
+            kind.as_str()
         );
     }
     Ok(())
@@ -512,7 +630,7 @@ fn require_supported_relation(fixture_id: &str, relation: &str) -> Result<()> {
 fn validate_expected_relevance(
     fixture_id: &str,
     expected: &ExpectedRelevance,
-    admitted_external_ids: &BTreeSet<String>,
+    admitted_external_ids: &BTreeMap<String, ContinuityObjectKind>,
 ) -> Result<()> {
     if expected.relevant_external_ids.is_empty() {
         bail!("scenario {fixture_id:?} query must declare relevant_external_ids");
@@ -597,6 +715,101 @@ mod tests {
                 _ => None,
             })
             .unwrap()
+    }
+
+    fn insert_link_before(
+        scenario: &mut ContinuityScenario,
+        index: usize,
+        external_id: &str,
+        from_external_id: &str,
+    ) {
+        let timestamp = scenario.events[index - 1].timestamp() + chrono::Duration::seconds(1);
+        scenario.events.insert(
+            index,
+            InteractionEvent::Link {
+                event_id: format!("event-test-link-{external_id}"),
+                external_id: external_id.to_string(),
+                timestamp,
+                from_external_id: from_external_id.to_string(),
+                relation: "mentions".to_string(),
+                to_external_id: "entity-person".to_string(),
+            },
+        );
+    }
+
+    #[test]
+    fn public_parser_rejects_v1_and_retired_caller_supplied_memory_ids() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let mut v1 = serde_json::to_value(&fixtures).unwrap();
+        v1["schema_version"] = Value::from(1);
+        let error = parse_fixture_bytes(&serde_json::to_vec(&v1).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("schema_version 1"), "{error}");
+        assert!(
+            error.contains(&CONTINUITY_FIXTURE_SCHEMA_VERSION.to_string()),
+            "{error}"
+        );
+
+        for (pattern, field) in [
+            (ScenarioPattern::LongGapRecall, "memory_id"),
+            (ScenarioPattern::CorrectionChains, "replacement_memory_id"),
+            (ScenarioPattern::CrossStoreStress, "memory_id"),
+        ] {
+            let mut value = serde_json::to_value(&fixtures).unwrap();
+            let scenario = value["scenarios"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|scenario| {
+                    serde_json::from_value::<ScenarioPattern>(scenario["pattern"].clone()).unwrap()
+                        == pattern
+                })
+                .unwrap();
+            let event = scenario["events"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|event| match field {
+                    "replacement_memory_id" => event["kind"] == "correct",
+                    _ if pattern == ScenarioPattern::CrossStoreStress => event["kind"] == "link",
+                    _ => event["kind"] == "remember",
+                })
+                .unwrap();
+            event
+                .as_object_mut()
+                .unwrap()
+                .insert(field.to_string(), Value::from("retired-id"));
+            let error = parse_fixture_bytes(&serde_json::to_vec(&value).unwrap())
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("unknown field"), "{error}");
+            assert!(error.contains(field), "{error}");
+        }
+
+        let mut value = serde_json::to_value(&fixtures).unwrap();
+        value["scenarios"][0]["entities"][0]
+            .as_object_mut()
+            .unwrap()
+            .insert("memory_id".to_string(), Value::from("retired-id"));
+        let error = parse_fixture_bytes(&serde_json::to_vec(&value).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown field"), "{error}");
+        assert!(error.contains("memory_id"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_unknown_entity_kinds_before_validation() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let mut value = serde_json::to_value(&fixtures).unwrap();
+        value["scenarios"][0]["entities"][0]["entity_type"] = Value::from("inferred-from-label");
+
+        let error = parse_fixture_bytes(&serde_json::to_vec(&value).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("inferred-from-label"), "{error}");
+        assert!(error.contains("expected one of"), "{error}");
     }
 
     #[test]
@@ -697,6 +910,66 @@ mod tests {
     }
 
     #[test]
+    fn public_parser_rejects_correction_targets_the_driver_cannot_correct() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let InteractionEvent::Correct {
+            target_external_id, ..
+        } = &mut scenario.events[1]
+        else {
+            panic!("expected correction event");
+        };
+        *target_external_id = "entity-person".to_string();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("correct.target_external_id"), "{error}");
+        assert!(error.contains("unsupported kind entity"), "{error}");
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        insert_link_before(scenario, 1, "correction-link", "delivery-v1");
+        let InteractionEvent::Correct {
+            target_external_id, ..
+        } = &mut scenario.events[2]
+        else {
+            panic!("expected correction event");
+        };
+        *target_external_id = "correction-link".to_string();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("correct.target_external_id"), "{error}");
+        assert!(error.contains("unsupported kind memory_link"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_forget_targets_the_driver_cannot_forget() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let InteractionEvent::Forget {
+            target_external_id, ..
+        } = &mut scenario.events[3]
+        else {
+            panic!("expected forget event");
+        };
+        *target_external_id = "entity-person".to_string();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("forget.target_external_id"), "{error}");
+        assert!(error.contains("unsupported kind entity"), "{error}");
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        insert_link_before(scenario, 3, "forget-link", "delivery-v2");
+        let InteractionEvent::Forget {
+            target_external_id, ..
+        } = &mut scenario.events[4]
+        else {
+            panic!("expected forget event");
+        };
+        *target_external_id = "forget-link".to_string();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("forget.target_external_id"), "{error}");
+        assert!(error.contains("unsupported kind memory_link"), "{error}");
+    }
+
+    #[test]
     fn public_parser_rejects_dangling_link_endpoints() {
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
@@ -718,6 +991,92 @@ mod tests {
         *to_external_id = "missing-link-target".to_string();
         let error = parse_error(&fixtures);
         assert!(error.contains("link.to_external_id"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_memory_links_as_link_endpoints() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
+        insert_link_before(scenario, 2, "nested-link", "restart-link");
+
+        let error = parse_error(&fixtures);
+        assert!(error.contains("link.from_external_id"), "{error}");
+        assert!(error.contains("unsupported kind memory_link"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_admits_persisted_observation_derived_and_thread_ids() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::ThreadDrift);
+        let query_index = scenario
+            .events
+            .iter()
+            .position(|event| matches!(event, InteractionEvent::Query { .. }))
+            .unwrap();
+        let thread_external_id = scenario
+            .events
+            .iter()
+            .find_map(|event| match event {
+                InteractionEvent::Remember {
+                    thread: Some(thread),
+                    ..
+                } => Some(thread.thread_external_id.clone()),
+                _ => None,
+            })
+            .unwrap();
+        insert_link_before(
+            scenario,
+            query_index,
+            "observation-link",
+            "thread-focus:observation",
+        );
+        insert_link_before(
+            scenario,
+            query_index + 1,
+            "derived-link",
+            "thread-focus:derived",
+        );
+        insert_link_before(
+            scenario,
+            query_index + 2,
+            "thread-link",
+            &thread_external_id,
+        );
+
+        let bytes = serde_json::to_vec(&fixtures).unwrap();
+        assert_eq!(parse_fixture_bytes(&bytes).unwrap(), fixtures);
+    }
+
+    #[test]
+    fn public_parser_rejects_generated_external_id_collisions() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
+        let InteractionEvent::Remember { external_id, .. } = &mut scenario.events[1] else {
+            panic!("expected remember event");
+        };
+        *external_id = "memory-dormant:observation".to_string();
+
+        let error = parse_error(&fixtures);
+        assert!(error.contains("remember.external_id"), "{error}");
+        assert!(error.contains("memory-dormant:observation"), "{error}");
+        assert!(error.contains("duplicates existing external ID"), "{error}");
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::ThreadDrift);
+        let InteractionEvent::Remember {
+            thread: Some(thread),
+            ..
+        } = &mut scenario.events[0]
+        else {
+            panic!("expected threaded remember event");
+        };
+        thread.thread_external_id = "entity-person".to_string();
+        let error = parse_error(&fixtures);
+        assert!(
+            error.contains("remember.thread.thread_external_id"),
+            "{error}"
+        );
+        assert!(error.contains("collides with admitted entity"), "{error}");
     }
 
     #[test]

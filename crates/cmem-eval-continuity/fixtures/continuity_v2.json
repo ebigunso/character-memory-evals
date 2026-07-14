@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "seed": 20260712,
   "scenarios": [
     {
@@ -9,21 +9,18 @@
       "pattern": "long_gap_recall",
       "entities": [
         {
-          "memory_id": "f4b64cd7-b97a-5ea5-925d-646ec58db5a3",
           "external_id": "entity-location",
           "entity_type": "location",
           "label": "Entity C",
           "is_hub": false
         },
         {
-          "memory_id": "6d4100f9-028d-5827-b260-21c6d2ce9d95",
           "external_id": "entity-organization",
           "entity_type": "organization",
           "label": "Entity B",
           "is_hub": false
         },
         {
-          "memory_id": "e64d8f75-7702-545f-b4bc-a1b65dd33566",
           "external_id": "entity-person",
           "entity_type": "person",
           "label": "Entity A",
@@ -94,7 +91,6 @@
         {
           "kind": "remember",
           "event_id": "event-001",
-          "memory_id": "d664b24c-f4f8-5a07-be98-a42655e2e042",
           "external_id": "memory-dormant",
           "timestamp": "2025-01-05T10:00:00Z",
           "text": "A dormant project uses the cobalt protocol.",
@@ -107,7 +103,6 @@
         {
           "kind": "remember",
           "event_id": "event-002",
-          "memory_id": "0810065b-e1be-51eb-adef-897be8ebdcf9",
           "external_id": "memory-recent",
           "timestamp": "2025-06-05T10:00:00Z",
           "text": "A recent project uses the amber protocol.",
@@ -141,21 +136,18 @@
       "pattern": "recurring_hub_entity",
       "entities": [
         {
-          "memory_id": "717f33d6-c7d2-5098-8b4a-cbcd61e7f229",
           "external_id": "entity-location",
           "entity_type": "location",
           "label": "Hub C",
           "is_hub": true
         },
         {
-          "memory_id": "b6080768-532b-5c98-b242-a99d241b2c84",
           "external_id": "entity-organization",
           "entity_type": "organization",
           "label": "Hub B",
           "is_hub": true
         },
         {
-          "memory_id": "de4019ca-69f2-50de-807d-9271842c1dd3",
           "external_id": "entity-person",
           "entity_type": "person",
           "label": "Hub A",
@@ -200,7 +192,6 @@
         {
           "kind": "remember",
           "event_id": "event-001",
-          "memory_id": "b51c7637-dd53-5611-8be6-75125747f15c",
           "external_id": "hub-memory-0",
           "timestamp": "2025-01-10T10:00:00Z",
           "text": "Hub incident 0 connects all declared entity kinds.",
@@ -215,7 +206,6 @@
         {
           "kind": "remember",
           "event_id": "event-002",
-          "memory_id": "311fca30-ec6f-5c01-81dc-eef41276e5ef",
           "external_id": "hub-memory-1",
           "timestamp": "2025-02-10T10:00:00Z",
           "text": "Hub incident 1 connects all declared entity kinds.",
@@ -230,7 +220,6 @@
         {
           "kind": "remember",
           "event_id": "event-003",
-          "memory_id": "1deb3dbc-63b8-542c-b8d7-098f2efc8c60",
           "external_id": "hub-memory-2",
           "timestamp": "2025-03-10T10:00:00Z",
           "text": "Hub incident 2 connects all declared entity kinds.",
@@ -245,7 +234,6 @@
         {
           "kind": "remember",
           "event_id": "event-004",
-          "memory_id": "2a9470ae-0825-5754-b568-39941f916564",
           "external_id": "hub-memory-3",
           "timestamp": "2025-04-10T10:00:00Z",
           "text": "Hub incident 3 connects all declared entity kinds.",
@@ -260,7 +248,6 @@
         {
           "kind": "remember",
           "event_id": "event-005",
-          "memory_id": "1075e749-4b49-52a4-af2c-7453b472596c",
           "external_id": "hub-memory-4",
           "timestamp": "2025-05-10T10:00:00Z",
           "text": "Hub incident 4 connects all declared entity kinds.",
@@ -275,7 +262,6 @@
         {
           "kind": "remember",
           "event_id": "event-006",
-          "memory_id": "05e65408-fad7-574d-bd85-d5518f72bc40",
           "external_id": "hub-memory-5",
           "timestamp": "2025-06-10T10:00:00Z",
           "text": "Hub incident 5 connects all declared entity kinds.",
@@ -311,21 +297,18 @@
       "pattern": "selective_entity",
       "entities": [
         {
-          "memory_id": "16781a11-b449-5a4f-90ab-7101a9d42cfe",
           "external_id": "entity-location",
           "entity_type": "location",
           "label": "Entity C",
           "is_hub": false
         },
         {
-          "memory_id": "a7f1a7e8-edd2-57e0-82c9-58148946a3c5",
           "external_id": "entity-organization",
           "entity_type": "organization",
           "label": "Entity B",
           "is_hub": false
         },
         {
-          "memory_id": "5b169137-f732-5444-9a3c-7e5644d68de6",
           "external_id": "entity-person",
           "entity_type": "person",
           "label": "Entity A",
@@ -396,7 +379,6 @@
         {
           "kind": "remember",
           "event_id": "event-001",
-          "memory_id": "1cda93f7-3dd7-59d6-9f36-5a32d64d446d",
           "external_id": "common-memory",
           "timestamp": "2025-01-01T09:00:00Z",
           "text": "A frequent organization carries routine status updates.",
@@ -409,7 +391,6 @@
         {
           "kind": "remember",
           "event_id": "event-002",
-          "memory_id": "4953c62b-4137-50fa-92d3-ef2e832fc2fe",
           "external_id": "rare-memory",
           "timestamp": "2025-05-01T09:00:00Z",
           "text": "A rare location carries the violet access token.",
@@ -443,21 +424,18 @@
       "pattern": "correction_chains",
       "entities": [
         {
-          "memory_id": "85d39180-688b-5f20-9db6-5ffe7cbb9308",
           "external_id": "entity-location",
           "entity_type": "location",
           "label": "Entity C",
           "is_hub": false
         },
         {
-          "memory_id": "428d339b-12d2-54bc-b3b0-e0cc442023a3",
           "external_id": "entity-organization",
           "entity_type": "organization",
           "label": "Entity B",
           "is_hub": false
         },
         {
-          "memory_id": "46d431ec-e000-5678-a301-8850bd5fba7b",
           "external_id": "entity-person",
           "entity_type": "person",
           "label": "Entity A",
@@ -529,7 +507,6 @@
         {
           "kind": "remember",
           "event_id": "event-001",
-          "memory_id": "76495a83-9a63-5258-b4e7-7576aa5ba03b",
           "external_id": "delivery-v1",
           "timestamp": "2025-01-01T08:00:00Z",
           "text": "The delivery window is Monday.",
@@ -542,7 +519,6 @@
         {
           "kind": "correct",
           "event_id": "event-002",
-          "replacement_memory_id": "56d851e9-8df0-5082-b71e-9f388105e4a1",
           "target_external_id": "delivery-v1",
           "replacement_external_id": "delivery-v2",
           "timestamp": "2025-02-01T08:00:00Z",
@@ -551,7 +527,6 @@
         {
           "kind": "correct",
           "event_id": "event-003",
-          "replacement_memory_id": "12e5a358-3604-54c5-9bdb-4cd3ba02c5bb",
           "target_external_id": "delivery-v2",
           "replacement_external_id": "delivery-v3",
           "timestamp": "2025-03-01T08:00:00Z",
@@ -588,21 +563,18 @@
       "pattern": "thread_drift",
       "entities": [
         {
-          "memory_id": "ccab8524-a915-5427-9fed-b77583b5b7cf",
           "external_id": "entity-location",
           "entity_type": "location",
           "label": "Entity C",
           "is_hub": false
         },
         {
-          "memory_id": "d6ff80e2-bd31-5618-9223-e68674b1312d",
           "external_id": "entity-organization",
           "entity_type": "organization",
           "label": "Entity B",
           "is_hub": false
         },
         {
-          "memory_id": "198db7cf-79c1-5686-9b8d-d7a6f4ab79c3",
           "external_id": "entity-person",
           "entity_type": "person",
           "label": "Entity A",
@@ -674,7 +646,6 @@
         {
           "kind": "remember",
           "event_id": "event-001",
-          "memory_id": "b3f952b3-94a6-587a-9fc3-271c7da2ddee",
           "external_id": "thread-focus",
           "timestamp": "2025-01-01T08:00:00Z",
           "text": "Thread starts with a focused migration.",
@@ -690,7 +661,6 @@
         {
           "kind": "remember",
           "event_id": "event-002",
-          "memory_id": "709fcdf2-7434-5229-92a8-44f0598298a0",
           "external_id": "thread-broader",
           "timestamp": "2025-02-01T08:00:00Z",
           "text": "Thread broadens to deployment details.",
@@ -706,7 +676,6 @@
         {
           "kind": "remember",
           "event_id": "event-003",
-          "memory_id": "4013da87-3dd8-5b1b-b98c-31fe53b7546a",
           "external_id": "thread-drifted",
           "timestamp": "2025-03-01T08:00:00Z",
           "text": "Thread drifts into unrelated travel planning.",
@@ -743,21 +712,18 @@
       "pattern": "temporal_structure",
       "entities": [
         {
-          "memory_id": "963ef906-00d2-51cf-bbe3-f426d045ccc2",
           "external_id": "entity-location",
           "entity_type": "location",
           "label": "Entity C",
           "is_hub": false
         },
         {
-          "memory_id": "0b479f28-56ab-57ea-bd8a-ab25aaccf0c6",
           "external_id": "entity-organization",
           "entity_type": "organization",
           "label": "Entity B",
           "is_hub": false
         },
         {
-          "memory_id": "98551ac6-6c8b-5f2a-ae68-7b2fc36f6b13",
           "external_id": "entity-person",
           "entity_type": "person",
           "label": "Entity A",
@@ -828,7 +794,6 @@
         {
           "kind": "remember",
           "event_id": "event-001",
-          "memory_id": "f5ac3d39-ff48-55a7-a043-bdb0189c8fbe",
           "external_id": "archive-january",
           "timestamp": "2025-01-15T12:00:00Z",
           "text": "The archive was stored in the west wing in January.",
@@ -841,7 +806,6 @@
         {
           "kind": "remember",
           "event_id": "event-002",
-          "memory_id": "bc2046e4-17e7-5725-bea8-c1e61a50fe20",
           "external_id": "archive-october",
           "timestamp": "2025-10-15T12:00:00Z",
           "text": "The archive moved to the east wing in October.",
@@ -875,21 +839,18 @@
       "pattern": "mixed_salience_accumulation",
       "entities": [
         {
-          "memory_id": "4ed82ba6-d7ab-5710-b60b-0f1ed62e8b71",
           "external_id": "entity-location",
           "entity_type": "location",
           "label": "Entity C",
           "is_hub": false
         },
         {
-          "memory_id": "ebf307cd-4775-5b0f-a4b9-55d7431d2c22",
           "external_id": "entity-organization",
           "entity_type": "organization",
           "label": "Entity B",
           "is_hub": false
         },
         {
-          "memory_id": "678ed87f-3c51-51ec-8b68-6428a0b22fa9",
           "external_id": "entity-person",
           "entity_type": "person",
           "label": "Entity A",
@@ -946,7 +907,6 @@
         {
           "kind": "remember",
           "event_id": "event-001",
-          "memory_id": "47aa8980-678a-5ac4-9fe2-f89b5568de7c",
           "external_id": "salience-low",
           "timestamp": "2025-01-01T07:00:00Z",
           "text": "A low-salience routine note was recorded.",
@@ -959,7 +919,6 @@
         {
           "kind": "remember",
           "event_id": "event-002",
-          "memory_id": "bb4fb9e5-f279-5e8a-b0b2-dc6692e861b6",
           "external_id": "salience-medium",
           "timestamp": "2025-02-01T07:00:00Z",
           "text": "A medium-salience schedule change was recorded.",
@@ -972,7 +931,6 @@
         {
           "kind": "remember",
           "event_id": "event-003",
-          "memory_id": "a6b5b125-49d5-5840-94e9-29829f1b74e2",
           "external_id": "salience-high",
           "timestamp": "2025-03-01T07:00:00Z",
           "text": "A high-salience emergency access code is delta-nine.",
@@ -1007,21 +965,18 @@
       "pattern": "cross_store_stress",
       "entities": [
         {
-          "memory_id": "bfe43b34-89a0-5749-aa02-e0ee1b99bfb2",
           "external_id": "entity-location",
           "entity_type": "location",
           "label": "Entity C",
           "is_hub": false
         },
         {
-          "memory_id": "b96ac980-4ea6-531f-952c-db474ad7332c",
           "external_id": "entity-organization",
           "entity_type": "organization",
           "label": "Entity B",
           "is_hub": false
         },
         {
-          "memory_id": "d5978d4c-5e74-5f01-98c1-6ad3d4820a86",
           "external_id": "entity-person",
           "entity_type": "person",
           "label": "Entity A",
@@ -1076,7 +1031,6 @@
         {
           "kind": "remember",
           "event_id": "event-001",
-          "memory_id": "942d0ea7-d36a-5c7c-8b7d-23198aac7185",
           "external_id": "restart-marker",
           "timestamp": "2025-01-01T06:00:00Z",
           "text": "The persistent cross-store marker is quartz-seven.",
@@ -1090,7 +1044,6 @@
         {
           "kind": "link",
           "event_id": "event-002",
-          "memory_id": "65aad1d8-3a5c-5b2b-b934-f7dc083c00e5",
           "external_id": "restart-link",
           "timestamp": "2025-01-01T06:05:00Z",
           "from_external_id": "entity-person",

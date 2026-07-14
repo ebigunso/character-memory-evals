@@ -6,7 +6,7 @@ use cmem_eval_continuity::{CHECKED_FIXTURE_SEED, canonical_fixture_bytes, genera
 fn main() -> Result<()> {
     let mut args = env::args().skip(1);
     let output = args.next().map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from("crates/cmem-eval-continuity/fixtures/continuity_v1.json")
+        PathBuf::from("crates/cmem-eval-continuity/fixtures/continuity_v2.json")
     });
     let seed = args
         .next()

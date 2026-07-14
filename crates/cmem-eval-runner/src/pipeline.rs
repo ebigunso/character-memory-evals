@@ -1529,7 +1529,7 @@ mod tests {
     fn continuity_mock_args(directory: &Path) -> ContinuityRunArgs {
         ContinuityRunArgs {
             run: RunArgs {
-                dataset: PathBuf::from("../cmem-eval-continuity/fixtures/continuity_v1.json"),
+                dataset: PathBuf::from("../cmem-eval-continuity/fixtures/continuity_v2.json"),
                 config: PathBuf::from("../../configs/continuity_retrieval.toml"),
                 out: directory.join("continuity.jsonl"),
                 summary_out: directory.join("continuity-summary.json"),

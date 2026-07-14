@@ -773,3 +773,28 @@ Prevention:
 
 Evidence:
 - The targeted adapter parity regression passes and will fail to compile if `RelationType` gains a variant without updating the exhaustive match.
+
+## 2026-07-14 — Validate Derived Identity And Object Kinds At Fixture Admission  [tags: review, fixtures, schemas, identity, validation]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 5
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Fixtures exposed caller-supplied UUIDs the driver never persisted, while admission tracked only external-ID strings. Unsupported correction, forget, and link shapes could therefore parse successfully and fail after writes; persisted observation, derived-memory, and thread identities were not modeled consistently at the parser and driver boundaries.
+
+Root cause:
+- The public fixture schema duplicated backend identity ownership, and its admission state discarded the object kind needed to validate each operation's target contract.
+
+Fix applied:
+- Bump the fixture schema to v2, remove and reject retired memory-ID fields, derive persistence identities from external IDs, model entity kinds as a closed fixture enum, and track every explicit and derived external ID together with its object kind before execution.
+
+Prevention:
+- Keep backend-generated identity out of public benchmark fixtures unless callers can observe and control it end to end.
+- When later operations have kind-specific contracts, admission state must retain kind as well as identity and must include all objects created implicitly by persistence.
+- Regression matrices must cover both rejected object-kind combinations and valid references to derived objects; duplicate-ID checks must include derived identities and cross-kind collisions.
+
+Evidence:
+- Parser regressions cover retired v1 fields, unknown entity kinds, unsupported correction/forget/link targets, derived-ID collisions, and valid observation/derived/thread references; driver coverage executes those valid implicit references through mock operations.
+- Strict workspace gates pass, and two full eight-scenario live runs produced identical trace, latency-normalized row, and report-content hashes.

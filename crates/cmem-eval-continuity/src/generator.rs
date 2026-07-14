@@ -3,15 +3,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{ControllableSimilarityFixture, SimilarityConceptFixture};
-use uuid::{Uuid, uuid};
 
 use crate::{
-    CONTINUITY_FIXTURE_SCHEMA_VERSION, ContinuityFixtureSet, ContinuityScenario, EntityDeclaration,
-    ExpectedRelevance, InteractionEvent, ScenarioPattern, ThreadMembership,
+    CONTINUITY_FIXTURE_SCHEMA_VERSION, ContinuityEntityKind, ContinuityFixtureSet,
+    ContinuityScenario, EntityDeclaration, ExpectedRelevance, InteractionEvent, ScenarioPattern,
+    ThreadMembership,
 };
 
 pub const CHECKED_FIXTURE_SEED: u64 = 0x0000_0000_0135_2768;
-const FIXTURE_ID_NAMESPACE: Uuid = uuid!("d1bf5b8f-6d00-5e7b-b6a3-a2e73c7d40d1");
 const EMBEDDING_VECTOR_SIZE: usize = 8;
 
 pub fn generate_fixture_set(seed: u64) -> Result<ContinuityFixtureSet> {
@@ -40,10 +39,9 @@ fn long_gap_recall(seed: u64) -> Result<ContinuityScenario> {
         seed,
         id,
         ScenarioPattern::LongGapRecall,
-        standard_entities(id, false),
+        standard_entities(false),
         vec![
             remember(
-                id,
                 1,
                 "memory-dormant",
                 "2025-01-05T10:00:00Z",
@@ -53,7 +51,6 @@ fn long_gap_recall(seed: u64) -> Result<ContinuityScenario> {
                 0.8,
             )?,
             remember(
-                id,
                 2,
                 "memory-recent",
                 "2025-06-05T10:00:00Z",
@@ -81,9 +78,19 @@ fn long_gap_recall(seed: u64) -> Result<ContinuityScenario> {
 fn recurring_hub_entity(seed: u64) -> Result<ContinuityScenario> {
     let id = "recurring-hub-entity";
     let entities = vec![
-        entity(id, "entity-person", "person", "Hub A", true),
-        entity(id, "entity-organization", "organization", "Hub B", true),
-        entity(id, "entity-location", "location", "Hub C", true),
+        entity("entity-person", ContinuityEntityKind::Person, "Hub A", true),
+        entity(
+            "entity-organization",
+            ContinuityEntityKind::Organization,
+            "Hub B",
+            true,
+        ),
+        entity(
+            "entity-location",
+            ContinuityEntityKind::Location,
+            "Hub C",
+            true,
+        ),
     ];
     let mut events = Vec::new();
     let mut hub_inputs = Vec::new();
@@ -91,7 +98,6 @@ fn recurring_hub_entity(seed: u64) -> Result<ContinuityScenario> {
         let text = format!("Hub incident {index} connects all declared entity kinds.");
         hub_inputs.push(text.clone());
         events.push(remember(
-            id,
             index + 1,
             &format!("hub-memory-{index}"),
             &format!("2025-{:02}-10T10:00:00Z", index + 1),
@@ -134,10 +140,9 @@ fn selective_entity(seed: u64) -> Result<ContinuityScenario> {
         seed,
         id,
         ScenarioPattern::SelectiveEntity,
-        standard_entities(id, false),
+        standard_entities(false),
         vec![
             remember(
-                id,
                 1,
                 "common-memory",
                 "2025-01-01T09:00:00Z",
@@ -147,7 +152,6 @@ fn selective_entity(seed: u64) -> Result<ContinuityScenario> {
                 0.2,
             )?,
             remember(
-                id,
                 2,
                 "rare-memory",
                 "2025-05-01T09:00:00Z",
@@ -182,10 +186,9 @@ fn correction_chains(seed: u64) -> Result<ContinuityScenario> {
         seed,
         id,
         ScenarioPattern::CorrectionChains,
-        standard_entities(id, false),
+        standard_entities(false),
         vec![
             remember(
-                id,
                 1,
                 "delivery-v1",
                 "2025-01-01T08:00:00Z",
@@ -195,7 +198,6 @@ fn correction_chains(seed: u64) -> Result<ContinuityScenario> {
                 0.7,
             )?,
             correct(
-                id,
                 2,
                 "delivery-v1",
                 "delivery-v2",
@@ -203,7 +205,6 @@ fn correction_chains(seed: u64) -> Result<ContinuityScenario> {
                 first,
             )?,
             correct(
-                id,
                 3,
                 "delivery-v2",
                 "delivery-v3",
@@ -239,10 +240,9 @@ fn thread_drift(seed: u64) -> Result<ContinuityScenario> {
         seed,
         id,
         ScenarioPattern::ThreadDrift,
-        standard_entities(id, false),
+        standard_entities(false),
         vec![
             remember(
-                id,
                 1,
                 "thread-focus",
                 "2025-01-01T08:00:00Z",
@@ -252,7 +252,6 @@ fn thread_drift(seed: u64) -> Result<ContinuityScenario> {
                 0.8,
             )?,
             remember(
-                id,
                 2,
                 "thread-broader",
                 "2025-02-01T08:00:00Z",
@@ -262,7 +261,6 @@ fn thread_drift(seed: u64) -> Result<ContinuityScenario> {
                 0.5,
             )?,
             remember(
-                id,
                 3,
                 "thread-drifted",
                 "2025-03-01T08:00:00Z",
@@ -296,10 +294,9 @@ fn temporal_structure(seed: u64) -> Result<ContinuityScenario> {
         seed,
         id,
         ScenarioPattern::TemporalStructure,
-        standard_entities(id, false),
+        standard_entities(false),
         vec![
             remember(
-                id,
                 1,
                 "archive-january",
                 "2025-01-15T12:00:00Z",
@@ -309,7 +306,6 @@ fn temporal_structure(seed: u64) -> Result<ContinuityScenario> {
                 0.6,
             )?,
             remember(
-                id,
                 2,
                 "archive-october",
                 "2025-10-15T12:00:00Z",
@@ -344,10 +340,9 @@ fn mixed_salience_accumulation(seed: u64) -> Result<ContinuityScenario> {
         seed,
         id,
         ScenarioPattern::MixedSalienceAccumulation,
-        standard_entities(id, false),
+        standard_entities(false),
         vec![
             remember(
-                id,
                 1,
                 "salience-low",
                 "2025-01-01T07:00:00Z",
@@ -357,7 +352,6 @@ fn mixed_salience_accumulation(seed: u64) -> Result<ContinuityScenario> {
                 0.1,
             )?,
             remember(
-                id,
                 2,
                 "salience-medium",
                 "2025-02-01T07:00:00Z",
@@ -367,7 +361,6 @@ fn mixed_salience_accumulation(seed: u64) -> Result<ContinuityScenario> {
                 0.5,
             )?,
             remember(
-                id,
                 3,
                 "salience-high",
                 "2025-03-01T07:00:00Z",
@@ -400,10 +393,9 @@ fn cross_store_stress(seed: u64) -> Result<ContinuityScenario> {
         seed,
         id,
         ScenarioPattern::CrossStoreStress,
-        standard_entities(id, false),
+        standard_entities(false),
         vec![
             remember(
-                id,
                 1,
                 "restart-marker",
                 "2025-01-01T06:00:00Z",
@@ -413,7 +405,6 @@ fn cross_store_stress(seed: u64) -> Result<ContinuityScenario> {
                 0.9,
             )?,
             link(
-                id,
                 2,
                 "restart-link",
                 "2025-01-01T06:05:00Z",
@@ -546,39 +537,44 @@ fn concepts<const N: usize>(
         .collect()
 }
 
-fn standard_entities(fixture_id: &str, hubs: bool) -> Vec<EntityDeclaration> {
+fn standard_entities(hubs: bool) -> Vec<EntityDeclaration> {
     vec![
-        entity(fixture_id, "entity-person", "person", "Entity A", hubs),
         entity(
-            fixture_id,
+            "entity-person",
+            ContinuityEntityKind::Person,
+            "Entity A",
+            hubs,
+        ),
+        entity(
             "entity-organization",
-            "organization",
+            ContinuityEntityKind::Organization,
             "Entity B",
             hubs,
         ),
-        entity(fixture_id, "entity-location", "location", "Entity C", hubs),
+        entity(
+            "entity-location",
+            ContinuityEntityKind::Location,
+            "Entity C",
+            hubs,
+        ),
     ]
 }
 
 fn entity(
-    fixture_id: &str,
     external_id: &str,
-    entity_type: &str,
+    entity_type: ContinuityEntityKind,
     label: &str,
     is_hub: bool,
 ) -> EntityDeclaration {
     EntityDeclaration {
-        memory_id: memory_id(fixture_id, "entity", external_id),
         external_id: external_id.into(),
-        entity_type: entity_type.into(),
+        entity_type,
         label: label.into(),
         is_hub,
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn remember(
-    fixture_id: &str,
     number: usize,
     external_id: &str,
     at: &str,
@@ -589,7 +585,6 @@ fn remember(
 ) -> Result<InteractionEvent> {
     Ok(InteractionEvent::Remember {
         event_id: format!("event-{number:03}"),
-        memory_id: memory_id(fixture_id, "memory", external_id),
         external_id: external_id.into(),
         timestamp: timestamp(at)?,
         text: text.into(),
@@ -603,7 +598,6 @@ fn remember(
 }
 
 fn correct(
-    fixture_id: &str,
     number: usize,
     target: &str,
     replacement: &str,
@@ -612,7 +606,6 @@ fn correct(
 ) -> Result<InteractionEvent> {
     Ok(InteractionEvent::Correct {
         event_id: format!("event-{number:03}"),
-        replacement_memory_id: memory_id(fixture_id, "memory", replacement),
         target_external_id: target.into(),
         replacement_external_id: replacement.into(),
         timestamp: timestamp(at)?,
@@ -629,7 +622,6 @@ fn forget(number: usize, target: &str, at: &str) -> Result<InteractionEvent> {
 }
 
 fn link(
-    fixture_id: &str,
     number: usize,
     external_id: &str,
     at: &str,
@@ -638,7 +630,6 @@ fn link(
 ) -> Result<InteractionEvent> {
     Ok(InteractionEvent::Link {
         event_id: format!("event-{number:03}"),
-        memory_id: memory_id(fixture_id, "link", external_id),
         external_id: external_id.into(),
         timestamp: timestamp(at)?,
         from_external_id: from.into(),
@@ -667,13 +658,6 @@ fn query(
     })
 }
 
-fn memory_id(fixture_id: &str, kind: &str, external_id: &str) -> Uuid {
-    Uuid::new_v5(
-        &FIXTURE_ID_NAMESPACE,
-        format!("{fixture_id}\0{kind}\0{external_id}").as_bytes(),
-    )
-}
-
 fn timestamp(value: &str) -> Result<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
         .with_context(|| format!("parse continuity fixture timestamp {value:?}"))
@@ -688,7 +672,7 @@ mod tests {
     use crate::{canonical_fixture_bytes, parse_fixture_bytes, scenario_patterns};
 
     const PROCESS_PROBE_PATH: &str = "CMEM_CONTINUITY_FIXTURE_PROBE_PATH";
-    const CHECKED_FIXTURE: &[u8] = include_bytes!("../fixtures/continuity_v1.json");
+    const CHECKED_FIXTURE: &[u8] = include_bytes!("../fixtures/continuity_v2.json");
 
     #[test]
     fn checked_fixture_is_canonical_and_covers_every_scenario_pattern() {
@@ -756,7 +740,6 @@ mod tests {
         let remembered_text = "A newly extended Remember event.";
         let events = vec![
             remember(
-                scenario_id,
                 1,
                 "memory-new",
                 "2025-01-01T00:00:00Z",
@@ -772,9 +755,8 @@ mod tests {
             scenario_id,
             ScenarioPattern::LongGapRecall,
             vec![entity(
-                scenario_id,
                 "entity-new",
-                "person",
+                ContinuityEntityKind::Person,
                 "New Entity",
                 false,
             )],
@@ -797,9 +779,8 @@ mod tests {
             scenario_id,
             ScenarioPattern::LongGapRecall,
             vec![entity(
-                scenario_id,
                 "entity-new",
-                "person",
+                ContinuityEntityKind::Person,
                 "New Entity",
                 false,
             )],

@@ -87,7 +87,7 @@ The guarded mock command runs all eight checked scenarios, writes visibly marked
 
 ```bash
 cargo run -p cmem-eval-runner -- run continuity \
-  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v1.json \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v2.json \
   --config ./configs/continuity_retrieval.toml \
   --out ./runs/continuity/mock/results.jsonl \
   --summary-out ./runs/continuity/mock/summary.json \
@@ -103,7 +103,7 @@ This bounded live command exercises Qdrant plus the configured persistent stores
 
 ```bash
 cargo run -p cmem-eval-runner -- run continuity \
-  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v1.json \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v2.json \
   --config ./configs/continuity_retrieval.toml \
   --out ./runs/continuity/live/results.jsonl \
   --summary-out ./runs/continuity/live/summary.json \
@@ -122,7 +122,7 @@ Continuity metric families include fixture-derived entity-kind keys, so `summari
 cargo run -p cmem-eval-runner -- summarize \
   --input ./runs/continuity/mock/results.jsonl \
   --config ./configs/continuity_retrieval.toml \
-  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v1.json \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v2.json \
   --out ./runs/continuity/mock/resummary.json
 ```
 
@@ -132,10 +132,10 @@ The checked fixture seed is `20260712`. Generate into `runs/` for inspection ins
 
 ```bash
 cargo run -p cmem-eval-continuity --bin generate_continuity_fixtures -- \
-  ./runs/continuity/generated/continuity_v1.json 20260712
+  ./runs/continuity/generated/continuity_v2.json 20260712
 ```
 
-The generated file should match `crates/cmem-eval-continuity/fixtures/continuity_v1.json` byte-for-byte when the generator and seed are unchanged.
+Schema v2 derives backend persistence identities from stable external IDs and rejects the retired caller-supplied `memory_id` and `replacement_memory_id` fields. Parse the candidate, inspect its semantic diff against `crates/cmem-eval-continuity/fixtures/continuity_v2.json`, and run the generator determinism tests before replacing the checked fixture.
 
 ### Read the continuity artifacts
 
@@ -149,14 +149,22 @@ The generated file should match `crates/cmem-eval-continuity/fixtures/continuity
 For canonical repeat-run row hashing, preserve JSONL row order, set every existing `latency_ms` property to numeric `0` without deleting it, serialize the rows as one compact JSON array, and hash the in-memory UTF-8 bytes without a BOM or trailing newline. Report content excludes latency entirely, so compare `report.json` runs by compact-serializing only the top-level `content` value. Raw `summary.json` remains intentionally variable because its latency aggregates summarize the measured row values.
 
 ```powershell
+$report = Get-Content ./runs/continuity/live/report.json -Raw | ConvertFrom-Json
+$scope = @($report.metadata.fixture_ids)
 $rows = Get-Content ./runs/continuity/live/results.jsonl | ForEach-Object {
   $row = $_ | ConvertFrom-Json
   $row.latency_ms = 0
   $row
 }
-$normalized = $rows | ConvertTo-Json -Compress -Depth 100
-$bytes = [Text.Encoding]::UTF8.GetBytes($normalized)
-[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+$normalized = ConvertTo-Json -InputObject @($rows) -Compress -Depth 100
+$reportContent = ConvertTo-Json -InputObject $report.content -Compress -Depth 100
+function Get-Sha256Hex([byte[]]$Bytes) {
+  [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes))
+}
+"scope=" + ($scope -join ",")
+"traces_sha256=" + (Get-Sha256Hex ([IO.File]::ReadAllBytes((Resolve-Path ./runs/continuity/live/traces.jsonl))))
+"normalized_rows_sha256=" + (Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes($normalized)))
+"report_content_sha256=" + (Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes($reportContent)))
 ```
 
 Required registry keys are initialized to JSON `null` when a row cannot measure them. In `metric_support`, `numeric_rows` counts measured values, `null_rows` counts explicitly unsupported rows, and `unsupported = true` means every present row was null. A null is not zero and does not mean the evaluation failed. `registry_coverage.missing_required_metrics` instead identifies required keys that were absent entirely.
@@ -166,7 +174,7 @@ Fixture `irrelevant_external_ids` are sampled negatives, not an exhaustive compl
 ### Extend the scenario library
 
 1. Add or update a deterministic scenario constructor in `crates/cmem-eval-continuity/src/generator.rs`; add a `ScenarioPattern` variant in `fixture.rs` only when the scenario represents a new pattern.
-2. Give every event, query, created object, and memory object a stable unique identity. Events must be chronological, and correction, forget, link, and relevance references must target objects admitted earlier in that scenario.
+2. Give every event, query, and created object a stable unique external ID. Do not add backend memory IDs to the fixture schema: the driver derives persistence identities from external IDs. Events must be chronological, and correction, forget, link, and relevance references must target supported object kinds admitted earlier in that scenario.
 3. Declare non-empty, unique, disjoint `relevant_external_ids` and sampled `irrelevant_external_ids` for every query. Keep these labels in fixture/scoring paths only; do not copy them into adapter inputs or metadata.
 4. Assign every text that reaches the controllable-similarity provider to exactly one embedding concept. Entity labels are embedding inputs as well as display text, so every entity label must also appear exactly once in `embedding.concepts`; the generator assigns referenced entity labels to the first referencing concept and unreferenced labels to `entity_background`.
 5. Regenerate a candidate with the checked seed, inspect the semantic and byte diff, and run the fixture parser, generator determinism, mock driver, and workspace tests before replacing the checked JSON.

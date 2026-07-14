@@ -16,7 +16,10 @@ use cmem_eval_core::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{ContinuityScenario, ExpectedRelevance, InteractionEvent, ScenarioPattern};
+use crate::{
+    ContinuityEntityKind, ContinuityScenario, ExpectedRelevance, InteractionEvent, ScenarioPattern,
+    derived_external_id, observation_external_id,
+};
 
 pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "1.0.0";
 
@@ -179,7 +182,7 @@ pub async fn run_continuity_scenario(
         .map(|entity| {
             Ok(EntityInput {
                 external_id: entity.external_id.clone(),
-                entity_type: adapter_entity_type(&entity.entity_type)?.to_string(),
+                entity_type: adapter_entity_type(entity.entity_type).to_string(),
                 name: entity.label.clone(),
                 aliases: Vec::new(),
                 canonical_key: Some(entity.external_id.clone()),
@@ -202,7 +205,6 @@ pub async fn run_continuity_scenario(
         match event {
             InteractionEvent::Remember {
                 event_id,
-                memory_id,
                 external_id,
                 timestamp,
                 text,
@@ -210,7 +212,7 @@ pub async fn run_continuity_scenario(
                 thread,
                 salience,
             } => {
-                let observation_external_id = format!("{external_id}:observation");
+                let observation_external_id = observation_external_id(external_id);
                 let scripted_timestamp = timestamp.to_rfc3339_opts(SecondsFormat::Secs, true);
                 let original_raw_ref = format!(
                     "continuity://{}/{event_id}?at={}",
@@ -227,7 +229,7 @@ pub async fn run_continuity_scenario(
                         observation_observed_at: Some(scripted_timestamp.clone()),
                         raw_refs: vec![original_raw_ref.clone()],
                         idempotency_key: Some(format!(
-                            "continuity:{}:{event_id}:{memory_id}",
+                            "continuity:{}:{event_id}:{external_id}",
                             scenario.fixture_id
                         )),
                         include_vector_index_candidates: true,
@@ -270,11 +272,20 @@ pub async fn run_continuity_scenario(
                     AdmittedObject {
                         object_type: "episode".to_string(),
                         source_episode_external_id: Some(external_id.clone()),
+                        original_raw_ref: Some(original_raw_ref.clone()),
+                        original_source_ref: Some(external_id.clone()),
+                    },
+                );
+                admitted.insert(
+                    observation_external_id.clone(),
+                    AdmittedObject {
+                        object_type: "observation".to_string(),
+                        source_episode_external_id: Some(external_id.clone()),
                         original_raw_ref: Some(original_raw_ref),
                         original_source_ref: Some(external_id.clone()),
                     },
                 );
-                let derived_external_id = format!("{external_id}:derived");
+                let derived_external_id = derived_external_id(external_id);
                 let mut threads = Vec::new();
                 let mut association_links = entity_external_ids
                     .iter()
@@ -379,7 +390,6 @@ pub async fn run_continuity_scenario(
                             supersedes_external_ids: Vec::new(),
                             metadata: serde_json::json!({
                                 "continuity_event_id": event_id,
-                                "fixture_memory_id": memory_id,
                                 "timestamp": timestamp,
                             }),
                         }],
@@ -406,7 +416,6 @@ pub async fn run_continuity_scenario(
             }
             InteractionEvent::Correct {
                 event_id,
-                replacement_memory_id,
                 target_external_id,
                 replacement_external_id,
                 timestamp,
@@ -451,7 +460,6 @@ pub async fn run_continuity_scenario(
                                 supersedes_external_ids: supersedes_external_ids.clone(),
                                 metadata: serde_json::json!({
                                     "continuity_event_id": event_id,
-                                    "fixture_memory_id": replacement_memory_id,
                                     "timestamp": timestamp,
                                 }),
                             },
@@ -842,15 +850,12 @@ fn increment(counts: &mut BTreeMap<String, usize>, operation: &str) {
     *counts.entry(operation.to_string()).or_default() += 1;
 }
 
-fn adapter_entity_type(fixture_entity_type: &str) -> Result<&'static str> {
-    Ok(match fixture_entity_type {
-        "location" => "place",
-        "person" => "person",
-        "organization" => "organization",
-        unsupported => bail!(
-            "unsupported continuity fixture entity_type {unsupported:?}; add an explicit facade mapping"
-        ),
-    })
+fn adapter_entity_type(fixture_entity_type: ContinuityEntityKind) -> &'static str {
+    match fixture_entity_type {
+        ContinuityEntityKind::Location => "place",
+        ContinuityEntityKind::Person => "person",
+        ContinuityEntityKind::Organization => "organization",
+    }
 }
 
 #[cfg(test)]
@@ -1061,6 +1066,76 @@ mod tests {
         assert_eq!(restart.delta.recall, Some(0.0));
     }
 
+    #[tokio::test]
+    async fn parser_admitted_implicit_objects_are_available_to_driver_operations() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+
+        let mut correction = fixtures
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.pattern == ScenarioPattern::CorrectionChains)
+            .unwrap()
+            .clone();
+        let InteractionEvent::Correct {
+            target_external_id, ..
+        } = &mut correction.events[1]
+        else {
+            panic!("expected correction event");
+        };
+        *target_external_id = "delivery-v1:observation".to_string();
+        correction.validate().unwrap();
+        run_continuity_scenario(&mut MockRuntime::default(), &correction, &retrieval())
+            .await
+            .unwrap();
+
+        let mut thread = fixtures
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.pattern == ScenarioPattern::ThreadDrift)
+            .unwrap()
+            .clone();
+        let query_index = thread
+            .events
+            .iter()
+            .position(|event| matches!(event, InteractionEvent::Query { .. }))
+            .unwrap();
+        let timestamp = thread.events[query_index - 1].timestamp() + chrono::Duration::seconds(1);
+        let thread_external_id = thread
+            .events
+            .iter()
+            .find_map(|event| match event {
+                InteractionEvent::Remember {
+                    thread: Some(thread),
+                    ..
+                } => Some(thread.thread_external_id.clone()),
+                _ => None,
+            })
+            .unwrap();
+        thread.events.insert(
+            query_index,
+            InteractionEvent::Link {
+                event_id: "event-test-observation-link".to_string(),
+                external_id: "test-observation-link".to_string(),
+                timestamp,
+                from_external_id: "thread-focus:observation".to_string(),
+                relation: "mentions".to_string(),
+                to_external_id: "thread-focus:derived".to_string(),
+            },
+        );
+        thread.events.insert(
+            query_index + 1,
+            InteractionEvent::Forget {
+                event_id: "event-test-thread-forget".to_string(),
+                target_external_id: thread_external_id,
+                timestamp: timestamp + chrono::Duration::seconds(1),
+            },
+        );
+        thread.validate().unwrap();
+        run_continuity_scenario(&mut MockRuntime::default(), &thread, &retrieval())
+            .await
+            .unwrap();
+    }
+
     #[test]
     fn restart_recall_matches_items_by_represented_episode_identity() {
         let pack = RetrievedContextPack {
@@ -1258,9 +1333,11 @@ mod tests {
 
     #[test]
     fn fixture_entity_types_map_only_through_explicit_facade_vocabulary() {
-        assert_eq!(adapter_entity_type("location").unwrap(), "place");
-        assert_eq!(adapter_entity_type("person").unwrap(), "person");
-        assert_eq!(adapter_entity_type("organization").unwrap(), "organization");
-        assert!(adapter_entity_type("inferred-from-label").is_err());
+        assert_eq!(adapter_entity_type(ContinuityEntityKind::Location), "place");
+        assert_eq!(adapter_entity_type(ContinuityEntityKind::Person), "person");
+        assert_eq!(
+            adapter_entity_type(ContinuityEntityKind::Organization),
+            "organization"
+        );
     }
 }
