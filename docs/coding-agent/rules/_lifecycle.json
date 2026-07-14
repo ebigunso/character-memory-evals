@@ -49,6 +49,16 @@
         "reviewer.review_heuristics",
         "reviewer.recurring_misses_prevention"
       ]
+    },
+    "repo_contracts": {
+      "patterns": [
+        "README.md"
+      ],
+      "affects": [
+        "common.reference_documents",
+        "common.safety_boundaries",
+        "common.naming_structure"
+      ]
     }
   },
   "source_evidence": [
