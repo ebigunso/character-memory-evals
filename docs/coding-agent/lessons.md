@@ -725,3 +725,29 @@ Prevention:
 
 Evidence:
 - A nine-cluster regression receives the controlled error, while the canonical checked fixture remains byte-identical.
+
+## 2026-07-14 — Validate Extension Vocabulary And Scripted Evidence Before Execution  [tags: review, fixtures, validation, reporting, fallibility]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 4
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Queryless scenarios and unknown link relations could pass fixture parsing, extension mistakes could panic inside fallible generator APIs, continuity tracing could be disabled despite mandatory trace consumers, and report restart totals trusted unscoped or incomplete observation maps.
+
+Root cause:
+- Downstream requirements were not all represented at their admission boundaries: the fixture parser did not close the live facade vocabulary, the generator's fallible surface stopped above infallible helpers, and report aggregation counted evidence before reconciling it with the selected script.
+
+Fix applied:
+- Reject queryless scenarios and relations outside the facade vocabulary during fixture validation, propagate contextual generator errors through timestamp and entity-concept helpers, require debug rationale for continuity configs, and validate restart observation fixture keys, counts, order, and event identity before report assembly.
+
+Prevention:
+- When an extensible benchmark API becomes fallible, sweep every production helper reachable from the extension seam for panic, assertion, and unwrap paths.
+- Promote closed vocabularies, mandatory telemetry, and exact scripted-evidence cardinality into pre-side-effect validation; compute aggregates only from evidence reconciled with the selected scenarios.
+- Run strict Clippy across test targets after adding evidence-construction helpers; prefer explicit `filter` plus `map` when selecting non-empty evidence instead of `filter_map` with `bool::then`.
+- Before invoking a workspace-wide test gate on this repository, classify and explicitly skip live adapter tests when the dispatch requests targeted service-free validation; do not rely on the package default to keep live cases dormant.
+
+Evidence:
+- Focused regressions cover queryless fixtures, invalid relations, missing concepts, reserved concept collisions, invalid timestamps, disabled rationale, and unknown or missing restart observations; the canonical fixture remains byte-identical.
+- An accidental broad workspace invocation reproduced the known post-success Qdrant teardown timeout in `live_adapter_reattaches_with_external_ids`; the service-free workspace rerun excludes the two explicitly live adapter tests.

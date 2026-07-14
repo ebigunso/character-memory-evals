@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{ControllableSimilarityFixture, SimilarityConceptFixture};
 use uuid::{Uuid, uuid};
@@ -51,7 +51,7 @@ fn long_gap_recall(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-person"],
                 None,
                 0.8,
-            ),
+            )?,
             remember(
                 id,
                 2,
@@ -61,7 +61,7 @@ fn long_gap_recall(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-organization"],
                 None,
                 0.6,
-            ),
+            )?,
             query(
                 3,
                 "query-long-gap",
@@ -69,7 +69,7 @@ fn long_gap_recall(seed: u64) -> Result<ContinuityScenario> {
                 query_text,
                 vec!["memory-dormant"],
                 vec!["memory-recent"],
-            ),
+            )?,
         ],
         concepts([
             ("dormant", "target", vec![target, query_text]),
@@ -99,7 +99,7 @@ fn recurring_hub_entity(seed: u64) -> Result<ContinuityScenario> {
             vec!["entity-person", "entity-organization", "entity-location"],
             None,
             0.5,
-        ));
+        )?);
     }
     let query_text = "Which incident most recently connected every hub?";
     hub_inputs.push(query_text.to_string());
@@ -110,7 +110,7 @@ fn recurring_hub_entity(seed: u64) -> Result<ContinuityScenario> {
         query_text,
         vec!["hub-memory-5"],
         vec!["hub-memory-0"],
-    ));
+    )?);
     scenario(
         seed,
         id,
@@ -145,7 +145,7 @@ fn selective_entity(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-organization"],
                 None,
                 0.2,
-            ),
+            )?,
             remember(
                 id,
                 2,
@@ -155,7 +155,7 @@ fn selective_entity(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-location"],
                 None,
                 0.95,
-            ),
+            )?,
             query(
                 3,
                 "query-selective",
@@ -163,7 +163,7 @@ fn selective_entity(seed: u64) -> Result<ContinuityScenario> {
                 query_text,
                 vec!["rare-memory"],
                 vec!["common-memory"],
-            ),
+            )?,
         ],
         concepts([
             ("rare", "target", vec![rare, query_text]),
@@ -193,7 +193,7 @@ fn correction_chains(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-organization"],
                 None,
                 0.7,
-            ),
+            )?,
             correct(
                 id,
                 2,
@@ -201,7 +201,7 @@ fn correction_chains(seed: u64) -> Result<ContinuityScenario> {
                 "delivery-v2",
                 "2025-02-01T08:00:00Z",
                 first,
-            ),
+            )?,
             correct(
                 id,
                 3,
@@ -209,8 +209,8 @@ fn correction_chains(seed: u64) -> Result<ContinuityScenario> {
                 "delivery-v3",
                 "2025-03-01T08:00:00Z",
                 final_text,
-            ),
-            forget(4, "delivery-v1", "2025-03-02T08:00:00Z"),
+            )?,
+            forget(4, "delivery-v1", "2025-03-02T08:00:00Z")?,
             query(
                 5,
                 "query-correction",
@@ -218,7 +218,7 @@ fn correction_chains(seed: u64) -> Result<ContinuityScenario> {
                 query_text,
                 vec!["delivery-v3"],
                 vec!["delivery-v1", "delivery-v2"],
-            ),
+            )?,
         ],
         concepts([
             ("old", "superseded", vec![original, first]),
@@ -250,7 +250,7 @@ fn thread_drift(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-organization"],
                 Some(("thread-1", 0.95)),
                 0.8,
-            ),
+            )?,
             remember(
                 id,
                 2,
@@ -260,7 +260,7 @@ fn thread_drift(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-organization"],
                 Some(("thread-1", 0.65)),
                 0.5,
-            ),
+            )?,
             remember(
                 id,
                 3,
@@ -270,7 +270,7 @@ fn thread_drift(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-location"],
                 Some(("thread-1", 0.25)),
                 0.2,
-            ),
+            )?,
             query(
                 4,
                 "query-thread",
@@ -278,7 +278,7 @@ fn thread_drift(seed: u64) -> Result<ContinuityScenario> {
                 query_text,
                 vec!["thread-focus"],
                 vec!["thread-drifted"],
-            ),
+            )?,
         ],
         concepts([
             ("focus", "target", vec![texts[0], query_text]),
@@ -307,7 +307,7 @@ fn temporal_structure(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-location"],
                 None,
                 0.6,
-            ),
+            )?,
             remember(
                 id,
                 2,
@@ -317,7 +317,7 @@ fn temporal_structure(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-location"],
                 None,
                 0.8,
-            ),
+            )?,
             query(
                 3,
                 "query-temporal",
@@ -325,7 +325,7 @@ fn temporal_structure(seed: u64) -> Result<ContinuityScenario> {
                 query_text,
                 vec!["archive-october"],
                 vec!["archive-january"],
-            ),
+            )?,
         ],
         concepts([
             ("old", "past", vec![old]),
@@ -355,7 +355,7 @@ fn mixed_salience_accumulation(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-person"],
                 None,
                 0.1,
-            ),
+            )?,
             remember(
                 id,
                 2,
@@ -365,7 +365,7 @@ fn mixed_salience_accumulation(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-organization"],
                 None,
                 0.5,
-            ),
+            )?,
             remember(
                 id,
                 3,
@@ -375,7 +375,7 @@ fn mixed_salience_accumulation(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-location"],
                 None,
                 0.95,
-            ),
+            )?,
             query(
                 4,
                 "query-salience",
@@ -383,7 +383,7 @@ fn mixed_salience_accumulation(seed: u64) -> Result<ContinuityScenario> {
                 query_text,
                 vec!["salience-high"],
                 vec!["salience-low", "salience-medium"],
-            ),
+            )?,
         ],
         concepts([
             ("signal", "target", vec![high, query_text]),
@@ -411,7 +411,7 @@ fn cross_store_stress(seed: u64) -> Result<ContinuityScenario> {
                 vec!["entity-person", "entity-organization"],
                 None,
                 0.9,
-            ),
+            )?,
             link(
                 id,
                 2,
@@ -419,10 +419,10 @@ fn cross_store_stress(seed: u64) -> Result<ContinuityScenario> {
                 "2025-01-01T06:05:00Z",
                 "entity-person",
                 "restart-marker",
-            ),
+            )?,
             InteractionEvent::Restart {
                 event_id: "event-003".into(),
-                timestamp: timestamp("2025-01-01T06:10:00Z"),
+                timestamp: timestamp("2025-01-01T06:10:00Z")?,
                 reopen_graph: true,
                 reopen_stats: true,
             },
@@ -433,7 +433,7 @@ fn cross_store_stress(seed: u64) -> Result<ContinuityScenario> {
                 query_text,
                 vec!["restart-marker"],
                 vec!["restart-link"],
-            ),
+            )?,
         ],
         concepts([("marker", "target", vec![text, query_text])]),
     )
@@ -448,7 +448,7 @@ fn scenario(
     mut concepts: BTreeMap<String, SimilarityConceptFixture>,
 ) -> Result<ContinuityScenario> {
     entities.sort_by(|left, right| left.external_id.cmp(&right.external_id));
-    assign_entity_embedding_inputs(&entities, &events, &mut concepts);
+    assign_entity_embedding_inputs(id, &entities, &events, &mut concepts)?;
     let clusters = concepts
         .values()
         .map(|concept| concept.cluster.clone())
@@ -483,10 +483,11 @@ fn scenario(
 }
 
 fn assign_entity_embedding_inputs(
+    scenario_id: &str,
     entities: &[EntityDeclaration],
     events: &[InteractionEvent],
     concepts: &mut BTreeMap<String, SimilarityConceptFixture>,
-) {
+) -> Result<()> {
     let mut background_labels = Vec::new();
     for entity in entities {
         let first_referencing_text = events.iter().find_map(|event| match event {
@@ -498,28 +499,34 @@ fn assign_entity_embedding_inputs(
             _ => None,
         });
         if let Some(text) = first_referencing_text {
-            let concept = concepts
+            let Some(concept) = concepts
                 .values_mut()
                 .find(|concept| concept.inputs.contains(text))
-                .expect("every Remember text is assigned to exactly one fixture concept");
+            else {
+                bail!(
+                    "continuity scenario {scenario_id:?} Remember text {text:?} is missing from embedding concepts"
+                );
+            };
             concept.inputs.push(entity.label.clone());
         } else {
             background_labels.push(entity.label.clone());
         }
     }
     if !background_labels.is_empty() {
-        let previous = concepts.insert(
+        if concepts.contains_key("entity_background") {
+            bail!(
+                "continuity scenario {scenario_id:?} collides with reserved embedding concept ID \"entity_background\""
+            );
+        }
+        concepts.insert(
             "entity_background".to_string(),
             SimilarityConceptFixture {
                 cluster: "entity_background".to_string(),
                 inputs: background_labels,
             },
         );
-        assert!(
-            previous.is_none(),
-            "reserved entity background concept collided"
-        );
     }
+    Ok(())
 }
 
 fn concepts<const N: usize>(
@@ -579,12 +586,12 @@ fn remember(
     entity_ids: Vec<&str>,
     thread: Option<(&str, f32)>,
     salience: f32,
-) -> InteractionEvent {
-    InteractionEvent::Remember {
+) -> Result<InteractionEvent> {
+    Ok(InteractionEvent::Remember {
         event_id: format!("event-{number:03}"),
         memory_id: memory_id(fixture_id, "memory", external_id),
         external_id: external_id.into(),
-        timestamp: timestamp(at),
+        timestamp: timestamp(at)?,
         text: text.into(),
         entity_external_ids: entity_ids.into_iter().map(str::to_string).collect(),
         thread: thread.map(|(id, confidence)| ThreadMembership {
@@ -592,7 +599,7 @@ fn remember(
             confidence,
         }),
         salience,
-    }
+    })
 }
 
 fn correct(
@@ -602,23 +609,23 @@ fn correct(
     replacement: &str,
     at: &str,
     text: &str,
-) -> InteractionEvent {
-    InteractionEvent::Correct {
+) -> Result<InteractionEvent> {
+    Ok(InteractionEvent::Correct {
         event_id: format!("event-{number:03}"),
         replacement_memory_id: memory_id(fixture_id, "memory", replacement),
         target_external_id: target.into(),
         replacement_external_id: replacement.into(),
-        timestamp: timestamp(at),
+        timestamp: timestamp(at)?,
         replacement_text: text.into(),
-    }
+    })
 }
 
-fn forget(number: usize, target: &str, at: &str) -> InteractionEvent {
-    InteractionEvent::Forget {
+fn forget(number: usize, target: &str, at: &str) -> Result<InteractionEvent> {
+    Ok(InteractionEvent::Forget {
         event_id: format!("event-{number:03}"),
         target_external_id: target.into(),
-        timestamp: timestamp(at),
-    }
+        timestamp: timestamp(at)?,
+    })
 }
 
 fn link(
@@ -628,16 +635,16 @@ fn link(
     at: &str,
     from: &str,
     to: &str,
-) -> InteractionEvent {
-    InteractionEvent::Link {
+) -> Result<InteractionEvent> {
+    Ok(InteractionEvent::Link {
         event_id: format!("event-{number:03}"),
         memory_id: memory_id(fixture_id, "link", external_id),
         external_id: external_id.into(),
-        timestamp: timestamp(at),
+        timestamp: timestamp(at)?,
         from_external_id: from.into(),
         relation: "about".into(),
         to_external_id: to.into(),
-    }
+    })
 }
 
 fn query(
@@ -647,17 +654,17 @@ fn query(
     text: &str,
     relevant: Vec<&str>,
     irrelevant: Vec<&str>,
-) -> InteractionEvent {
-    InteractionEvent::Query {
+) -> Result<InteractionEvent> {
+    Ok(InteractionEvent::Query {
         event_id: format!("event-{number:03}"),
         query_id: query_id.into(),
-        timestamp: timestamp(at),
+        timestamp: timestamp(at)?,
         text: text.into(),
         expected: ExpectedRelevance {
             relevant_external_ids: relevant.into_iter().map(str::to_string).collect(),
             irrelevant_external_ids: irrelevant.into_iter().map(str::to_string).collect(),
         },
-    }
+    })
 }
 
 fn memory_id(fixture_id: &str, kind: &str, external_id: &str) -> Uuid {
@@ -667,10 +674,10 @@ fn memory_id(fixture_id: &str, kind: &str, external_id: &str) -> Uuid {
     )
 }
 
-fn timestamp(value: &str) -> DateTime<Utc> {
+fn timestamp(value: &str) -> Result<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
-        .unwrap()
-        .with_timezone(&Utc)
+        .with_context(|| format!("parse continuity fixture timestamp {value:?}"))
+        .map(|timestamp| timestamp.with_timezone(&Utc))
 }
 
 #[cfg(test)]
@@ -741,6 +748,77 @@ mod tests {
             error,
             "continuity scenario `too-many-clusters` declares 9 embedding clusters, exceeding configured vector_size 8"
         );
+    }
+
+    #[test]
+    fn scenario_reports_missing_remember_embedding_input_without_panicking() {
+        let scenario_id = "extension-missing-concept";
+        let remembered_text = "A newly extended Remember event.";
+        let events = vec![
+            remember(
+                scenario_id,
+                1,
+                "memory-new",
+                "2025-01-01T00:00:00Z",
+                remembered_text,
+                vec!["entity-new"],
+                None,
+                0.5,
+            )
+            .unwrap(),
+        ];
+        let error = super::scenario(
+            CHECKED_FIXTURE_SEED,
+            scenario_id,
+            ScenarioPattern::LongGapRecall,
+            vec![entity(
+                scenario_id,
+                "entity-new",
+                "person",
+                "New Entity",
+                false,
+            )],
+            events,
+            BTreeMap::new(),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains(scenario_id), "{error}");
+        assert!(error.contains(remembered_text), "{error}");
+        assert!(error.contains("missing from embedding concepts"), "{error}");
+    }
+
+    #[test]
+    fn scenario_reports_reserved_background_concept_collision_without_panicking() {
+        let scenario_id = "extension-reserved-concept";
+        let error = super::scenario(
+            CHECKED_FIXTURE_SEED,
+            scenario_id,
+            ScenarioPattern::LongGapRecall,
+            vec![entity(
+                scenario_id,
+                "entity-new",
+                "person",
+                "New Entity",
+                false,
+            )],
+            Vec::new(),
+            concepts([("entity_background", "custom", vec!["custom input"])]),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains(scenario_id), "{error}");
+        assert!(error.contains("entity_background"), "{error}");
+        assert!(error.contains("reserved"), "{error}");
+    }
+
+    #[test]
+    fn invalid_extension_timestamp_returns_contextual_error() {
+        let error = timestamp("not-a-timestamp").unwrap_err().to_string();
+        assert!(error.contains("continuity fixture timestamp"), "{error}");
+        assert!(error.contains("not-a-timestamp"), "{error}");
     }
 
     #[test]

@@ -8,6 +8,23 @@ use uuid::Uuid;
 
 pub const CONTINUITY_FIXTURE_SCHEMA_VERSION: u32 = 1;
 
+const SUPPORTED_RELATIONS: &[&str] = &[
+    "has_observation",
+    "observed_in",
+    "mentions",
+    "involves",
+    "about",
+    "derived_from",
+    "part_of_thread",
+    "supports",
+    "contradicts",
+    "supersedes",
+    "resolves",
+    "creates_open_loop",
+    "fulfills_commitment",
+    "associated_with",
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContinuityFixtureSet {
     pub schema_version: u32,
@@ -306,6 +323,7 @@ impl ContinuityScenario {
                 InteractionEvent::Link {
                     external_id,
                     from_external_id,
+                    relation,
                     to_external_id,
                     ..
                 } => {
@@ -321,6 +339,7 @@ impl ContinuityScenario {
                         to_external_id,
                         &admitted_external_ids,
                     )?;
+                    require_supported_relation(&self.fixture_id, relation)?;
                     admit_external_id(
                         &self.fixture_id,
                         "link.external_id",
@@ -373,6 +392,12 @@ impl ContinuityScenario {
                     }
                 }
             }
+        }
+        if query_ids.is_empty() {
+            bail!(
+                "scenario {:?} must declare at least one scripted query",
+                self.fixture_id
+            );
         }
         Ok(())
     }
@@ -467,6 +492,16 @@ fn require_admitted_external_id(
     if !admitted_external_ids.contains(external_id) {
         bail!(
             "scenario {fixture_id:?} {field} references external ID {external_id:?} before it is admitted"
+        );
+    }
+    Ok(())
+}
+
+fn require_supported_relation(fixture_id: &str, relation: &str) -> Result<()> {
+    require_non_empty("link.relation", relation)?;
+    if !SUPPORTED_RELATIONS.contains(&relation) {
+        bail!(
+            "scenario {fixture_id:?} link.relation {relation:?} is not supported by the CharacterMemory facade"
         );
     }
     Ok(())
@@ -681,6 +716,34 @@ mod tests {
         *to_external_id = "missing-link-target".to_string();
         let error = parse_error(&fixtures);
         assert!(error.contains("link.to_external_id"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_queryless_scenarios() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
+        scenario
+            .events
+            .retain(|event| !matches!(event, InteractionEvent::Query { .. }));
+
+        let error = parse_error(&fixtures);
+        assert!(error.contains("long-gap-recall"), "{error}");
+        assert!(error.contains("at least one scripted query"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_relations_outside_the_facade_vocabulary() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
+        let InteractionEvent::Link { relation, .. } = &mut scenario.events[1] else {
+            panic!("expected link event");
+        };
+        *relation = "invented_relation".to_string();
+
+        let error = parse_error(&fixtures);
+        assert!(error.contains("cross-store-stress"), "{error}");
+        assert!(error.contains("link.relation"), "{error}");
+        assert!(error.contains("invented_relation"), "{error}");
     }
 
     #[test]

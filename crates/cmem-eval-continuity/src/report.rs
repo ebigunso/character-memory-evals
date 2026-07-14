@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -132,6 +132,7 @@ pub struct ContinuityReportInput<'a> {
 }
 
 pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<ContinuityReport> {
+    let restart_count = validate_restart_observations(input.scenarios, input.restart_observations)?;
     let fixture_ids = input
         .scenarios
         .iter()
@@ -380,7 +381,6 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         );
     }
 
-    let restart_count = input.restart_observations.values().map(Vec::len).sum();
     let tuning_observations = tuning_observation(&input.config, &input.adapter, input.traces)
         .into_iter()
         .collect();
@@ -417,6 +417,77 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             tuning_observations,
         },
     })
+}
+
+fn validate_restart_observations(
+    scenarios: &[ContinuityScenario],
+    observations: &BTreeMap<String, Vec<RestartObservation>>,
+) -> Result<usize> {
+    let selected_fixture_ids = scenarios
+        .iter()
+        .map(|scenario| scenario.fixture_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if let Some(unknown_fixture_id) = observations
+        .keys()
+        .find(|fixture_id| !selected_fixture_ids.contains(fixture_id.as_str()))
+    {
+        bail!(
+            "continuity report restart observations contain unknown or unselected fixture ID {unknown_fixture_id:?}"
+        );
+    }
+
+    let mut restart_count = 0;
+    for scenario in scenarios {
+        let expected = scenario
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                InteractionEvent::Restart {
+                    event_id,
+                    timestamp,
+                    reopen_graph,
+                    reopen_stats,
+                } => Some((event_id, timestamp, reopen_graph, reopen_stats)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let actual = observations
+            .get(&scenario.fixture_id)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        if actual.len() != expected.len() {
+            bail!(
+                "continuity report fixture {:?} has {} restart observations but scripts {} restart events",
+                scenario.fixture_id,
+                actual.len(),
+                expected.len()
+            );
+        }
+        for (index, (observation, (event_id, timestamp, reopen_graph, reopen_stats))) in
+            actual.iter().zip(expected.iter()).enumerate()
+        {
+            if observation.event_id != **event_id
+                || observation.timestamp != **timestamp
+                || observation.reopen_graph != **reopen_graph
+                || observation.reopen_stats != **reopen_stats
+            {
+                bail!(
+                    "continuity report fixture {:?} restart observation mismatch at index {index}: observation ({:?}, {}, {}, {}), scripted event ({:?}, {}, {}, {})",
+                    scenario.fixture_id,
+                    observation.event_id,
+                    observation.timestamp,
+                    observation.reopen_graph,
+                    observation.reopen_stats,
+                    event_id,
+                    timestamp,
+                    reopen_graph,
+                    reopen_stats
+                );
+            }
+        }
+        restart_count += expected.len();
+    }
+    Ok(restart_count)
 }
 
 pub fn write_continuity_report(path: &Path, report: &ContinuityReport) -> Result<()> {

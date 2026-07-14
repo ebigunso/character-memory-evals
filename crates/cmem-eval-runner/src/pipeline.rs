@@ -412,7 +412,13 @@ impl DatasetSpec for ContinuitySpec {
 
     fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
         validate_dataset_name(config, "continuity")?;
-        config.validate_for_dataset_kind(DatasetKind::Continuity)
+        config.validate_for_dataset_kind(DatasetKind::Continuity)?;
+        if !config.retrieval.include_debug_rationale {
+            bail!(
+                "continuity dataset requires retrieval.include_debug_rationale=true because continuity traces and rationale-derived metrics are mandatory"
+            );
+        }
+        Ok(())
     }
 
     fn load(path: &Path) -> Result<Vec<Self::Item>> {
@@ -1801,6 +1807,15 @@ mod tests {
         let report_config = read_config(&config_path).unwrap();
         let report_metric_family =
             continuity_metric_family(&report_config.metrics, &fixture.scenarios);
+        let valid_restart_observations = report
+            .content
+            .scenarios
+            .iter()
+            .filter(|(_, scenario)| !scenario.restart_observations.is_empty())
+            .map(|(fixture_id, scenario)| {
+                (fixture_id.clone(), scenario.restart_observations.clone())
+            })
+            .collect::<BTreeMap<_, _>>();
         let measured_row = continuity_result_row(
             &report_config,
             &RunAdapterMetadata::mock_smoke(),
@@ -1821,7 +1836,7 @@ mod tests {
             rows: &rows[..rows.len() - 1],
             summary: &summary,
             metric_family: &report_metric_family,
-            restart_observations: &BTreeMap::new(),
+            restart_observations: &valid_restart_observations,
         })
         .unwrap_err()
         .to_string();
@@ -1838,7 +1853,7 @@ mod tests {
             rows: &swapped_rows,
             summary: &summary,
             metric_family: &report_metric_family,
-            restart_observations: &BTreeMap::new(),
+            restart_observations: &valid_restart_observations,
         })
         .unwrap_err()
         .to_string();
@@ -1860,7 +1875,7 @@ mod tests {
             rows: &invented_rows,
             summary: &summary,
             metric_family: &report_metric_family,
-            restart_observations: &BTreeMap::new(),
+            restart_observations: &valid_restart_observations,
         })
         .unwrap_err()
         .to_string();
@@ -1882,7 +1897,7 @@ mod tests {
             rows: &duplicate_rows,
             summary: &summary,
             metric_family: &report_metric_family,
-            restart_observations: &BTreeMap::new(),
+            restart_observations: &valid_restart_observations,
         })
         .unwrap_err()
         .to_string();
@@ -1890,6 +1905,43 @@ mod tests {
             error.contains("scripted query mismatch at index 1"),
             "{error}"
         );
+
+        let mut unknown_restart_observations = valid_restart_observations.clone();
+        unknown_restart_observations.insert("unknown-fixture".to_string(), Vec::new());
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_seed: fixture.seed,
+            config: summary.config.clone(),
+            adapter: summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &traces,
+            rows: &rows,
+            summary: &summary,
+            metric_family: &report_metric_family,
+            restart_observations: &unknown_restart_observations,
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("unknown-fixture"), "{error}");
+        assert!(error.contains("unknown or unselected"), "{error}");
+
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_seed: fixture.seed,
+            config: summary.config.clone(),
+            adapter: summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &traces,
+            rows: &rows,
+            summary: &summary,
+            metric_family: &report_metric_family,
+            restart_observations: &BTreeMap::new(),
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("cross-store-stress"), "{error}");
+        assert!(error.contains("0 restart observations"), "{error}");
+        assert!(error.contains("scripts 1 restart events"), "{error}");
 
         let mut stale_summary = cmem_eval_core::read_summary(&summary_path).unwrap();
         stale_summary.num_questions -= 1;
@@ -1903,7 +1955,7 @@ mod tests {
             rows: &rows,
             summary: &stale_summary,
             metric_family: &report_metric_family,
-            restart_observations: &BTreeMap::new(),
+            restart_observations: &valid_restart_observations,
         })
         .unwrap_err()
         .to_string();
@@ -1921,7 +1973,7 @@ mod tests {
             rows: &rows,
             summary: &stale_summary,
             metric_family: &report_metric_family,
-            restart_observations: &BTreeMap::new(),
+            restart_observations: &valid_restart_observations,
         })
         .unwrap_err()
         .to_string();
@@ -1966,6 +2018,23 @@ mod tests {
             .to_string();
         assert!(error.contains("backend.embedding.provider=controllable_similarity"));
         assert!(error.contains("openai"));
+    }
+
+    #[test]
+    fn continuity_spec_requires_debug_rationale_for_mandatory_traces() {
+        let mut config =
+            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        config.retrieval.include_debug_rationale = false;
+
+        let error = ContinuitySpec::validate_config(&config)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("retrieval.include_debug_rationale=true"),
+            "{error}"
+        );
+        assert!(error.contains("traces"), "{error}");
+        assert!(error.contains("metrics"), "{error}");
     }
 
     #[test]
