@@ -20,7 +20,8 @@
         "Cargo.toml",
         "crates/*/Cargo.toml",
         "rust-toolchain.toml",
-        "configs/**"
+        "configs/**",
+        "README.md"
       ],
       "affects": [
         "common.validation_commands",

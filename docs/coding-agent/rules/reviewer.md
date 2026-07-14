@@ -27,7 +27,7 @@ last_updated: "2026-07-14"
 
 | Trigger | Evidence Required | Source |
 |---|---|---|
-| Continuity driver/report/metric changes | Independent full-suite two-run reproducibility on the committed config: report content and normalized rows byte-identical outside the declared metadata/normalization policy | `cmem-eval run continuity` + README canonical recipes |
+| Continuity driver/report/metric changes | Independent full-suite two-run reproducibility on the committed config: raw traces, normalized rows, and report content byte-identical outside the declared metadata/normalization policy | `cmem-eval run continuity` + README canonical recipes |
 | Live adapter or persistence changes | Live adapter suite exercised (not skipped) with executed-test counts stated; restart/reattach assertions verified against real stores | `cargo test -p cmem-eval-adapter-cmem` with Qdrant up |
 | Fixture/generator changes | Regenerated fixture byte-identity vs the checked artifact (state both SHA256 values) | generator CLI |
 | Hash/evidence claims from Worker | Independently reproduce at least the canonical content hashes; unexplained movement is a blocker, not a footnote | committed configs + recipes |
