@@ -13,7 +13,7 @@ last_updated: "2026-07-14"
 - Split subagent work into short feedback-loop tasks, such as one module, one validation failure, or one review slice.
 - Wait substantially longer before force-closing background agents unless they are clearly blocked, conflicting with newer user direction, or performing unsafe work.
 - When the shared checkout is occupied by a worker, give reviewers isolated `git worktree` checkouts pinned at the review commit instead of asking anyone to switch branches.
-- Before blaming code for a live-service failure, control-run a known-good commit against the same service; classify as environment only when the control fails identically.
+- Before blaming code for a live-service failure, control-run a known-good commit against the same service; an identical control failure classifies the blocker as environmental, but the delta remains unvalidated — do not clear it until its required evidence succeeds (waivers must say exactly which invocation is waived and why).
 
 ## Delegation Routing (model-strength aware platform recommendation; user-approved 2026-07-11)
 

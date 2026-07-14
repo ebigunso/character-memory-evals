@@ -15,9 +15,10 @@ last_updated: "2026-07-14"
 
 ## Review Risk Hotspots
 
-- admission_before_side_effect: public parsers/readers (fixture, trace, report assembly) must reject malformed, partial, wrong-version, or contract-violating input before any backend I/O or state mutation.
+- admission_before_side_effect: public parsers/readers (fixture, trace) must reject malformed, partial, wrong-version, or contract-violating input before any backend I/O or state mutation.
+- derived_artifact_congruence: assemblers of derived artifacts (report assembly, summaries) necessarily run after backend I/O; they must validate input identity, count, and order congruence before returning or publishing the artifact, failing closed on mismatch.
 - fake_vs_production_contract: mock and live admission must agree; a value the mock accepts but the live adapter rejects (or vice versa) is a finding even when today's fixtures never hit it.
-- parallel_list_drift: any vocabulary/enum duplicated across layers needs one canonical owner or a compile-time-exhaustive parity test; two hand-maintained lists are a finding on sight.
+- parallel_list_drift: any vocabulary/enum duplicated across layers needs one canonical owner or a compile-time-exhaustive parity test; a duplicated list lacking such a parity mechanism is a finding (a layered duplicate protected by an exhaustive parity test is an accepted design).
 - collection_semantics: item/object counts deduplicate stable identities; decision multiplicity belongs only in explicitly named volume fields; published rates must be bounded.
 - summarize_parity: any re-derivation path (summarize, re-assembly) must reproduce the original run's registry/config/coverage exactly; parity regressions required.
 - determinism_and_canonicalization: canonical-hash recipe changes must be reconciled against historical artifacts before accepting moved hashes; nondeterminism belongs only in declared metadata/normalization policy.
@@ -34,7 +35,7 @@ last_updated: "2026-07-14"
 
 ## Review Heuristics
 
-- Distinguish environment from delta before filing service-failure findings: control-run a known-good commit; identical failure exonerates the delta.
+- Distinguish environment from delta before filing service-failure findings: control-run a known-good commit; an identical failure classifies the blocker as environmental (record the matching phase/signature), but the delta stays unvalidated until its required evidence actually succeeds.
 - Evidence without provenance is not evidence: scenario scope, config identity, and CM sibling commit must be stated; scoped runs must be labeled scoped.
 - Verify docs field-by-field against the serialized types they describe; reserve the word "snapshot" for embedded content sufficient to reconstruct the source.
 - When validating cardinality-stable JSON in PowerShell, assert raw leading/trailing brackets or parse with `ConvertFrom-Json -NoEnumerate`; pipeline unrolling makes one-element arrays look scalar.

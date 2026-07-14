@@ -47,7 +47,10 @@
       "affects": [
         "reviewer.review_risk_hotspots",
         "reviewer.review_heuristics",
-        "reviewer.recurring_misses_prevention"
+        "reviewer.recurring_misses_prevention",
+        "reviewer.required_evidence",
+        "worker.repo_notes",
+        "orchestrator.repo_policies"
       ]
     },
     "repo_contracts": {
