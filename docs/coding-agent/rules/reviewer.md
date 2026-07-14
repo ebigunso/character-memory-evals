@@ -22,7 +22,7 @@ last_updated: "2026-07-14"
 - collection_semantics: item/object counts deduplicate stable identities; decision multiplicity belongs only in explicitly named volume fields; published rates must be bounded.
 - summarize_parity: any re-derivation path (summarize, re-assembly) must reproduce the original run's registry/config/coverage exactly; parity regressions required.
 - determinism_and_canonicalization: canonical-hash recipe changes must be reconciled against historical artifacts before accepting moved hashes; nondeterminism belongs only in declared metadata/normalization policy.
-- dead_contract_surface: schema fields no caller/runtime reads are misleading surface; flag for removal rather than documentation.
+- dead_contract_surface: schema fields that no caller or runtime path reads are misleading surface; flag them for removal rather than documentation.
 
 ## Required Reviewer-Owned Evidence
 
