@@ -844,3 +844,26 @@ Prevention:
 Evidence:
 - A rooted usage audit finds no continuity runtime reader for the retired field, while adapter tests own deterministic collection naming from `(namespace_prefix, run_id, namespace)` and parser regressions reject the retired v2 field.
 - The required workspace suite twice reached the existing Qdrant live-adapter tests and failed only during post-success collection deletion timeouts; Qdrant readiness remained `200`, the isolated reattach test passed (including its cleanup retry), the scoped live continuity run passed and cleaned up, and the workspace suite passed with only the two external-service live tests explicitly filtered.
+
+## 2026-07-14 — Require Positive Test Counts For Targeted Evidence  [tags: cargo, validation, test-filter, concurrency, evidence]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 6 targeted review
+- Roles involved: Reviewer | Worker
+
+Symptom:
+- During reviewer verification, concurrent `cargo test` and `cargo clippy` processes contended on one shared target-directory build lock, causing Clippy to spend its timeout compiling, while unqualified `--exact` test filters exited successfully with zero executed tests and were initially read as passing evidence.
+
+Root cause:
+- Cargo validation was parallelized despite sharing a build lock, and targeted-test success was inferred from process exit status without checking that the requested test actually executed.
+
+Fix applied:
+- Rerun the Cargo checks sequentially, use fully qualified test names, allow a longer Clippy timeout, and confirm a positive executed-test count for every targeted-test claim.
+
+Prevention:
+- Serialize compile, test, and lint commands that share one Cargo target directory.
+- Targeted-test evidence must record an executed-test count greater than zero; never treat exit code alone as proof that a filtered test ran.
+
+Evidence:
+- The reviewer-observed round-six reruns used fully qualified filters, reported positive executed-test counts, and completed the longer sequential Clippy invocation without build-lock timeout ambiguity.
