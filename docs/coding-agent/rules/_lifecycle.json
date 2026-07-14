@@ -32,7 +32,10 @@
     "agent_instructions": {
       "patterns": [
         "AGENTS.md",
-        "CLAUDE.md"
+        "CLAUDE.md",
+        "GEMINI.md",
+        ".github/copilot-instructions.md",
+        ".github/instructions/**"
       ],
       "affects": [
         "common.reference_documents",
