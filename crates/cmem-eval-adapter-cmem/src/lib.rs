@@ -14,14 +14,15 @@ use character_memory::{
     SuppressionPolicy, ThreadStatus,
 };
 use chrono::{DateTime, Utc};
-pub use cmem_eval_core::DeterministicEmbeddingProvider;
 use cmem_eval_core::{
     BenchmarkRunConfig, CandidateValidationResult, CommitWriteOptions, CommitWriteResult,
-    CorrectMemoryInput, CorrectionTargetInput, EpisodeInput, ExternalSourceRefInput,
+    ControllableSimilarityEmbeddingProvider, ControllableSimilarityFixture, CorrectMemoryInput,
+    CorrectionTargetInput, DeterministicEmbeddingProvider, EpisodeInput, ExternalSourceRefInput,
     ForgetMemoryInput, GraphEnrichmentInput, LifecycleMutationResult, LinkMemoryInput,
     LinkMemoryResult, MemoryAdapter, MemoryEndpointInput, NamespaceLifecycleResult,
     ObservationInput, PrepareWriteInput, PreparedCandidate, PreparedWritePlan,
-    ReplacementDerivedMemoryInput, RetrievalMode, RetrievalTelemetry, RetrieveInput,
+    ReplacementDerivedMemoryInput, RetrievalFanoutUtilization, RetrievalMode,
+    RetrievalRationaleCategory, RetrievalSelectivityDecision, RetrievalTelemetry, RetrieveInput,
     RetrievedContextPack, RetrievedItem, SourceProvenanceInput, SupersessionResult,
 };
 use qdrant_client::Qdrant;
@@ -40,9 +41,12 @@ const UUID_NAMESPACE: Uuid = Uuid::from_u128(0x9b6af7a4_9076_49bb_9231_84d1ed632
 const QDRANT_OBJECT_ID_FIELD: &str = "object_id";
 const QDRANT_OBJECT_TYPE_FIELD: &str = "object_type";
 const QDRANT_CONTENT_TEXT_FIELD: &str = "content_text";
+const IDENTITY_REGISTRY_PERSIST_ATTEMPTS: usize = 4;
+const IDENTITY_REGISTRY_PERSIST_BACKOFF_MS: u64 = 25;
 
 pub struct CharacterMemoryAdapter {
     config: BenchmarkRunConfig,
+    controllable_similarity_fixture: Option<ControllableSimilarityFixture>,
     qdrant: Qdrant,
     openai_http: reqwest::Client,
     namespaces: Arc<Mutex<HashMap<String, NamespaceState>>>,
@@ -159,12 +163,47 @@ impl ExternalIdRegistry {
             .sync_all()
             .with_context(|| format!("sync temporary identity registry for {}", path.display()))?;
         before_persist(temporary.path())?;
-        temporary
-            .persist(path)
-            .map_err(|error| error.error)
-            .with_context(|| format!("atomically replace identity registry {}", path.display()))?;
-        Ok(())
+        persist_identity_registry_with_retry(temporary, path, |temporary, path| {
+            temporary.persist(path)
+        })
     }
+}
+
+fn persist_identity_registry_with_retry<F>(
+    mut temporary: tempfile::NamedTempFile,
+    path: &Path,
+    mut persist: F,
+) -> Result<()>
+where
+    F: FnMut(
+        tempfile::NamedTempFile,
+        &Path,
+    ) -> std::result::Result<std::fs::File, tempfile::PersistError>,
+{
+    for attempt in 1..=IDENTITY_REGISTRY_PERSIST_ATTEMPTS {
+        match persist(temporary, path) {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                let retryable = error.error.kind() == std::io::ErrorKind::PermissionDenied
+                    && attempt < IDENTITY_REGISTRY_PERSIST_ATTEMPTS;
+                if !retryable {
+                    return Err(error.error).with_context(|| {
+                        format!("atomically replace identity registry {}", path.display())
+                    });
+                }
+
+                // Windows AV/indexers can briefly hold the destination during
+                // MoveFileExW replacement. Retain the same complete staged file
+                // and retry only that transient error; all other errors remain
+                // immediate and RAII removes the stage after a final failure.
+                temporary = error.file;
+                std::thread::sleep(std::time::Duration::from_millis(
+                    IDENTITY_REGISTRY_PERSIST_BACKOFF_MS * attempt as u64,
+                ));
+            }
+        }
+    }
+    unreachable!("identity registry persist loop always returns")
 }
 
 #[derive(Clone)]
@@ -184,6 +223,39 @@ struct VectorHit {
 
 impl CharacterMemoryAdapter {
     pub async fn new(config: &BenchmarkRunConfig) -> Result<Self> {
+        if config.backend.embedding.provider == "controllable_similarity" {
+            bail!(
+                "controllable_similarity requires a scenario fixture; use CharacterMemoryAdapter::new_with_controllable_similarity"
+            );
+        }
+        Self::new_internal(config, None).await
+    }
+
+    pub async fn new_with_controllable_similarity(
+        config: &BenchmarkRunConfig,
+        fixture: ControllableSimilarityFixture,
+    ) -> Result<Self> {
+        config.validate()?;
+        if config.backend.embedding.provider != "controllable_similarity" {
+            bail!(
+                "new_with_controllable_similarity requires backend.embedding.provider=controllable_similarity"
+            );
+        }
+        let provider = ControllableSimilarityEmbeddingProvider::new(fixture.clone())?;
+        if config.backend.embedding.vector_size != Some(provider.vector_size()) {
+            bail!(
+                "backend.embedding.vector_size must equal the controllable similarity fixture vector_size {}; got {:?}",
+                provider.vector_size(),
+                config.backend.embedding.vector_size
+            );
+        }
+        Self::new_internal(config, Some(fixture)).await
+    }
+
+    async fn new_internal(
+        config: &BenchmarkRunConfig,
+        controllable_similarity_fixture: Option<ControllableSimilarityFixture>,
+    ) -> Result<Self> {
         let qdrant = Qdrant::from_url(
             &config
                 .backend
@@ -195,10 +267,32 @@ impl CharacterMemoryAdapter {
         .build()?;
         Ok(Self {
             config: config.clone(),
+            controllable_similarity_fixture,
             qdrant,
             openai_http: reqwest::Client::new(),
             namespaces: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    pub async fn reconstruct(
+        config: &BenchmarkRunConfig,
+        namespace: &str,
+    ) -> Result<(Self, NamespaceLifecycleResult)> {
+        config.validate()?;
+        let adapter = Self::new(config).await?;
+        let lifecycle = adapter.reattach_namespace(namespace).await?;
+        Ok((adapter, lifecycle))
+    }
+
+    pub async fn reconstruct_with_controllable_similarity(
+        config: &BenchmarkRunConfig,
+        namespace: &str,
+        fixture: ControllableSimilarityFixture,
+    ) -> Result<(Self, NamespaceLifecycleResult)> {
+        config.validate()?;
+        let adapter = Self::new_with_controllable_similarity(config, fixture).await?;
+        let lifecycle = adapter.reattach_namespace(namespace).await?;
+        Ok((adapter, lifecycle))
     }
 
     async fn create_namespace_state(
@@ -209,16 +303,33 @@ impl CharacterMemoryAdapter {
         let collection_name = self.collection_name(namespace);
         let identity_registry_path = self.identity_registry_path(namespace);
         let settings = self.settings(namespace)?;
-        let memory = if self.config.backend.embedding.provider == "deterministic" {
-            let vector_size = self.config.backend.embedding.vector_size.unwrap_or(3072);
-            CharacterMemory::new_with_embedding_provider(
-                settings,
-                collection_name.clone(),
-                Box::new(CharacterMemoryEmbeddingProvider::new(vector_size)?),
-            )
-            .await?
-        } else {
-            CharacterMemory::new(settings, collection_name.clone()).await?
+        let memory = match self.config.backend.embedding.provider.as_str() {
+            "deterministic" => {
+                let vector_size = self.config.backend.embedding.vector_size.unwrap_or(3072);
+                CharacterMemory::new_with_embedding_provider(
+                    settings,
+                    collection_name.clone(),
+                    Box::new(CharacterMemoryEmbeddingProvider::new(vector_size)?),
+                )
+                .await?
+            }
+            "controllable_similarity" => {
+                let fixture = self
+                    .controllable_similarity_fixture
+                    .clone()
+                    .context("controllable similarity adapter is missing its scenario fixture")?;
+                let storage_vector_size = settings.get_embedding_vector_size()?;
+                CharacterMemory::new_with_embedding_provider(
+                    settings,
+                    collection_name.clone(),
+                    Box::new(CharacterMemoryControllableSimilarityEmbeddingProvider::new(
+                        fixture,
+                        storage_vector_size,
+                    )?),
+                )
+                .await?
+            }
+            _ => CharacterMemory::new(settings, collection_name.clone()).await?,
         };
 
         Ok(NamespaceState {
@@ -241,7 +352,10 @@ impl CharacterMemoryAdapter {
         let openai_api_key = env::var(&self.config.backend.openai_api_key_env)
             .or_else(|_| env::var("OPENAI_API_KEY"))
             .unwrap_or_else(|_| {
-                if self.config.backend.embedding.provider == "deterministic" {
+                if matches!(
+                    self.config.backend.embedding.provider.as_str(),
+                    "deterministic" | "controllable_similarity"
+                ) {
                     "deterministic-unused".to_string()
                 } else {
                     String::new()
@@ -1140,23 +1254,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             "observation",
             &input.observation_external_id,
         );
-        let mut episode = EpisodeDraft::new(input.content.clone());
-        episode.id = Some(episode_id);
-        episode.source_conversation_id = Some(input.episode_external_id.clone());
-        episode.raw_ref = input.raw_refs.first().cloned().or_else(|| {
-            Some(format!(
-                "eval://{}/episode/{}",
-                input.namespace, input.episode_external_id
-            ))
-        });
-        let mut observation = ObservationDraft::new(episode_id, input.content.clone());
-        observation.id = Some(observation_id);
-        observation.raw_ref = input.raw_refs.first().cloned().or_else(|| {
-            Some(format!(
-                "eval://{}/observation/{}",
-                input.namespace, input.observation_external_id
-            ))
-        });
+        let (episode, observation) = staged_source_drafts(&input, episode_id, observation_id)?;
         let mut remember_input = RememberInput::new(input.content.clone());
         remember_input.raw_refs = input.raw_refs.clone();
         remember_input.episode_drafts.push(episode);
@@ -1318,6 +1416,12 @@ impl MemoryAdapter for CharacterMemoryAdapter {
 
         let mut context = RetrievalContext::new(input.query);
         context.include_trace = input.include_debug_rationale;
+        if let Some(max_vector_candidates) = self.config.retrieval.max_vector_candidates {
+            context.candidate_limits.max_vector_candidates = max_vector_candidates;
+        }
+        if let Some(max_graph_roots) = self.config.retrieval.max_graph_roots {
+            context.candidate_limits.max_graph_roots = max_graph_roots;
+        }
         context.section_limits = ContinuitySectionLimits {
             relevant_episodes: input.top_k_episodes,
             salient_observations: input.top_k_observations,
@@ -1353,7 +1457,7 @@ fn flatten_outcome(
     state: &NamespaceState,
     outcome: character_memory::RetrieveOutcome,
 ) -> RetrievedContextPack {
-    let telemetry = telemetry_from_outcome(&outcome);
+    let telemetry = telemetry_from_outcome(state, &outcome);
     let mut trace_by_id: HashMap<MemoryId, (Option<f64>, usize)> = HashMap::new();
     if let Some(trace) = &outcome.trace {
         for candidate in &trace.vector_candidates {
@@ -1574,12 +1678,16 @@ fn vector_hits_to_context_pack(
             lifecycle_filter_decision_count: None,
             suppressed_or_deleted_returned_count: None,
             superseded_current_returned_count: None,
+            unsafe_lifecycle_returned_count: None,
             graph_object_missing_omitted_count: None,
             graph_object_missing_returned_count: None,
             section_assignment_count: None,
             section_assignment_counts: BTreeMap::new(),
             stale_candidate_omission_reasons: BTreeMap::new(),
             lifecycle_omission_reasons: BTreeMap::new(),
+            fanout_utilization: None,
+            selectivity_decisions: None,
+            rationale_categories_by_internal_id: None,
         },
     }
 }
@@ -1624,43 +1732,41 @@ fn optional_payload_string(
     }
 }
 
-fn telemetry_from_outcome(outcome: &character_memory::RetrieveOutcome) -> RetrievalTelemetry {
+fn telemetry_from_outcome(
+    state: &ExternalIdRegistry,
+    outcome: &character_memory::RetrieveOutcome,
+) -> RetrievalTelemetry {
     let trace = outcome.trace.as_ref();
     let returned_ids = returned_object_ids(outcome);
     let suppressed_or_deleted_returned_count = trace.map(|trace| {
         trace
             .lifecycle_filter_decisions
             .iter()
-            .filter(|decision| {
-                returned_ids.contains(&decision.object.id)
-                    && decision.action == LifecycleFilterAction::Included
-                    && (matches!(
-                        decision.retention_state,
-                        Some(RetentionState::Suppressed | RetentionState::Deleted)
-                    ) || matches!(
-                        decision.reason,
-                        LifecycleFilterReason::SuppressedIncludedByPolicy
-                            | LifecycleFilterReason::DeletedIncludedByPolicy
-                    ))
-            })
-            .count()
+            .filter(|decision| is_suppressed_or_deleted_returned(decision, &returned_ids))
+            .map(|decision| decision.object.id)
+            .collect::<HashSet<_>>()
+            .len()
     });
     let superseded_current_returned_count = trace.map(|trace| {
         trace
             .lifecycle_filter_decisions
             .iter()
+            .filter(|decision| is_superseded_current_returned(decision, &returned_ids))
+            .map(|decision| decision.object.id)
+            .collect::<HashSet<_>>()
+            .len()
+    });
+    let unsafe_lifecycle_returned_count = trace.map(|trace| {
+        trace
+            .lifecycle_filter_decisions
+            .iter()
             .filter(|decision| {
-                returned_ids.contains(&decision.object.id)
-                    && decision.action == LifecycleFilterAction::Included
-                    && (decision.is_current == Some(false)
-                        || !decision.superseded_by.is_empty()
-                        || matches!(
-                            decision.reason,
-                            LifecycleFilterReason::NonCurrentIncludedByPolicy
-                                | LifecycleFilterReason::SupersededIncludedByPolicy
-                        ))
+                is_suppressed_or_deleted_returned(decision, &returned_ids)
+                    || is_superseded_current_returned(decision, &returned_ids)
             })
-            .count()
+            .map(|decision| decision.object.id)
+            .collect::<HashSet<_>>()
+            .len()
     });
     let graph_object_missing_omitted_count = trace.map(|trace| {
         trace
@@ -1704,6 +1810,7 @@ fn telemetry_from_outcome(outcome: &character_memory::RetrieveOutcome) -> Retrie
         lifecycle_filter_decision_count: trace.map(|trace| trace.lifecycle_filter_decisions.len()),
         suppressed_or_deleted_returned_count,
         superseded_current_returned_count,
+        unsafe_lifecycle_returned_count,
         graph_object_missing_omitted_count,
         graph_object_missing_returned_count,
         section_assignment_count: trace.map(|trace| trace.section_assignments.len()),
@@ -1740,6 +1847,128 @@ fn telemetry_from_outcome(outcome: &character_memory::RetrieveOutcome) -> Retrie
                 )
             })
             .collect(),
+        fanout_utilization: trace.map(|trace| {
+            trace
+                .fanout_utilization
+                .iter()
+                .map(|entry| RetrievalFanoutUtilization {
+                    root_internal_id: entry.root.id.to_string(),
+                    root_object_type: format!("{:?}", entry.root.object_type).to_ascii_snake_case(),
+                    root_external_id: external_id_for_object(state, entry.root),
+                    relation: format!("{:?}", entry.relation).to_ascii_snake_case(),
+                    object_type: format!("{:?}", entry.object_type).to_ascii_snake_case(),
+                    configured_cap: entry.configured_cap,
+                    selected_cap: entry.selected_cap,
+                    retained_count: entry.retained_count,
+                    omitted_by_fanout_count: entry.omitted_by_fanout_count,
+                })
+                .collect()
+        }),
+        selectivity_decisions: trace.map(|trace| {
+            trace
+                .selectivity_decisions
+                .iter()
+                .map(|entry| RetrievalSelectivityDecision {
+                    root_internal_id: entry.root.id.to_string(),
+                    root_object_type: format!("{:?}", entry.root.object_type).to_ascii_snake_case(),
+                    root_external_id: external_id_for_object(state, entry.root),
+                    relation: format!("{:?}", entry.relation).to_ascii_snake_case(),
+                    object_type: format!("{:?}", entry.object_type).to_ascii_snake_case(),
+                    count_scope: format!("{:?}", entry.count_scope).to_ascii_snake_case(),
+                    score: entry.score,
+                    entity_count: entry.entity_count,
+                    global_count: entry.global_count,
+                    support_factor: entry.support_factor,
+                    chosen_fanout: entry.chosen_fanout,
+                    max_fanout: entry.max_fanout,
+                    decision: format!("{:?}", entry.decision).to_ascii_snake_case(),
+                    fallback: entry.fallback,
+                })
+                .collect()
+        }),
+        rationale_categories_by_internal_id: trace.map(|trace| {
+            let mut categories_by_id: BTreeMap<String, Vec<RetrievalRationaleCategory>> =
+                BTreeMap::new();
+            for assignment in &trace.section_assignments {
+                let categories = categories_by_id
+                    .entry(assignment.object.id.to_string())
+                    .or_default();
+                for category in assignment
+                    .rationale_categories
+                    .iter()
+                    .copied()
+                    .map(retrieval_rationale_category)
+                {
+                    if !categories.contains(&category) {
+                        categories.push(category);
+                    }
+                }
+            }
+            categories_by_id
+        }),
+    }
+}
+
+fn is_suppressed_or_deleted_returned(
+    decision: &character_memory::LifecycleFilterDecision,
+    returned_ids: &HashSet<MemoryId>,
+) -> bool {
+    returned_ids.contains(&decision.object.id)
+        && decision.action == LifecycleFilterAction::Included
+        && (matches!(
+            decision.retention_state,
+            Some(RetentionState::Suppressed | RetentionState::Deleted)
+        ) || matches!(
+            decision.reason,
+            LifecycleFilterReason::SuppressedIncludedByPolicy
+                | LifecycleFilterReason::DeletedIncludedByPolicy
+        ))
+}
+
+fn is_superseded_current_returned(
+    decision: &character_memory::LifecycleFilterDecision,
+    returned_ids: &HashSet<MemoryId>,
+) -> bool {
+    returned_ids.contains(&decision.object.id)
+        && decision.action == LifecycleFilterAction::Included
+        && (decision.is_current == Some(false)
+            || !decision.superseded_by.is_empty()
+            || matches!(
+                decision.reason,
+                LifecycleFilterReason::NonCurrentIncludedByPolicy
+                    | LifecycleFilterReason::SupersededIncludedByPolicy
+            ))
+}
+
+fn external_id_for_object(
+    state: &ExternalIdRegistry,
+    object: character_memory::MemoryObjectRef,
+) -> Option<String> {
+    match object.object_type {
+        ObjectType::Episode => state.reverse_episode_ids.get(&object.id).cloned(),
+        ObjectType::Observation => state
+            .reverse_observation_ids
+            .get(&object.id)
+            .map(|(external_id, _)| external_id.clone()),
+        ObjectType::Entity => state.reverse_entity_ids.get(&object.id).cloned(),
+        ObjectType::MemoryThread => state.reverse_thread_ids.get(&object.id).cloned(),
+        ObjectType::DerivedMemory => state.reverse_derived_memory_ids.get(&object.id).cloned(),
+        ObjectType::MemoryLink => state.reverse_link_ids.get(&object.id).cloned(),
+    }
+}
+
+fn retrieval_rationale_category(
+    category: character_memory::RationaleCategory,
+) -> RetrievalRationaleCategory {
+    match category {
+        character_memory::RationaleCategory::Semantic => RetrievalRationaleCategory::Semantic,
+        character_memory::RationaleCategory::Entity => RetrievalRationaleCategory::Entity,
+        character_memory::RationaleCategory::Thread => RetrievalRationaleCategory::Thread,
+        character_memory::RationaleCategory::Temporal => RetrievalRationaleCategory::Temporal,
+        character_memory::RationaleCategory::Salience => RetrievalRationaleCategory::Salience,
+        character_memory::RationaleCategory::Scope => RetrievalRationaleCategory::Scope,
+        character_memory::RationaleCategory::Lifecycle => RetrievalRationaleCategory::Lifecycle,
+        character_memory::RationaleCategory::GraphBound => RetrievalRationaleCategory::GraphBound,
     }
 }
 
@@ -1886,6 +2115,33 @@ fn parse_timestamp(value: Option<&str>) -> Result<Option<DateTime<Utc>>> {
                 })
         })
         .transpose()
+}
+
+fn staged_source_drafts(
+    input: &PrepareWriteInput,
+    episode_id: MemoryId,
+    observation_id: MemoryId,
+) -> Result<(EpisodeDraft, ObservationDraft)> {
+    let mut episode = EpisodeDraft::new(input.content.clone());
+    episode.id = Some(episode_id);
+    episode.source_conversation_id = Some(input.episode_external_id.clone());
+    episode.started_at = parse_timestamp(input.episode_started_at.as_deref())?;
+    episode.raw_ref = input.raw_refs.first().cloned().or_else(|| {
+        Some(format!(
+            "eval://{}/episode/{}",
+            input.namespace, input.episode_external_id
+        ))
+    });
+    let mut observation = ObservationDraft::new(episode_id, input.content.clone());
+    observation.id = Some(observation_id);
+    observation.observed_at = parse_timestamp(input.observation_observed_at.as_deref())?;
+    observation.raw_ref = input.raw_refs.first().cloned().or_else(|| {
+        Some(format!(
+            "eval://{}/observation/{}",
+            input.namespace, input.observation_external_id
+        ))
+    });
+    Ok((episode, observation))
 }
 
 fn resolve_ids(
@@ -2457,6 +2713,11 @@ struct CharacterMemoryEmbeddingProvider {
     inner: DeterministicEmbeddingProvider,
 }
 
+struct CharacterMemoryControllableSimilarityEmbeddingProvider {
+    inner: ControllableSimilarityEmbeddingProvider,
+    storage_vector_size: usize,
+}
+
 fn parse_retention_state(value: &str) -> Result<RetentionState> {
     parse_snake_enum(value, "forget.target_retention_state")
 }
@@ -2466,6 +2727,41 @@ impl CharacterMemoryEmbeddingProvider {
         Ok(Self {
             inner: DeterministicEmbeddingProvider::new(vector_size)?,
         })
+    }
+}
+
+impl CharacterMemoryControllableSimilarityEmbeddingProvider {
+    fn new(fixture: ControllableSimilarityFixture, storage_vector_size: usize) -> Result<Self> {
+        let inner = ControllableSimilarityEmbeddingProvider::new(fixture)?;
+        if inner.vector_size() > storage_vector_size {
+            bail!(
+                "controllable similarity fixture vector_size {} exceeds configured storage vector size {storage_vector_size}",
+                inner.vector_size()
+            );
+        }
+        Ok(Self {
+            inner,
+            storage_vector_size,
+        })
+    }
+
+    fn vector_for_text(&self, text: &str) -> Result<Vec<f32>> {
+        let mut vector = self.inner.vector_for_text(text).or_else(|original_error| {
+            let fixture_text = [
+                "Episode summary: ",
+                "Observation excerpt: ",
+                "Reflection: ",
+                "Entity: ",
+                "Thread summary: ",
+            ]
+            .into_iter()
+            .find_map(|prefix| text.strip_prefix(prefix));
+            fixture_text
+                .map(|fixture_text| self.inner.vector_for_text(fixture_text))
+                .unwrap_or(Err(original_error))
+        })?;
+        vector.resize(self.storage_vector_size, 0.0);
+        Ok(vector)
     }
 }
 
@@ -2493,15 +2789,48 @@ impl EmbeddingProvider for CharacterMemoryEmbeddingProvider {
     }
 }
 
+#[async_trait]
+impl EmbeddingProvider for CharacterMemoryControllableSimilarityEmbeddingProvider {
+    fn vector_size(&self) -> usize {
+        self.storage_vector_size
+    }
+
+    async fn generate_embedding<'a>(
+        &self,
+        text: &'a str,
+    ) -> std::result::Result<Vec<f32>, character_memory::CustomError> {
+        self.vector_for_text(text).map_err(|error| {
+            character_memory::CustomError::EmbeddingGenerationError(error.to_string())
+        })
+    }
+
+    async fn bulk_generate_embeddings<'a>(
+        &self,
+        texts: &'a [&'a str],
+    ) -> std::result::Result<Vec<Vec<f32>>, character_memory::CustomError> {
+        texts
+            .iter()
+            .map(|text| {
+                self.vector_for_text(text).map_err(|error| {
+                    character_memory::CustomError::EmbeddingGenerationError(error.to_string())
+                })
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use character_memory::{
-        CURRENT_SCHEMA_VERSION, ContinuityContextPack, Episode, LifecycleFilterDecision,
-        MemoryObjectRef, Modality, RetrievalRationale, RetrievalTrace, RetrieveOutcome,
-        VectorDatabaseError,
+        CURRENT_SCHEMA_VERSION, ContextPackSection, ContinuityContextPack, Episode,
+        FanoutUtilizationTrace, LifecycleFilterDecision, MemoryObjectRef, Modality,
+        RationaleCategory, RetrievalRationale, RetrievalTrace, RetrieveOutcome, SectionAssignment,
+        SelectivityCountScope, SelectivityDecision, SelectivityTrace, VectorDatabaseError,
     };
-    use cmem_eval_core::{CleanupConfig, EmbeddingConfig, EntityInput, MemoryLinkInput};
+    use cmem_eval_core::{
+        CleanupConfig, DerivedMemoryInput, EmbeddingConfig, EntityInput, MemoryLinkInput,
+    };
     use tempfile::tempdir;
 
     static LIVE_QDRANT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -2546,6 +2875,92 @@ mod tests {
         let mut value = path.as_os_str().to_os_string();
         value.push(suffix);
         PathBuf::from(value)
+    }
+
+    fn assert_exhaustive_relation_type(relation: RelationType) {
+        // No wildcard: a new facade variant must fail this test target's build
+        // until the fixture vocabulary and serialized-name assertion are updated.
+        match relation {
+            RelationType::HasObservation
+            | RelationType::ObservedIn
+            | RelationType::Mentions
+            | RelationType::Involves
+            | RelationType::About
+            | RelationType::DerivedFrom
+            | RelationType::PartOfThread
+            | RelationType::Supports
+            | RelationType::Contradicts
+            | RelationType::Supersedes
+            | RelationType::Resolves
+            | RelationType::CreatesOpenLoop
+            | RelationType::FulfillsCommitment
+            | RelationType::AssociatedWith => {}
+        }
+    }
+
+    #[test]
+    fn continuity_relation_vocabulary_matches_the_facade_parser_exhaustively() {
+        let relation_types = [
+            RelationType::HasObservation,
+            RelationType::ObservedIn,
+            RelationType::Mentions,
+            RelationType::Involves,
+            RelationType::About,
+            RelationType::DerivedFrom,
+            RelationType::PartOfThread,
+            RelationType::Supports,
+            RelationType::Contradicts,
+            RelationType::Supersedes,
+            RelationType::Resolves,
+            RelationType::CreatesOpenLoop,
+            RelationType::FulfillsCommitment,
+            RelationType::AssociatedWith,
+        ];
+        let facade_names = relation_types
+            .into_iter()
+            .map(|relation| {
+                assert_exhaustive_relation_type(relation);
+                serde_json::to_value(relation)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let fixture_names = cmem_eval_continuity::CONTINUITY_RELATION_VOCABULARY
+            .iter()
+            .map(|relation| (*relation).to_string())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(
+            fixture_names.len(),
+            cmem_eval_continuity::CONTINUITY_RELATION_VOCABULARY.len(),
+            "continuity fixture relation vocabulary contains duplicates"
+        );
+        assert_eq!(facade_names, fixture_names);
+        assert!(
+            cmem_eval_continuity::CONTINUITY_RELATION_VOCABULARY
+                .iter()
+                .all(|relation| parse_relation_type(relation).is_ok())
+        );
+
+        let unknown_relation = "invented_relation";
+        assert!(parse_relation_type(unknown_relation).is_err());
+        let mut fixtures =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
+        let fixture_relation = fixtures
+            .scenarios
+            .iter_mut()
+            .flat_map(|scenario| scenario.events.iter_mut())
+            .find_map(|event| match event {
+                cmem_eval_continuity::InteractionEvent::Link { relation, .. } => Some(relation),
+                _ => None,
+            })
+            .unwrap();
+        *fixture_relation = unknown_relation.to_string();
+        let fixture_bytes = serde_json::to_vec(&fixtures).unwrap();
+        assert!(cmem_eval_continuity::parse_fixture_bytes(&fixture_bytes).is_err());
     }
 
     fn is_qdrant_unavailable_error(error: &VectorDatabaseError) -> bool {
@@ -2823,6 +3238,82 @@ mod tests {
         assert_eq!(provider.vector_size(), 1536);
     }
 
+    #[tokio::test]
+    async fn controllable_similarity_provider_preserves_fixture_prefix_at_storage_width() {
+        let fixture = ControllableSimilarityFixture {
+            seed: 7,
+            vector_size: 2,
+            noise_magnitude: 0.0,
+            clusters: BTreeMap::from([("cluster".to_string(), vec![1.0, -1.0])]),
+            concepts: BTreeMap::from([(
+                "concept".to_string(),
+                cmem_eval_core::SimilarityConceptFixture {
+                    cluster: "cluster".to_string(),
+                    inputs: vec!["fixture text".to_string()],
+                },
+            )]),
+        };
+        let provider =
+            CharacterMemoryControllableSimilarityEmbeddingProvider::new(fixture, 1536).unwrap();
+
+        let vector = provider.generate_embedding("fixture text").await.unwrap();
+        assert_eq!(provider.vector_size(), 1536);
+        assert_eq!(&vector[..2], &[1.0, -1.0]);
+        assert!(vector[2..].iter().all(|component| *component == 0.0));
+        for surface_text in [
+            "Episode summary: fixture text",
+            "Observation excerpt: fixture text",
+            "Reflection: fixture text",
+            "Entity: fixture text",
+            "Thread summary: fixture text",
+        ] {
+            assert_eq!(
+                provider.generate_embedding(surface_text).await.unwrap(),
+                vector
+            );
+        }
+        let error = provider
+            .generate_embedding("unassigned text")
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no assignment"));
+    }
+
+    #[tokio::test]
+    async fn controllable_similarity_construction_requires_matching_fixture_dimension() {
+        let mut config = adapter_config(
+            "controllable-contract".to_string(),
+            "cmem_eval_controllable".to_string(),
+        );
+        config.backend.embedding.provider = "controllable_similarity".to_string();
+        config.backend.embedding.vector_size = Some(3);
+        config.ingest.index_observations = true;
+        config.ingest.index_episode_summaries = true;
+        let fixture = ControllableSimilarityFixture {
+            seed: 7,
+            vector_size: 2,
+            noise_magnitude: 0.0,
+            clusters: BTreeMap::from([("cluster".to_string(), vec![1.0, -1.0])]),
+            concepts: BTreeMap::from([(
+                "concept".to_string(),
+                cmem_eval_core::SimilarityConceptFixture {
+                    cluster: "cluster".to_string(),
+                    inputs: vec!["fixture text".to_string()],
+                },
+            )]),
+        };
+
+        let error = match CharacterMemoryAdapter::new_with_controllable_similarity(&config, fixture)
+            .await
+        {
+            Ok(_) => panic!("mismatched fixture dimension was accepted"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("fixture vector_size 2"));
+        assert!(error.contains("Some(3)"));
+    }
+
     #[test]
     fn identity_registry_serialization_is_stable_and_sorted() {
         let directory = tempdir().unwrap();
@@ -2880,6 +3371,37 @@ mod tests {
         );
     }
 
+    #[test]
+    fn identity_registry_persist_retries_permission_denied_with_same_staged_bytes() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("identity.json");
+        fs::write(&path, b"old complete registry\n").unwrap();
+        let staged_bytes = b"new complete registry\n";
+        let mut temporary = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
+        temporary.write_all(staged_bytes).unwrap();
+        temporary.as_file().sync_all().unwrap();
+        let mut attempts = 0;
+
+        persist_identity_registry_with_retry(temporary, &path, |temporary, path| {
+            attempts += 1;
+            assert_eq!(fs::read(temporary.path()).unwrap(), staged_bytes);
+            if attempts == 1 {
+                return Err(tempfile::PersistError {
+                    error: std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "injected Windows replace contention",
+                    ),
+                    file: temporary,
+                });
+            }
+            temporary.persist(path)
+        })
+        .unwrap();
+
+        assert_eq!(attempts, 2);
+        assert_eq!(fs::read(&path).unwrap(), staged_bytes);
+    }
+
     #[tokio::test]
     async fn operational_calls_require_explicit_lifecycle_with_surviving_registry() {
         let directory = tempdir().unwrap();
@@ -2929,6 +3451,8 @@ mod tests {
                     content: "must not attach implicitly".to_string(),
                     episode_external_id: "new-episode".to_string(),
                     observation_external_id: "new-observation".to_string(),
+                    episode_started_at: None,
+                    observation_observed_at: None,
                     raw_refs: Vec::new(),
                     idempotency_key: None,
                     include_vector_index_candidates: true,
@@ -2970,6 +3494,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reconstruct_validates_config_before_qdrant_or_store_io() {
+        let mut config = adapter_config(
+            "invalid-reconstruct".to_string(),
+            "cmem_eval_invalid_reconstruct".to_string(),
+        );
+        config.backend.qdrant_connection_string = Some("http://127.0.0.1:1".to_string());
+        config.backend.embedding.vector_size = Some(0);
+        config.ingest.index_observations = true;
+        config.ingest.index_episode_summaries = true;
+
+        let error = match CharacterMemoryAdapter::reconstruct(&config, "never-opened").await {
+            Ok(_) => panic!("invalid reconstruct config was accepted"),
+            Err(error) => error.to_string(),
+        };
+
+        assert!(error.contains("backend.embedding.vector_size"));
+        assert!(error.contains("greater than zero"));
+        assert!(!error.contains("QDRANT_CONNECTION_STRING"));
+        assert!(!error.contains("failed to connect"));
+    }
+
+    #[tokio::test]
     async fn live_adapter_reattaches_with_external_ids() {
         let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
         let directory = tempdir().unwrap();
@@ -2978,6 +3524,8 @@ mod tests {
         let prefix = format!("cmem_eval_task3_{token}");
         let namespace = "restart-round-trip";
         let mut config = adapter_config(run_id, prefix);
+        config.ingest.index_observations = true;
+        config.ingest.index_episode_summaries = true;
         config.backend.cleanup.enabled = false;
         config.backend.cleanup.require_collection_prefix = Some("unrelated:prefix".to_string());
         config.backend.identity_registry_dir = Some(
@@ -3023,38 +3571,51 @@ mod tests {
             true,
             adapter_a.open_namespace(namespace).await
         );
-        live_call_or_skip!(
+        let staged_plan = live_call_or_skip!(
             qdrant_was_available,
-            "episode ingest",
+            "staged write preparation",
             true,
             adapter_a
-                .remember_episode(EpisodeInput {
-                    external_id: "episode-external".to_string(),
+                .prepare(PrepareWriteInput {
                     namespace: namespace.to_string(),
-                    summary: "Alice remembers a restart-safe cup of tea.".to_string(),
-                    started_at: None,
-                    ended_at: None,
-                    participants: Vec::new(),
-                    metadata: serde_json::Value::Null,
-                })
-                .await
-        );
-        live_call_or_skip!(
-            qdrant_was_available,
-            "observation ingest",
-            true,
-            adapter_a
-                .remember_observation(ObservationInput {
-                    external_id: "observation-external".to_string(),
+                    content: "The restart-safe drink is jasmine tea.".to_string(),
                     episode_external_id: "episode-external".to_string(),
-                    namespace: namespace.to_string(),
-                    speaker: Some("Alice".to_string()),
-                    text: "The restart-safe drink is jasmine tea.".to_string(),
-                    observed_at: None,
-                    metadata: serde_json::Value::Null,
+                    observation_external_id: "observation-external".to_string(),
+                    episode_started_at: Some("2025-01-01T00:00:00Z".to_string()),
+                    observation_observed_at: Some("2025-01-01T00:00:00Z".to_string()),
+                    raw_refs: vec!["fixture://continuity/restart".to_string()],
+                    idempotency_key: Some("continuity-restart-write".to_string()),
+                    include_vector_index_candidates: true,
+                    include_stats_update_candidates: true,
                 })
                 .await
         );
+        let staged_validations = live_call_or_skip!(
+            qdrant_was_available,
+            "staged write validation",
+            true,
+            adapter_a.validate_plan(&staged_plan).await
+        );
+        assert!(
+            staged_validations
+                .iter()
+                .all(|validation| validation.status == "valid")
+        );
+        let staged_commit = live_call_or_skip!(
+            qdrant_was_available,
+            "staged write commit",
+            true,
+            adapter_a
+                .commit(staged_plan, CommitWriteOptions::default())
+                .await
+        );
+        assert!(staged_commit.persisted_object_refs.iter().any(|reference| {
+            reference.object_type == "episode" && reference.external_id == "episode-external"
+        }));
+        assert!(staged_commit.persisted_object_refs.iter().any(|reference| {
+            reference.object_type == "observation"
+                && reference.external_id == "observation-external"
+        }));
         live_call_or_skip!(
             qdrant_was_available,
             "graph enrichment ingest",
@@ -3070,7 +3631,33 @@ mod tests {
                         canonical_key: None,
                         summary: Some("A restart-safe graph entity.".to_string()),
                     }],
-                    links: vec![MemoryLinkInput {
+                    derived_memories: vec![DerivedMemoryInput {
+                        external_id: "pre-correction-memory".to_string(),
+                        derived_type: "reflection".to_string(),
+                        text: "The restart-safe drink is jasmine tea.".to_string(),
+                        source_episode_external_ids: vec!["episode-external".to_string()],
+                        source_observation_external_ids: vec!["observation-external".to_string(),],
+                        thread_external_ids: Vec::new(),
+                        entity_external_ids: vec!["alice-entity".to_string()],
+                        confidence: 1.0,
+                        salience_score: 0.8,
+                        stability: "medium".to_string(),
+                        is_current: true,
+                        supersedes_external_ids: Vec::new(),
+                        metadata: serde_json::Value::Null,
+                    }],
+                    ..GraphEnrichmentInput::default()
+                })
+                .await
+        );
+        let link = live_call_or_skip!(
+            qdrant_was_available,
+            "public link round-trip",
+            true,
+            adapter_a
+                .link(LinkMemoryInput {
+                    namespace: namespace.to_string(),
+                    link: MemoryLinkInput {
                         external_id: "alice-episode-link".to_string(),
                         from: MemoryEndpointInput {
                             object_type: "entity".to_string(),
@@ -3083,11 +3670,87 @@ mod tests {
                         },
                         confidence: 1.0,
                         rationale: Some("exercise graph and stats persistence".to_string()),
-                    }],
-                    ..GraphEnrichmentInput::default()
+                    },
                 })
                 .await
         );
+        assert_eq!(link.external_id, "alice-episode-link");
+
+        let origin = SourceProvenanceInput {
+            episode_external_ids: vec!["episode-external".to_string()],
+            observation_external_ids: vec!["observation-external".to_string()],
+            ..SourceProvenanceInput::default()
+        };
+        let correction = live_call_or_skip!(
+            qdrant_was_available,
+            "public correction round-trip",
+            true,
+            adapter_a
+                .correct(CorrectMemoryInput {
+                    namespace: namespace.to_string(),
+                    targets: vec![CorrectionTargetInput::DerivedMemory {
+                        external_id: "pre-correction-memory".to_string(),
+                    }],
+                    replacements: vec![ReplacementDerivedMemoryInput {
+                        memory: DerivedMemoryInput {
+                            external_id: "corrected-memory".to_string(),
+                            derived_type: "reflection".to_string(),
+                            text: "The restart-safe drink is oolong tea.".to_string(),
+                            source_episode_external_ids: vec!["episode-external".to_string()],
+                            source_observation_external_ids: vec![
+                                "observation-external".to_string(),
+                            ],
+                            thread_external_ids: Vec::new(),
+                            entity_external_ids: vec!["alice-entity".to_string()],
+                            confidence: 1.0,
+                            salience_score: 0.8,
+                            stability: "medium".to_string(),
+                            is_current: true,
+                            supersedes_external_ids: vec!["pre-correction-memory".to_string(),],
+                            metadata: serde_json::Value::Null,
+                        },
+                        original_source_provenance: origin.clone(),
+                        correction_origin_provenance: origin.clone(),
+                    }],
+                    superseded_derived_memory_external_ids: vec![
+                        "pre-correction-memory".to_string(),
+                    ],
+                    correction_origin: origin,
+                    rationale: "The fixture scripted a correction.".to_string(),
+                    lifecycle_policy: Default::default(),
+                    cascade_policy: Default::default(),
+                    include_trace: true,
+                })
+                .await
+        );
+        assert!(correction.mutated_object_refs.iter().any(|reference| {
+            reference.object_type == "derived_memory" && reference.external_id == "corrected-memory"
+        }));
+
+        let forgotten = live_call_or_skip!(
+            qdrant_was_available,
+            "public forget round-trip",
+            true,
+            adapter_a
+                .forget(ForgetMemoryInput {
+                    namespace: namespace.to_string(),
+                    targets: vec![MemoryEndpointInput {
+                        object_type: "derived_memory".to_string(),
+                        external_id: "corrected-memory".to_string(),
+                    }],
+                    rationale: "The fixture scripted suppression.".to_string(),
+                    suppression_policy: Default::default(),
+                    archive_policy: Default::default(),
+                    cascade_policy: Default::default(),
+                    target_retention_state: "suppressed".to_string(),
+                    target_thread_status: None,
+                    include_trace: true,
+                })
+                .await
+        );
+        assert!(forgotten.mutated_object_refs.iter().any(|reference| {
+            reference.object_type == "derived_memory" && reference.external_id == "corrected-memory"
+        }));
         drop(adapter_a);
         assert!(oxigraph_path.exists());
         assert!(retrieval_stats_path.exists());
@@ -3097,19 +3760,53 @@ mod tests {
             persisted_entity_id.as_bytes()
         ));
 
-        let adapter_b = live_call_or_skip!(
+        let (adapter_b, lifecycle) = live_call_or_skip!(
             qdrant_was_available,
-            "reattach adapter construction",
-            false,
-            CharacterMemoryAdapter::new(&config).await
-        );
-        let lifecycle = live_call_or_skip!(
-            qdrant_was_available,
-            "namespace reattach",
+            "public adapter reconstruction",
             true,
-            adapter_b.reattach_namespace(namespace).await
+            CharacterMemoryAdapter::reconstruct(&config, namespace).await
         );
-        assert_eq!(lifecycle.restored_identity_count, 4);
+        assert_eq!(lifecycle.restored_identity_count, 6);
+        {
+            let namespaces = adapter_b.namespaces.lock().await;
+            let state = namespaces.get(namespace).unwrap();
+            let episode_id = state.episode_ids["episode-external"];
+            assert_eq!(
+                state
+                    .reverse_episode_ids
+                    .get(&episode_id)
+                    .map(String::as_str),
+                Some("episode-external")
+            );
+            let observation_id = state.observation_ids["observation-external"];
+            assert_eq!(
+                state.reverse_observation_ids.get(&observation_id),
+                Some(&(
+                    "observation-external".to_string(),
+                    "episode-external".to_string()
+                ))
+            );
+            let entity_id = state.entity_ids["alice-entity"];
+            assert_eq!(
+                state.reverse_entity_ids.get(&entity_id).map(String::as_str),
+                Some("alice-entity")
+            );
+            for external_id in ["pre-correction-memory", "corrected-memory"] {
+                let memory_id = state.derived_memory_ids[external_id];
+                assert_eq!(
+                    state
+                        .reverse_derived_memory_ids
+                        .get(&memory_id)
+                        .map(String::as_str),
+                    Some(external_id)
+                );
+            }
+            let link_id = state.link_ids["alice-episode-link"];
+            assert_eq!(
+                state.reverse_link_ids.get(&link_id).map(String::as_str),
+                Some("alice-episode-link")
+            );
+        }
         let retrieved = live_call_or_skip!(
             qdrant_was_available,
             "reattached retrieval",
@@ -3130,12 +3827,35 @@ mod tests {
                 .await
         );
         assert!(retrieved.items.iter().any(|item| {
-            item.external_id.as_deref() == Some("episode-external")
-                || item.external_id.as_deref() == Some("observation-external")
+            item.kind == "episode" && item.external_id.as_deref() == Some("episode-external")
         }));
         assert!(retrieved.items.iter().any(|item| {
-            item.external_id.as_deref() == Some("observation-external")
+            item.kind == "observation"
+                && item.external_id.as_deref() == Some("observation-external")
                 && item.episode_external_id.as_deref() == Some("episode-external")
+        }));
+        let suppression_check = live_call_or_skip!(
+            qdrant_was_available,
+            "post-reconstruct suppression retrieval",
+            true,
+            adapter_b
+                .retrieve(RetrieveInput {
+                    mode: RetrievalMode::Hybrid,
+                    namespace: namespace.to_string(),
+                    query: "What is the corrected restart-safe drink?".to_string(),
+                    query_date: None,
+                    top_k_episodes: 8,
+                    top_k_observations: 8,
+                    include_derived_memories: true,
+                    include_threads: false,
+                    include_entities: false,
+                    include_debug_rationale: true,
+                })
+                .await
+        );
+        assert!(suppression_check.items.iter().all(|item| {
+            item.external_id.as_deref() != Some("corrected-memory")
+                && item.external_id.as_deref() != Some("pre-correction-memory")
         }));
         drop(adapter_b);
 
@@ -3209,7 +3929,7 @@ mod tests {
             true,
             adapter_restored_stores.reattach_namespace(namespace).await
         );
-        assert_eq!(restored_stores.restored_identity_count, 4);
+        assert_eq!(restored_stores.restored_identity_count, 6);
         let collection_name = adapter_restored_stores.collection_name(namespace);
         live_call_or_skip!(
             qdrant_was_available,
@@ -3719,7 +4439,7 @@ mod tests {
     }
 
     #[test]
-    fn telemetry_leakage_counts_only_final_returned_items() {
+    fn telemetry_leakage_counts_only_unique_final_returned_items() {
         let returned_id = deterministic_id("n", "episode", "returned");
         let omitted_id = deterministic_id("n", "episode", "omitted");
         let mut trace = RetrievalTrace::empty();
@@ -3727,8 +4447,8 @@ mod tests {
             LifecycleFilterDecision {
                 object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
                 retention_state: Some(RetentionState::Suppressed),
-                is_current: None,
-                superseded_by: Vec::new(),
+                is_current: Some(false),
+                superseded_by: vec![omitted_id],
                 action: LifecycleFilterAction::Included,
                 reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
             },
@@ -3737,6 +4457,14 @@ mod tests {
                 retention_state: Some(RetentionState::Suppressed),
                 is_current: None,
                 superseded_by: Vec::new(),
+                action: LifecycleFilterAction::Included,
+                reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+            },
+            LifecycleFilterDecision {
+                object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
+                retention_state: Some(RetentionState::Suppressed),
+                is_current: Some(false),
+                superseded_by: vec![omitted_id],
                 action: LifecycleFilterAction::Included,
                 reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
             },
@@ -3750,9 +4478,127 @@ mod tests {
             trace: Some(trace),
         };
 
-        let telemetry = telemetry_from_outcome(&outcome);
+        let telemetry = telemetry_from_outcome(&ExternalIdRegistry::new("n"), &outcome);
 
         assert_eq!(telemetry.suppressed_or_deleted_returned_count, Some(1));
+        assert_eq!(telemetry.superseded_current_returned_count, Some(1));
+        assert_eq!(telemetry.unsafe_lifecycle_returned_count, Some(1));
+
+        let integrity = cmem_eval_core::integrity_details_with_telemetry(
+            &[RetrievedItem {
+                kind: "episode".to_string(),
+                internal_id: returned_id.to_string(),
+                external_id: Some("returned".to_string()),
+                episode_external_id: None,
+                score: None,
+                rank: 1,
+                rationale: Vec::new(),
+                text: None,
+            }],
+            &telemetry,
+        );
+        assert_eq!(integrity.suppressed_memory_leakage_rate, Some(1.0));
+        assert_eq!(integrity.superseded_current_leakage_rate, Some(1.0));
+    }
+
+    #[test]
+    fn telemetry_projection_preserves_fanout_selectivity_and_typed_rationales() {
+        let entity_id = deterministic_id("n", "entity", "hub");
+        let episode_id = deterministic_id("n", "episode", "result");
+        let mut registry = ExternalIdRegistry::new("n");
+        registry
+            .reverse_entity_ids
+            .insert(entity_id, "entity-hub".to_string());
+        let mut trace = RetrievalTrace::empty();
+        trace.fanout_utilization = vec![FanoutUtilizationTrace {
+            root: MemoryObjectRef::new(ObjectType::Entity, entity_id),
+            relation: RelationType::Mentions,
+            object_type: ObjectType::Episode,
+            configured_cap: 8,
+            selected_cap: 4,
+            retained_count: 3,
+            omitted_by_fanout_count: 2,
+        }];
+        trace.selectivity_decisions = vec![SelectivityTrace {
+            root: MemoryObjectRef::new(ObjectType::Entity, entity_id),
+            relation: RelationType::Mentions,
+            object_type: ObjectType::Episode,
+            count_scope: SelectivityCountScope::Active,
+            score: Some(0.25),
+            entity_count: Some(5),
+            global_count: Some(20),
+            support_factor: 0.75,
+            chosen_fanout: 4,
+            max_fanout: 8,
+            decision: SelectivityDecision::LowSelectivitySupported,
+            fallback: false,
+        }];
+        trace.section_assignments = vec![SectionAssignment {
+            object: MemoryObjectRef::new(ObjectType::Episode, episode_id),
+            section: ContextPackSection::RelevantEpisodes,
+            rank: Some(1),
+            reason: Some("entity expansion".to_string()),
+            rationale_categories: vec![RationaleCategory::Entity, RationaleCategory::Semantic],
+        }];
+        let outcome = RetrieveOutcome {
+            pack: ContinuityContextPack::empty(),
+            rationale: RetrievalRationale::new("test"),
+            trace: Some(trace),
+        };
+
+        let telemetry = telemetry_from_outcome(&registry, &outcome);
+        let fanout = &telemetry.fanout_utilization.as_ref().unwrap()[0];
+        assert_eq!(fanout.root_external_id.as_deref(), Some("entity-hub"));
+        assert_eq!((fanout.configured_cap, fanout.selected_cap), (8, 4));
+        let selectivity = &telemetry.selectivity_decisions.as_ref().unwrap()[0];
+        assert_eq!(selectivity.score, Some(0.25));
+        assert_eq!(selectivity.count_scope, "active");
+        assert_eq!(
+            telemetry
+                .rationale_categories_by_internal_id
+                .as_ref()
+                .unwrap()
+                .get(&episode_id.to_string()),
+            Some(&vec![
+                RetrievalRationaleCategory::Entity,
+                RetrievalRationaleCategory::Semantic,
+            ])
+        );
+    }
+
+    #[test]
+    fn staged_source_drafts_preserve_scripted_timestamps() {
+        let input = PrepareWriteInput {
+            namespace: "continuity:test".to_string(),
+            content: "scripted memory".to_string(),
+            episode_external_id: "episode".to_string(),
+            observation_external_id: "observation".to_string(),
+            episode_started_at: Some("2025-02-03T04:05:06Z".to_string()),
+            observation_observed_at: Some("2025-02-03T04:05:06Z".to_string()),
+            raw_refs: Vec::new(),
+            idempotency_key: None,
+            include_vector_index_candidates: true,
+            include_stats_update_candidates: true,
+        };
+        let (episode, observation) = staged_source_drafts(
+            &input,
+            deterministic_id(&input.namespace, "episode", &input.episode_external_id),
+            deterministic_id(
+                &input.namespace,
+                "observation",
+                &input.observation_external_id,
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(
+            episode.started_at.unwrap().to_rfc3339(),
+            "2025-02-03T04:05:06+00:00"
+        );
+        assert_eq!(
+            observation.observed_at.unwrap().to_rfc3339(),
+            "2025-02-03T04:05:06+00:00"
+        );
     }
 
     #[test]

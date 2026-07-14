@@ -45,6 +45,7 @@ struct RunCommand {
 impl RunCommand {
     async fn run(self) -> Result<()> {
         match self.dataset {
+            RunDataset::Continuity(args) => pipeline::run_continuity(args).await,
             RunDataset::Synthetic(args) => pipeline::run_synthetic(args).await,
             RunDataset::LongmemevalS(args) => pipeline::run_longmemeval(args).await,
             RunDataset::Locomo(args) => pipeline::run_locomo(args).await,
@@ -54,9 +55,22 @@ impl RunCommand {
 
 #[derive(Debug, Subcommand)]
 enum RunDataset {
+    Continuity(ContinuityRunArgs),
     LongmemevalS(RunArgs),
     Locomo(RunArgs),
     Synthetic(RunArgs),
+}
+
+#[derive(Debug, Args, Clone)]
+pub(crate) struct ContinuityRunArgs {
+    #[command(flatten)]
+    pub(crate) run: RunArgs,
+    #[arg(long = "trace-out")]
+    pub(crate) trace_out: PathBuf,
+    #[arg(long = "report-out")]
+    pub(crate) report_out: PathBuf,
+    #[arg(long)]
+    pub(crate) scenario: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -186,6 +200,10 @@ struct SummarizeArgs {
     config: PathBuf,
     #[arg(long)]
     out: PathBuf,
+    #[arg(long)]
+    dataset: Option<PathBuf>,
+    #[arg(long)]
+    scenario: Option<String>,
 }
 
 fn export_official(args: ExportOfficialCommand) -> Result<()> {
@@ -235,7 +253,17 @@ fn summarize(args: SummarizeArgs) -> Result<()> {
     {
         bail!("summary input contains mixed run_id or dataset values");
     }
-    let metric_family = pipeline::metric_family_for_config(&config)?;
+    if config.dataset == "continuity" {
+        let dataset = args.dataset.as_deref().context(
+            "summarizing continuity results requires --dataset with the source fixture path",
+        )?;
+        pipeline::validate_continuity_summary_rows(&rows, dataset, args.scenario.as_deref())?;
+    }
+    let metric_family = pipeline::metric_family_for_config(
+        &config,
+        args.dataset.as_deref(),
+        args.scenario.as_deref(),
+    )?;
     let summary = summarize_rows(
         first.run_id.clone(),
         first.dataset.clone(),

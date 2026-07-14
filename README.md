@@ -63,6 +63,131 @@ cargo run -p cmem-eval-runner -- run synthetic \
   --summary-out ./runs/synthetic_summary.json
 ```
 
+## Continuity Evaluation
+
+Continuity fixtures run an ordered, fixture-scripted lifecycle through remember, staged prepare/validate/commit, retrieve, correct, forget, link, and restart operations. The harness observes and reports retrieval and lifecycle measurements; it does not enforce metric thresholds as CI pass/fail gates.
+
+### Configuration and prerequisites
+
+`configs/continuity_retrieval.toml` is the single committed continuity config for both mock smoke runs and live evaluations. A separate mock config is unnecessary because mock selection is an explicit CLI adapter choice. Continuity validation requires the `controllable_similarity` deterministic provider, the fixture's small vector size of 8, and configured persistent Oxigraph and retrieval-stat SQLite paths so restart scenarios can reconstruct those stores. The identity registry is always persistent: `identity_registry_dir` is optional and falls back deterministically to `runs/<run_id>`; the committed config explicitly places it under `runs/continuity/stores/identities`. The config records `max_vector_candidates = 48` and `max_graph_roots = 48` so report tuning observations remain correlated with the measured candidate-limit regime.
+
+Mock runs require Rust 1.97.0 and the checked fixture only; they do not connect to Qdrant, Oxigraph, SQLite, OpenAI, or another service. Live runs additionally require the sibling `../CharacterMemory` checkout, a local Qdrant gRPC endpoint such as `http://localhost:6334`, and writable paths under `runs/continuity/stores/`. The controllable-similarity provider does not require `OPENAI_API_KEY`.
+
+Set the live endpoint in the current shell before a live run:
+
+```bash
+export QDRANT_CONNECTION_STRING=http://localhost:6334
+```
+
+PowerShell uses `$env:QDRANT_CONNECTION_STRING = "http://localhost:6334"` for the same setting.
+
+### Run a service-free mock smoke
+
+The guarded mock command runs all eight checked scenarios, writes visibly marked `mock_smoke` artifacts, and uses the same config and metric registry as the live path:
+
+```bash
+cargo run -p cmem-eval-runner -- run continuity \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v2.json \
+  --config ./configs/continuity_retrieval.toml \
+  --out ./runs/continuity/mock/results.jsonl \
+  --summary-out ./runs/continuity/mock/summary.json \
+  --trace-out ./runs/continuity/mock/traces.jsonl \
+  --report-out ./runs/continuity/mock/report.json \
+  --adapter mock \
+  --allow-mock-benchmark
+```
+
+### Run a live restart scenario
+
+This bounded live command exercises Qdrant plus the configured persistent stores and performs the mid-scenario drop/reconstruct path. Remove `--scenario cross-store-stress` to run the complete scenario set.
+
+```bash
+cargo run -p cmem-eval-runner -- run continuity \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v2.json \
+  --config ./configs/continuity_retrieval.toml \
+  --out ./runs/continuity/live/results.jsonl \
+  --summary-out ./runs/continuity/live/summary.json \
+  --trace-out ./runs/continuity/live/traces.jsonl \
+  --report-out ./runs/continuity/live/report.json \
+  --scenario cross-store-stress
+```
+
+Fresh runs reset only the deterministic namespace-scoped stores derived from the config's prefix, run ID, and fixture namespace. The restart event inside `cross-store-stress` drops the active adapter without deleting those stores, reconstructs Qdrant/Oxigraph/SQLite/identity state, and remeasures the next scripted query before and after reconstruction.
+
+### Re-summarize existing results
+
+Continuity metric families include fixture-derived entity-kind keys, so `summarize` must receive the original config and source fixture. Repeat `--scenario <fixture-id>` when the original run selected one scenario.
+
+```bash
+cargo run -p cmem-eval-runner -- summarize \
+  --input ./runs/continuity/mock/results.jsonl \
+  --config ./configs/continuity_retrieval.toml \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v2.json \
+  --out ./runs/continuity/mock/resummary.json
+```
+
+### Generate a fixture candidate
+
+The checked fixture seed is `20260712`. Generate into `runs/` for inspection instead of overwriting the checked fixture before reviewing the diff:
+
+```bash
+cargo run -p cmem-eval-continuity --bin generate_continuity_fixtures -- \
+  ./runs/continuity/generated/continuity_v2.json 20260712
+```
+
+Schema v2 derives backend persistence identities from config, stable namespaces, and external IDs; it rejects the retired caller-supplied `collection_name`, `memory_id`, and `replacement_memory_id` fields. Parse the candidate, inspect its semantic diff against `crates/cmem-eval-continuity/fixtures/continuity_v2.json`, and run the generator determinism tests before replacing the checked fixture.
+
+### Read the continuity artifacts
+
+- `results.jsonl` contains one schema-versioned retrieval result per query. `summary.json` contains numeric aggregates, support counts, registry coverage, and latency. Live query latency is measured, so raw `results.jsonl` and `summary.json` bytes intentionally vary across repeat live runs.
+- `traces.jsonl` contains the deterministic query, expected labels, history text, complete retrieved context pack, rationales, and backend-neutral telemetry used by continuity metrics.
+- `report.json` has a top-level `metadata` block and deterministic `content`. `metadata` contains the generation timestamp, run, dataset, and adapter identity, fixture provenance (schema version, fixture seed, embedding seeds, and fixture IDs), the full config snapshot, schema versions, and normalization policy; it does not contain the fixture body. Compare repeat runs by removing `metadata`; correction/forget library mutation timestamps and measured query latency are excluded from deterministic content.
+- `content.aggregate` reports metrics, `metric_support`, and registry coverage across the selected run. `content.scenarios` repeats those views per fixture and includes full query/context/rationale samples, fanout/selectivity decisions, stats-health observations, and any restart observations.
+- A restart observation records the lifecycle restoration count, before/after returned object IDs and recall, graph/fanout/selectivity snapshots, signed deltas, and whether the returned object set stayed stable.
+- `tuning_observations` records measured behavior together with the relevant config regime. These are tuning signals, not assertions that a Character Memory default passed or failed.
+
+For canonical repeat-run row hashing, preserve JSONL row order, set every existing `latency_ms` property to numeric `0` without deleting it, serialize the rows as one compact JSON array, and hash the in-memory UTF-8 bytes without a BOM or trailing newline. Report content excludes latency entirely, so compare `report.json` runs by compact-serializing only the top-level `content` value. Raw `summary.json` remains intentionally variable because its latency aggregates summarize the measured row values.
+
+```powershell
+$report = Get-Content ./runs/continuity/live/report.json -Raw | ConvertFrom-Json
+$scope = @($report.metadata.fixture_ids)
+$rows = Get-Content ./runs/continuity/live/results.jsonl | ForEach-Object {
+  $row = $_ | ConvertFrom-Json
+  $row.latency_ms = 0
+  $row
+}
+$normalized = ConvertTo-Json -InputObject @($rows) -Compress -Depth 100
+$reportContent = ConvertTo-Json -InputObject $report.content -Compress -Depth 100
+function Get-Sha256Hex([byte[]]$Bytes) {
+  [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes))
+}
+"scope=" + ($scope -join ",")
+"traces_sha256=" + (Get-Sha256Hex ([IO.File]::ReadAllBytes((Resolve-Path ./runs/continuity/live/traces.jsonl))))
+"normalized_rows_sha256=" + (Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes($normalized)))
+"report_content_sha256=" + (Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes($reportContent)))
+```
+
+Required registry keys are initialized to JSON `null` when a row cannot measure them. In `metric_support`, `numeric_rows` counts measured values, `null_rows` counts explicitly unsupported rows, and `unsupported = true` means every present row was null. A null is not zero and does not mean the evaluation failed. `registry_coverage.missing_required_metrics` instead identifies required keys that were absent entirely.
+
+Fixture `irrelevant_external_ids` are sampled negatives, not an exhaustive complement of the relevant set. `sampled_context_pollution_rate` and its rationale attribution classify only explicitly relevant IDs and explicitly sampled-negative IDs; unlabeled retrieved items are not silently treated as negative.
+
+### Extend the scenario library
+
+1. Add or update a deterministic scenario constructor in `crates/cmem-eval-continuity/src/generator.rs`; add a `ScenarioPattern` variant in `fixture.rs` only when the scenario represents a new pattern.
+2. Give every event, query, and created object a stable unique external ID. Do not add backend memory IDs to the fixture schema: the driver derives persistence identities from external IDs. Events must be chronological, and correction, forget, link, and relevance references must target supported object kinds admitted earlier in that scenario.
+3. Declare non-empty, unique, disjoint `relevant_external_ids` and sampled `irrelevant_external_ids` for every query. Keep these labels in fixture/scoring paths only; do not copy them into adapter inputs or metadata.
+4. Assign every text that reaches the controllable-similarity provider to exactly one embedding concept. Entity labels are embedding inputs as well as display text, so every entity label must also appear exactly once in `embedding.concepts`; the generator assigns referenced entity labels to the first referencing concept and unreferenced labels to `entity_background`.
+5. Regenerate a candidate with the checked seed, inspect the semantic and byte diff, and run the fixture parser, generator determinism, mock driver, and workspace tests before replacing the checked JSON.
+
+### Add a continuity metric
+
+1. Implement the measurement in `crates/cmem-eval-continuity/src/metrics.rs` using only fixture labels and backend-neutral trace telemetry. Keep entity handling type-neutral and preserve deterministic ordering.
+2. Register every required key in `continuity_metric_family`; add dynamic keys from the selected scenarios when the metric varies by fixture vocabulary.
+3. Initialize unsupported values as `null`, never a fabricated zero. Add hand-computed tests for measured values and an explicit missing-telemetry test for null support.
+4. Confirm run and `summarize` produce identical config, `metric_support`, and `registry_coverage`, and confirm the metric appears in aggregate and per-scenario report sections.
+
+Continuity metrics are measurements for comparison and tuning. Adding a metric does not create a CI threshold or a pass/fail policy.
+
 BM25 retrieval is a service-free lexical baseline selected in TOML with
 `[retrieval] mode = "bm25_only"`. It ranks ingested episodes and observations
 inside the eval harness and does not connect to Qdrant, Oxigraph, OpenAI, or
@@ -130,10 +255,10 @@ The workspace separates shared evaluation contracts, dataset-specific behavior, 
 
 - `crates/cmem-eval-core` owns backend-neutral configuration, the `MemoryAdapter` contract and DTOs, deterministic metric primitives, runtime metric-family composition, and versioned result/summary types. Core contains no dataset-name dispatch.
 - `crates/cmem-eval-adapter-cmem` is the reusable live Character Memory adapter. It maps the core contract to the sibling library, derives deterministic collection names from the configured prefix, run ID, and namespace, and persists a BTreeMap-backed external-ID registry so a new adapter process can reattach to existing stores without losing benchmark IDs.
-- `crates/cmem-eval-longmemeval` and `crates/cmem-eval-locomo` own their loaders, ingest mapping, scorers, full-history construction, config-name validation, and retrieval metric-family declarations.
-- `crates/cmem-eval-runner` owns the CLI and static dataset selection. Its `DatasetSpec` seam feeds per-dataset loader/mapper/scorer/full-history/metric-family behavior into one generic ingest → enrich → retrieve → score → result pipeline.
+- `crates/cmem-eval-longmemeval`, `crates/cmem-eval-locomo`, and `crates/cmem-eval-continuity` own their loaders, ingest or event mapping, scorers or trace contracts, full-history construction, config-name validation, and metric-family declarations.
+- `crates/cmem-eval-runner` owns the CLI and static dataset selection. Its `DatasetSpec` seam feeds conventional datasets into the generic ingest → enrich → retrieve → score → result pipeline and routes continuity fixtures through their ordered scripted lifecycle driver.
 
-Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementation, but no `cmem-eval-core` change. The future continuity benchmark belongs in `crates/cmem-eval-continuity`, with its loader, mapping, scoring, full-history logic, and metric-family declaration kept inside that crate.
+Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementation, but no `cmem-eval-core` change. Continuity-specific fixture parsing, ordered event execution, and query trace serialization remain in `crates/cmem-eval-continuity`.
 
 JSONL rows and summaries use report schema version `1.0.0`; readers reject missing or different versions rather than entering a compatibility mode. The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains first-class as per-row `latency_ms` and summary `latency.latency_ms` mean/median/p50/p95 values, but it is excluded from deterministic `metrics`; summaries also record the embedding provider.
 

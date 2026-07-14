@@ -1,0 +1,32 @@
+run_id = "continuity_v1"
+dataset = "continuity"
+
+[backend]
+namespace_prefix = "cmem_eval_continuity"
+oxigraph_persistence_path = "runs/continuity/stores/oxigraph"
+retrieval_stats_path = "runs/continuity/stores/retrieval.sqlite"
+identity_registry_dir = "runs/continuity/stores/identities"
+
+[backend.cleanup]
+enabled = false
+require_collection_prefix = "cmem_eval_continuity"
+
+[backend.embedding]
+provider = "controllable_similarity"
+model = "text-embedding-3-small"
+vector_size = 8
+
+[retrieval]
+mode = "hybrid"
+top_k_episodes = 8
+top_k_observations = 8
+include_derived_memories = true
+include_threads = true
+include_entities = true
+include_debug_rationale = true
+max_vector_candidates = 48
+max_graph_roots = 48
+
+[ingest]
+index_observations = true
+index_episode_summaries = true

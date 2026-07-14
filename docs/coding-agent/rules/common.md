@@ -1,6 +1,6 @@
 # Common Rules
 
-<!-- last_updated: 2026-07-12 -->
+<!-- last_updated: 2026-07-14 -->
 
 ## Repository Reference Documents
 
@@ -10,6 +10,7 @@
 
 - Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` before reporting implementation done.
 - Run the service-free synthetic smoke command before reporting benchmark CLI changes done: `cargo run -p cmem-eval-runner -- run synthetic --dataset ./fixtures/synthetic_small.json --config ./configs/synthetic_retrieval.toml --out ./runs/synthetic.jsonl --summary-out ./runs/synthetic_summary.json --adapter mock --allow-mock-benchmark`.
+- Targeted-test evidence must state an executed-test count greater than zero; a successful exit code alone is insufficient because an unmatched filter can execute no tests.
 
 ## Repo Documentation Wording
 

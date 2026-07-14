@@ -384,6 +384,10 @@ pub fn insert_telemetry_metrics(
         option_usize(telemetry.superseded_current_returned_count),
     );
     out.insert(
+        "unsafe_lifecycle_returned_count".to_string(),
+        option_usize(telemetry.unsafe_lifecycle_returned_count),
+    );
+    out.insert(
         "graph_object_missing_omitted_count".to_string(),
         option_usize(telemetry.graph_object_missing_omitted_count),
     );
@@ -573,8 +577,7 @@ pub fn integrity_details_with_telemetry(
         details.context_validation_pass_rate = context_validation_pass_rate(
             returned_count,
             telemetry.graph_verified_count,
-            telemetry.suppressed_or_deleted_returned_count,
-            telemetry.superseded_current_returned_count,
+            telemetry.unsafe_lifecycle_returned_count,
             telemetry.graph_object_missing_returned_count,
         );
     }
@@ -631,22 +634,18 @@ fn leakage_rate(count: usize, denominator: usize) -> f64 {
 fn context_validation_pass_rate(
     returned_count: usize,
     graph_verified_count: Option<usize>,
-    suppressed_or_deleted_returned_count: Option<usize>,
-    superseded_current_returned_count: Option<usize>,
+    unsafe_lifecycle_returned_count: Option<usize>,
     graph_object_missing_returned_count: Option<usize>,
 ) -> Option<f64> {
     let graph_verified_count = graph_verified_count?;
-    let suppressed_or_deleted_returned_count = suppressed_or_deleted_returned_count?;
-    let superseded_current_returned_count = superseded_current_returned_count?;
+    let unsafe_lifecycle_returned_count = unsafe_lifecycle_returned_count?;
     let graph_object_missing_returned_count = graph_object_missing_returned_count?;
     if returned_count == 0 {
         return Some(1.0);
     }
     let graph_unverified = returned_count.saturating_sub(graph_verified_count.min(returned_count));
-    let invalid_count = graph_unverified
-        + suppressed_or_deleted_returned_count
-        + superseded_current_returned_count
-        + graph_object_missing_returned_count;
+    let invalid_count =
+        graph_unverified + unsafe_lifecycle_returned_count + graph_object_missing_returned_count;
     Some(1.0 - invalid_count.min(returned_count) as f64 / returned_count as f64)
 }
 
@@ -729,6 +728,7 @@ mod tests {
             graph_verified_count: Some(2),
             suppressed_or_deleted_returned_count: Some(0),
             superseded_current_returned_count: Some(0),
+            unsafe_lifecycle_returned_count: Some(0),
             graph_object_missing_omitted_count: Some(3),
             graph_object_missing_returned_count: Some(0),
             ..crate::RetrievalTelemetry::default()
@@ -776,6 +776,7 @@ mod tests {
             graph_verified_count: Some(2),
             suppressed_or_deleted_returned_count: Some(1),
             superseded_current_returned_count: Some(0),
+            unsafe_lifecycle_returned_count: Some(1),
             graph_object_missing_omitted_count: Some(0),
             graph_object_missing_returned_count: Some(0),
             ..crate::RetrievalTelemetry::default()

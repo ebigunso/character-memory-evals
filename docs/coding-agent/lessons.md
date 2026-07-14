@@ -330,16 +330,16 @@ Prevention:
 ## 2026-07-12 — Reconstructed Artifacts Must Receive Original Context  [tags: review, reporting, compatibility, validation]
 
 Symptom:
-- Re-summarizing result rows used an empty config and no dataset metric family, dropping provider metadata and changing registry coverage relative to run-emitted summaries.
+- Re-summarizing result rows used incomplete semantic context, first dropping provider/config coverage and later dropping fixture-derived entity-kind registry keys relative to run-emitted summaries.
 
 Root cause:
-- The compatibility entrypoint reconstructed a derived artifact without requiring the original configuration and dataset selection that defined its semantics.
+- The compatibility entrypoint reconstructed a derived artifact without requiring every original source input—configuration, dataset fixture, and scenario selection—that defined its semantics.
 
 Fix applied:
-- Require the summarize CLI/API to receive the original config and metric family, validate run/dataset consistency, and compare regenerated provider/config/coverage fields with run output.
+- Require the summarize CLI/API to receive the original config plus continuity fixture/scenario source, route run and summarize through the same metric-family constructor, validate run/dataset consistency, and compare regenerated provider/config/support/coverage fields with run output.
 
 Prevention:
-- Any reconstruction or compatibility path for a derived artifact must receive and validate all original semantic inputs, with parity tests against the primary emission path.
+- Any reconstruction or compatibility path for a derived artifact must receive and validate all original semantic inputs through one canonical constructor, with parity tests against the primary emission path for configuration, support, and coverage.
 
 ## 2026-07-12 — Verify Gated Live Tests With The Service Down  [tags: ci, validation, integration, availability]
 
@@ -494,3 +494,376 @@ Fix applied:
 
 Prevention:
 - A validation-boundary closure audit must trace every public mode from input read to first derived use and prove malformed structures cannot reach counting, hashing, sorting, or indexing before shape validation.
+
+## 2026-07-12 — Treat Checked Fixtures As Portable State Machines  [tags: review, fixtures, portability, validation, lifecycle]
+
+Symptom:
+- Canonical fixture tests failed on Windows because checkout line endings changed the checked bytes, while the public parser accepted dangling lifecycle references and ambiguous relevance labels.
+
+Root cause:
+- The fixture contract covered generator determinism but not Git checkout normalization or the event-order invariants that make serialized identities meaningful after parsing.
+
+Fix applied:
+- Pin checked fixture JSON to LF, renormalize it, and validate external-ID admission order plus non-empty, unique, disjoint, previously admitted relevance labels at the public parser boundary.
+
+Prevention:
+- For checked generated fixtures, verify both repository transport bytes and semantic state transitions: scope line-ending attributes, test the worktree artifact byte-for-byte on each supported platform, and mutate every public lifecycle reference class through the parser.
+
+## 2026-07-12 — Prove Restart Contracts Store By Store And Identity By Identity  [tags: review, validation, persistence, lifecycle]
+
+Symptom:
+- Continuity validation accepted configs without persistent graph or stats paths, reconstruct performed external I/O before generic validation, and restart evidence asserted only an aggregate registry count.
+
+Root cause:
+- The implementation treated durable-store configuration, construction-time validation, and identity restoration as separate concerns instead of one restart contract spanning admission through post-restart behavior.
+
+Fix applied:
+- Require both persistent paths for continuity, validate before reconstruct construction, and assert every restored identity category plus suppressed graph state after live reconstruction.
+
+Prevention:
+- For restart features, use a turn-closing matrix covering every required store, validation-before-I/O ordering, every identity category, and at least one behavioral state that must survive reconstruction; aggregate counts alone are insufficient evidence.
+
+## 2026-07-12 — Validate Fixture Vocabulary At The Facade Boundary  [tags: integration, validation, fixtures, enums]
+
+Symptom:
+- The first live continuity run stopped before writing because the fixture entity kind `location` did not match the Character Memory facade enum spelling `place`, even though mock execution accepted the string.
+
+Root cause:
+- The scripted-driver design validated event ordering and identity references but did not audit dataset vocabulary against the live adapter's closed enum boundary before the live probe.
+
+Fix applied:
+- Add an explicit schema-to-facade entity-kind mapping for `location` to `place`, while leaving labels, text, and all scripted actions uninterpreted.
+
+Prevention:
+- Before live validation of fixture-driven integrations, enumerate every closed-enum field across the fixture and facade schemas, test each translation directly, and reject unknown values rather than passing them through the mock path.
+
+## 2026-07-12 — Run Strict Lints After Adding Test Harness Types  [tags: validation, rust, clippy, tests]
+
+Symptom:
+- The required strict Clippy gate rejected a manually implemented `Default` for a test runtime and an oversized real/mock runtime enum even though targeted tests and formatting had passed.
+
+Root cause:
+- Runtime and test helper types were written for clarity during rapid driver iteration without checking the warnings-as-errors lint surface immediately after their shapes stabilized.
+
+Fix applied:
+- Derive `Default`, box the large real-runtime fields, and rerun strict workspace Clippy.
+
+Prevention:
+- Run the strict package lint immediately after new Rust test-support types compile, before expensive live reproducibility probes or final workspace validation.
+
+## 2026-07-12 — Treat Every Public Reader As An Admission Boundary  [tags: review, validation, rust, artifacts]
+
+Symptom:
+- The continuity trace reader silently discarded invalid UTF-8 or other line-read failures and accepted syntactically valid traces with an incompatible schema version.
+
+Root cause:
+- Valid round-trip coverage proved the writer output but did not challenge the public reader with corrupt transport bytes or version skew, and the boundary sweep stopped at the fixture parser instead of covering every public `Result`-returning reader.
+
+Fix applied:
+- Propagate line decoding and I/O failures before blank filtering, validate each trace schema version before returning it, and add public-reader regressions for a valid prefix followed by invalid UTF-8 and for schema version `9.9.9`.
+
+Prevention:
+- For every public artifact reader returning `Result`, test corrupt or invalid encoding, partial input, and incompatible schema versions before claiming the admission boundary is closed; sweep sibling readers by return path, not only by parser name.
+
+## 2026-07-12 — Aggregate Unsafe State By Identity Union  [tags: review, metrics, lifecycle, correctness]
+
+Symptom:
+- Correction safety added suppressed and superseded totals even though one returned object can satisfy both predicates, and the category item counts themselves counted duplicate lifecycle decisions, allowing rates above 1.0.
+
+Root cause:
+- Category counts were treated as disjoint without proving that invariant, and fields named as returned-object counts inherited raw decision multiplicity at the telemetry boundary.
+
+Fix applied:
+- Project every returned-object category count and the unsafe union as unique stable-identity sets, retain a separate raw lifecycle-decision count, and cover overlap plus duplicate-decision rate bounds in hand-calculation regressions.
+
+Prevention:
+- Before combining category counts into a rate, prove the categories are disjoint; independently require every item/object count to deduplicate stable identities, reserve multiplicity for explicitly named decision-volume fields, and test duplicate decisions plus overlapping categories against rate bounds.
+
+## 2026-07-12 — Preserve Authoritative References Across Live Mutations  [tags: review, integration, lifecycle, validation]
+
+Symptom:
+- The scripted correction path passed source-object targets without either original reference, while the permissive mock accepted the request and the live Character Memory facade rejected it.
+
+Root cause:
+- The driver retained object identity and source episode identity but discarded the authoritative raw/source references established during the original write.
+
+Fix applied:
+- Retain the adapter's deterministic original reference contract in admitted driver state, require at least one reference for source correction targets, and exercise that production constructor plus the full live scenario suite.
+
+Prevention:
+- For every mutation contract, inventory all provenance/reference fields established at admission, preserve them through driver state, and validate the live facade path; mock success alone is not contract evidence.
+
+## 2026-07-12 — Label Live Evidence Scope At The Point Of Claim  [tags: validation, reporting, evidence, review]
+
+Symptom:
+- A two-run live result was described as using the committed config without stating that it selected only the cross-store scenario, so it read as evidence for the full suite and concealed an unexercised correction failure.
+
+Root cause:
+- The evidence report named configuration identity and hashes but omitted scenario scope and exact sibling dependency provenance.
+
+Fix applied:
+- Withdraw the full-suite interpretation, audit the Character Memory commit/branch state, and replace the scoped hashes with two full-suite committed-config runs.
+
+Prevention:
+- Every live-evidence claim must state scenario scope, config identity, and sibling dependency commit/branch provenance inline; label scoped evidence as scoped when first reported.
+
+## 2026-07-13 — Distinguish Artifact Snapshots From Provenance  [tags: docs, review, artifacts, accuracy]
+
+Context:
+- Plan: v0.1.4 continuity plan
+- Task/Wave: Task_12
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- The README said continuity report metadata contained a fixture snapshot even though it stores only fixture identity and seed provenance.
+
+Root cause:
+- The documentation grouped fixture and config metadata together without verifying whether each serialized field contained a full snapshot or provenance only.
+
+Fix applied:
+- Describe fixture identity and seeds separately from the full config snapshot, and state that the fixture body is not embedded in `report.json`.
+
+Prevention:
+- Dispatch/plan guardrail:
+  - Verify artifact documentation against the serialized metadata type field by field, and reserve “snapshot” for embedded content that is sufficient to reconstruct the source.
+- Residual risk / waiver:
+  - None.
+
+Evidence:
+- Reviewer compared `README.md` with `ContinuityReportMetadata` in `crates/cmem-eval-continuity/src/report.rs`.
+
+## 2026-07-14 — Validate Benchmark Claims At The Stored Contract Boundary  [tags: review, benchmarks, integration, evidence]
+
+Context:
+- Plan: v0.1.4 continuity plan
+- Task/Wave: PR #9 Copilot review fixes
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Scripted timestamps, thread memberships, and salience values existed in fixtures but did not reach live stored objects, while result rows reported false zero latency and scoped reports could claim unsupported tuning observations.
+
+Root cause:
+- Fixture and mock coverage stopped before the live DTO, persistence, retrieval-telemetry, and report-claim boundaries.
+
+Fix applied:
+- Carry timestamps into episode and observation drafts, materialize thread and derived-memory structures with scripted confidence and salience, measure scripted query retrievals, and suppress tuning observations without a live recurring-hub trace.
+
+Prevention:
+- Dispatch/plan guardrail:
+  - For every benchmark field, trace fixture input through adapter DTO, persisted object, retrieval telemetry, metric, and report claim; unsupported observations remain absent rather than becoming zero or prose assertions.
+- Residual risk / waiver:
+  - Gap-day arithmetic is fixture-derived, so its old values were numerically correct, but old live evidence did not validate persisted temporal behavior.
+
+Evidence:
+- Two full eight-scenario live runs using `configs/continuity_retrieval.toml` produced identical trace, normalized-row, and report-content hashes.
+- Long-gap and temporal recall/gap values remained stable after timestamp persistence (`349/31` gap days and recall@5 `1.0`), while thread drift changed from `0` to `1` active thread and `0` to `3` derived memories; mixed salience changed from `0` to `3` derived memories.
+
+## 2026-07-14 — Document Every Nondeterministic Artifact Source  [tags: review, determinism, reporting, latency]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Reviewer normalization-policy correction
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Live rows and summaries began carrying measured query latency, but report normalization metadata and README reproducibility guidance still named only generation and mutation timestamps, making raw cross-run hash differences look unexplained.
+
+Root cause:
+- The implementation preserved deterministic report content but did not update the cross-artifact normalization contract when a new nondeterministic source was added to rows and summaries.
+
+Fix applied:
+- Declare measured query latency as excluded from deterministic report content, document that raw rows and summaries vary, provide the canonical `latency_ms = 0` row-hashing recipe, and pin the policy metadata in a regression.
+
+Prevention:
+- When adding time-, randomness-, or service-derived output, update normalization metadata, artifact documentation, and a policy regression in the same change; specify whether canonicalization deletes or replaces the field, the serialization shape, encoding, and newline behavior.
+
+Evidence:
+- Independent reviewer runs reproduced different raw result/summary hashes but identical traces, latency-normalized rows, and report content.
+
+## 2026-07-14 — Close Every Duplicate Contract And Admission Boundary  [tags: review, contracts, validation, reporting, metrics]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 2
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- The live adapter preserved scripted timestamps while the mock discarded them; config, fixtures, traces, rows, summaries, and reports could each pass local validation while disagreeing across their shared boundaries; a lifecycle metric also reported support outside its applicable scenario.
+
+Root cause:
+- Validation was attached to individual types and execution paths instead of the joins between duplicated representations, and some lifecycle-shape errors were deferred until after runtime side effects.
+
+Fix applied:
+- Preserve staged timestamps in the mock, validate config/fixture embedding dimensions before adapter selection, reject unsupported restart shapes and score ranges at fixture admission, match restart relevance through represented episode identity, require exact scripted-query and summary/result congruence during report assembly, and leave correction-only metrics null outside correction scenarios.
+
+Prevention:
+- For every duplicated benchmark contract, test the join explicitly: mock versus live persistence, config versus fixture dimensions, fixture lifecycle shape versus runtime capability, scripted query scope versus trace/row identity, summary aggregates versus source rows, and metric population versus scenario applicability.
+- Reject invalid shapes before any namespace reset or write, and make unsupported metrics null rather than safe-looking numeric values.
+
+Evidence:
+- Direct regressions cover all nine review findings; strict formatting/clippy, targeted packages, and the workspace suite excluding the environment-gated teardown test passed, as did synthetic and full mock continuity CLI smoke.
+- Fresh live two-run evidence was blocked by reproducible Qdrant gRPC delete/check timeouts after successful live calls. The same test failed identically at known-good commit `20d5c4c`, so the orchestrator classified this as an environment regression outside the round-two delta.
+
+## 2026-07-14 — Bound Fixed-Width Fixture Encodings Before Indexing  [tags: review, rust, fixtures, validation, diagnostics]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 3
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- The continuity generator enumerated unique cluster IDs directly into a fixed eight-element one-hot vector, so adding a ninth cluster would panic at `vector[index]` instead of returning a controlled generator error.
+
+Root cause:
+- The cluster-count-to-vector-width invariant was implicit in today's scenarios and was checked only by the indexing operation rather than at the fixture-generation admission boundary.
+
+Fix applied:
+- Make fixture and scenario generation fallible, reject cluster counts larger than the declared vector size before allocating or indexing vectors, and report the scenario ID, cluster count, and configured size.
+
+Prevention:
+- Before indexing fixed-width buffers from deduplicated or extensible input sets, validate cardinality against the declared width at the owning boundary and test the first invalid cardinality through the production-return path.
+
+Evidence:
+- A nine-cluster regression receives the controlled error, while the canonical checked fixture remains byte-identical.
+
+## 2026-07-14 — Validate Extension Vocabulary And Scripted Evidence Before Execution  [tags: review, fixtures, validation, reporting, fallibility]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 4
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Queryless scenarios and unknown link relations could pass fixture parsing, extension mistakes could panic inside fallible generator APIs, continuity tracing could be disabled despite mandatory trace consumers, and report restart totals trusted unscoped or incomplete observation maps.
+
+Root cause:
+- Downstream requirements were not all represented at their admission boundaries: the fixture parser did not close the live facade vocabulary, the generator's fallible surface stopped above infallible helpers, and report aggregation counted evidence before reconciling it with the selected script.
+
+Fix applied:
+- Reject queryless scenarios and relations outside the facade vocabulary during fixture validation, propagate contextual generator errors through timestamp and entity-concept helpers, require debug rationale for continuity configs, and validate restart observation fixture keys, counts, order, and event identity before report assembly.
+
+Prevention:
+- When an extensible benchmark API becomes fallible, sweep every production helper reachable from the extension seam for panic, assertion, and unwrap paths.
+- Promote closed vocabularies, mandatory telemetry, and exact scripted-evidence cardinality into pre-side-effect validation; compute aggregates only from evidence reconciled with the selected scenarios.
+- Run strict Clippy across test targets after adding evidence-construction helpers; prefer explicit `filter` plus `map` when selecting non-empty evidence instead of `filter_map` with `bool::then`.
+- Before invoking a workspace-wide test gate on this repository, classify and explicitly skip live adapter tests when the dispatch requests targeted service-free validation; do not rely on the package default to keep live cases dormant.
+
+Evidence:
+- Focused regressions cover queryless fixtures, invalid relations, missing concepts, reserved concept collisions, invalid timestamps, disabled rationale, and unknown or missing restart observations; the canonical fixture remains byte-identical.
+- An accidental broad workspace invocation reproduced the known post-success Qdrant teardown timeout in `live_adapter_reattaches_with_external_ids`; the service-free workspace rerun excludes the two explicitly live adapter tests.
+
+## 2026-07-14 — Make Layered Vocabulary Duplication Mechanically Exhaustive  [tags: review, contracts, layering, enums, validation]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 4 relation-vocabulary bounce
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Fixture admission and the live adapter accepted the same fourteen relation names through separate string and enum parsers, but no check owned their continued parity when the CharacterMemory facade evolves.
+
+Root cause:
+- The first fix copied the current facade vocabulary into the dataset crate and tested only an invalid fixture value; it verified today's behavior without identifying the legal integration layer or a future-edit failure mechanism.
+
+Fix applied:
+- Keep CharacterMemory out of the backend-neutral continuity crate, expose its fixture vocabulary, and verify it from the CharacterMemory-aware adapter using an exhaustive `RelationType` match, exact serialized-name set equality, and unknown-value rejection through both parsers.
+
+Prevention:
+- When layering requires two representations of a closed vocabulary, name the canonical ownership boundary and add an exhaustive parity test in the nearest layer that legally depends on both representations; value-by-value spot checks are insufficient.
+
+Evidence:
+- The targeted adapter parity regression passes and will fail to compile if `RelationType` gains a variant without updating the exhaustive match.
+
+## 2026-07-14 — Validate Derived Identity And Object Kinds At Fixture Admission  [tags: review, fixtures, schemas, identity, validation]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 5
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Fixtures exposed caller-supplied UUIDs the driver never persisted, while admission tracked only external-ID strings. Unsupported correction, forget, and link shapes could therefore parse successfully and fail after writes; persisted observation, derived-memory, and thread identities were not modeled consistently at the parser and driver boundaries.
+
+Root cause:
+- The public fixture schema duplicated backend identity ownership, and its admission state discarded the object kind needed to validate each operation's target contract.
+
+Fix applied:
+- Bump the fixture schema to v2, remove and reject retired memory-ID fields, derive persistence identities from external IDs, model entity kinds as a closed fixture enum, and track every explicit and derived external ID together with its object kind before execution.
+
+Prevention:
+- Keep backend-generated identity out of public benchmark fixtures unless callers can observe and control it end to end.
+- When later operations have kind-specific contracts, admission state must retain kind as well as identity and must include all objects created implicitly by persistence.
+- Regression matrices must cover both rejected object-kind combinations and valid references to derived objects; duplicate-ID checks must include derived identities and cross-kind collisions.
+
+Evidence:
+- Parser regressions cover retired v1 fields, unknown entity kinds, unsupported correction/forget/link targets, derived-ID collisions, and valid observation/derived/thread references; driver coverage executes those valid implicit references through mock operations.
+- Strict workspace gates pass, and two full eight-scenario live runs produced identical trace, latency-normalized row, and report-content hashes.
+
+## 2026-07-14 — Verify Raw JSON Framing Before PowerShell Type Assertions  [tags: powershell, validation, json-array]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 5 recipe verification
+- Roles involved: Reviewer | Worker
+
+Symptom:
+- During reviewer verification, `ConvertFrom-Json` pipeline unrolling made a one-element JSON array appear scalar, briefly suggesting that the README's cardinality-stable array recipe had failed.
+
+Root cause:
+- Validation inspected the PowerShell object type after ordinary pipeline parsing instead of checking the raw JSON framing emitted by `ConvertTo-Json`.
+
+Fix applied:
+- Inspect the raw serialized value's first and last bytes to confirm `[` and `]` array framing before interpreting the parsed PowerShell value.
+
+Prevention:
+- When validating cardinality-stable JSON in PowerShell, assert raw leading and trailing brackets or parse with `ConvertFrom-Json -NoEnumerate`; never use an ordinary post-pipeline `-is [array]` check as proof of JSON array framing.
+
+Evidence:
+- The reviewer confirmed the one-row output's raw bracket framing and independently reproduced the documented array hash while reconciling the round-five recipe evidence.
+
+## 2026-07-14 — Trace Every Fixture Field To Its Runtime Owner  [tags: review, fixtures, contracts, dead-surface]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 6
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Continuity schema v2 still required and uniqueness-validated a caller-supplied `collection_name` even though the runner, driver, and live adapter never read it and the adapter derived the actual Qdrant name independently.
+
+Root cause:
+- The round-five identity cleanup focused on UUID-like fields instead of tracing every identity-shaped fixture field through live adapter input, persistence, telemetry, metrics, and reporting.
+
+Fix applied:
+- Remove `collection_name` from the unreleased v2 schema, generator, validation, checked artifact, and test literals; retain namespace uniqueness as the authoritative fixture identity guard.
+
+Prevention:
+- For every benchmark fixture field, record its authoritative runtime consumer and trace it through the live DTO, persisted state, retrieval telemetry, metrics, and report claim; remove required fields that terminate inside fixture validation or generation.
+- When fixing a dead-field finding, sweep sibling identity/configuration fields by ownership and runtime use rather than by naming pattern alone.
+
+Evidence:
+- A rooted usage audit finds no continuity runtime reader for the retired field, while adapter tests own deterministic collection naming from `(namespace_prefix, run_id, namespace)` and parser regressions reject the retired v2 field.
+- The required workspace suite twice reached the existing Qdrant live-adapter tests and failed only during post-success collection deletion timeouts; Qdrant readiness remained `200`, the isolated reattach test passed (including its cleanup retry), the scoped live continuity run passed and cleaned up, and the workspace suite passed with only the two external-service live tests explicitly filtered.
+
+## 2026-07-14 — Require Positive Test Counts For Targeted Evidence  [tags: cargo, validation, test-filter, concurrency, evidence]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 6 targeted review
+- Roles involved: Reviewer | Worker
+
+Symptom:
+- During reviewer verification, concurrent `cargo test` and `cargo clippy` processes contended on one shared target-directory build lock, causing Clippy to spend its timeout compiling, while unqualified `--exact` test filters exited successfully with zero executed tests and were initially read as passing evidence.
+
+Root cause:
+- Cargo validation was parallelized despite sharing a build lock, and targeted-test success was inferred from process exit status without checking that the requested test actually executed.
+
+Fix applied:
+- Rerun the Cargo checks sequentially, use fully qualified test names, allow a longer Clippy timeout, and confirm a positive executed-test count for every targeted-test claim.
+
+Prevention:
+- Serialize compile, test, and lint commands that share one Cargo target directory.
+- Targeted-test evidence must record an executed-test count greater than zero; never treat exit code alone as proof that a filtered test ran.
+
+Evidence:
+- The reviewer-observed round-six reruns used fully qualified filters, reported positive executed-test counts, and completed the longer sequential Clippy invocation without build-lock timeout ambiguity.

@@ -331,7 +331,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "character_memory"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -431,6 +431,7 @@ dependencies = [
  "async-trait",
  "character_memory",
  "chrono",
+ "cmem-eval-continuity",
  "cmem-eval-core",
  "config",
  "qdrant-client",
@@ -438,6 +439,20 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "cmem-eval-continuity"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "cmem-eval-core",
+ "serde",
+ "serde_json",
  "tokio",
  "uuid",
 ]
@@ -486,8 +501,11 @@ name = "cmem-eval-runner"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "chrono",
  "clap",
  "cmem-eval-adapter-cmem",
+ "cmem-eval-continuity",
  "cmem-eval-core",
  "cmem-eval-locomo",
  "cmem-eval-longmemeval",

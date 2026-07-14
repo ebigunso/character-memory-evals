@@ -9,6 +9,8 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -17,6 +19,7 @@ toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 cmem-eval-adapter-cmem = { path = "../cmem-eval-adapter-cmem" }
+cmem-eval-continuity = { path = "../cmem-eval-continuity" }
 cmem-eval-core = { path = "../cmem-eval-core" }
 cmem-eval-longmemeval = { path = "../cmem-eval-longmemeval" }
 cmem-eval-locomo = { path = "../cmem-eval-locomo" }

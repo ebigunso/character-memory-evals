@@ -182,6 +182,8 @@ pub struct RetrievalTelemetry {
     #[serde(default)]
     pub superseded_current_returned_count: Option<usize>,
     #[serde(default)]
+    pub unsafe_lifecycle_returned_count: Option<usize>,
+    #[serde(default)]
     pub graph_object_missing_omitted_count: Option<usize>,
     #[serde(default)]
     pub graph_object_missing_returned_count: Option<usize>,
@@ -193,6 +195,57 @@ pub struct RetrievalTelemetry {
     pub stale_candidate_omission_reasons: BTreeMap<String, usize>,
     #[serde(default)]
     pub lifecycle_omission_reasons: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub fanout_utilization: Option<Vec<RetrievalFanoutUtilization>>,
+    #[serde(default)]
+    pub selectivity_decisions: Option<Vec<RetrievalSelectivityDecision>>,
+    #[serde(default)]
+    pub rationale_categories_by_internal_id:
+        Option<BTreeMap<String, Vec<RetrievalRationaleCategory>>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RetrievalFanoutUtilization {
+    pub root_internal_id: String,
+    pub root_object_type: String,
+    pub root_external_id: Option<String>,
+    pub relation: String,
+    pub object_type: String,
+    pub configured_cap: usize,
+    pub selected_cap: usize,
+    pub retained_count: usize,
+    pub omitted_by_fanout_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RetrievalSelectivityDecision {
+    pub root_internal_id: String,
+    pub root_object_type: String,
+    pub root_external_id: Option<String>,
+    pub relation: String,
+    pub object_type: String,
+    pub count_scope: String,
+    pub score: Option<f64>,
+    pub entity_count: Option<u64>,
+    pub global_count: Option<u64>,
+    pub support_factor: f64,
+    pub chosen_fanout: usize,
+    pub max_fanout: usize,
+    pub decision: String,
+    pub fallback: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum RetrievalRationaleCategory {
+    Semantic,
+    Entity,
+    Thread,
+    Temporal,
+    Salience,
+    Scope,
+    Lifecycle,
+    GraphBound,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -397,6 +450,10 @@ pub struct PrepareWriteInput {
     pub content: String,
     pub episode_external_id: String,
     pub observation_external_id: String,
+    #[serde(default)]
+    pub episode_started_at: Option<String>,
+    #[serde(default)]
+    pub observation_observed_at: Option<String>,
     #[serde(default)]
     pub raw_refs: Vec<String>,
     pub idempotency_key: Option<String>,
@@ -912,7 +969,7 @@ impl MemoryAdapter for MockMemoryAdapter {
             external_id: episode_external_id.clone(),
             namespace: namespace.clone(),
             summary: plan.input.content.clone(),
-            started_at: None,
+            started_at: plan.input.episode_started_at.clone(),
             ended_at: None,
             participants: Vec::new(),
             metadata: serde_json::Value::Null,
@@ -924,7 +981,7 @@ impl MemoryAdapter for MockMemoryAdapter {
             namespace,
             speaker: None,
             text: plan.input.content,
-            observed_at: None,
+            observed_at: plan.input.observation_observed_at,
             metadata: serde_json::Value::Null,
         })
         .await?;
@@ -1688,6 +1745,8 @@ mod tests {
             content: "The user prefers a chat-native first version.".into(),
             episode_external_id: "s1".into(),
             observation_external_id: "s1:turn:1".into(),
+            episode_started_at: Some("2025-01-02T03:04:05Z".into()),
+            observation_observed_at: Some("2025-01-02T03:04:05Z".into()),
             raw_refs: vec!["raw://conversation/s1".into()],
             idempotency_key: Some("continuity-step-1".into()),
             include_vector_index_candidates: true,
@@ -1718,6 +1777,14 @@ mod tests {
         let namespace = state.get("n").unwrap();
         assert_eq!(namespace.episodes[0].external_id, "s1");
         assert_eq!(namespace.observations[0].external_id, "s1:turn:1");
+        assert_eq!(
+            namespace.episodes[0].started_at.as_deref(),
+            Some("2025-01-02T03:04:05Z")
+        );
+        assert_eq!(
+            namespace.observations[0].observed_at.as_deref(),
+            Some("2025-01-02T03:04:05Z")
+        );
     }
 
     #[tokio::test]

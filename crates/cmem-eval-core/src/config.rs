@@ -1,12 +1,13 @@
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DatasetKind {
     LongMemEvalS,
     LoCoMo,
     Synthetic,
+    Continuity,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -45,6 +46,31 @@ impl BenchmarkRunConfig {
         self.ingest.validate()?;
         self.retrieval.validate()?;
         self.backend.validate()?;
+        Ok(())
+    }
+
+    pub fn validate_for_dataset_kind(&self, dataset_kind: DatasetKind) -> Result<()> {
+        self.validate()?;
+        if dataset_kind == DatasetKind::Continuity
+            && self.backend.embedding.provider != "controllable_similarity"
+        {
+            bail!(
+                "continuity dataset requires backend.embedding.provider=controllable_similarity; got {:?}",
+                self.backend.embedding.provider
+            );
+        }
+        if dataset_kind == DatasetKind::Continuity {
+            if self.backend.oxigraph_persistence_path.is_none() {
+                bail!(
+                    "continuity dataset requires backend.oxigraph_persistence_path for restart durability"
+                );
+            }
+            if self.backend.retrieval_stats_path.is_none() {
+                bail!(
+                    "continuity dataset requires backend.retrieval_stats_path for restart durability"
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -218,6 +244,10 @@ pub struct RetrievalConfig {
     pub include_entities: bool,
     #[serde(default)]
     pub include_debug_rationale: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_vector_candidates: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_graph_roots: Option<usize>,
 }
 
 impl Default for RetrievalConfig {
@@ -230,6 +260,8 @@ impl Default for RetrievalConfig {
             include_threads: false,
             include_entities: false,
             include_debug_rationale: false,
+            max_vector_candidates: None,
+            max_graph_roots: None,
         }
     }
 }
@@ -241,6 +273,20 @@ impl RetrievalConfig {
         }
         if self.top_k_observations == 0 {
             bail!("retrieval.top_k_observations must be greater than zero");
+        }
+        if self.max_vector_candidates == Some(0) {
+            bail!("retrieval.max_vector_candidates must be greater than zero when set");
+        }
+        if self.max_graph_roots == Some(0) {
+            bail!("retrieval.max_graph_roots must be greater than zero when set");
+        }
+        if let (Some(max_vector_candidates), Some(max_graph_roots)) =
+            (self.max_vector_candidates, self.max_graph_roots)
+            && max_graph_roots > max_vector_candidates
+        {
+            bail!(
+                "retrieval.max_graph_roots ({max_graph_roots}) must not exceed retrieval.max_vector_candidates ({max_vector_candidates})"
+            );
         }
         Ok(())
     }
@@ -461,6 +507,87 @@ mod tests {
     }
 
     #[test]
+    fn continuity_dataset_requires_the_live_supported_embedding_provider_at_validation() {
+        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "continuity-run",
+            "dataset": "continuity",
+            "backend": {
+                "embedding": {"provider": "openai"},
+                "oxigraph_persistence_path": "runs/continuity/oxigraph",
+                "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
+            },
+            "ingest": {"index_observations": true, "index_episode_summaries": true}
+        }))
+        .unwrap();
+
+        let error = config
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("continuity dataset"));
+        assert!(error.contains("backend.embedding.provider=controllable_similarity"));
+        assert!(error.contains("openai"));
+
+        config.backend.embedding = EmbeddingConfig {
+            provider: "deterministic".into(),
+            model: "text-embedding-3-large".into(),
+            vector_size: Some(3072),
+        };
+        let error = config
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("backend.embedding.provider=controllable_similarity"));
+        assert!(error.contains("deterministic"));
+
+        config.backend.embedding = EmbeddingConfig {
+            provider: "controllable_similarity".into(),
+            model: "fixture-declared".into(),
+            vector_size: Some(8),
+        };
+        config
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap();
+    }
+
+    #[test]
+    fn continuity_dataset_requires_each_persistent_store_path() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "continuity-run",
+            "dataset": "continuity",
+            "backend": {
+                "embedding": {
+                    "provider": "controllable_similarity",
+                    "model": "fixture-declared",
+                    "vector_size": 8
+                },
+                "oxigraph_persistence_path": "runs/continuity/oxigraph",
+                "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
+            },
+            "ingest": {"index_observations": true, "index_episode_summaries": true}
+        }))
+        .unwrap();
+
+        let mut missing_oxigraph = config.clone();
+        missing_oxigraph.backend.oxigraph_persistence_path = None;
+        let error = missing_oxigraph
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("backend.oxigraph_persistence_path"));
+        assert!(error.contains("restart durability"));
+
+        let mut missing_stats = config;
+        missing_stats.backend.retrieval_stats_path = None;
+        let error = missing_stats
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("backend.retrieval_stats_path"));
+        assert!(error.contains("restart durability"));
+    }
+
+    #[test]
     fn parses_restart_persistence_paths_and_rejects_empty_values() {
         let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
@@ -657,7 +784,9 @@ mod tests {
             "dataset": "synthetic",
             "retrieval": {
                 "include_threads": true,
-                "include_entities": true
+                "include_entities": true,
+                "max_vector_candidates": 48,
+                "max_graph_roots": 48
             },
             "ingest": {
                 "index_observations": true,
@@ -667,6 +796,29 @@ mod tests {
         .unwrap();
 
         config.validate().unwrap();
+        assert_eq!(config.retrieval.max_vector_candidates, Some(48));
+        assert_eq!(config.retrieval.max_graph_roots, Some(48));
+    }
+
+    #[test]
+    fn rejects_graph_root_limit_above_vector_candidate_limit() {
+        let mut retrieval = RetrievalConfig {
+            max_vector_candidates: Some(12),
+            max_graph_roots: Some(13),
+            ..RetrievalConfig::default()
+        };
+        let error = retrieval.validate().unwrap_err().to_string();
+        assert!(error.contains("max_graph_roots (13)"), "{error}");
+        assert!(error.contains("max_vector_candidates (12)"), "{error}");
+
+        retrieval.max_graph_roots = Some(0);
+        assert!(
+            retrieval
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("greater than zero")
+        );
     }
 
     #[test]
