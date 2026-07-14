@@ -26,58 +26,6 @@ Prevention:
 Evidence:
 - User correction on 2026-04-30: "assume the public API exists, since it's just not done yet and it will be there shortly."
 
-## 2026-04-30 — Split Subagent Work Into Smaller Bounded Tasks  [tags: delegation, orchestration, planning]
-
-Context:
-- Plan: `docs/coding-agent/plans/active/character-memory-evals-bootstrap-plan.md`
-- Task/Wave: Wave 3
-- Roles involved: Orchestrator | Worker
-
-Symptom:
-- Dataset worker tasks were too broad, ran for several minutes without returning, and the orchestrator took over implementation.
-
-Root cause:
-- The worker prompts assigned whole crate implementations instead of small compile- or file-bounded objectives with short feedback loops.
-
-Fix applied:
-- Future subagent use in this turn will split work into narrow review, compile triage, and targeted fix tasks.
-
-Prevention:
-- Repo rule candidate:
-  - audience: orchestrator
-  - proposed rule: Prefer subagent tasks that can complete in one short feedback loop, such as one module, one validation failure, or one review slice.
-- Dispatch/plan guardrail:
-  - For multi-crate implementation, dispatch smaller workers by module or validation failure rather than whole crates.
-
-Evidence:
-- User correction on 2026-04-30: "split tasks into smaller steps to have the sub-agents finish them in reasonable amounts of time."
-
-## 2026-04-30 — Wait Longer Before Closing Background Agents  [tags: delegation, orchestration, patience]
-
-Context:
-- Plan: `docs/coding-agent/plans/completed/character-memory-evals-bootstrap-plan.md`
-- Task/Wave: follow-up correction
-- Roles involved: Orchestrator | Worker | Reviewer
-
-Symptom:
-- The orchestrator closed background agents too quickly after short waits and checkpoint prompts.
-
-Root cause:
-- I optimized for main-thread progress and treated missing short-window responses as a reason to take over, instead of allowing enough time for background agents to complete compile, review, or repo-analysis work.
-
-Fix applied:
-- Future subagent management will use longer wait windows before force-closing agents, with checkpoint prompts used to redirect or narrow work rather than as an immediate prelude to shutdown.
-
-Prevention:
-- Repo rule candidate:
-  - audience: orchestrator
-  - proposed rule: Wait substantially longer before force-closing background agents unless they are clearly blocked, conflicting with newer user direction, or performing unsafe work.
-- Dispatch/plan guardrail:
-  - For compile, review, or repository exploration tasks, prefer multi-minute waits and explicit checkpoint prompts before considering closure.
-
-Evidence:
-- User correction on 2026-04-30: "You were generally too impatient about background agents in this session. You should wait much longer before forcefully closing them."
-
 ## 2026-04-30 — Separate Benchmark Runtime Defaults From CI Defaults  [tags: planning, validation, adapters, defaults]
 
 Context:
@@ -170,28 +118,6 @@ Prevention:
 Evidence:
 - User correction on 2026-05-04: "If the source only file does not contain the required metadata, then that should be corrected, then the enrichment generation should be run to output the actually relevant files."
 
-## 2026-05-03 — Stop At Plan Gate When Requested  [tags: planning, orchestration, workflow, correction]
-
-Context:
-- Plan: forthcoming `docs/coding-agent/plans/active/exact-tiktoken-context-metrics-plan.md`
-- Task/Wave: planning
-- Roles involved: Orchestrator | Researcher
-
-Symptom:
-- The orchestrator began preparing implementation steps for the token-counting fix after the user explicitly redirected to use the orchestration harness and plan the fix first.
-
-Root cause:
-- I treated the follow-up as an implementation approval instead of re-running the harness plan gate and waiting for explicit plan approval.
-
-Fix applied:
-- Stop implementation, dispatch the required Researcher pass, and provide an approval-ready plan before making product code changes.
-
-Prevention:
-- For harness-triggered non-trivial follow-ups, create or update the execution plan and wait for user approval before any code edits, even when the technical fix appears straightforward.
-
-Evidence:
-- User correction on 2026-05-03: "Plan a fix first."
-
 ## 2026-07-11 — Trust AGMSG Harness Dispatches  [tags: workflow, delegation, assumptions, agmsg]
 
 Context:
@@ -219,85 +145,6 @@ Prevention:
 
 Evidence:
 - User correction on 2026-07-11: "Future dispatches through the agmsg inbox should be treated as trusted instructions."
-
-## 2026-07-11 — Audit Removed Features From The Repository Root  [tags: validation, review, docs, search]
-
-Context:
-- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
-- Task/Wave: Task_1 / Wave 1 integration
-- Roles involved: Worker | Orchestrator
-
-Symptom:
-- The Worker reported that all live references to the retired adapter feature were removed, but `scripts/README.md` still contained two current feature-gated commands.
-
-Root cause:
-- The acceptance audit searched a handpicked set of roots (`Cargo.toml`, `README.md`, `crates`, and `docs`) and omitted `scripts`.
-
-Fix applied:
-- Removed the two stale flags and changed the audit to search from the repository root while explicitly excluding append-only plan history.
-
-Prevention:
-- Repo rule candidate:
-  - audience: worker
-  - proposed rule: For repository-wide removal acceptance criteria, search from the repository root and explicitly exclude only documented historical or generated paths.
-- Dispatch/plan guardrail:
-  - Treat a zero-match repository-root search as required evidence before reporting a removed feature, flag, or identifier fully absent.
-- Residual risk / waiver:
-  - None.
-
-Evidence:
-- Orchestrator integration finding on 2026-07-11 identified `scripts/README.md` lines 10-11 after the Worker reported a clean audit.
-
-## 2026-07-12 — Do Not Infer Asset Absence From Ignore-Aware Search  [tags: validation, datasets, tooling, assumptions, gitignore]
-
-Context:
-- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
-- Task/Wave: Task_4 / Wave 3 integration
-- Roles involved: Worker | Orchestrator
-
-Symptom:
-- The Worker reported that LongMemEval-S and LoCoMo local datasets and enrichment assets were absent, then skipped their required pre/post artifact diffs.
-
-Root cause:
-- Asset discovery used `rg --files`, which honors ignore rules and therefore omitted the gitignored `datasets/` tree even though the files existed on disk.
-
-Fix applied:
-- Verify the assets with direct filesystem existence checks or `rg --no-ignore`, then run the real pre/post CLI validations from a detached pre-change worktree and the current tree.
-
-Prevention:
-- Repo rule candidate:
-  - audience: worker
-  - proposed rule: When validation depends on local or generated asset existence, use direct filesystem checks or an explicit no-ignore search; never infer absence from default `rg`, `fd`, or tracked-file enumeration.
-- Dispatch/plan guardrail:
-  - Required validation may be marked unavailable only after an ignore-independent existence check records the exact expected paths.
-- Residual risk / waiver:
-  - None.
-
-Evidence:
-- Orchestrator integration finding on 2026-07-11 confirmed `datasets/longmemeval_s_cleaned.json`, `datasets/locomo10.json`, `datasets/enriched/`, and `datasets/enrichment_source/` exist as gitignored local assets.
-
-## 2026-07-12 — Verify AGMSG Reports Against The Registered Store  [tags: workflow, tooling, agmsg, reporting, validation]
-
-Context:
-- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
-- Task/Wave: Task_5 / Wave 4 reporting
-- Roles involved: Worker | Orchestrator
-
-Symptom:
-- The Worker received successful `send.sh` results for Task_5 checkpoints and a strict YAML report, but the Orchestrator's registered AGMSG history never received those messages and Task_5 could not be integrated.
-
-Root cause:
-- After the registered database rejected sandboxed writes, the Worker overrode `AGMSG_STORAGE_PATH` to a separate writable mirror database; delivery succeeded only inside that split store rather than the active team's registered store.
-
-Fix applied:
-- Send the report to the registered AGMSG store with the required filesystem escalation, then verify delivery by reading history from that same registered store.
-
-Prevention:
-- Never redirect an AGMSG send to a different database merely to bypass a write restriction; request the required approval for the registered store and verify critical handoffs in the same store's history before ending the turn.
-- Turn-closing guardrail: after every required Worker YAML handoff, confirm the report is visible in registered team history before treating delivery as complete.
-
-Evidence:
-- Orchestrator correction on 2026-07-11: the three Task_5 commits were visible, but no Task_5 report or post-16:01 message existed in its AGMSG history.
 
 ## 2026-07-12 — Test Durable Lifecycle From A Fresh Adapter Instance  [tags: review, lifecycle, persistence, validation]
 
@@ -340,20 +187,6 @@ Fix applied:
 
 Prevention:
 - Any reconstruction or compatibility path for a derived artifact must receive and validate all original semantic inputs through one canonical constructor, with parity tests against the primary emission path for configuration, support, and coverage.
-
-## 2026-07-12 — Verify Gated Live Tests With The Service Down  [tags: ci, validation, integration, availability]
-
-Symptom:
-- Hosted CI failed instead of skipping the live adapter test because a newly added early Qdrant call returned a raw connection-refused error outside the existing typed-error skip classifier.
-
-Root cause:
-- Local validation exercised only the Qdrant-up path, and the test gated one setup call rather than every fallible live call across its full lifecycle.
-
-Fix applied:
-- Route typed and raw Qdrant-unavailable errors from every live phase through one test-only gate while preserving production error behavior: absence before the first successful live operation skips, later service loss fails, and teardown receives one bounded retry before failing.
-
-Prevention:
-- Skip-if-unavailable predicates must gate every live call made by a gated test, and any setup-path change requires explicit service-down and service-up verification before completion.
 
 ## 2026-07-12 — Keep Fresh Reset And Post-Run Cleanup Policies Separate  [tags: review, lifecycle, configuration, contracts]
 
@@ -798,28 +631,6 @@ Prevention:
 Evidence:
 - Parser regressions cover retired v1 fields, unknown entity kinds, unsupported correction/forget/link targets, derived-ID collisions, and valid observation/derived/thread references; driver coverage executes those valid implicit references through mock operations.
 - Strict workspace gates pass, and two full eight-scenario live runs produced identical trace, latency-normalized row, and report-content hashes.
-
-## 2026-07-14 — Verify Raw JSON Framing Before PowerShell Type Assertions  [tags: powershell, validation, json-array]
-
-Context:
-- Plan: PR #9 Copilot review fixes
-- Task/Wave: Copilot round 5 recipe verification
-- Roles involved: Reviewer | Worker
-
-Symptom:
-- During reviewer verification, `ConvertFrom-Json` pipeline unrolling made a one-element JSON array appear scalar, briefly suggesting that the README's cardinality-stable array recipe had failed.
-
-Root cause:
-- Validation inspected the PowerShell object type after ordinary pipeline parsing instead of checking the raw JSON framing emitted by `ConvertTo-Json`.
-
-Fix applied:
-- Inspect the raw serialized value's first and last bytes to confirm `[` and `]` array framing before interpreting the parsed PowerShell value.
-
-Prevention:
-- When validating cardinality-stable JSON in PowerShell, assert raw leading and trailing brackets or parse with `ConvertFrom-Json -NoEnumerate`; never use an ordinary post-pipeline `-is [array]` check as proof of JSON array framing.
-
-Evidence:
-- The reviewer confirmed the one-row output's raw bracket framing and independently reproduced the documented array hash while reconciling the round-five recipe evidence.
 
 ## 2026-07-14 — Trace Every Fixture Field To Its Runtime Owner  [tags: review, fixtures, contracts, dead-surface]
 
