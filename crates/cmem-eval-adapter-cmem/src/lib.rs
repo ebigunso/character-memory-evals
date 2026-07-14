@@ -2877,6 +2877,92 @@ mod tests {
         PathBuf::from(value)
     }
 
+    fn assert_exhaustive_relation_type(relation: RelationType) {
+        // No wildcard: a new facade variant must fail this test target's build
+        // until the fixture vocabulary and serialized-name assertion are updated.
+        match relation {
+            RelationType::HasObservation
+            | RelationType::ObservedIn
+            | RelationType::Mentions
+            | RelationType::Involves
+            | RelationType::About
+            | RelationType::DerivedFrom
+            | RelationType::PartOfThread
+            | RelationType::Supports
+            | RelationType::Contradicts
+            | RelationType::Supersedes
+            | RelationType::Resolves
+            | RelationType::CreatesOpenLoop
+            | RelationType::FulfillsCommitment
+            | RelationType::AssociatedWith => {}
+        }
+    }
+
+    #[test]
+    fn continuity_relation_vocabulary_matches_the_facade_parser_exhaustively() {
+        let relation_types = [
+            RelationType::HasObservation,
+            RelationType::ObservedIn,
+            RelationType::Mentions,
+            RelationType::Involves,
+            RelationType::About,
+            RelationType::DerivedFrom,
+            RelationType::PartOfThread,
+            RelationType::Supports,
+            RelationType::Contradicts,
+            RelationType::Supersedes,
+            RelationType::Resolves,
+            RelationType::CreatesOpenLoop,
+            RelationType::FulfillsCommitment,
+            RelationType::AssociatedWith,
+        ];
+        let facade_names = relation_types
+            .into_iter()
+            .map(|relation| {
+                assert_exhaustive_relation_type(relation);
+                serde_json::to_value(relation)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let fixture_names = cmem_eval_continuity::CONTINUITY_RELATION_VOCABULARY
+            .iter()
+            .map(|relation| (*relation).to_string())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(
+            fixture_names.len(),
+            cmem_eval_continuity::CONTINUITY_RELATION_VOCABULARY.len(),
+            "continuity fixture relation vocabulary contains duplicates"
+        );
+        assert_eq!(facade_names, fixture_names);
+        assert!(
+            cmem_eval_continuity::CONTINUITY_RELATION_VOCABULARY
+                .iter()
+                .all(|relation| parse_relation_type(relation).is_ok())
+        );
+
+        let unknown_relation = "invented_relation";
+        assert!(parse_relation_type(unknown_relation).is_err());
+        let mut fixtures =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
+        let fixture_relation = fixtures
+            .scenarios
+            .iter_mut()
+            .flat_map(|scenario| scenario.events.iter_mut())
+            .find_map(|event| match event {
+                cmem_eval_continuity::InteractionEvent::Link { relation, .. } => Some(relation),
+                _ => None,
+            })
+            .unwrap();
+        *fixture_relation = unknown_relation.to_string();
+        let fixture_bytes = serde_json::to_vec(&fixtures).unwrap();
+        assert!(cmem_eval_continuity::parse_fixture_bytes(&fixture_bytes).is_err());
+    }
+
     fn is_qdrant_unavailable_error(error: &VectorDatabaseError) -> bool {
         let message = error.message.to_ascii_lowercase();
         error.backend == "qdrant"

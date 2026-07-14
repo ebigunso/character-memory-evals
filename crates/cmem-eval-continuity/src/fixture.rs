@@ -8,7 +8,9 @@ use uuid::Uuid;
 
 pub const CONTINUITY_FIXTURE_SCHEMA_VERSION: u32 = 1;
 
-const SUPPORTED_RELATIONS: &[&str] = &[
+/// Relation names accepted by continuity fixtures and checked against the live
+/// CharacterMemory facade by the adapter crate's exhaustive parity test.
+pub const CONTINUITY_RELATION_VOCABULARY: &[&str] = &[
     "has_observation",
     "observed_in",
     "mentions",
@@ -499,7 +501,7 @@ fn require_admitted_external_id(
 
 fn require_supported_relation(fixture_id: &str, relation: &str) -> Result<()> {
     require_non_empty("link.relation", relation)?;
-    if !SUPPORTED_RELATIONS.contains(&relation) {
+    if !CONTINUITY_RELATION_VOCABULARY.contains(&relation) {
         bail!(
             "scenario {fixture_id:?} link.relation {relation:?} is not supported by the CharacterMemory facade"
         );

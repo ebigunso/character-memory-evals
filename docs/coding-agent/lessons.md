@@ -751,3 +751,25 @@ Prevention:
 Evidence:
 - Focused regressions cover queryless fixtures, invalid relations, missing concepts, reserved concept collisions, invalid timestamps, disabled rationale, and unknown or missing restart observations; the canonical fixture remains byte-identical.
 - An accidental broad workspace invocation reproduced the known post-success Qdrant teardown timeout in `live_adapter_reattaches_with_external_ids`; the service-free workspace rerun excludes the two explicitly live adapter tests.
+
+## 2026-07-14 — Make Layered Vocabulary Duplication Mechanically Exhaustive  [tags: review, contracts, layering, enums, validation]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 4 relation-vocabulary bounce
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Fixture admission and the live adapter accepted the same fourteen relation names through separate string and enum parsers, but no check owned their continued parity when the CharacterMemory facade evolves.
+
+Root cause:
+- The first fix copied the current facade vocabulary into the dataset crate and tested only an invalid fixture value; it verified today's behavior without identifying the legal integration layer or a future-edit failure mechanism.
+
+Fix applied:
+- Keep CharacterMemory out of the backend-neutral continuity crate, expose its fixture vocabulary, and verify it from the CharacterMemory-aware adapter using an exhaustive `RelationType` match, exact serialized-name set equality, and unknown-value rejection through both parsers.
+
+Prevention:
+- When layering requires two representations of a closed vocabulary, name the canonical ownership boundary and add an exhaustive parity test in the nearest layer that legally depends on both representations; value-by-value spot checks are insufficient.
+
+Evidence:
+- The targeted adapter parity regression passes and will fail to compile if `RelationType` gains a variant without updating the exhaustive match.

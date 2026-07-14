@@ -431,6 +431,7 @@ dependencies = [
  "async-trait",
  "character_memory",
  "chrono",
+ "cmem-eval-continuity",
  "cmem-eval-core",
  "config",
  "qdrant-client",
