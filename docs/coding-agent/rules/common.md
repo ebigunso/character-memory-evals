@@ -1,6 +1,11 @@
-# Common Rules
+---
+rule_schema_version: 2
+suite_id: "rules-cme-20260714"
+rule_file: "common"
+last_updated: "2026-07-14"
+---
 
-<!-- last_updated: 2026-07-14 -->
+# Common Repository Rules
 
 ## Repository Reference Documents
 
@@ -27,9 +32,5 @@
 - Keep backend-neutral adapter/result/metric contracts in `cmem-eval-core`; core must not dispatch on dataset names.
 - Keep the live Character Memory integration in `crates/cmem-eval-adapter-cmem`, including deterministic collection naming and persisted external-ID reattach state.
 - Each dataset crate must own its loader, ingest mapper, scorer, full-history builder, config-name validation, and metric-family declaration; adding a dataset may add a runner `DatasetSpec` but must not require core edits.
-- Put the future continuity benchmark in `crates/cmem-eval-continuity`.
+- The continuity benchmark lives in `crates/cmem-eval-continuity`.
 - Emit report schema version `1.0.0` on rows and summaries; keep latency in dedicated row/summary fields rather than deterministic metrics, record the embedding provider, and represent unsupported required metrics as `null`.
-
-## Global Migration Candidates (Placeholder)
-
-- None.
