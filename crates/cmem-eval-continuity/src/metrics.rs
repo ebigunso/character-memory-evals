@@ -611,7 +611,6 @@ mod tests {
         ContinuityScenario {
             fixture_id: "fixture".to_string(),
             namespace: "namespace".to_string(),
-            collection_name: "collection".to_string(),
             pattern,
             entities: vec![EntityDeclaration {
                 external_id: "hub-person".to_string(),

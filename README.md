@@ -69,7 +69,7 @@ Continuity fixtures run an ordered, fixture-scripted lifecycle through remember,
 
 ### Configuration and prerequisites
 
-`configs/continuity_retrieval.toml` is the single committed continuity config for both mock smoke runs and live evaluations. A separate mock config is unnecessary because mock selection is an explicit CLI adapter choice. Continuity validation requires the `controllable_similarity` deterministic provider, the fixture's small vector size of 8, and persistent Oxigraph, retrieval-stat SQLite, and identity-registry paths so restart scenarios can reconstruct every store. The config records `max_vector_candidates = 48` and `max_graph_roots = 48` so report tuning observations remain correlated with the measured candidate-limit regime.
+`configs/continuity_retrieval.toml` is the single committed continuity config for both mock smoke runs and live evaluations. A separate mock config is unnecessary because mock selection is an explicit CLI adapter choice. Continuity validation requires the `controllable_similarity` deterministic provider, the fixture's small vector size of 8, and configured persistent Oxigraph and retrieval-stat SQLite paths so restart scenarios can reconstruct those stores. The identity registry is always persistent: `identity_registry_dir` is optional and falls back deterministically to `runs/<run_id>`; the committed config explicitly places it under `runs/continuity/stores/identities`. The config records `max_vector_candidates = 48` and `max_graph_roots = 48` so report tuning observations remain correlated with the measured candidate-limit regime.
 
 Mock runs require Rust 1.97.0 and the checked fixture only; they do not connect to Qdrant, Oxigraph, SQLite, OpenAI, or another service. Live runs additionally require the sibling `../CharacterMemory` checkout, a local Qdrant gRPC endpoint such as `http://localhost:6334`, and writable paths under `runs/continuity/stores/`. The controllable-similarity provider does not require `OPENAI_API_KEY`.
 
@@ -135,7 +135,7 @@ cargo run -p cmem-eval-continuity --bin generate_continuity_fixtures -- \
   ./runs/continuity/generated/continuity_v2.json 20260712
 ```
 
-Schema v2 derives backend persistence identities from stable external IDs and rejects the retired caller-supplied `memory_id` and `replacement_memory_id` fields. Parse the candidate, inspect its semantic diff against `crates/cmem-eval-continuity/fixtures/continuity_v2.json`, and run the generator determinism tests before replacing the checked fixture.
+Schema v2 derives backend persistence identities from config, stable namespaces, and external IDs; it rejects the retired caller-supplied `collection_name`, `memory_id`, and `replacement_memory_id` fields. Parse the candidate, inspect its semantic diff against `crates/cmem-eval-continuity/fixtures/continuity_v2.json`, and run the generator determinism tests before replacing the checked fixture.
 
 ### Read the continuity artifacts
 

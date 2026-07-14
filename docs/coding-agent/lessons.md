@@ -820,3 +820,27 @@ Prevention:
 
 Evidence:
 - The reviewer confirmed the one-row output's raw bracket framing and independently reproduced the documented array hash while reconciling the round-five recipe evidence.
+
+## 2026-07-14 — Trace Every Fixture Field To Its Runtime Owner  [tags: review, fixtures, contracts, dead-surface]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Copilot round 6
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Continuity schema v2 still required and uniqueness-validated a caller-supplied `collection_name` even though the runner, driver, and live adapter never read it and the adapter derived the actual Qdrant name independently.
+
+Root cause:
+- The round-five identity cleanup focused on UUID-like fields instead of tracing every identity-shaped fixture field through live adapter input, persistence, telemetry, metrics, and reporting.
+
+Fix applied:
+- Remove `collection_name` from the unreleased v2 schema, generator, validation, checked artifact, and test literals; retain namespace uniqueness as the authoritative fixture identity guard.
+
+Prevention:
+- For every benchmark fixture field, record its authoritative runtime consumer and trace it through the live DTO, persisted state, retrieval telemetry, metrics, and report claim; remove required fields that terminate inside fixture validation or generation.
+- When fixing a dead-field finding, sweep sibling identity/configuration fields by ownership and runtime use rather than by naming pattern alone.
+
+Evidence:
+- A rooted usage audit finds no continuity runtime reader for the retired field, while adapter tests own deterministic collection naming from `(namespace_prefix, run_id, namespace)` and parser regressions reject the retired v2 field.
+- The required workspace suite twice reached the existing Qdrant live-adapter tests and failed only during post-success collection deletion timeouts; Qdrant readiness remained `200`, the isolated reattach test passed (including its cleanup retry), the scoped live continuity run passed and cleaned up, and the workspace suite passed with only the two external-service live tests explicitly filtered.

@@ -5,7 +5,6 @@
     {
       "fixture_id": "long-gap-recall",
       "namespace": "continuity-long-gap-recall-0000000001352768",
-      "collection_name": "cmem_continuity_long_gap_recall_0000000001352768",
       "pattern": "long_gap_recall",
       "entities": [
         {
@@ -132,7 +131,6 @@
     {
       "fixture_id": "recurring-hub-entity",
       "namespace": "continuity-recurring-hub-entity-0000000001352768",
-      "collection_name": "cmem_continuity_recurring_hub_entity_0000000001352768",
       "pattern": "recurring_hub_entity",
       "entities": [
         {
@@ -293,7 +291,6 @@
     {
       "fixture_id": "selective-entity",
       "namespace": "continuity-selective-entity-0000000001352768",
-      "collection_name": "cmem_continuity_selective_entity_0000000001352768",
       "pattern": "selective_entity",
       "entities": [
         {
@@ -420,7 +417,6 @@
     {
       "fixture_id": "correction-chains",
       "namespace": "continuity-correction-chains-0000000001352768",
-      "collection_name": "cmem_continuity_correction_chains_0000000001352768",
       "pattern": "correction_chains",
       "entities": [
         {
@@ -559,7 +555,6 @@
     {
       "fixture_id": "thread-drift",
       "namespace": "continuity-thread-drift-0000000001352768",
-      "collection_name": "cmem_continuity_thread_drift_0000000001352768",
       "pattern": "thread_drift",
       "entities": [
         {
@@ -708,7 +703,6 @@
     {
       "fixture_id": "temporal-structure",
       "namespace": "continuity-temporal-structure-0000000001352768",
-      "collection_name": "cmem_continuity_temporal_structure_0000000001352768",
       "pattern": "temporal_structure",
       "entities": [
         {
@@ -835,7 +829,6 @@
     {
       "fixture_id": "mixed-salience-accumulation",
       "namespace": "continuity-mixed-salience-accumulation-0000000001352768",
-      "collection_name": "cmem_continuity_mixed_salience_accumulation_0000000001352768",
       "pattern": "mixed_salience_accumulation",
       "entities": [
         {
@@ -961,7 +954,6 @@
     {
       "fixture_id": "cross-store-stress",
       "namespace": "continuity-cross-store-stress-0000000001352768",
-      "collection_name": "cmem_continuity_cross_store_stress_0000000001352768",
       "pattern": "cross_store_stress",
       "entities": [
         {

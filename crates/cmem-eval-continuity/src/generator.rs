@@ -459,7 +459,6 @@ fn scenario(
     Ok(ContinuityScenario {
         fixture_id: id.to_string(),
         namespace: format!("continuity-{id}-{seed:016x}"),
-        collection_name: format!("cmem_continuity_{}_{seed:016x}", id.replace('-', "_")),
         pattern,
         entities,
         embedding: ControllableSimilarityFixture {

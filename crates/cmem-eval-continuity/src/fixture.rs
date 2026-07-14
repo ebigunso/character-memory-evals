@@ -39,7 +39,6 @@ pub struct ContinuityFixtureSet {
 pub struct ContinuityScenario {
     pub fixture_id: String,
     pub namespace: String,
-    pub collection_name: String,
     pub pattern: ScenarioPattern,
     pub entities: Vec<EntityDeclaration>,
     pub embedding: ControllableSimilarityFixture,
@@ -193,23 +192,15 @@ impl ContinuityFixtureSet {
 
         let mut fixture_ids = BTreeSet::new();
         let mut namespaces = BTreeSet::new();
-        let mut collections = BTreeSet::new();
         let mut query_ids = BTreeSet::new();
         for scenario in &self.scenarios {
             require_non_empty("fixture_id", &scenario.fixture_id)?;
             require_non_empty("namespace", &scenario.namespace)?;
-            require_non_empty("collection_name", &scenario.collection_name)?;
             if !fixture_ids.insert(&scenario.fixture_id) {
                 bail!("duplicate continuity fixture_id {:?}", scenario.fixture_id);
             }
             if !namespaces.insert(&scenario.namespace) {
                 bail!("duplicate continuity namespace {:?}", scenario.namespace);
-            }
-            if !collections.insert(&scenario.collection_name) {
-                bail!(
-                    "duplicate continuity collection_name {:?}",
-                    scenario.collection_name
-                );
             }
             scenario.validate()?;
             for event in &scenario.events {
@@ -738,7 +729,7 @@ mod tests {
     }
 
     #[test]
-    fn public_parser_rejects_v1_and_retired_caller_supplied_memory_ids() {
+    fn public_parser_rejects_v1_and_retired_caller_supplied_identity_fields() {
         let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let mut v1 = serde_json::to_value(&fixtures).unwrap();
         v1["schema_version"] = Value::from(1);
@@ -797,6 +788,17 @@ mod tests {
             .to_string();
         assert!(error.contains("unknown field"), "{error}");
         assert!(error.contains("memory_id"), "{error}");
+
+        let mut value = serde_json::to_value(&fixtures).unwrap();
+        value["scenarios"][0]
+            .as_object_mut()
+            .unwrap()
+            .insert("collection_name".to_string(), Value::from("retired-name"));
+        let error = parse_fixture_bytes(&serde_json::to_vec(&value).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown field"), "{error}");
+        assert!(error.contains("collection_name"), "{error}");
     }
 
     #[test]
