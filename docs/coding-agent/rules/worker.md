@@ -1,6 +1,11 @@
-# Worker Rules
+---
+rule_schema_version: 2
+suite_id: "rules-cme-20260714"
+rule_file: "worker"
+last_updated: "2026-07-14"
+---
 
-<!-- last_updated: 2026-07-14 -->
+# Worker Repository Rules
 
 ## Repo-Specific Worker Notes
 
@@ -13,15 +18,19 @@
 - For repository-wide removal acceptance criteria (features, flags, identifiers, command forms), run the audit search from the repository root and explicitly exclude only documented historical or generated paths (e.g. `rg -n <removed-token> . --glob '!docs/coding-agent/plans/**'`); handpicked-path searches do not count as acceptance evidence.
 - Every new public `Result`-returning artifact reader must ship corrupt or invalid-encoding, partial-input, and schema-version-rejection tests before completion.
 - For every changed benchmark field, Workers must trace the value from fixture input through the live adapter DTO, persisted object, retrieval telemetry, metric, and report claim before accepting evidence.
+- Every live-evidence claim must state scenario scope, config identity, and the Character Memory sibling commit/branch provenance inline; label scoped evidence as scoped when first reported.
 
 ## Repo CI / Checks Mapping
 
-- Core changes: run `cargo test -p cmem-eval-core`.
-- LongMemEval changes: run `cargo test -p cmem-eval-longmemeval`.
-- LoCoMo changes: run `cargo test -p cmem-eval-locomo`.
-- Runner changes: run `cargo test -p cmem-eval-runner`.
-- Adapter changes: run `cargo test -p cmem-eval-adapter-cmem`.
+| Change Type | Required Checks | Notes |
+|---|---|---|
+| Core changes | `cargo test -p cmem-eval-core` | |
+| LongMemEval changes | `cargo test -p cmem-eval-longmemeval` | |
+| LoCoMo changes | `cargo test -p cmem-eval-locomo` | |
+| Runner changes | `cargo test -p cmem-eval-runner` | |
+| Adapter changes | `cargo test -p cmem-eval-adapter-cmem` | |
+| Continuity changes | `cargo test -p cmem-eval-continuity` | Include the canonical fixture byte-identity test when fixture/generator code moves. |
 
-## Global Migration Candidates (Placeholder)
+## Mechanical Gate Candidates
 
 - None.

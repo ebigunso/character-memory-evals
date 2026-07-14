@@ -1,0 +1,63 @@
+{
+  "rule_schema_version": 2,
+  "suite_id": "rules-cme-20260714",
+  "bootstrapped_at": "2026-07-14T08:40:00Z",
+  "baseline": {
+    "kind": "worktree",
+    "description": "Schema v1 -> v2 migration of an existing populated rule suite (added reviewer.md and this sidecar; added front matter to existing role files). Content baseline: post-continuity-harness main (PR #9 merged)."
+  },
+  "required_files": {
+    "index": "docs/coding-agent/rules/index.md",
+    "common": "docs/coding-agent/rules/common.md",
+    "worker": "docs/coding-agent/rules/worker.md",
+    "orchestrator": "docs/coding-agent/rules/orchestrator.md",
+    "reviewer": "docs/coding-agent/rules/reviewer.md"
+  },
+  "refresh_groups": {
+    "validation": {
+      "patterns": [
+        ".github/workflows/**",
+        "Cargo.toml",
+        "crates/*/Cargo.toml",
+        "rust-toolchain.toml",
+        "configs/**"
+      ],
+      "affects": [
+        "common.validation_commands",
+        "worker.check_mapping",
+        "reviewer.required_evidence"
+      ]
+    },
+    "agent_instructions": {
+      "patterns": [
+        "AGENTS.md",
+        "CLAUDE.md"
+      ],
+      "affects": [
+        "common.reference_documents",
+        "orchestrator.repo_policies"
+      ]
+    },
+    "review_policy": {
+      "patterns": [
+        "README.md",
+        "docs/coding-agent/lessons.md"
+      ],
+      "affects": [
+        "reviewer.review_risk_hotspots",
+        "reviewer.review_heuristics",
+        "reviewer.recurring_misses_prevention"
+      ]
+    }
+  },
+  "source_evidence": [
+    {
+      "fact": "Validation commands and smoke-run invocations",
+      "source": "README.md and CI workflow as of PR #9 merge (main 50af211)"
+    },
+    {
+      "fact": "reviewer.md hotspots, heuristics, and recurring misses",
+      "source": "docs/coding-agent/lessons.md entries from the continuity-harness review cycles (2026-07-11 .. 2026-07-14)"
+    }
+  ]
+}
