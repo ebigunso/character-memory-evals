@@ -103,7 +103,7 @@ PowerShell uses `$env:QDRANT_CONNECTION_STRING = "http://localhost:6334"` for th
 
 ### Run a service-free mock smoke
 
-The guarded mock command runs all eight checked scenarios, writes visibly marked `mock_smoke` artifacts, and uses the same config and metric registry as the live path:
+The guarded mock command runs all nine checked scenarios, writes visibly marked `mock_smoke` artifacts, and uses the same config and metric registry as the live path:
 
 ```bash
 cargo run -p cmem-eval-runner -- run continuity \
@@ -196,7 +196,7 @@ Fixture `irrelevant_external_ids` are sampled negatives, not an exhaustive compl
 
 1. Add or update a deterministic scenario constructor in `crates/cmem-eval-continuity/src/generator.rs`; add a `ScenarioPattern` variant in `fixture.rs` only when the scenario represents a new pattern.
 2. Give every event, query, and created object a stable unique external ID. Do not add backend memory IDs to the fixture schema: the driver derives persistence identities from external IDs. Events must be chronological, and correction, forget, link, and relevance references must target supported object kinds admitted earlier in that scenario.
-3. Declare non-empty, unique, disjoint `relevant_external_ids` and sampled `irrelevant_external_ids` for every query. Keep these labels in fixture/scoring paths only; do not copy them into adapter inputs or metadata.
+3. Declare non-empty, unique `relevant_external_ids` for every query. Sampled `irrelevant_external_ids` may be empty when no defensible negative exists; when present, they must be unique and disjoint from the relevant IDs. Keep these labels in fixture/scoring paths only; do not copy them into adapter inputs or metadata.
 4. Assign every text that reaches the controllable-similarity provider to exactly one embedding concept. Entity labels are embedding inputs as well as display text, so every entity label must also appear exactly once in `embedding.concepts`; the generator assigns referenced entity labels to the first referencing concept and unreferenced labels to `entity_background`.
 5. Regenerate a candidate with the checked seed, inspect the semantic and byte diff, and run the fixture parser, generator determinism, mock driver, and workspace tests before replacing the checked JSON.
 
