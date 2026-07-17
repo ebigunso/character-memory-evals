@@ -166,7 +166,7 @@ Schema v2 derives backend persistence identities from config, stable namespaces,
 - A restart observation records the lifecycle restoration count, before/after returned object IDs and recall, graph/fanout/selectivity snapshots, signed deltas, and whether the returned object set stayed stable.
 - `tuning_observations` records measured behavior together with the relevant config regime. These are tuning signals, not assertions that a Character Memory default passed or failed.
 
-For canonical repeat-run row hashing, preserve JSONL row order, set every existing `latency_ms` property to numeric `0` without deleting it, serialize the rows as one compact JSON array, and hash the in-memory UTF-8 bytes without a BOM or trailing newline. Report content excludes latency entirely, so compare `report.json` runs by compact-serializing only the top-level `content` value. Raw `summary.json` remains intentionally variable because its latency aggregates summarize the measured row values.
+For canonical repeat-run row hashing, preserve JSONL row order and each row's existing property order, set every existing `latency_ms` property to numeric `0` without deleting it, then replace every existing `run_id` value with the literal string `__RUN__` without deleting or reordering the property. Serialize the rows as one compact JSON array in that order and hash the in-memory UTF-8 bytes without a BOM or trailing newline. The `__RUN__` sentinel makes results from intentionally distinct run identities comparable while preserving every non-identity field. Report content excludes latency entirely, so compare `report.json` runs by compact-serializing only the top-level `content` value with its existing property order and the same UTF-8/no-BOM/no-trailing-newline policy. Raw `summary.json` remains intentionally variable because its latency aggregates summarize the measured row values.
 
 ```powershell
 $report = Get-Content ./runs/continuity/live/report.json -Raw | ConvertFrom-Json
@@ -174,6 +174,7 @@ $scope = @($report.metadata.fixture_ids)
 $rows = Get-Content ./runs/continuity/live/results.jsonl | ForEach-Object {
   $row = $_ | ConvertFrom-Json
   $row.latency_ms = 0
+  $row.run_id = "__RUN__"
   $row
 }
 $normalized = ConvertTo-Json -InputObject @($rows) -Compress -Depth 100
