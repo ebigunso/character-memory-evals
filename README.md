@@ -71,6 +71,26 @@ Continuity fixtures run an ordered, fixture-scripted lifecycle through remember,
 
 `configs/continuity_retrieval.toml` is the single committed continuity config for both mock smoke runs and live evaluations. A separate mock config is unnecessary because mock selection is an explicit CLI adapter choice. Continuity validation requires the `controllable_similarity` deterministic provider, the fixture's small vector size of 8, and configured persistent Oxigraph and retrieval-stat SQLite paths so restart scenarios can reconstruct those stores. The identity registry is always persistent: `identity_registry_dir` is optional and falls back deterministically to `runs/<run_id>`; the committed config explicitly places it under `runs/continuity/stores/identities`. The config records `max_vector_candidates = 48` and `max_graph_roots = 48` so report tuning observations remain correlated with the measured candidate-limit regime.
 
+The optional `[backend.character_memory]` table overrides Character Memory's selectivity controls for a run. `selectivity_smoothing_alpha` and `selectivity_gamma` must be finite positive numbers. The nested `retrieval.fanout` tables accept `min` and `max` for exactly three supported relation/object paths: `about_entity.derived_memory`, `participant_entity.episode`, and `part_of_thread.derived_memory`; each minimum must not exceed its maximum. The committed values pin the shipped Character Memory defaults (`1.0`, `1.0`, `0/20`, `0/5`, and `0/15`) so baseline reports are self-describing. Omitting the entire table or any individual key delegates that value to the installed Character Memory defaults without adding an eval-side fallback. The exact configured table is preserved under `metadata.config.backend.character_memory` in continuity reports.
+
+```toml
+[backend.character_memory]
+selectivity_smoothing_alpha = 1.0
+selectivity_gamma = 1.0
+
+[backend.character_memory.retrieval.fanout.about_entity.derived_memory]
+min = 0
+max = 20
+
+[backend.character_memory.retrieval.fanout.participant_entity.episode]
+min = 0
+max = 5
+
+[backend.character_memory.retrieval.fanout.part_of_thread.derived_memory]
+min = 0
+max = 15
+```
+
 Mock runs require Rust 1.97.0 and the checked fixture only; they do not connect to Qdrant, Oxigraph, SQLite, OpenAI, or another service. Live runs additionally require the sibling `../CharacterMemory` checkout, a local Qdrant gRPC endpoint such as `http://localhost:6334`, and writable paths under `runs/continuity/stores/`. The controllable-similarity provider does not require `OPENAI_API_KEY`.
 
 Set the live endpoint in the current shell before a live run:

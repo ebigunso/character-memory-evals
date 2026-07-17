@@ -75,7 +75,7 @@ impl BenchmarkRunConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BackendConfig {
     #[serde(default)]
     pub namespace_prefix: Option<String>,
@@ -99,6 +99,8 @@ pub struct BackendConfig {
     pub cleanup: CleanupConfig,
     #[serde(default)]
     pub embedding: EmbeddingConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub character_memory: Option<CharacterMemoryConfig>,
 }
 
 impl Default for BackendConfig {
@@ -115,6 +117,7 @@ impl Default for BackendConfig {
             reset_namespace_before_each_sample: false,
             cleanup: CleanupConfig::default(),
             embedding: EmbeddingConfig::default(),
+            character_memory: None,
         }
     }
 }
@@ -175,8 +178,141 @@ impl BackendConfig {
                 );
             }
         }
+        if let Some(character_memory) = &self.character_memory {
+            character_memory.validate()?;
+        }
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct CharacterMemoryConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selectivity_smoothing_alpha: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selectivity_gamma: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval: Option<CharacterMemoryRetrievalConfig>,
+}
+
+impl CharacterMemoryConfig {
+    fn validate(&self) -> Result<()> {
+        validate_optional_positive_f64(
+            "backend.character_memory.selectivity_smoothing_alpha",
+            self.selectivity_smoothing_alpha,
+        )?;
+        validate_optional_positive_f64(
+            "backend.character_memory.selectivity_gamma",
+            self.selectivity_gamma,
+        )?;
+        if let Some(retrieval) = &self.retrieval {
+            retrieval.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CharacterMemoryRetrievalConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fanout: Option<CharacterMemoryFanoutConfig>,
+}
+
+impl CharacterMemoryRetrievalConfig {
+    fn validate(&self) -> Result<()> {
+        if let Some(fanout) = &self.fanout {
+            fanout.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CharacterMemoryFanoutConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub about_entity: Option<CharacterMemoryAboutEntityFanoutConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub participant_entity: Option<CharacterMemoryParticipantEntityFanoutConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part_of_thread: Option<CharacterMemoryPartOfThreadFanoutConfig>,
+}
+
+impl CharacterMemoryFanoutConfig {
+    fn validate(&self) -> Result<()> {
+        if let Some(budget) = self
+            .about_entity
+            .as_ref()
+            .and_then(|fanout| fanout.derived_memory.as_ref())
+        {
+            budget.validate(
+                "backend.character_memory.retrieval.fanout.about_entity.derived_memory",
+            )?;
+        }
+        if let Some(budget) = self
+            .participant_entity
+            .as_ref()
+            .and_then(|fanout| fanout.episode.as_ref())
+        {
+            budget
+                .validate("backend.character_memory.retrieval.fanout.participant_entity.episode")?;
+        }
+        if let Some(budget) = self
+            .part_of_thread
+            .as_ref()
+            .and_then(|fanout| fanout.derived_memory.as_ref())
+        {
+            budget.validate(
+                "backend.character_memory.retrieval.fanout.part_of_thread.derived_memory",
+            )?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CharacterMemoryAboutEntityFanoutConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived_memory: Option<FanoutBudgetConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CharacterMemoryParticipantEntityFanoutConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub episode: Option<FanoutBudgetConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CharacterMemoryPartOfThreadFanoutConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived_memory: Option<FanoutBudgetConfig>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FanoutBudgetConfig {
+    pub min: usize,
+    pub max: usize,
+}
+
+impl FanoutBudgetConfig {
+    fn validate(self, field: &str) -> Result<()> {
+        if self.min > self.max {
+            bail!(
+                "{field}.min must be less than or equal to {field}.max, got min={} max={}",
+                self.min,
+                self.max
+            );
+        }
+        Ok(())
+    }
+}
+
+fn validate_optional_positive_f64(field: &str, value: Option<f64>) -> Result<()> {
+    if let Some(value) = value
+        && (!value.is_finite() || value <= 0.0)
+    {
+        bail!("{field} must be a finite positive number, got {value}");
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -618,6 +754,117 @@ mod tests {
                 .to_string()
                 .contains("backend.retrieval_stats_path")
         );
+    }
+
+    #[test]
+    fn character_memory_overrides_parse_validate_and_survive_config_snapshot() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "continuity",
+            "backend": {
+                "character_memory": {
+                    "selectivity_smoothing_alpha": 2.0,
+                    "selectivity_gamma": 0.5,
+                    "retrieval": {
+                        "fanout": {
+                            "about_entity": {"derived_memory": {"min": 2, "max": 8}},
+                            "participant_entity": {"episode": {"min": 1, "max": 3}},
+                            "part_of_thread": {"derived_memory": {"min": 4, "max": 9}}
+                        }
+                    }
+                }
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        config.validate().unwrap();
+        let snapshot = serde_json::to_value(&config).unwrap();
+        assert_eq!(
+            snapshot["backend"]["character_memory"]["selectivity_smoothing_alpha"],
+            2.0
+        );
+        assert_eq!(
+            snapshot["backend"]["character_memory"]["selectivity_gamma"],
+            0.5
+        );
+        assert_eq!(
+            snapshot["backend"]["character_memory"]["retrieval"]["fanout"]["about_entity"]["derived_memory"]
+                ["min"],
+            2
+        );
+        assert_eq!(
+            snapshot["backend"]["character_memory"]["retrieval"]["fanout"]["participant_entity"]["episode"]
+                ["max"],
+            3
+        );
+        assert_eq!(
+            snapshot["backend"]["character_memory"]["retrieval"]["fanout"]["part_of_thread"]["derived_memory"]
+                ["max"],
+            9
+        );
+    }
+
+    #[test]
+    fn character_memory_overrides_are_absent_from_legacy_config_snapshots() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        config.validate().unwrap();
+        let snapshot = serde_json::to_value(&config).unwrap();
+        assert!(snapshot["backend"].get("character_memory").is_none());
+    }
+
+    #[test]
+    fn character_memory_overrides_reject_invalid_selectivity_and_fanout() {
+        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "backend": {
+                "character_memory": {
+                    "selectivity_smoothing_alpha": -1.0
+                }
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        let error = config.validate().unwrap_err().to_string();
+        assert!(
+            error.contains("backend.character_memory.selectivity_smoothing_alpha"),
+            "{error}"
+        );
+        assert!(error.contains("finite positive number"), "{error}");
+
+        config.backend.character_memory = Some(
+            serde_json::from_value(serde_json::json!({
+                "retrieval": {
+                    "fanout": {
+                        "about_entity": {"derived_memory": {"min": 9, "max": 8}}
+                    }
+                }
+            }))
+            .unwrap(),
+        );
+        let error = config.validate().unwrap_err().to_string();
+        assert!(
+            error.contains("backend.character_memory.retrieval.fanout.about_entity.derived_memory"),
+            "{error}"
+        );
+        assert!(error.contains("min=9 max=8"), "{error}");
     }
 
     #[test]

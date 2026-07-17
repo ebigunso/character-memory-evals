@@ -389,6 +389,65 @@ impl CharacterMemoryAdapter {
                 .set_override("retrieval_stats_store_mode", "sqlite")?
                 .set_override("retrieval_stats_path", path.to_string_lossy().into_owned())?;
         }
+        if let Some(overrides) = &self.config.backend.character_memory {
+            if let Some(alpha) = overrides.selectivity_smoothing_alpha {
+                builder = builder.set_override("selectivity_smoothing_alpha", alpha)?;
+            }
+            if let Some(gamma) = overrides.selectivity_gamma {
+                builder = builder.set_override("selectivity_gamma", gamma)?;
+            }
+            if let Some(fanout) = overrides
+                .retrieval
+                .as_ref()
+                .and_then(|retrieval| retrieval.fanout.as_ref())
+            {
+                if let Some(budget) = fanout
+                    .about_entity
+                    .as_ref()
+                    .and_then(|target| target.derived_memory.as_ref())
+                {
+                    builder = builder
+                        .set_override(
+                            "retrieval.fanout.about_entity.derived_memory.min",
+                            u64::try_from(budget.min)?,
+                        )?
+                        .set_override(
+                            "retrieval.fanout.about_entity.derived_memory.max",
+                            u64::try_from(budget.max)?,
+                        )?;
+                }
+                if let Some(budget) = fanout
+                    .participant_entity
+                    .as_ref()
+                    .and_then(|target| target.episode.as_ref())
+                {
+                    builder = builder
+                        .set_override(
+                            "retrieval.fanout.participant_entity.episode.min",
+                            u64::try_from(budget.min)?,
+                        )?
+                        .set_override(
+                            "retrieval.fanout.participant_entity.episode.max",
+                            u64::try_from(budget.max)?,
+                        )?;
+                }
+                if let Some(budget) = fanout
+                    .part_of_thread
+                    .as_ref()
+                    .and_then(|target| target.derived_memory.as_ref())
+                {
+                    builder = builder
+                        .set_override(
+                            "retrieval.fanout.part_of_thread.derived_memory.min",
+                            u64::try_from(budget.min)?,
+                        )?
+                        .set_override(
+                            "retrieval.fanout.part_of_thread.derived_memory.max",
+                            u64::try_from(budget.max)?,
+                        )?;
+                }
+            }
+        }
         let external_config = builder.build()?;
 
         Settings::new(external_config).map_err(Into::into)
@@ -3236,6 +3295,86 @@ mod tests {
         let provider = CharacterMemoryEmbeddingProvider::new(1536).unwrap();
         assert_eq!(settings.get_embedding_vector_size().unwrap(), 1536);
         assert_eq!(provider.vector_size(), 1536);
+    }
+
+    #[tokio::test]
+    async fn character_memory_run_overrides_reach_settings_and_absence_preserves_defaults() {
+        let default_config = adapter_config(
+            "settings-defaults".to_string(),
+            "cmem_eval_settings_defaults".to_string(),
+        );
+        let default_adapter = CharacterMemoryAdapter::new(&default_config).await.unwrap();
+        let default_settings = default_adapter.settings("namespace").unwrap();
+        assert_eq!(default_settings.get_selectivity_smoothing_alpha(), 1.0);
+        assert_eq!(default_settings.get_selectivity_gamma(), 1.0);
+
+        let mut overridden_config = adapter_config(
+            "settings-overrides".to_string(),
+            "cmem_eval_settings_overrides".to_string(),
+        );
+        overridden_config.backend.character_memory = Some(
+            serde_json::from_value(serde_json::json!({
+                "selectivity_smoothing_alpha": 2.0,
+                "selectivity_gamma": 0.5,
+                "retrieval": {
+                    "fanout": {
+                        "about_entity": {"derived_memory": {"min": 2, "max": 8}},
+                        "participant_entity": {"episode": {"min": 1, "max": 3}},
+                        "part_of_thread": {"derived_memory": {"min": 4, "max": 9}}
+                    }
+                }
+            }))
+            .unwrap(),
+        );
+        overridden_config.ingest.index_observations = true;
+        overridden_config.ingest.index_episode_summaries = true;
+        overridden_config.validate().unwrap();
+        let overridden_adapter = CharacterMemoryAdapter::new(&overridden_config)
+            .await
+            .unwrap();
+        let overridden_settings = overridden_adapter.settings("namespace").unwrap();
+        assert_eq!(overridden_settings.get_selectivity_smoothing_alpha(), 2.0);
+        assert_eq!(overridden_settings.get_selectivity_gamma(), 0.5);
+
+        for (field, overrides) in [
+            (
+                "retrieval.fanout.about_entity.derived_memory",
+                serde_json::json!({
+                    "retrieval": {"fanout": {
+                        "about_entity": {"derived_memory": {"min": 9, "max": 8}}
+                    }}
+                }),
+            ),
+            (
+                "retrieval.fanout.participant_entity.episode",
+                serde_json::json!({
+                    "retrieval": {"fanout": {
+                        "participant_entity": {"episode": {"min": 9, "max": 8}}
+                    }}
+                }),
+            ),
+            (
+                "retrieval.fanout.part_of_thread.derived_memory",
+                serde_json::json!({
+                    "retrieval": {"fanout": {
+                        "part_of_thread": {"derived_memory": {"min": 9, "max": 8}}
+                    }}
+                }),
+            ),
+        ] {
+            let mut invalid_config = adapter_config(
+                "settings-invalid".to_string(),
+                "cmem_eval_settings_invalid".to_string(),
+            );
+            invalid_config.backend.character_memory =
+                Some(serde_json::from_value(overrides).unwrap());
+            let invalid_adapter = CharacterMemoryAdapter::new(&invalid_config).await.unwrap();
+            let error = invalid_adapter
+                .settings("namespace")
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(field), "{field}: {error}");
+        }
     }
 
     #[tokio::test]
