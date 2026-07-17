@@ -1730,6 +1730,9 @@ fn vector_hits_to_context_pack(
         telemetry: RetrievalTelemetry {
             trace_available: false,
             vector_candidate_count: Some(vector_candidate_count),
+            unique_graph_root_candidate_count: None,
+            selected_graph_root_count: None,
+            graph_root_omission_count: None,
             graph_relation_count: None,
             graph_verified_count: None,
             stale_candidate_omission_count: None,
@@ -1862,6 +1865,16 @@ fn telemetry_from_outcome(
     RetrievalTelemetry {
         trace_available: trace.is_some(),
         vector_candidate_count: Some(outcome.rationale.vector_candidate_count),
+        unique_graph_root_candidate_count: trace.map(|_| {
+            outcome
+                .rationale
+                .telemetry
+                .unique_graph_root_candidate_count
+        }),
+        selected_graph_root_count: trace
+            .map(|_| outcome.rationale.telemetry.selected_graph_root_count),
+        graph_root_omission_count: trace
+            .map(|_| outcome.rationale.telemetry.graph_root_omission_count),
         graph_relation_count: trace.map(|trace| trace.graph_relations.len()),
         graph_verified_count: Some(outcome.rationale.graph_verified_count),
         stale_candidate_omission_count: Some(outcome.rationale.stale_candidate_omission_count),
@@ -4525,6 +4538,9 @@ mod tests {
         assert_eq!(pack.items[1].rank, 2);
         assert_eq!(pack.telemetry.vector_candidate_count, Some(3));
         assert!(!pack.telemetry.trace_available);
+        assert_eq!(pack.telemetry.unique_graph_root_candidate_count, None);
+        assert_eq!(pack.telemetry.selected_graph_root_count, None);
+        assert_eq!(pack.telemetry.graph_root_omission_count, None);
         assert_eq!(pack.telemetry.graph_relation_count, None);
         assert_eq!(pack.telemetry.graph_verified_count, None);
         assert!(pack.context_text.contains("turn text"));
@@ -4679,13 +4695,20 @@ mod tests {
             reason: Some("entity expansion".to_string()),
             rationale_categories: vec![RationaleCategory::Entity, RationaleCategory::Semantic],
         }];
+        let mut rationale = RetrievalRationale::new("test");
+        rationale.telemetry.unique_graph_root_candidate_count = 9;
+        rationale.telemetry.selected_graph_root_count = 4;
+        rationale.telemetry.graph_root_omission_count = 5;
         let outcome = RetrieveOutcome {
             pack: ContinuityContextPack::empty(),
-            rationale: RetrievalRationale::new("test"),
+            rationale,
             trace: Some(trace),
         };
 
         let telemetry = telemetry_from_outcome(&registry, &outcome);
+        assert_eq!(telemetry.unique_graph_root_candidate_count, Some(9));
+        assert_eq!(telemetry.selected_graph_root_count, Some(4));
+        assert_eq!(telemetry.graph_root_omission_count, Some(5));
         let fanout = &telemetry.fanout_utilization.as_ref().unwrap()[0];
         assert_eq!(fanout.root_external_id.as_deref(), Some("entity-hub"));
         assert_eq!((fanout.configured_cap, fanout.selected_cap), (8, 4));
