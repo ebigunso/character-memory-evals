@@ -722,3 +722,25 @@ Prevention:
 
 Evidence:
 - Both shipped runs reproduce identity-neutral row hash `A433391E23FA4EDC100515FC143DF7D8D3A7440EF9874FE0F53AB6FDDEF37EDB`, and both eval runs reproduce `87B537DFC216800CFA0932382919C373ED4C9140A9DD370B5E39D6B7CA11D30A` when `latency_ms` is set to numeric `0` and `run_id` to literal `__RUN__` before compact JSON-array serialization.
+
+## 2026-07-17 — Prefer Explicit Surface Relevance Over Negative Provenance Roots  [tags: validation, metrics, relevance, provenance, pollution]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: Task_13 live validation
+- Roles involved: Worker | Orchestrator
+
+Symptom:
+- The corrected `delivery-v3` replacement was the only live retrieval result and matched the explicit relevant external ID, but surface-level pollution still reported `1.0` because its provenance Episode root, `delivery-v1`, was sampled-negative.
+
+Root cause:
+- Pollution classification independently matched both an item's explicit external ID and its represented Episode root without defining precedence when the two label paths disagreed.
+
+Fix applied:
+- Make explicit per-object relevance win over root-derived negativity for both surface- and event-level pollution, and add a regression with relevant `delivery-v3`-shaped external identity represented by a negative-labeled source Episode root.
+
+Prevention:
+- Whenever a metric projects labels across provenance or grouping boundaries, define and test conflict precedence; a current replacement explicitly labeled relevant must not become pollution solely because it retains provenance to a negative-labeled source.
+
+Evidence:
+- The focused overlap regression executes and passes, and the rerun live `correction-chains` artifact returns only `delivery-v3` with replacement recall `1.0`, surface pollution `0`, and event pollution `0`.

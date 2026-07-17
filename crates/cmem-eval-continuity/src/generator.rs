@@ -6,8 +6,8 @@ use cmem_eval_core::{ControllableSimilarityFixture, SimilarityConceptFixture};
 
 use crate::{
     CONTINUITY_FIXTURE_SCHEMA_VERSION, ContinuityEntityKind, ContinuityFixtureSet,
-    ContinuityScenario, EntityDeclaration, ExpectedRelevance, InteractionEvent, ScenarioPattern,
-    ThreadMembership,
+    ContinuityScenario, EntityDeclaration, ExpectedRelevance, InteractionEvent,
+    RememberSurfaceTexts, ScenarioPattern, ThreadMembership,
 };
 
 pub const CHECKED_FIXTURE_SEED: u64 = 0x0000_0000_0135_2768;
@@ -26,6 +26,7 @@ pub fn generate_fixture_set(seed: u64) -> Result<ContinuityFixtureSet> {
             temporal_structure(seed)?,
             mixed_salience_accumulation(seed)?,
             cross_store_stress(seed)?,
+            surface_contribution(seed)?,
         ],
     })
 }
@@ -115,7 +116,7 @@ fn recurring_hub_entity(seed: u64) -> Result<ContinuityScenario> {
         "2025-07-10T10:00:00Z",
         query_text,
         vec!["hub-memory-5"],
-        vec!["hub-memory-0"],
+        vec![],
     )?);
     scenario(
         seed,
@@ -211,7 +212,13 @@ fn correction_chains(seed: u64) -> Result<ContinuityScenario> {
                 "2025-03-01T08:00:00Z",
                 final_text,
             )?,
-            forget(4, "delivery-v1", "2025-03-02T08:00:00Z")?,
+            forget(
+                4,
+                vec!["delivery-v1", "delivery-v1:observation"],
+                "2025-03-02T08:00:00Z",
+                false,
+                false,
+            )?,
             query(
                 5,
                 "query-correction",
@@ -320,7 +327,7 @@ fn temporal_structure(seed: u64) -> Result<ContinuityScenario> {
                 "2025-11-15T12:00:00Z",
                 query_text,
                 vec!["archive-october"],
-                vec!["archive-january"],
+                vec![],
             )?,
         ],
         concepts([
@@ -427,6 +434,79 @@ fn cross_store_stress(seed: u64) -> Result<ContinuityScenario> {
             )?,
         ],
         concepts([("marker", "target", vec![text, query_text])]),
+    )
+}
+
+fn surface_contribution(seed: u64) -> Result<ContinuityScenario> {
+    let id = "surface-contribution";
+    let relevant_episode = "During route planning, the crew reviewed the north beacon passage.";
+    let relevant_observation =
+        "The navigator said the north beacon passage stays clear after dusk.";
+    let relevant_derived = "The character trusts the north beacon passage for night travel.";
+    let irrelevant_episode = "During meal planning, the crew reviewed the galley provisions.";
+    let irrelevant_observation = "The cook said fennel soup is available after dusk.";
+    let irrelevant_derived = "The character prefers fennel soup for the evening meal.";
+    let query_text = "Which passage does the character trust for night travel?";
+    scenario(
+        seed,
+        id,
+        ScenarioPattern::SurfaceContribution,
+        standard_entities(false),
+        vec![
+            remember_with_surfaces(
+                1,
+                "surface-relevant",
+                "2025-01-01T05:00:00Z",
+                RememberSurfaceTexts {
+                    episode: relevant_episode.into(),
+                    observation: relevant_observation.into(),
+                    derived: relevant_derived.into(),
+                },
+                vec!["entity-location"],
+                0.8,
+            )?,
+            remember_with_surfaces(
+                2,
+                "surface-irrelevant",
+                "2025-01-02T05:00:00Z",
+                RememberSurfaceTexts {
+                    episode: irrelevant_episode.into(),
+                    observation: irrelevant_observation.into(),
+                    derived: irrelevant_derived.into(),
+                },
+                vec!["entity-person"],
+                0.5,
+            )?,
+            query(
+                3,
+                "query-surface-contribution",
+                "2025-02-01T05:00:00Z",
+                query_text,
+                vec!["surface-relevant"],
+                vec!["surface-irrelevant"],
+            )?,
+        ],
+        concepts([
+            (
+                "relevant-event",
+                "target",
+                vec![
+                    relevant_episode,
+                    relevant_observation,
+                    relevant_derived,
+                    query_text,
+                ],
+            ),
+            (
+                "irrelevant-event",
+                "distractor",
+                vec![
+                    irrelevant_episode,
+                    irrelevant_observation,
+                    irrelevant_derived,
+                ],
+            ),
+        ]),
     )
 }
 
@@ -587,11 +667,32 @@ fn remember(
         external_id: external_id.into(),
         timestamp: timestamp(at)?,
         text: text.into(),
+        surface_texts: None,
         entity_external_ids: entity_ids.into_iter().map(str::to_string).collect(),
         thread: thread.map(|(id, confidence)| ThreadMembership {
             thread_external_id: id.into(),
             confidence,
         }),
+        salience,
+    })
+}
+
+fn remember_with_surfaces(
+    number: usize,
+    external_id: &str,
+    at: &str,
+    surface_texts: RememberSurfaceTexts,
+    entity_ids: Vec<&str>,
+    salience: f32,
+) -> Result<InteractionEvent> {
+    Ok(InteractionEvent::Remember {
+        event_id: format!("event-{number:03}"),
+        external_id: external_id.into(),
+        timestamp: timestamp(at)?,
+        text: surface_texts.episode.clone(),
+        surface_texts: Some(surface_texts),
+        entity_external_ids: entity_ids.into_iter().map(str::to_string).collect(),
+        thread: None,
         salience,
     })
 }
@@ -612,11 +713,19 @@ fn correct(
     })
 }
 
-fn forget(number: usize, target: &str, at: &str) -> Result<InteractionEvent> {
+fn forget(
+    number: usize,
+    targets: Vec<&str>,
+    at: &str,
+    suppress_derived_from_target: bool,
+    apply_to_derived_from_target: bool,
+) -> Result<InteractionEvent> {
     Ok(InteractionEvent::Forget {
         event_id: format!("event-{number:03}"),
-        target_external_id: target.into(),
+        target_external_ids: targets.into_iter().map(str::to_string).collect(),
         timestamp: timestamp(at)?,
+        suppress_derived_from_target,
+        apply_to_derived_from_target,
     })
 }
 
@@ -681,7 +790,7 @@ mod tests {
         assert_eq!(parse_fixture_bytes(CHECKED_FIXTURE).unwrap(), generated);
 
         let patterns = scenario_patterns(&generated);
-        assert_eq!(patterns.len(), 8);
+        assert_eq!(patterns.len(), 9);
         assert!(patterns.values().all(|count| *count == 1));
         assert_eq!(
             generated
@@ -698,6 +807,7 @@ mod tests {
                 "temporal-structure",
                 "mixed-salience-accumulation",
                 "cross-store-stress",
+                "surface-contribution",
             ]
         );
     }
@@ -838,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn long_gap_queries_and_pollution_labels_are_explicit() {
+    fn query_relevance_labels_are_explicit_and_contrast_labels_may_be_empty() {
         let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let long_gap = scenario(&fixtures, ScenarioPattern::LongGapRecall);
         let first_write = long_gap.events.first().unwrap().timestamp();
@@ -849,9 +959,44 @@ mod tests {
             for event in &scenario.events {
                 if let InteractionEvent::Query { expected, .. } = event {
                     assert!(!expected.relevant_external_ids.is_empty());
-                    assert!(!expected.irrelevant_external_ids.is_empty());
                 }
             }
+        }
+        let unlabeled_contrasts = fixtures
+            .scenarios
+            .iter()
+            .flat_map(|scenario| &scenario.events)
+            .filter(|event| {
+                matches!(
+                    event,
+                    InteractionEvent::Query { expected, .. }
+                        if expected.irrelevant_external_ids.is_empty()
+                )
+            })
+            .count();
+        assert_eq!(unlabeled_contrasts, 2);
+    }
+
+    #[test]
+    fn surface_contribution_events_use_distinct_persisted_texts() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario(&fixtures, ScenarioPattern::SurfaceContribution);
+        let surface_events = scenario
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                InteractionEvent::Remember {
+                    surface_texts: Some(surface_texts),
+                    ..
+                } => Some(surface_texts),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(surface_events.len(), 2);
+        for surface_texts in surface_events {
+            assert_ne!(surface_texts.episode, surface_texts.observation);
+            assert_ne!(surface_texts.episode, surface_texts.derived);
+            assert_ne!(surface_texts.observation, surface_texts.derived);
         }
     }
 
@@ -1001,6 +1146,19 @@ mod tests {
                 };
                 if let Some(text) = text {
                     provider.vector_for_text(text).unwrap();
+                }
+                if let InteractionEvent::Remember {
+                    surface_texts: Some(surface_texts),
+                    ..
+                } = event
+                {
+                    for text in [
+                        &surface_texts.episode,
+                        &surface_texts.observation,
+                        &surface_texts.derived,
+                    ] {
+                        provider.vector_for_text(text).unwrap();
+                    }
                 }
             }
             for entity in &scenario.entities {

@@ -281,9 +281,7 @@
             "relevant_external_ids": [
               "hub-memory-5"
             ],
-            "irrelevant_external_ids": [
-              "hub-memory-0"
-            ]
+            "irrelevant_external_ids": []
           }
         }
       ]
@@ -531,8 +529,13 @@
         {
           "kind": "forget",
           "event_id": "event-004",
-          "target_external_id": "delivery-v1",
-          "timestamp": "2025-03-02T08:00:00Z"
+          "target_external_ids": [
+            "delivery-v1",
+            "delivery-v1:observation"
+          ],
+          "timestamp": "2025-03-02T08:00:00Z",
+          "suppress_derived_from_target": false,
+          "apply_to_derived_from_target": false
         },
         {
           "kind": "query",
@@ -819,9 +822,7 @@
             "relevant_external_ids": [
               "archive-october"
             ],
-            "irrelevant_external_ids": [
-              "archive-january"
-            ]
+            "irrelevant_external_ids": []
           }
         }
       ]
@@ -1061,6 +1062,146 @@
             ],
             "irrelevant_external_ids": [
               "restart-link"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "surface-contribution",
+      "namespace": "continuity-surface-contribution-0000000001352768",
+      "pattern": "surface_contribution",
+      "entities": [
+        {
+          "external_id": "entity-location",
+          "entity_type": "location",
+          "label": "Entity C",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-organization",
+          "entity_type": "organization",
+          "label": "Entity B",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-person",
+          "entity_type": "person",
+          "label": "Entity A",
+          "is_hub": false
+        }
+      ],
+      "embedding": {
+        "seed": 20260712,
+        "vector_size": 8,
+        "noise_magnitude": 0.0009765625,
+        "clusters": {
+          "distractor": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "entity_background": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity B"
+            ]
+          },
+          "irrelevant-event": {
+            "cluster": "distractor",
+            "inputs": [
+              "During meal planning, the crew reviewed the galley provisions.",
+              "The cook said fennel soup is available after dusk.",
+              "The character prefers fennel soup for the evening meal.",
+              "Entity A"
+            ]
+          },
+          "relevant-event": {
+            "cluster": "target",
+            "inputs": [
+              "During route planning, the crew reviewed the north beacon passage.",
+              "The navigator said the north beacon passage stays clear after dusk.",
+              "The character trusts the north beacon passage for night travel.",
+              "Which passage does the character trust for night travel?",
+              "Entity C"
+            ]
+          }
+        }
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "surface-relevant",
+          "timestamp": "2025-01-01T05:00:00Z",
+          "text": "During route planning, the crew reviewed the north beacon passage.",
+          "surface_texts": {
+            "episode": "During route planning, the crew reviewed the north beacon passage.",
+            "observation": "The navigator said the north beacon passage stays clear after dusk.",
+            "derived": "The character trusts the north beacon passage for night travel."
+          },
+          "entity_external_ids": [
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.8
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "surface-irrelevant",
+          "timestamp": "2025-01-02T05:00:00Z",
+          "text": "During meal planning, the crew reviewed the galley provisions.",
+          "surface_texts": {
+            "episode": "During meal planning, the crew reviewed the galley provisions.",
+            "observation": "The cook said fennel soup is available after dusk.",
+            "derived": "The character prefers fennel soup for the evening meal."
+          },
+          "entity_external_ids": [
+            "entity-person"
+          ],
+          "thread": null,
+          "salience": 0.5
+        },
+        {
+          "kind": "query",
+          "event_id": "event-003",
+          "query_id": "query-surface-contribution",
+          "timestamp": "2025-02-01T05:00:00Z",
+          "text": "Which passage does the character trust for night travel?",
+          "expected": {
+            "relevant_external_ids": [
+              "surface-relevant"
+            ],
+            "irrelevant_external_ids": [
+              "surface-irrelevant"
             ]
           }
         }

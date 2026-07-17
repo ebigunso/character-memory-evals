@@ -1737,20 +1737,20 @@ mod tests {
             &fs::read(second_directory.path().join("continuity-report.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(rows.len(), 8);
-        assert_eq!(traces.len(), 8);
-        assert_eq!(summary.num_questions, 8);
+        assert_eq!(rows.len(), 9);
+        assert_eq!(traces.len(), 9);
+        assert_eq!(summary.num_questions, 9);
         assert_eq!(resummary.config, summary.config);
         assert_eq!(resummary.metric_support, summary.metric_support);
         assert_eq!(resummary.registry_coverage, summary.registry_coverage);
-        assert_eq!(report.content.aggregate.query_count, 8);
+        assert_eq!(report.content.aggregate.query_count, 9);
         assert_eq!(report.content.aggregate.restart_count, 1);
         assert_eq!(report.content, second_report.content);
         assert_eq!(
             report.schema_version,
             cmem_eval_continuity::CONTINUITY_REPORT_SCHEMA_VERSION
         );
-        assert_eq!(report.metadata.embedding_seeds.len(), 8);
+        assert_eq!(report.metadata.embedding_seeds.len(), 9);
         assert_eq!(
             report.metadata.normalization.nondeterministic_paths,
             vec!["metadata.generated_at"]
@@ -1773,7 +1773,7 @@ mod tests {
             report.metadata.schema_versions["continuity_report"],
             cmem_eval_continuity::CONTINUITY_REPORT_SCHEMA_VERSION
         );
-        assert_eq!(report.content.scenarios.len(), 8);
+        assert_eq!(report.content.scenarios.len(), 9);
         assert!(report.content.scenarios.values().all(|scenario| {
             scenario.query_count == 1
                 && scenario.rationale_samples.len() == 1
@@ -1840,7 +1840,7 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(error.contains("8 traces but 7 result rows"), "{error}");
+        assert!(error.contains("9 traces but 8 result rows"), "{error}");
         let mut swapped_rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
         swapped_rows.swap(0, 1);
         let error = assemble_continuity_report(ContinuityReportInput {

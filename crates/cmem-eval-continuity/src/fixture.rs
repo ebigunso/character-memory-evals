@@ -56,6 +56,7 @@ pub enum ScenarioPattern {
     TemporalStructure,
     MixedSalienceAccumulation,
     CrossStoreStress,
+    SurfaceContribution,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -119,7 +120,11 @@ pub enum InteractionEvent {
         event_id: String,
         external_id: String,
         timestamp: DateTime<Utc>,
+        /// Default Episode, Observation, and DerivedMemory text. When
+        /// `surface_texts` is present, this must equal its Episode text.
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        surface_texts: Option<RememberSurfaceTexts>,
         entity_external_ids: Vec<String>,
         thread: Option<ThreadMembership>,
         salience: f32,
@@ -133,8 +138,10 @@ pub enum InteractionEvent {
     },
     Forget {
         event_id: String,
-        target_external_id: String,
+        target_external_ids: Vec<String>,
         timestamp: DateTime<Utc>,
+        suppress_derived_from_target: bool,
+        apply_to_derived_from_target: bool,
     },
     Link {
         event_id: String,
@@ -157,6 +164,14 @@ pub enum InteractionEvent {
         text: String,
         expected: ExpectedRelevance,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RememberSurfaceTexts {
+    pub episode: String,
+    pub observation: String,
+    pub derived: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -288,6 +303,7 @@ impl ContinuityScenario {
                     thread,
                     salience,
                     text,
+                    surface_texts,
                     ..
                 } => {
                     require_unit_interval("remember.salience", *salience)?;
@@ -300,6 +316,26 @@ impl ContinuityScenario {
                                 "scenario {:?} references undeclared entity {entity_id:?}",
                                 self.fixture_id
                             );
+                        }
+                    }
+                    if let Some(surface_texts) = surface_texts {
+                        if text != &surface_texts.episode {
+                            bail!(
+                                "scenario {:?} remember text must equal surface_texts.episode",
+                                self.fixture_id
+                            );
+                        }
+                        require_distinct_surface_texts(&self.fixture_id, surface_texts)?;
+                        for surface_text in [
+                            &surface_texts.episode,
+                            &surface_texts.observation,
+                            &surface_texts.derived,
+                        ] {
+                            require_embedding_input(
+                                &self.fixture_id,
+                                &assigned_inputs,
+                                surface_text,
+                            )?;
                         }
                     }
                     require_embedding_input(&self.fixture_id, &assigned_inputs, text)?;
@@ -359,20 +395,36 @@ impl ContinuityScenario {
                     )?;
                 }
                 InteractionEvent::Forget {
-                    target_external_id, ..
+                    target_external_ids,
+                    ..
                 } => {
-                    require_admitted_kind(
-                        &self.fixture_id,
-                        "forget.target_external_id",
-                        target_external_id,
-                        &[
-                            ContinuityObjectKind::Episode,
-                            ContinuityObjectKind::Observation,
-                            ContinuityObjectKind::DerivedMemory,
-                            ContinuityObjectKind::MemoryThread,
-                        ],
-                        &admitted_external_ids,
-                    )?;
+                    if target_external_ids.is_empty() {
+                        bail!(
+                            "scenario {:?} forget target_external_ids must not be empty",
+                            self.fixture_id
+                        );
+                    }
+                    let unique_targets = target_external_ids.iter().collect::<BTreeSet<_>>();
+                    if unique_targets.len() != target_external_ids.len() {
+                        bail!(
+                            "scenario {:?} forget target_external_ids contains duplicates",
+                            self.fixture_id
+                        );
+                    }
+                    for target_external_id in target_external_ids {
+                        require_admitted_kind(
+                            &self.fixture_id,
+                            "forget.target_external_ids",
+                            target_external_id,
+                            &[
+                                ContinuityObjectKind::Episode,
+                                ContinuityObjectKind::Observation,
+                                ContinuityObjectKind::DerivedMemory,
+                                ContinuityObjectKind::MemoryThread,
+                            ],
+                            &admitted_external_ids,
+                        )?;
+                    }
                 }
                 InteractionEvent::Link {
                     external_id,
@@ -626,10 +678,6 @@ fn validate_expected_relevance(
     if expected.relevant_external_ids.is_empty() {
         bail!("scenario {fixture_id:?} query must declare relevant_external_ids");
     }
-    if expected.irrelevant_external_ids.is_empty() {
-        bail!("scenario {fixture_id:?} query must declare irrelevant_external_ids");
-    }
-
     let relevant = expected
         .relevant_external_ids
         .iter()
@@ -656,6 +704,24 @@ fn validate_expected_relevance(
             external_id,
             admitted_external_ids,
         )?;
+    }
+    Ok(())
+}
+
+fn require_distinct_surface_texts(
+    fixture_id: &str,
+    surface_texts: &RememberSurfaceTexts,
+) -> Result<()> {
+    let texts = [
+        surface_texts.episode.as_str(),
+        surface_texts.observation.as_str(),
+        surface_texts.derived.as_str(),
+    ];
+    for text in texts {
+        require_non_empty("remember.surface_texts", text)?;
+    }
+    if texts.into_iter().collect::<BTreeSet<_>>().len() != texts.len() {
+        bail!("scenario {fixture_id:?} remember surface_texts must be pairwise distinct");
     }
     Ok(())
 }
@@ -815,7 +881,7 @@ mod tests {
     }
 
     #[test]
-    fn public_parser_requires_pollution_labels_to_be_present_and_non_empty() {
+    fn public_parser_requires_pollution_labels_to_be_present_but_allows_unlabeled_contrasts() {
         let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let mut value = serde_json::to_value(&fixtures).unwrap();
         let scenarios = value["scenarios"].as_array_mut().unwrap();
@@ -836,8 +902,7 @@ mod tests {
         expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall))
             .irrelevant_external_ids
             .clear();
-        let error = parse_error(&fixtures);
-        assert!(error.contains("declare irrelevant_external_ids"), "{error}");
+        fixtures.validate().unwrap();
     }
 
     #[test]
@@ -901,14 +966,15 @@ mod tests {
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
         let InteractionEvent::Forget {
-            target_external_id, ..
+            target_external_ids,
+            ..
         } = &mut scenario.events[3]
         else {
             panic!("expected forget event");
         };
-        *target_external_id = "missing-forget-target".to_string();
+        target_external_ids[0] = "missing-forget-target".to_string();
         let error = parse_error(&fixtures);
-        assert!(error.contains("forget.target_external_id"), "{error}");
+        assert!(error.contains("forget.target_external_ids"), "{error}");
     }
 
     #[test]
@@ -946,29 +1012,77 @@ mod tests {
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
         let InteractionEvent::Forget {
-            target_external_id, ..
+            target_external_ids,
+            ..
         } = &mut scenario.events[3]
         else {
             panic!("expected forget event");
         };
-        *target_external_id = "entity-person".to_string();
+        target_external_ids[0] = "entity-person".to_string();
         let error = parse_error(&fixtures);
-        assert!(error.contains("forget.target_external_id"), "{error}");
+        assert!(error.contains("forget.target_external_ids"), "{error}");
         assert!(error.contains("unsupported kind entity"), "{error}");
 
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
         insert_link_before(scenario, 3, "forget-link", "delivery-v2");
         let InteractionEvent::Forget {
-            target_external_id, ..
+            target_external_ids,
+            ..
         } = &mut scenario.events[4]
         else {
             panic!("expected forget event");
         };
-        *target_external_id = "forget-link".to_string();
+        target_external_ids[0] = "forget-link".to_string();
         let error = parse_error(&fixtures);
-        assert!(error.contains("forget.target_external_id"), "{error}");
+        assert!(error.contains("forget.target_external_ids"), "{error}");
         assert!(error.contains("unsupported kind memory_link"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_empty_or_duplicate_forget_targets() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let InteractionEvent::Forget {
+            target_external_ids,
+            ..
+        } = &mut scenario.events[3]
+        else {
+            panic!("expected forget event");
+        };
+        target_external_ids.clear();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("must not be empty"), "{error}");
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let InteractionEvent::Forget {
+            target_external_ids,
+            ..
+        } = &mut scenario.events[3]
+        else {
+            panic!("expected forget event");
+        };
+        target_external_ids[1] = target_external_ids[0].clone();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("contains duplicates"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_conflicting_default_and_episode_surface_text() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::SurfaceContribution);
+        let InteractionEvent::Remember { text, .. } = &mut scenario.events[0] else {
+            panic!("expected remember event");
+        };
+        *text = "Conflicting Episode text".to_string();
+
+        let error = parse_error(&fixtures);
+
+        assert!(
+            error.contains("must equal surface_texts.episode"),
+            "{error}"
+        );
     }
 
     #[test]
