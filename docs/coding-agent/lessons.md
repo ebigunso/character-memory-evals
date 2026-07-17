@@ -678,3 +678,25 @@ Prevention:
 
 Evidence:
 - The reviewer-observed round-six reruns used fully qualified filters, reported positive executed-test counts, and completed the longer sequential Clippy invocation without build-lock timeout ambiguity.
+
+## 2026-07-17 — Close Nested Configuration Contracts At Admission  [tags: review, configuration, serde, documentation, validation]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: Task_1 reviewer bounce
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Character Memory fanout budget tables required both `min` and `max` in code while README described every key as independently optional, and misspelled or unsupported nested keys were silently ignored.
+
+Root cause:
+- The new DTO hierarchy modeled omission and defaults but did not explicitly close its nested serde vocabulary or test documentation against atomic leaf-table semantics.
+
+Fix applied:
+- Reject unknown fields throughout the Character Memory DTO hierarchy, emit path-qualified errors for incomplete leaf budgets, document atomic budget tables, and add missing-key and unknown-target admission regressions.
+
+Prevention:
+- For nested configuration additions, classify optionality at every table and scalar boundary, reject unknown keys at admission, and test incomplete atomic groups plus unsupported nested paths before claiming the documentation and deserialization contract agree.
+
+Evidence:
+- Focused core regressions cover min-only, max-only, misspelled scalar, unsupported relation, and unsupported object-target inputs; strict workspace gates and mock-smoke compatibility are rerun on the corrected delta.
