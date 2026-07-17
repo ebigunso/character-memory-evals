@@ -12,6 +12,7 @@
 # Generated report artifacts, unless manually curated.
 /reports/*
 !/reports/.gitkeep
+!/reports/v0-1-5-findings-register.md
 
 .env
 .env.*
