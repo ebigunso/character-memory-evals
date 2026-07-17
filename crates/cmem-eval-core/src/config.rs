@@ -186,6 +186,7 @@ impl BackendConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CharacterMemoryConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selectivity_smoothing_alpha: Option<f64>,
@@ -213,6 +214,7 @@ impl CharacterMemoryConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CharacterMemoryRetrievalConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fanout: Option<CharacterMemoryFanoutConfig>,
@@ -228,6 +230,7 @@ impl CharacterMemoryRetrievalConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CharacterMemoryFanoutConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub about_entity: Option<CharacterMemoryAboutEntityFanoutConfig>,
@@ -270,27 +273,90 @@ impl CharacterMemoryFanoutConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CharacterMemoryAboutEntityFanoutConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_about_entity_derived_memory_budget"
+    )]
     pub derived_memory: Option<FanoutBudgetConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CharacterMemoryParticipantEntityFanoutConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_participant_entity_episode_budget"
+    )]
     pub episode: Option<FanoutBudgetConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CharacterMemoryPartOfThreadFanoutConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_part_of_thread_derived_memory_budget"
+    )]
     pub derived_memory: Option<FanoutBudgetConfig>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct FanoutBudgetConfig {
     pub min: usize,
     pub max: usize,
+}
+
+fn deserialize_fanout_budget_at_path<'de, D>(
+    deserializer: D,
+    path: &str,
+) -> std::result::Result<Option<FanoutBudgetConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<FanoutBudgetConfig>::deserialize(deserializer)
+        .map_err(|error| serde::de::Error::custom(format!("{path}: {error}")))
+}
+
+fn deserialize_about_entity_derived_memory_budget<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<FanoutBudgetConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_fanout_budget_at_path(
+        deserializer,
+        "backend.character_memory.retrieval.fanout.about_entity.derived_memory",
+    )
+}
+
+fn deserialize_participant_entity_episode_budget<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<FanoutBudgetConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_fanout_budget_at_path(
+        deserializer,
+        "backend.character_memory.retrieval.fanout.participant_entity.episode",
+    )
+}
+
+fn deserialize_part_of_thread_derived_memory_budget<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<FanoutBudgetConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_fanout_budget_at_path(
+        deserializer,
+        "backend.character_memory.retrieval.fanout.part_of_thread.derived_memory",
+    )
 }
 
 impl FanoutBudgetConfig {
@@ -865,6 +931,87 @@ mod tests {
             "{error}"
         );
         assert!(error.contains("min=9 max=8"), "{error}");
+    }
+
+    #[test]
+    fn character_memory_fanout_budget_tables_require_min_and_max() {
+        for (value, missing_key, table_path) in [
+            (
+                serde_json::json!({
+                    "retrieval": {
+                        "fanout": {
+                            "about_entity": {"derived_memory": {"min": 2}}
+                        }
+                    }
+                }),
+                "max",
+                "backend.character_memory.retrieval.fanout.about_entity.derived_memory",
+            ),
+            (
+                serde_json::json!({
+                    "retrieval": {
+                        "fanout": {
+                            "participant_entity": {"episode": {"max": 3}}
+                        }
+                    }
+                }),
+                "min",
+                "backend.character_memory.retrieval.fanout.participant_entity.episode",
+            ),
+        ] {
+            let error = serde_json::from_value::<CharacterMemoryConfig>(value)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("missing field `{missing_key}`")),
+                "{error}"
+            );
+            assert!(error.contains(table_path), "{error}");
+        }
+    }
+
+    #[test]
+    fn character_memory_overrides_reject_unknown_keys_and_fanout_targets() {
+        let error = serde_json::from_value::<CharacterMemoryConfig>(serde_json::json!({
+            "selectivity_gamme": 0.5
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("unknown field `selectivity_gamme`"),
+            "{error}"
+        );
+
+        for (value, unknown_key) in [
+            (
+                serde_json::json!({
+                    "retrieval": {
+                        "fanout": {
+                            "unsupported_relation": {"derived_memory": {"min": 0, "max": 1}}
+                        }
+                    }
+                }),
+                "unsupported_relation",
+            ),
+            (
+                serde_json::json!({
+                    "retrieval": {
+                        "fanout": {
+                            "about_entity": {"episode": {"min": 0, "max": 1}}
+                        }
+                    }
+                }),
+                "episode",
+            ),
+        ] {
+            let error = serde_json::from_value::<CharacterMemoryConfig>(value)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("unknown field `{unknown_key}`")),
+                "{error}"
+            );
+        }
     }
 
     #[test]
