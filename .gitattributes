@@ -1,1 +1,2 @@
 /crates/cmem-eval-continuity/fixtures/*.json text eol=lf
+/configs/*.toml text eol=lf
