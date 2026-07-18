@@ -23,7 +23,7 @@ The LoCoMo-derived portions, and this combined artifact as distributed with them
 
 ## Adaptation record
 
-The curated selection manifest is `crates/cmem-eval-benchmark-convert/continuity_benchmarks_v1_selection.json`. The converter:
+The curated selection manifest is `crates/cmem-eval-benchmark-convert/continuity_benchmarks_v1_selection.json`. Its proof separates machine-derived predicates from curator assertions: the converter re-derives session count, evidence cleanliness, LongMemEval-S gold-turn emptiness, and LoCoMo cited-evidence image absence, while `self_contained` is a human curation judgment that the converter requires to be asserted. The converter:
 
 - selects 18 source rows and three to five sessions per row;
 - maps selected conversation turns to continuity events while retaining source text bytes;

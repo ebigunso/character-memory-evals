@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "instances": [
     {
       "fixture_id": "benchmark-lme-update-01493427",
@@ -11,7 +11,7 @@
       "sampled_negative_turn_ids": ["answer_a7b44747_1:turn:7", "sharegpt_2Lw9YZ1_0:turn:1"],
       "similarity_nearer_external_id": "answer_a7b44747_2:turn:7",
       "similarity_farther_external_id": "sharegpt_2Lw9YZ1_0:turn:1",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "gold_turn_ids_empty": false}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "gold_turn_ids_empty": false}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-lme-update-06db6396",
@@ -23,7 +23,7 @@
       "sampled_negative_turn_ids": ["answer_da72b1b4_1:turn:5", "sharegpt_3dpGxf9_0:turn:1"],
       "similarity_nearer_external_id": "answer_da72b1b4_2:turn:1",
       "similarity_farther_external_id": "sharegpt_3dpGxf9_0:turn:1",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "gold_turn_ids_empty": false}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "gold_turn_ids_empty": false}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-lme-update-18bc8abd",
@@ -35,7 +35,7 @@
       "sampled_negative_turn_ids": ["answer_fff743f5_1:turn:3", "sharegpt_2Wis55E_0:turn:1"],
       "similarity_nearer_external_id": "answer_fff743f5_2:turn:1",
       "similarity_farther_external_id": "sharegpt_2Wis55E_0:turn:1",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "gold_turn_ids_empty": false}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "gold_turn_ids_empty": false}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-lme-update-2698e78f",
@@ -47,7 +47,7 @@
       "sampled_negative_turn_ids": ["answer_9282283d_1:turn:3", "sharegpt_OtI4UQU_0:turn:1"],
       "similarity_nearer_external_id": "answer_9282283d_2:turn:5",
       "similarity_farther_external_id": "sharegpt_OtI4UQU_0:turn:1",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "gold_turn_ids_empty": false}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "gold_turn_ids_empty": false}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-lme-temporal-08f4fc43",
@@ -59,7 +59,7 @@
       "sampled_negative_turn_ids": ["sharegpt_tSDixDM_0:turn:1"],
       "similarity_nearer_external_id": "answer_6ea1541e_2:turn:1",
       "similarity_farther_external_id": "sharegpt_tSDixDM_0:turn:1",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "gold_turn_ids_empty": false}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "gold_turn_ids_empty": false}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-lme-temporal-0bb5a684",
@@ -71,7 +71,7 @@
       "sampled_negative_turn_ids": ["sharegpt_zuIDBpz_0:turn:1"],
       "similarity_nearer_external_id": "answer_e936197f_1:turn:1",
       "similarity_farther_external_id": "sharegpt_zuIDBpz_0:turn:1",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "gold_turn_ids_empty": false}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "gold_turn_ids_empty": false}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-lme-multi-129d1232",
@@ -83,7 +83,7 @@
       "sampled_negative_turn_ids": ["sharegpt_5QwNbUm_0:turn:1"],
       "similarity_nearer_external_id": "answer_1de862d6_2:turn:3",
       "similarity_farther_external_id": "sharegpt_5QwNbUm_0:turn:1",
-      "selection_predicates": {"session_count": 4, "evidence_clean": true, "self_contained": true, "gold_turn_ids_empty": false}
+      "selection_proof": {"machine_derived": {"session_count": 4, "evidence_clean": true, "gold_turn_ids_empty": false}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-lme-multi-2ce6a0f2",
@@ -95,7 +95,7 @@
       "sampled_negative_turn_ids": ["sharegpt_9UDeCis_0:turn:1"],
       "similarity_nearer_external_id": "answer_901a6763_4:turn:1",
       "similarity_farther_external_id": "sharegpt_9UDeCis_0:turn:1",
-      "selection_predicates": {"session_count": 5, "evidence_clean": true, "self_contained": true, "gold_turn_ids_empty": false}
+      "selection_proof": {"machine_derived": {"session_count": 5, "evidence_clean": true, "gold_turn_ids_empty": false}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-lme-multi-81507db6",
@@ -107,7 +107,7 @@
       "sampled_negative_turn_ids": ["sharegpt_eZEcMAv_0:turn:1"],
       "similarity_nearer_external_id": "answer_da3c1266_1:turn:1",
       "similarity_farther_external_id": "sharegpt_eZEcMAv_0:turn:1",
-      "selection_predicates": {"session_count": 4, "evidence_clean": true, "self_contained": true, "gold_turn_ids_empty": false}
+      "selection_proof": {"machine_derived": {"session_count": 4, "evidence_clean": true, "gold_turn_ids_empty": false}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-lme-abstention-0862e8bf-abs",
@@ -119,7 +119,7 @@
       "sampled_negative_turn_ids": ["answer_c6fd8ebd_abs:turn:11", "sharegpt_3GUsrg7_0:turn:1"],
       "similarity_nearer_external_id": "answer_c6fd8ebd_abs:turn:11",
       "similarity_farther_external_id": "sharegpt_3GUsrg7_0:turn:1",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "gold_turn_ids_empty": true}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "gold_turn_ids_empty": true}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-lme-abstention-19b5f2b3-abs",
@@ -131,7 +131,7 @@
       "sampled_negative_turn_ids": ["answer_5ff494b9_abs:turn:3", "sharegpt_HoG6PBc_0:turn:1"],
       "similarity_nearer_external_id": "answer_5ff494b9_abs:turn:3",
       "similarity_farther_external_id": "sharegpt_HoG6PBc_0:turn:1",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "gold_turn_ids_empty": true}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "gold_turn_ids_empty": true}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-locomo-temporal-conv-30-qa1",
@@ -144,7 +144,7 @@
       "sampled_negative_turn_ids": ["D10:1", "D19:1"],
       "similarity_nearer_external_id": "D1:2",
       "similarity_farther_external_id": "D19:1",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "no_img_url_in_evidence": true}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "no_img_url_in_evidence": true}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-locomo-temporal-conv-50-qa1",
@@ -157,7 +157,7 @@
       "sampled_negative_turn_ids": ["D17:1", "D17:4", "D19:1"],
       "similarity_nearer_external_id": "D3:1",
       "similarity_farther_external_id": "D17:4",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "no_img_url_in_evidence": true}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "no_img_url_in_evidence": true}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-locomo-multi-conv-26-qa12",
@@ -170,7 +170,7 @@
       "sampled_negative_turn_ids": ["D19:1", "D19:12"],
       "similarity_nearer_external_id": "D4:3",
       "similarity_farther_external_id": "D19:12",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "no_img_url_in_evidence": true}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "no_img_url_in_evidence": true}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-locomo-multi-conv-41-qa4",
@@ -183,7 +183,7 @@
       "sampled_negative_turn_ids": ["D23:1", "D23:14"],
       "similarity_nearer_external_id": "D3:5",
       "similarity_farther_external_id": "D23:14",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "no_img_url_in_evidence": true}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "no_img_url_in_evidence": true}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-locomo-control-conv-30-qa40",
@@ -196,7 +196,7 @@
       "sampled_negative_turn_ids": ["D10:1", "D19:1", "D19:4"],
       "similarity_nearer_external_id": "D1:9",
       "similarity_farther_external_id": "D19:4",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "no_img_url_in_evidence": true}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "no_img_url_in_evidence": true}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-locomo-control-conv-47-qa69",
@@ -209,7 +209,7 @@
       "sampled_negative_turn_ids": ["D12:1", "D12:4", "D27:1"],
       "similarity_nearer_external_id": "D1:14",
       "similarity_farther_external_id": "D12:4",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "no_img_url_in_evidence": true}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "no_img_url_in_evidence": true}, "curator_asserted": {"self_contained": true}}
     },
     {
       "fixture_id": "benchmark-locomo-abstention-conv-26-qa153",
@@ -222,7 +222,7 @@
       "sampled_negative_turn_ids": ["D2:3", "D19:1", "D5:8"],
       "similarity_nearer_external_id": "D2:3",
       "similarity_farther_external_id": "D5:8",
-      "selection_predicates": {"session_count": 3, "evidence_clean": true, "self_contained": true, "no_img_url_in_evidence": true}
+      "selection_proof": {"machine_derived": {"session_count": 3, "evidence_clean": true, "no_img_url_in_evidence": true}, "curator_asserted": {"self_contained": true}}
     }
   ]
 }

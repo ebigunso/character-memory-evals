@@ -17,7 +17,7 @@ use cmem_eval_locomo::{LoCoMoQa, LoCoMoSample};
 use cmem_eval_longmemeval::LongMemEvalInstance;
 use serde::{Deserialize, Serialize};
 
-pub const SELECTION_MANIFEST_SCHEMA_VERSION: u32 = 1;
+pub const SELECTION_MANIFEST_SCHEMA_VERSION: u32 = 2;
 pub const BENCHMARK_FIXTURE_SEED: u64 = 0x0023_2026_0718;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -41,7 +41,7 @@ pub struct InstanceSelection {
     pub sampled_negative_turn_ids: Vec<String>,
     pub similarity_nearer_external_id: String,
     pub similarity_farther_external_id: String,
-    pub selection_predicates: SelectionPredicates,
+    pub selection_proof: SelectionProof,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -75,14 +75,26 @@ impl ScenarioKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct SelectionPredicates {
+pub struct SelectionProof {
+    pub machine_derived: MachineDerivedPredicates,
+    pub curator_asserted: CuratorAssertions,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MachineDerivedPredicates {
     pub session_count: usize,
     pub evidence_clean: bool,
-    pub self_contained: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub no_img_url_in_evidence: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gold_turn_ids_empty: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CuratorAssertions {
+    pub self_contained: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -142,9 +154,9 @@ impl SelectionManifest {
             if !fixture_ids.insert(selection.fixture_id.as_str()) {
                 bail!("duplicate benchmark fixture_id {:?}", selection.fixture_id);
             }
-            if !(3..=6).contains(&selection.selected_session_ids.len()) {
+            if !(3..=5).contains(&selection.selected_session_ids.len()) {
                 bail!(
-                    "selection {:?} must contain 3 to 6 sessions, found {}",
+                    "selection {:?} must contain 3 to 5 sessions, found {}",
                     selection.fixture_id,
                     selection.selected_session_ids.len()
                 );
@@ -160,20 +172,25 @@ impl SelectionManifest {
                     selection.fixture_id
                 );
             }
-            if selection.selection_predicates.session_count != selection.selected_session_ids.len()
+            if selection.selection_proof.machine_derived.session_count
+                != selection.selected_session_ids.len()
             {
                 bail!(
                     "selection {:?} records session_count {}, but selects {} sessions",
                     selection.fixture_id,
-                    selection.selection_predicates.session_count,
+                    selection.selection_proof.machine_derived.session_count,
                     selection.selected_session_ids.len()
                 );
             }
-            if !selection.selection_predicates.evidence_clean
-                || !selection.selection_predicates.self_contained
-            {
+            if !selection.selection_proof.machine_derived.evidence_clean {
                 bail!(
-                    "selection {:?} must record evidence_clean=true and self_contained=true",
+                    "selection {:?} must record machine-derived evidence_clean=true",
+                    selection.fixture_id
+                );
+            }
+            if !selection.selection_proof.curator_asserted.self_contained {
+                bail!(
+                    "selection {:?} must record curator-asserted self_contained=true",
                     selection.fixture_id
                 );
             }
@@ -207,15 +224,54 @@ impl SelectionManifest {
                 );
             }
             match selection.source {
-                BenchmarkSource::LongmemevalS if selection.source_qa_index.is_some() => bail!(
-                    "LongMemEval-S selection {:?} must not set source_qa_index",
-                    selection.fixture_id
-                ),
-                BenchmarkSource::Locomo if selection.source_qa_index.is_none() => bail!(
-                    "LoCoMo selection {:?} must set source_qa_index",
-                    selection.fixture_id
-                ),
-                _ => {}
+                BenchmarkSource::LongmemevalS => {
+                    if selection.source_qa_index.is_some() {
+                        bail!(
+                            "LongMemEval-S selection {:?} must not set source_qa_index",
+                            selection.fixture_id
+                        );
+                    }
+                    if selection
+                        .selection_proof
+                        .machine_derived
+                        .gold_turn_ids_empty
+                        .is_none()
+                        || selection
+                            .selection_proof
+                            .machine_derived
+                            .no_img_url_in_evidence
+                            .is_some()
+                    {
+                        bail!(
+                            "LongMemEval-S selection {:?} must record gold_turn_ids_empty and omit no_img_url_in_evidence",
+                            selection.fixture_id
+                        );
+                    }
+                }
+                BenchmarkSource::Locomo => {
+                    if selection.source_qa_index.is_none() {
+                        bail!(
+                            "LoCoMo selection {:?} must set source_qa_index",
+                            selection.fixture_id
+                        );
+                    }
+                    if selection
+                        .selection_proof
+                        .machine_derived
+                        .no_img_url_in_evidence
+                        .is_none()
+                        || selection
+                            .selection_proof
+                            .machine_derived
+                            .gold_turn_ids_empty
+                            .is_some()
+                    {
+                        bail!(
+                            "LoCoMo selection {:?} must record no_img_url_in_evidence and omit gold_turn_ids_empty",
+                            selection.fixture_id
+                        );
+                    }
+                }
             }
         }
         Ok(())
@@ -305,7 +361,10 @@ fn convert_longmemeval(
         );
     }
     let gold_ids = instance.gold_turn_ids();
-    if let Some(expected_empty) = selection.selection_predicates.gold_turn_ids_empty
+    if let Some(expected_empty) = selection
+        .selection_proof
+        .machine_derived
+        .gold_turn_ids_empty
         && gold_ids.is_empty() != expected_empty
     {
         bail!(
@@ -358,6 +417,20 @@ fn convert_longmemeval(
                 text: turn.text.clone(),
             });
         }
+    }
+    let evidence_clean = gold_ids.iter().all(|gold_id| {
+        turns
+            .iter()
+            .filter(|turn| turn.external_id == *gold_id)
+            .count()
+            == 1
+    });
+    if evidence_clean != selection.selection_proof.machine_derived.evidence_clean {
+        bail!(
+            "selection {:?} records evidence_clean={}, derived {evidence_clean}",
+            selection.fixture_id,
+            selection.selection_proof.machine_derived.evidence_clean
+        );
     }
     for gold_id in &gold_ids {
         let gold_session = gold_id
@@ -536,14 +609,17 @@ fn validate_locomo_evidence(
         evidence_clean &= matches.len() == 1 && !matches[0].text.is_empty();
         no_img_url &= matches.len() == 1 && matches[0].image_urls.is_empty();
     }
-    if evidence_clean != selection.selection_predicates.evidence_clean {
+    if evidence_clean != selection.selection_proof.machine_derived.evidence_clean {
         bail!(
             "selection {:?} records evidence_clean={}, derived {evidence_clean}",
             selection.fixture_id,
-            selection.selection_predicates.evidence_clean
+            selection.selection_proof.machine_derived.evidence_clean
         );
     }
-    if let Some(expected) = selection.selection_predicates.no_img_url_in_evidence
+    if let Some(expected) = selection
+        .selection_proof
+        .machine_derived
+        .no_img_url_in_evidence
         && expected != no_img_url
     {
         bail!(
@@ -877,6 +953,16 @@ mod tests {
     }
 
     #[test]
+    fn selection_manifest_rejects_more_than_five_sessions() {
+        let mut manifest = test_manifest(ScenarioKind::Update, false);
+        let selection = &mut manifest.instances[0];
+        selection.selected_session_ids = (1..=6).map(|index| format!("session-{index}")).collect();
+        selection.selection_proof.machine_derived.session_count = 6;
+        let error = manifest.validate().unwrap_err().to_string();
+        assert!(error.contains("must contain 3 to 5 sessions"));
+    }
+
+    #[test]
     fn update_conversion_preserves_source_bytes_and_maps_current_answer_only() {
         let manifest = test_manifest(ScenarioKind::Update, false);
         let longmemeval = cmem_eval_longmemeval::load_value(json!([{
@@ -929,6 +1015,35 @@ mod tests {
     }
 
     #[test]
+    fn longmemeval_evidence_clean_is_derived_from_selected_turns() {
+        let manifest = test_manifest(ScenarioKind::Update, false);
+        let longmemeval = cmem_eval_longmemeval::load_value(json!([{
+            "question_id": "lme",
+            "question_type": "knowledge-update",
+            "question": "What is current?",
+            "haystack_session_ids": ["old", "new", "background", "omitted-evidence"],
+            "haystack_dates": [
+                "2024/01/01 (Mon) 00:00",
+                "2024/01/02 (Tue) 00:00",
+                "2024/01/03 (Wed) 00:00",
+                "2024/01/04 (Thu) 00:00"
+            ],
+            "haystack_sessions": [
+                [{"role":"user","content":"old"}],
+                [{"role":"user","content":"new"}],
+                [{"role":"user","content":"background"}],
+                [{"role":"user","content":"evidence","has_answer":true}]
+            ],
+            "answer_session_ids": ["omitted-evidence"]
+        }]))
+        .unwrap();
+        let error = convert_loaded_datasets(&manifest, &longmemeval, &[])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("records evidence_clean=true, derived false"));
+    }
+
+    #[test]
     fn abstention_requires_empty_gold() {
         let mut manifest = test_manifest(ScenarioKind::Abstention, true);
         manifest.instances[0].source_instance_id = "lme_abs".to_string();
@@ -961,48 +1076,251 @@ mod tests {
             "../continuity_benchmarks_v1_selection.json"
         ))
         .unwrap();
-        assert_eq!(manifest.instances.len(), 18);
-        let counts = manifest.instances.iter().fold(
-            BTreeMap::<(BenchmarkSource, ScenarioKind), usize>::new(),
-            |mut counts, selection| {
-                *counts
-                    .entry((selection.source, selection.scenario_kind))
-                    .or_default() += 1;
-                counts
-            },
-        );
-        assert_eq!(
-            counts[&(BenchmarkSource::LongmemevalS, ScenarioKind::Update)],
-            4
-        );
-        assert_eq!(
-            counts[&(BenchmarkSource::LongmemevalS, ScenarioKind::Temporal)],
-            2
-        );
-        assert_eq!(
-            counts[&(BenchmarkSource::LongmemevalS, ScenarioKind::MultiEvidence)],
-            3
-        );
-        assert_eq!(
-            counts[&(BenchmarkSource::LongmemevalS, ScenarioKind::Abstention)],
-            2
-        );
-        assert_eq!(
-            counts[&(BenchmarkSource::Locomo, ScenarioKind::Temporal)],
-            2
-        );
-        assert_eq!(
-            counts[&(BenchmarkSource::Locomo, ScenarioKind::MultiEvidence)],
-            2
-        );
-        assert_eq!(
-            counts[&(BenchmarkSource::Locomo, ScenarioKind::SingleHopControl)],
-            2
-        );
-        assert_eq!(
-            counts[&(BenchmarkSource::Locomo, ScenarioKind::Abstention)],
-            1
-        );
+        let actual = manifest
+            .instances
+            .iter()
+            .map(|selection| {
+                (
+                    selection.fixture_id.as_str(),
+                    selection.source,
+                    selection.source_instance_id.as_str(),
+                    selection.source_qa_index,
+                    selection.scenario_kind,
+                    selection.selection_proof.machine_derived.session_count,
+                    selection.selection_proof.machine_derived.evidence_clean,
+                    selection
+                        .selection_proof
+                        .machine_derived
+                        .no_img_url_in_evidence,
+                    selection
+                        .selection_proof
+                        .machine_derived
+                        .gold_turn_ids_empty,
+                    selection.selection_proof.curator_asserted.self_contained,
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        let expected = [
+            (
+                "benchmark-lme-update-01493427",
+                BenchmarkSource::LongmemevalS,
+                "01493427",
+                None,
+                ScenarioKind::Update,
+                3,
+                true,
+                None,
+                Some(false),
+                true,
+            ),
+            (
+                "benchmark-lme-update-06db6396",
+                BenchmarkSource::LongmemevalS,
+                "06db6396",
+                None,
+                ScenarioKind::Update,
+                3,
+                true,
+                None,
+                Some(false),
+                true,
+            ),
+            (
+                "benchmark-lme-update-18bc8abd",
+                BenchmarkSource::LongmemevalS,
+                "18bc8abd",
+                None,
+                ScenarioKind::Update,
+                3,
+                true,
+                None,
+                Some(false),
+                true,
+            ),
+            (
+                "benchmark-lme-update-2698e78f",
+                BenchmarkSource::LongmemevalS,
+                "2698e78f",
+                None,
+                ScenarioKind::Update,
+                3,
+                true,
+                None,
+                Some(false),
+                true,
+            ),
+            (
+                "benchmark-lme-temporal-08f4fc43",
+                BenchmarkSource::LongmemevalS,
+                "08f4fc43",
+                None,
+                ScenarioKind::Temporal,
+                3,
+                true,
+                None,
+                Some(false),
+                true,
+            ),
+            (
+                "benchmark-lme-temporal-0bb5a684",
+                BenchmarkSource::LongmemevalS,
+                "0bb5a684",
+                None,
+                ScenarioKind::Temporal,
+                3,
+                true,
+                None,
+                Some(false),
+                true,
+            ),
+            (
+                "benchmark-lme-multi-129d1232",
+                BenchmarkSource::LongmemevalS,
+                "129d1232",
+                None,
+                ScenarioKind::MultiEvidence,
+                4,
+                true,
+                None,
+                Some(false),
+                true,
+            ),
+            (
+                "benchmark-lme-multi-2ce6a0f2",
+                BenchmarkSource::LongmemevalS,
+                "2ce6a0f2",
+                None,
+                ScenarioKind::MultiEvidence,
+                5,
+                true,
+                None,
+                Some(false),
+                true,
+            ),
+            (
+                "benchmark-lme-multi-81507db6",
+                BenchmarkSource::LongmemevalS,
+                "81507db6",
+                None,
+                ScenarioKind::MultiEvidence,
+                4,
+                true,
+                None,
+                Some(false),
+                true,
+            ),
+            (
+                "benchmark-lme-abstention-0862e8bf-abs",
+                BenchmarkSource::LongmemevalS,
+                "0862e8bf_abs",
+                None,
+                ScenarioKind::Abstention,
+                3,
+                true,
+                None,
+                Some(true),
+                true,
+            ),
+            (
+                "benchmark-lme-abstention-19b5f2b3-abs",
+                BenchmarkSource::LongmemevalS,
+                "19b5f2b3_abs",
+                None,
+                ScenarioKind::Abstention,
+                3,
+                true,
+                None,
+                Some(true),
+                true,
+            ),
+            (
+                "benchmark-locomo-temporal-conv-30-qa1",
+                BenchmarkSource::Locomo,
+                "conv-30",
+                Some(1),
+                ScenarioKind::Temporal,
+                3,
+                true,
+                Some(true),
+                None,
+                true,
+            ),
+            (
+                "benchmark-locomo-temporal-conv-50-qa1",
+                BenchmarkSource::Locomo,
+                "conv-50",
+                Some(1),
+                ScenarioKind::Temporal,
+                3,
+                true,
+                Some(true),
+                None,
+                true,
+            ),
+            (
+                "benchmark-locomo-multi-conv-26-qa12",
+                BenchmarkSource::Locomo,
+                "conv-26",
+                Some(12),
+                ScenarioKind::MultiEvidence,
+                3,
+                true,
+                Some(true),
+                None,
+                true,
+            ),
+            (
+                "benchmark-locomo-multi-conv-41-qa4",
+                BenchmarkSource::Locomo,
+                "conv-41",
+                Some(4),
+                ScenarioKind::MultiEvidence,
+                3,
+                true,
+                Some(true),
+                None,
+                true,
+            ),
+            (
+                "benchmark-locomo-control-conv-30-qa40",
+                BenchmarkSource::Locomo,
+                "conv-30",
+                Some(40),
+                ScenarioKind::SingleHopControl,
+                3,
+                true,
+                Some(true),
+                None,
+                true,
+            ),
+            (
+                "benchmark-locomo-control-conv-47-qa69",
+                BenchmarkSource::Locomo,
+                "conv-47",
+                Some(69),
+                ScenarioKind::SingleHopControl,
+                3,
+                true,
+                Some(true),
+                None,
+                true,
+            ),
+            (
+                "benchmark-locomo-abstention-conv-26-qa153",
+                BenchmarkSource::Locomo,
+                "conv-26",
+                Some(153),
+                ScenarioKind::Abstention,
+                3,
+                true,
+                Some(true),
+                None,
+                true,
+            ),
+        ]
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1062,12 +1380,16 @@ mod tests {
                     "new:turn:1".to_string()
                 },
                 similarity_farther_external_id: "background:turn:1".to_string(),
-                selection_predicates: SelectionPredicates {
-                    session_count: 3,
-                    evidence_clean: true,
-                    self_contained: true,
-                    no_img_url_in_evidence: None,
-                    gold_turn_ids_empty: Some(gold_empty),
+                selection_proof: SelectionProof {
+                    machine_derived: MachineDerivedPredicates {
+                        session_count: 3,
+                        evidence_clean: true,
+                        no_img_url_in_evidence: None,
+                        gold_turn_ids_empty: Some(gold_empty),
+                    },
+                    curator_asserted: CuratorAssertions {
+                        self_contained: true,
+                    },
                 },
             }],
         }
