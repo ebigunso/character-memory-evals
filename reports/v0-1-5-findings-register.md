@@ -450,3 +450,33 @@ The bounded live confirmation ran only `combined-life` against Character Memory 
 The three live queries measured long-gap recall `0.5` at both 5 and 10, medium-gap recall `0.5` at 5 and `1.0` at 10, mean context pollution `0.15873015873015872`, mean event pollution `0.1111111111111111`, and mean context reduction `0.6625883632408919`. Fanout-over-budget, orphan-vector leakage, superseded-current leakage, suppressed-memory leakage, graph-object-missing returned count, and unsafe-lifecycle returned count were all numeric zero. These are confirmation measurements, not a newly introduced acceptance threshold. The top results visibly include the corrected September reopening (`life-reopening` and `life-opening-date-v3`), rosemary origin and winter promise (`life-rosemary-start` and `life-winter-rosemary-promise`), and the admitted prism mistake and its later retelling (`life-admitted-mistake` and `life-mara-retelling`).
 
 Live config, results, summary, traces, and report hashes are `E11E71DB6A21B19118B0F8DBC39293A99BC47D4FC6689D5701F46D41C4FD1948`, `A7A4BB5B01AD3A5ACE8D8E93128AD52C1A729AF430136B54F64DE8BCF89ABD56`, `9E5858C2E1E5F3B902297DAB01D96C1BA3064CCB80D381E7B883A6863F2F24DA`, `BAA9670E989CB2279A34463BCA39CB50504C2FF14F35043A96700A2776B2786B`, and `15CA0FC1342858253C85A7E9AE3ABF3AE79B2D5D6F4E9EBA047393BF6E4EA57C`.
+## Task_23 benchmark-adapted continuity fixture
+
+Task_23 adds a deterministic 18-scenario schema-v3 fixture adapted from LongMemEval-S and LoCoMo. This section records construction evidence only: no live Character Memory adapter, Qdrant, or evaluation run was started for Task_23.
+
+### Roster and scenario mapping
+
+The curated roster contains four LongMemEval-S knowledge updates (`01493427`, `06db6396`, `18bc8abd`, and `2698e78f`), two LongMemEval-S temporal rows (`08f4fc43` and `0bb5a684`), three LongMemEval-S multi-session rows (`129d1232`, `2ce6a0f2`, and `81507db6`), two pure LongMemEval-S abstentions (`0862e8bf_abs` and `19b5f2b3_abs`), two LoCoMo temporal rows (`conv-30` QA 1 and `conv-50` QA 1), two LoCoMo multi-hop rows (`conv-26` QA 12 and `conv-41` QA 4), two LoCoMo single-hop controls (`conv-30` QA 40 and `conv-47` QA 69), and one adversarial LoCoMo abstention (`conv-26` QA 153).
+
+Each scenario selects three to five sessions. The machine-readable selection manifest records the source identity, question type, selected session IDs, sampled-negative turn IDs, similarity candidates, and an explicit proof split between machine-derived predicates and curator assertions. The converter re-derives session count, evidence cleanliness, LongMemEval-S gold-turn emptiness, and LoCoMo cited-evidence image absence from the official source loaders. `self_contained` is a human curation judgment: the converter requires the curator assertion to be true but does not claim to derive it mechanically. Conversion fails on missing or duplicate sessions, missing evidence, empty source text, question-type drift, invalid timestamps, image-backed LoCoMo cited evidence, or relevance-label drift.
+
+### Conversion and scoring guards
+
+- Source questions and conversation-turn text are copied byte-for-byte. Speaker metadata, answers, provenance notes, and licenses are not inserted into the behavioral text.
+- Every selected non-replacement turn becomes one `Remember` event. In update rows, the chronologically older gold turn remains a `Remember`; the newer gold turn becomes `Correct`, targets the old external ID, uses the new source turn ID as the replacement ID, and is the only relevant ID. The old ID is sampled negative.
+- LongMemEval-S abstention rows must end in `_abs` in the curated roster and must derive an empty `gold_turn_ids()` result. Their cat/Japan near-miss turns are sampled negative only.
+- LoCoMo evidence IDs must resolve uniquely into selected sessions, contain nonempty text, and have no `img_url`. Category-5 cited evidence is never labeled relevant.
+- `conv-26` QA 153 is an intentional speaker-swapped abstention trap: query subject Caroline does not match cited turn `D2:3`, where Melanie describes realizing that self-care matters. `D2:3` is sampled negative only.
+- Abstention metric insertion returns after pollution metrics, so relevance, gap, hub, rationale-coverage, correction, and fanout metrics cannot become abstention scores.
+
+### Frozen embedding evidence
+
+The ranked-cosine manifest covers every unique fixture embedding input and declares one evidence-or-trap-versus-background ordering per scenario. The committed store contains 635 unique 3072-dimensional vectors from `text-embedding-3-large`, records `source=open_ai_api`, and passes all 18 ordering checks. The first generated candidate set correctly failed its intent gate because a `conv-50` background turn was more similar to the query than the evidence; Task_23 replaced that ordering candidate with an already-selected semantically unrelated turn and regenerated the committed store. This was generation-time validation only, not an evaluation run.
+
+### Artifacts
+
+- Converter and selection: `crates/cmem-eval-benchmark-convert/`.
+- Fixture: `crates/cmem-eval-continuity/fixtures/continuity_benchmarks_v1.json`, SHA-256 `46B9981225D2395EACA30078D9B19BE4CFA25F9698ADEA3CD84CBD503E0014A6` at Task_23 generation time.
+- Ranked-cosine manifest: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_manifest.json`, SHA-256 `A030632BD820C056A3FD8F5B5475ACC9B12B534BFB2E23F5A4C38F0A30BF4FCB` at Task_23 generation time.
+- Frozen store: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_store.json`, SHA-256 `143D8BCF80F01B208F73DA1FF613A813C5ACA8F227F9D69FDD40C15A66F30C79` at Task_23 generation time.
+- Attribution and adaptation record: `crates/cmem-eval-continuity/fixtures/CONTINUITY_BENCHMARKS_ATTRIBUTION.md`.
