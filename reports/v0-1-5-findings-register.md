@@ -173,6 +173,67 @@ At that point, the trace records 48 vector candidates, 48 unique graph-root cand
 
 Under `runs/continuity/v0-1-5-task14/live/`, raw SHA-256 hashes are results `1E4235318FEB5710B403EC3519EEDBA4FDADB96C627335844BF4EEBF1D05CAEB`, summary `F10B19402CC9361A141E74767B8DAE68FDA9A0E92CB9E91E508286533D21274D`, traces `C2A1D3253F2E790E564ABA2582DEEA4F3CCA5676B340A8E489DDCBD59DF4196D`, and report `033320B58BD344CF1EC6A4B664D5B449D1F1747D2615EE8DCAC3DBA12C232FEF`.
 
+## Task_15 binding resweep and recommendation
+
+Task_15 supersedes the Task_7 recommendation with evidence from the canonical ten-scenario fixture at SHA-256 `45EFE4F85DA1A58809B702D60D471023746D8629A0BB7D92B2AE2CE3A04D2F`. The result does not support increasing the shipped graph-root budget: selecting all 48 available roots still leaves the dormant `hub-scale` probe outside recall@5 and recall@10, worsens aggregate context reduction, and changes no aggregate recall or pollution metric. A bounded diagnostic shows that the probe survives graph expansion but ranks 17th among returned Episodes when the Episode section is widened. The remaining `F-SEED-1` remedy is therefore downstream section admission or ranking, not a larger default root cap.
+
+The ten full-suite live runs used the real adapter through Qdrant gRPC at `http://127.0.0.1:6334` and Character Memory source SHA `7949173d1c40580df01ed78a79454e6d9574a2c1` from branch `feature/v0-1-5-embedded-default`. The sibling checkout later advanced through documentation-only commits; its `src` tree remained byte-identical to that committed source SHA. Each row is one complete ten-scenario run with a distinct run ID, namespace, and embedded store. The Task_15 shipped-default `hub-scale` trace and scenario report are exact JSON matches for the scoped Task_14 live anchor, providing a direct cross-run check of the measured root and retrieval behavior.
+
+### Full-suite comparison
+
+Short-, medium-, and long-gap recalls are reported together. Pollution is event/surface. The `hub-scale` root counters are unique/selected/omitted. Cap utilization is configured/selected. `Preserve` checks `hub-memory-0` through `hub-memory-5`, `archive-january`, `archive-october`, and `thread-1`; it also requires at least one relevance-labeled Episode from every non-correction scenario.
+
+| Config | Varied point | Hub probe R@5 | Recall S/M/L | Pollution E/S | Context reduction | Roots U/S/O | Scored/fallback | Cap utilization C/S | Over budget | Preserve |
+|---|---|---:|---|---|---:|---|---|---|---:|---|
+| `task15_default` | shipped `alpha=1`, `gamma=1`, caps `20/5/15`, roots `12` | 0 | 1/0.875/1 | 0.296296/0.296296 | -0.507275 | 48/12/36 | 31/41 | 0.102768/0.170579 | 0 | pass |
+| `task15_roots_24` | roots `24` | 0 | 1/0.875/1 | 0.296296/0.296296 | -0.593628 | 48/24/24 | 37/47 | 0.105717/0.174954 | 0 | pass |
+| `task15_roots_48` | roots `48` | 0 | 1/0.875/1 | 0.296296/0.296296 | -0.611435 | 48/48/0 | 41/49 | 0.099873/0.169479 | 0 | pass |
+| `task15_alpha_0_5` | alpha `0.5` | 0 | 1/0.875/1 | 0.296296/0.296296 | -0.507275 | 48/12/36 | 31/41 | 0.102768/0.155391 | 0 | pass |
+| `task15_alpha_2_0` | alpha `2.0` | 0 | 1/0.875/1 | 0.296296/0.296296 | -0.507275 | 48/12/36 | 31/41 | 0.102572/0.181743 | 0 | pass |
+| `task15_gamma_0_5` | gamma `0.5` | 0 | 1/0.875/1 | 0.296296/0.296296 | -0.507275 | 48/12/36 | 31/41 | 0.102768/0.150703 | 0 | pass |
+| `task15_gamma_2_0` | gamma `2.0` | 0 | 1/0.875/1 | 0.296296/0.296296 | -0.507275 | 48/12/36 | 31/41 | 0.100965/0.178685 | 0 | pass |
+| `task15_about_10` | about cap `10` | 0 | 1/0.875/1 | 0.296296/0.296296 | -0.507275 | 48/12/36 | 31/41 | 0.102768/0.170579 | 0 | pass |
+| `task15_thread_8` | thread cap `8` | 0 | 1/0.875/1 | 0.296296/0.296296 | -0.507275 | 48/12/36 | 31/41 | 0.102768/0.170579 | 0 | pass |
+| `task15_participant_10` | participant cap `10` | 0 | 1/0.875/1 | 0.296296/0.296296 | -0.507275 | 48/12/36 | 31/41 | 0.102768/0.145547 | 0 | pass |
+
+All alpha, gamma, and relation-cap variants return exactly the shipped-default object sets in all ten scenarios. Raising roots changes returned sets only in `recurring-hub-entity` and `hub-scale`; those additions do not improve any recall or pollution measure and make context reduction more negative. Every run has `hub_context_share=1.0` and zero over-budget decisions. Alpha changes the two scored `hub-scale` relation values from the shipped `0.588592` to `0.614534` or `0.544293`, while gamma and relation caps change selected fanout or utilization, but none changes the retrieved outcome. The preservation list passes in every run.
+
+The proposed `roots=96` point was dropped before adapter execution because the validated configuration contract requires `max_graph_roots <= max_vector_candidates`; `96 > 48` is invalid, and the `roots=48` row already selects every vector candidate. It would not supply a distinct valid root-budget observation.
+
+### Root-saturation diagnostic
+
+At roots `48`, `hub-scale` selects all 48 unique root candidates with zero root omissions. The selected roots include the Person, Location, and Organization entities. The dormant probe's linked Episode survives the `mentions episode` expansion: all 11 linked Episodes are retained with no relation omission. It is then excluded by the downstream Episode section, whose trace assigns eight relevant Episodes and reports 36 omitted items. The full-suite run therefore remains recall@5 `0`, recall@10 `0`, with 28 returned objects.
+
+One approved scoped diagnostic kept roots at `48` and increased only `top_k_episodes` from `8` to `64`. It returned `hub-scale-dormant-probe` as an Episode at rank 17, with 49 total returned objects, 29 Episode assignments, 13 section omissions, recall@5 `0`, recall@10 `0`, and context reduction `0.260012`. This isolates the remaining failure after graph expansion to downstream section admission and ordering. It is diagnostic evidence, not a candidate default: recovering the probe in the top ten requires an ordering or ranking change rather than a larger output section or root budget.
+
+### Superseding recommendation
+
+Recommend `alpha=1.0`, `gamma=1.0`, `about_entity.derived_memory.max=10`, `participant_entity.episode.max=5`, `part_of_thread.derived_memory.max=8`, `max_vector_candidates=48`, and `max_graph_roots=12`. This is a corpus-conditional recommendation for the canonical ten-scenario synthetic fixture at the exact source and artifact provenance above; Task_15 does not change Character Memory defaults. Each point has one full-suite live run, so the table establishes deterministic comparisons for this corpus rather than a production-distribution confidence interval.
+
+The lower about and thread caps preserve exact output and all scored outcomes while tightening unused headroom. Raising the participant cap to `10` changes utilization without an output or quality gain, so `5` remains preferable. Alpha and gamma variants affect internal scoring or fanout without improving recall, pollution, context size, or preservation, leaving `1.0` as the neutral point. Roots `24` and `48` add work and context without recovering the probe or any aggregate metric; roots `12` therefore remains the defensible default. This resweep strengthens, but does not generalize beyond, the Task_7 recommendation.
+
+For `F-SEED-1`, the experiment demonstrates that default root omission exists and that eliminating it is insufficient: the probe reaches the expanded Episode pool at roots `48` but is lost downstream and remains below the top-ten boundary even when the Episode section is widened. The finding remains open for a Character Memory ordering/ranking remedy; increasing the default root cap is rejected as its disposition path. For `F-BASE-2`, none of the tuning points improves aggregate pollution and the larger root budgets worsen context reduction.
+
+### Artifact references and hashes
+
+All output paths below are under `runs/continuity/v0-1-5-task15/`; hashes are SHA-256 over raw files. Config hashes refer to the corresponding tracked files under `configs/`.
+
+| Config directory | Config | `results.jsonl` | `summary.json` | `traces.jsonl` | `report.json` |
+|---|---|---|---|---|---|
+| `task15_default` | `6632BEAB17B915297747B82BA4DE8E687DADD69573B7A7A3194A4EC4F1421B39` | `450BCD8949704C9CEF5D136A43F3E590BD6B747F0B2B3762B469317EA8C44254` | `72A107189F1F610E84FC112523D2984E093F62DECD6A6969E840AF7789CADCE9` | `677097CBCB221D5D0F5BBEAE63F7367611F68A91961D0CFD24D16F1F713C33B0` | `16F1C048BAFFD34F489F3D483F3D9018BFF2FFFA364FAC4B14E37314A7CA4D75` |
+| `task15_roots_24` | `C3D997C2B72BF2CB46461204A1D164662BB549AFAE0688742C803F32777A9E8E` | `806E4BEE8F59E713F0EBD25AEDD077799DF62A86854C5566B7A38015FEEA66B9` | `4452FC8B8FA0C9E0A82E6A6866D7FAA8C698BF304D55464BA4284C8646B01DAC` | `98D95CFDA9F3839D6623CE9C2FC2BC3AD480388150D79446FD0238A157AF525A` | `FF4176F3CCE04D5BBBE687435821D3F2C1A9F8BE8BACDEA440B7251EB6A5EFCE` |
+| `task15_roots_48` | `9407D077722817E21AAED3968A853A0E3B8328569A12A1CDB4177E81F51232C9` | `BD04DDB7F69F50D08F6DE0DA03A1DE823CB7516F2152DB13428742315517BF27` | `2798A7C4617D859F5C5387D316A53F52EDF28AEB3548D3C0BFCD0C85CCE2A2E6` | `34CBD35AA08D5BAE0183A3783FC3E459806F683558AE6B1B76D1C2F7B56EDD7B` | `7DC9205D9E36CA3E523246E02EA04B86562B2B8EB8D910419E41C308B030B373` |
+| `task15_alpha_0_5` | `2485450B5A8B7909E2D3954F79CEA8CD77C71CCAA0DD9E43889D54C5E8F09754` | `51614791AD2F25FF6605BA362531C614771EB191A749E29EEE43DC27EC6F51C2` | `BF65DA51B6B0068F9224A0744486DFE7CC788FDF84B381956F31B114F740DA9F` | `BCACE7542E1F954645A86765EB454FA8E1CC6691FF224182C9BFE4D977627D80` | `97AF3AE0839BA2AAA466E85E22655AF937D931E0F31193C846F214A2FD85D27E` |
+| `task15_alpha_2_0` | `03F871547B93C036B6E62A5F4CDC38B2D9057BF61B00730FB9BD871DA06B1BA3` | `E7C250B101E94972ADB97B7E8ADAD291A57FC6661904ECF3A4755742FBEE3152` | `CFAA3403D6196D0A6398E08561F72F947ECB791F36D5DAABFFF111F123119A58` | `9131ED456272DB61A3463150B9F8682CD21727550050F439EC23F8D29024A46C` | `A319A1206569191910D06D31FA9AA572F76459582805F4086A29177043A1631D` |
+| `task15_gamma_0_5` | `A3C2D323DCF2653E90661331779D13657CF8ECEA6392C388FC454A5924722730` | `AB9A3EECFDE81CE1D583392CA4D0A8E94D79A5AF4BBD1727B45CF864135574BC` | `F5E825DDA46D4ED3971B3967EE136D956CD0EC91A3C277C91F73240C4BAE5679` | `12E1D446B27A1BFB37509C5C31967AC9EDFC541F497416A3DDE9754A8B420F43` | `5F8AF4D8506C8436A68A3EE9BAF71A9F6F5081465282D1AC7E8FC6407A35B7C1` |
+| `task15_gamma_2_0` | `6301E6C6C45DED3FCE32C62B05337796C7F632768F7C463F2ED5D4B007A332D4` | `5ADB0CB20B0D9E0AB9CA445CF1FB0FCA4EE837021079EF9CF801491B2DC8BFA8` | `7AED73FD1750621931493A1C1AF9740DBDE5EF07EFB0B63B84007E2EBD2B4622` | `F77F1D6D7604AF9F016ECD0550401CE8405A22A0D957352C2430CA657A0F2B36` | `B272CD8F5978E6D8819E0D02272F1BD637F7E77EA8EFDAF1C33E90CA5F39B348` |
+| `task15_about_10` | `69E9AAC8BDB6B24E4E8ADFD2C64F9DD6ECC50203A26D2B481A109FC455108571` | `22E4A791D1BCE908F20E808AD29A529CABC35AB688845D6BA9B73A0CFD9F4D37` | `0AC839E3C2940172D4DA33A7C1FA595C98735DA6E8BD78A705D98AE44794E10F` | `AD1A83BD4E1B9DD5A8771B02909158D11160FAA2698CE583C4E586F8652FFD02` | `62D403B7107508D01B0BA5C01988DD0F9FBA9817A99736FD686E803360C0FBDA` |
+| `task15_thread_8` | `3F240D8B16D9087FF23B154AF69F474E9833D775C3531F28336B9FB15F22F364` | `23E6E72403F5009367B44AAC8BCB493F30DA5D99435B6BCF8A1445E0376912AD` | `4FEF2A13BD0CC747BDE052FBCD347110DC70A33A2EBF62B6DC9CF5D6F3BD3040` | `8355C3007B38964785C60BF4E952D67B27E2DA0BC52A212B24CD0880018F00EE` | `6BA5D8D486766384201DE2BFB935C04BAEAF9812327E4DC53DCB1B661FF962BE` |
+| `task15_participant_10` | `ED433038014896E1BF7E3BF205BDC27FD0D31037F8EFCCE1AACF30D4594BF4A4` | `F6D5F03E0858760A40DF1C67E68EDBAC730DE437265FD12282672CB249258312` | `0859F68800A55870DA3E7AEA9C2D74EFD45C0D418AC74025302E6F116360C08F` | `3DBE6CC2A7578F5B0E708E3DBF70126FF703B473570850201EEDD49450A0BF9C` | `3A5AA21B917E885143B06D120BF8EC37720EBB914129F8D1EF8003741077B2A4` |
+| `task15_diagnostic_roots_48_episode_64` | `D8A8445392C30D86CFD215CF8DD7B89587BAA92FF38D82E5F38799A6C4E12E1A` | `2DC65A1410DF6FC3C33591820D963B3730B8072D4E66EA5BEF018D13C60AE3DA` | `95D2A15B24A821C158914B9D8236FFAB385F78202F2E4BAF1A27EA923658BC1A` | `EC71FACD3A7AC341252EDC5F9B05A82309E2A4A195B20FB1785C6492CE7FFA7F` | `E9CF1FA516FF3EF6E4D64A9911F41C82E1C97ACD676021F18791397D4369C9F9` |
+
+The shared Qdrant service was kept below saturation by pruning 179 completed-run collections after their local artifacts and hashes were captured: 69 historical completed-run collections and 110 completed or failed-attempt Task_15 collections. Health was checked between cleanup segments; no local evidence artifact was deleted. An initial gRPC timeout occurred before the first completed comparison and is excluded from the evidence. Two long Windows embedded-store identifiers also failed before producing complete evidence rows; their reruns use shorter distinct identifiers and only the complete outputs above support the comparison.
+
 ## Findings
 
 ### F-SEED-1: Hub entity roots are truncated before graph expansion
