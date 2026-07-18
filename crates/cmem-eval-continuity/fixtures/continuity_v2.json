@@ -287,6 +287,771 @@
       ]
     },
     {
+      "fixture_id": "hub-scale",
+      "namespace": "continuity-hub-scale-0000000001352768",
+      "pattern": "hub_scale",
+      "entities": [
+        {
+          "external_id": "hub-scale-location",
+          "entity_type": "location",
+          "label": "Scale Hub C",
+          "is_hub": true
+        },
+        {
+          "external_id": "hub-scale-organization",
+          "entity_type": "organization",
+          "label": "Scale Hub B",
+          "is_hub": true
+        },
+        {
+          "external_id": "hub-scale-person",
+          "entity_type": "person",
+          "label": "Scale Hub A",
+          "is_hub": true
+        }
+      ],
+      "embedding": {
+        "seed": 20260712,
+        "vector_size": 8,
+        "noise_magnitude": 0.0009765625,
+        "clusters": {
+          "hub-scale-probe": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "hub-scale-quaternary": [
+            0.0,
+            0.96,
+            0.28,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "hub-scale-query": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "hub-scale-secondary": [
+            0.0,
+            0.0,
+            0.8,
+            0.6,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "hub-scale-tertiary": [
+            0.0,
+            0.0,
+            0.6,
+            0.0,
+            0.8,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "hub-scale-0": {
+            "cluster": "hub-scale-query",
+            "inputs": [
+              "Binding-scale hub incident 00 records routine continuity context.",
+              "Binding-scale hub incident 01 records routine continuity context.",
+              "Binding-scale hub incident 02 records routine continuity context.",
+              "Binding-scale hub incident 03 records routine continuity context.",
+              "Which dormant graph-only marker is linked to Scale Hub C?",
+              "Scale Hub A"
+            ]
+          },
+          "hub-scale-1": {
+            "cluster": "hub-scale-secondary",
+            "inputs": [
+              "Binding-scale hub incident 04 records routine continuity context.",
+              "Binding-scale hub incident 05 records routine continuity context.",
+              "Binding-scale hub incident 06 records routine continuity context.",
+              "Binding-scale hub incident 07 records routine continuity context.",
+              "Binding-scale hub incident 08 records routine continuity context.",
+              "Binding-scale hub incident 09 records routine continuity context.",
+              "Binding-scale hub incident 10 records routine continuity context.",
+              "Binding-scale hub incident 11 records routine continuity context.",
+              "Binding-scale hub incident 12 records routine continuity context.",
+              "Binding-scale hub incident 13 records routine continuity context.",
+              "Scale Hub C"
+            ]
+          },
+          "hub-scale-2": {
+            "cluster": "hub-scale-tertiary",
+            "inputs": [
+              "Binding-scale hub incident 14 records routine continuity context.",
+              "Binding-scale hub incident 15 records routine continuity context.",
+              "Binding-scale hub incident 16 records routine continuity context.",
+              "Binding-scale hub incident 17 records routine continuity context.",
+              "Binding-scale hub incident 18 records routine continuity context.",
+              "Binding-scale hub incident 19 records routine continuity context.",
+              "Binding-scale hub incident 20 records routine continuity context.",
+              "Binding-scale hub incident 21 records routine continuity context.",
+              "Binding-scale hub incident 22 records routine continuity context.",
+              "Binding-scale hub incident 23 records routine continuity context.",
+              "Binding-scale hub incident 24 records routine continuity context.",
+              "Binding-scale hub incident 25 records routine continuity context.",
+              "Binding-scale hub incident 26 records routine continuity context.",
+              "Binding-scale hub incident 27 records routine continuity context.",
+              "Binding-scale hub incident 28 records routine continuity context.",
+              "Binding-scale hub incident 29 records routine continuity context.",
+              "Binding-scale hub incident 30 records routine continuity context.",
+              "Scale Hub B"
+            ]
+          },
+          "hub-scale-3": {
+            "cluster": "hub-scale-quaternary",
+            "inputs": [
+              "Binding-scale hub incident 31 records routine continuity context.",
+              "Binding-scale hub incident 32 records routine continuity context.",
+              "Binding-scale hub incident 33 records routine continuity context.",
+              "Binding-scale hub incident 34 records routine continuity context.",
+              "Binding-scale hub incident 35 records routine continuity context.",
+              "Binding-scale hub incident 36 records routine continuity context.",
+              "Binding-scale hub incident 37 records routine continuity context.",
+              "Binding-scale hub incident 38 records routine continuity context.",
+              "Binding-scale hub incident 39 records routine continuity context.",
+              "Binding-scale hub incident 40 records routine continuity context.",
+              "Binding-scale hub incident 41 records routine continuity context.",
+              "Binding-scale hub incident 42 records routine continuity context.",
+              "Binding-scale hub incident 43 records routine continuity context.",
+              "Binding-scale hub incident 44 records routine continuity context.",
+              "Binding-scale hub incident 45 records routine continuity context.",
+              "Binding-scale hub incident 46 records routine continuity context.",
+              "Binding-scale hub incident 47 records routine continuity context."
+            ]
+          },
+          "hub-scale-probe": {
+            "cluster": "hub-scale-probe",
+            "inputs": [
+              "The dormant graph-only marker linked to Scale Hub C is obsidian-seven."
+            ]
+          }
+        }
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "hub-scale-memory-00",
+          "timestamp": "2025-01-01T10:00:00Z",
+          "text": "Binding-scale hub incident 00 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-person"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "hub-scale-memory-01",
+          "timestamp": "2025-01-02T10:00:00Z",
+          "text": "Binding-scale hub incident 01 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-person"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-003",
+          "external_id": "hub-scale-memory-02",
+          "timestamp": "2025-01-03T10:00:00Z",
+          "text": "Binding-scale hub incident 02 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-person"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-004",
+          "external_id": "hub-scale-memory-03",
+          "timestamp": "2025-01-04T10:00:00Z",
+          "text": "Binding-scale hub incident 03 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-person"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-005",
+          "external_id": "hub-scale-memory-04",
+          "timestamp": "2025-01-05T10:00:00Z",
+          "text": "Binding-scale hub incident 04 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-006",
+          "external_id": "hub-scale-memory-05",
+          "timestamp": "2025-01-06T10:00:00Z",
+          "text": "Binding-scale hub incident 05 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-007",
+          "external_id": "hub-scale-memory-06",
+          "timestamp": "2025-01-07T10:00:00Z",
+          "text": "Binding-scale hub incident 06 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-008",
+          "external_id": "hub-scale-memory-07",
+          "timestamp": "2025-01-08T10:00:00Z",
+          "text": "Binding-scale hub incident 07 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-009",
+          "external_id": "hub-scale-memory-08",
+          "timestamp": "2025-01-09T10:00:00Z",
+          "text": "Binding-scale hub incident 08 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-010",
+          "external_id": "hub-scale-memory-09",
+          "timestamp": "2025-01-10T10:00:00Z",
+          "text": "Binding-scale hub incident 09 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-011",
+          "external_id": "hub-scale-memory-10",
+          "timestamp": "2025-01-11T10:00:00Z",
+          "text": "Binding-scale hub incident 10 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-012",
+          "external_id": "hub-scale-memory-11",
+          "timestamp": "2025-01-12T10:00:00Z",
+          "text": "Binding-scale hub incident 11 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-013",
+          "external_id": "hub-scale-memory-12",
+          "timestamp": "2025-01-13T10:00:00Z",
+          "text": "Binding-scale hub incident 12 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-014",
+          "external_id": "hub-scale-memory-13",
+          "timestamp": "2025-01-14T10:00:00Z",
+          "text": "Binding-scale hub incident 13 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-015",
+          "external_id": "hub-scale-memory-14",
+          "timestamp": "2025-01-15T10:00:00Z",
+          "text": "Binding-scale hub incident 14 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-016",
+          "external_id": "hub-scale-memory-15",
+          "timestamp": "2025-01-16T10:00:00Z",
+          "text": "Binding-scale hub incident 15 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-017",
+          "external_id": "hub-scale-memory-16",
+          "timestamp": "2025-01-17T10:00:00Z",
+          "text": "Binding-scale hub incident 16 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-018",
+          "external_id": "hub-scale-memory-17",
+          "timestamp": "2025-01-18T10:00:00Z",
+          "text": "Binding-scale hub incident 17 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-019",
+          "external_id": "hub-scale-memory-18",
+          "timestamp": "2025-01-19T10:00:00Z",
+          "text": "Binding-scale hub incident 18 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-020",
+          "external_id": "hub-scale-memory-19",
+          "timestamp": "2025-01-20T10:00:00Z",
+          "text": "Binding-scale hub incident 19 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-021",
+          "external_id": "hub-scale-memory-20",
+          "timestamp": "2025-01-21T10:00:00Z",
+          "text": "Binding-scale hub incident 20 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-022",
+          "external_id": "hub-scale-memory-21",
+          "timestamp": "2025-01-22T10:00:00Z",
+          "text": "Binding-scale hub incident 21 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-023",
+          "external_id": "hub-scale-memory-22",
+          "timestamp": "2025-01-23T10:00:00Z",
+          "text": "Binding-scale hub incident 22 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-024",
+          "external_id": "hub-scale-memory-23",
+          "timestamp": "2025-01-24T10:00:00Z",
+          "text": "Binding-scale hub incident 23 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-025",
+          "external_id": "hub-scale-memory-24",
+          "timestamp": "2025-02-01T10:00:00Z",
+          "text": "Binding-scale hub incident 24 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-026",
+          "external_id": "hub-scale-memory-25",
+          "timestamp": "2025-02-02T10:00:00Z",
+          "text": "Binding-scale hub incident 25 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-027",
+          "external_id": "hub-scale-memory-26",
+          "timestamp": "2025-02-03T10:00:00Z",
+          "text": "Binding-scale hub incident 26 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-028",
+          "external_id": "hub-scale-memory-27",
+          "timestamp": "2025-02-04T10:00:00Z",
+          "text": "Binding-scale hub incident 27 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-029",
+          "external_id": "hub-scale-memory-28",
+          "timestamp": "2025-02-05T10:00:00Z",
+          "text": "Binding-scale hub incident 28 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-030",
+          "external_id": "hub-scale-memory-29",
+          "timestamp": "2025-02-06T10:00:00Z",
+          "text": "Binding-scale hub incident 29 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-031",
+          "external_id": "hub-scale-memory-30",
+          "timestamp": "2025-02-07T10:00:00Z",
+          "text": "Binding-scale hub incident 30 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-032",
+          "external_id": "hub-scale-memory-31",
+          "timestamp": "2025-02-08T10:00:00Z",
+          "text": "Binding-scale hub incident 31 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-033",
+          "external_id": "hub-scale-memory-32",
+          "timestamp": "2025-02-09T10:00:00Z",
+          "text": "Binding-scale hub incident 32 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-034",
+          "external_id": "hub-scale-memory-33",
+          "timestamp": "2025-02-10T10:00:00Z",
+          "text": "Binding-scale hub incident 33 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-035",
+          "external_id": "hub-scale-memory-34",
+          "timestamp": "2025-02-11T10:00:00Z",
+          "text": "Binding-scale hub incident 34 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-036",
+          "external_id": "hub-scale-memory-35",
+          "timestamp": "2025-02-12T10:00:00Z",
+          "text": "Binding-scale hub incident 35 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-037",
+          "external_id": "hub-scale-memory-36",
+          "timestamp": "2025-02-13T10:00:00Z",
+          "text": "Binding-scale hub incident 36 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-038",
+          "external_id": "hub-scale-memory-37",
+          "timestamp": "2025-02-14T10:00:00Z",
+          "text": "Binding-scale hub incident 37 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-039",
+          "external_id": "hub-scale-memory-38",
+          "timestamp": "2025-02-15T10:00:00Z",
+          "text": "Binding-scale hub incident 38 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-040",
+          "external_id": "hub-scale-memory-39",
+          "timestamp": "2025-02-16T10:00:00Z",
+          "text": "Binding-scale hub incident 39 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-041",
+          "external_id": "hub-scale-memory-40",
+          "timestamp": "2025-02-17T10:00:00Z",
+          "text": "Binding-scale hub incident 40 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-042",
+          "external_id": "hub-scale-memory-41",
+          "timestamp": "2025-02-18T10:00:00Z",
+          "text": "Binding-scale hub incident 41 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-043",
+          "external_id": "hub-scale-memory-42",
+          "timestamp": "2025-02-19T10:00:00Z",
+          "text": "Binding-scale hub incident 42 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-044",
+          "external_id": "hub-scale-memory-43",
+          "timestamp": "2025-02-20T10:00:00Z",
+          "text": "Binding-scale hub incident 43 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-045",
+          "external_id": "hub-scale-memory-44",
+          "timestamp": "2025-02-21T10:00:00Z",
+          "text": "Binding-scale hub incident 44 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-046",
+          "external_id": "hub-scale-memory-45",
+          "timestamp": "2025-02-22T10:00:00Z",
+          "text": "Binding-scale hub incident 45 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-047",
+          "external_id": "hub-scale-memory-46",
+          "timestamp": "2025-02-23T10:00:00Z",
+          "text": "Binding-scale hub incident 46 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-048",
+          "external_id": "hub-scale-memory-47",
+          "timestamp": "2025-02-24T10:00:00Z",
+          "text": "Binding-scale hub incident 47 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-049",
+          "external_id": "hub-scale-dormant-probe",
+          "timestamp": "2025-03-01T10:00:00Z",
+          "text": "The dormant graph-only marker linked to Scale Hub C is obsidian-seven.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.8
+        },
+        {
+          "kind": "query",
+          "event_id": "event-050",
+          "query_id": "query-hub-scale",
+          "timestamp": "2025-04-01T10:00:00Z",
+          "text": "Which dormant graph-only marker is linked to Scale Hub C?",
+          "expected": {
+            "relevant_external_ids": [
+              "hub-scale-dormant-probe"
+            ],
+            "irrelevant_external_ids": []
+          }
+        }
+      ]
+    },
+    {
       "fixture_id": "selective-entity",
       "namespace": "continuity-selective-entity-0000000001352768",
       "pattern": "selective_entity",

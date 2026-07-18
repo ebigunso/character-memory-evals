@@ -159,6 +159,20 @@ The two lower relation caps preserve exact returned-object sets, every scored qu
 
 For the active findings, this sweep confirms F-BASE-4's conservative fallback dominance without weakening it; supplies the requested post-fixture tuning evidence for F-BASE-2; and shows that the measured root omission in F-SEED-1 does not reduce this fixture's recall or required recurrence context, while larger root limits worsen context size. It does not resolve F-SEED-1's still-missing root-type attribution.
 
+## Task_14 binding-scale fixture evidence
+
+Task_14 adds `hub-scale` alongside the existing recurrence fixture so the Task_15 resweep can measure a regime in which write-derived selectivity statistics and graph-root truncation both bind. This section records fixture construction and the single shipped-default live smoke; it does not compare tuning variants or supersede the Task_7 recommendation.
+
+The regenerated ten-scenario canonical fixture uses seed `20260712` and has SHA-256 `45EFE4F85DA1A58809B702D60D471023746D8629A0BB7D92B2AE2CE3A04D2F87`. `hub-scale` contains 48 routine incidents distributed `4/10/17/17` across four deterministic similarity clusters, cycles salience through `0.15/0.35/0.65/0.95`, and assigns three hub entities to distinct routine clusters. Its only relevance label is dormant memory `hub-scale-dormant-probe`; the probe is linked only to `Scale Hub C`, occupies a fifth cluster orthogonal to the query cluster, and has no sampled-negative labels. Generator tests pin more than 48 positively correlated memory/entity vector objects ahead of the orthogonal probe, the exact cluster population and hub assignment, canonical checked-fixture identity, and cross-process byte identity.
+
+The guarded mock smoke ran all ten scenarios. Under `runs/continuity/v0-1-5-task14/mock/`, raw SHA-256 hashes are results `159654AB4E929050EF9209570DA2171FC14ADCE69F5AA974E12E2B4A529515D6`, summary `BACB5473ADC047E2FA6678E732EC0E2610556ECCDAF43977D43148A0DC340EA2`, traces `3ADB05C1F33B574049DB92D737BD3418C13045490CDADBC9287DE2B4F38B54DA`, and report `1545923EA8237EEEDD94E8513C4361E94E2C88CFC0270AD36357EE94A165C0B3`.
+
+The scoped live smoke used Character Memory branch `feature/v0-1-5-embedded-default` at committed post-service-removal source SHA `7949173d1c40580df01ed78a79454e6d9574a2c1`. The ignored config `runs/continuity/v0-1-5-task14/continuity_task14_live.toml` has SHA-256 `E06C9B36E0C214DB0FC6D113B99BF310DA643153398CDBDE1F7C695E385B2849` and explicitly pins the shipped point: `alpha=1.0`, `gamma=1.0`, relation caps `20/5/15`, `max_vector_candidates=48`, and `max_graph_roots=12`. The run was limited to `hub-scale` and used the real adapter through the local Qdrant gRPC endpoint.
+
+At that point, the trace records 48 vector candidates, 48 unique graph-root candidates, 12 selected roots, and 36 root omissions. Selectivity status is `scored_with_fallback`: two nonfallback decisions are scored at `0.588591910067779` from entity count `4` and global count `49`, while one thread decision uses conservative fallback. The dormant probe is absent from returned vector/context objects and measured `continuity_recall_fraction_gap_medium@5=0.0` (also `@10=0.0`). Those recall values are recorded observations, not expected outcomes; Task_15 owns the controlled comparison needed to attribute any change to tuning or root selection.
+
+Under `runs/continuity/v0-1-5-task14/live/`, raw SHA-256 hashes are results `1E4235318FEB5710B403EC3519EEDBA4FDADB96C627335844BF4EEBF1D05CAEB`, summary `F10B19402CC9361A141E74767B8DAE68FDA9A0E92CB9E91E508286533D21274D`, traces `C2A1D3253F2E790E564ABA2582DEEA4F3CCA5676B340A8E489DDCBD59DF4196D`, and report `033320B58BD344CF1EC6A4B664D5B449D1F1747D2615EE8DCAC3DBA12C232FEF`.
+
 ## Findings
 
 ### F-SEED-1: Hub entity roots are truncated before graph expansion

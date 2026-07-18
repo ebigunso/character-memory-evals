@@ -50,6 +50,7 @@ pub struct ContinuityScenario {
 pub enum ScenarioPattern {
     LongGapRecall,
     RecurringHubEntity,
+    HubScale,
     SelectiveEntity,
     CorrectionChains,
     ThreadDrift,

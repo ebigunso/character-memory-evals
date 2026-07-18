@@ -103,7 +103,7 @@ PowerShell uses `$env:QDRANT_CONNECTION_STRING = "http://localhost:6334"` for th
 
 ### Run a service-free mock smoke
 
-The guarded mock command runs all nine checked scenarios, writes visibly marked `mock_smoke` artifacts, and uses the same config and metric registry as the live path:
+The guarded mock command runs all ten checked scenarios, writes visibly marked `mock_smoke` artifacts, and uses the same config and metric registry as the live path:
 
 ```bash
 cargo run -p cmem-eval-runner -- run continuity \

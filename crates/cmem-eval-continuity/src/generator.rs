@@ -12,6 +12,7 @@ use crate::{
 
 pub const CHECKED_FIXTURE_SEED: u64 = 0x0000_0000_0135_2768;
 const EMBEDDING_VECTOR_SIZE: usize = 8;
+const HUB_SCALE_INCIDENT_COUNT: usize = 48;
 
 pub fn generate_fixture_set(seed: u64) -> Result<ContinuityFixtureSet> {
     Ok(ContinuityFixtureSet {
@@ -20,6 +21,7 @@ pub fn generate_fixture_set(seed: u64) -> Result<ContinuityFixtureSet> {
         scenarios: vec![
             long_gap_recall(seed)?,
             recurring_hub_entity(seed)?,
+            hub_scale(seed)?,
             selective_entity(seed)?,
             correction_chains(seed)?,
             thread_drift(seed)?,
@@ -130,6 +132,173 @@ fn recurring_hub_entity(seed: u64) -> Result<ContinuityScenario> {
             hub_inputs.iter().map(String::as_str).collect(),
         )]),
     )
+}
+
+fn hub_scale(seed: u64) -> Result<ContinuityScenario> {
+    let id = "hub-scale";
+    let entities = vec![
+        entity(
+            "hub-scale-person",
+            ContinuityEntityKind::Person,
+            "Scale Hub A",
+            true,
+        ),
+        entity(
+            "hub-scale-organization",
+            ContinuityEntityKind::Organization,
+            "Scale Hub B",
+            true,
+        ),
+        entity(
+            "hub-scale-location",
+            ContinuityEntityKind::Location,
+            "Scale Hub C",
+            true,
+        ),
+    ];
+    let cluster_ids = [
+        "hub-scale-query",
+        "hub-scale-secondary",
+        "hub-scale-tertiary",
+        "hub-scale-quaternary",
+    ];
+    let salience_levels = [0.15, 0.35, 0.65, 0.95];
+    let mut cluster_inputs: [Vec<String>; 4] = std::array::from_fn(|_| Vec::new());
+    let mut events = Vec::with_capacity(HUB_SCALE_INCIDENT_COUNT + 2);
+
+    for index in 0..HUB_SCALE_INCIDENT_COUNT {
+        let cluster_index = match index {
+            0..=3 => 0,
+            4..=13 => 1,
+            14..=30 => 2,
+            _ => 3,
+        };
+        let entity_id = match cluster_index {
+            0 => "hub-scale-person",
+            1 => "hub-scale-location",
+            _ => "hub-scale-organization",
+        };
+        let text =
+            format!("Binding-scale hub incident {index:02} records routine continuity context.");
+        cluster_inputs[cluster_index].push(text.clone());
+        let month = index / 24 + 1;
+        let day = index % 24 + 1;
+        events.push(remember(
+            index + 1,
+            &format!("hub-scale-memory-{index:02}"),
+            &format!("2025-{month:02}-{day:02}T10:00:00Z"),
+            &text,
+            vec![entity_id],
+            None,
+            salience_levels[index % salience_levels.len()],
+        )?);
+    }
+
+    let probe_id = "hub-scale-dormant-probe";
+    let probe_text = "The dormant graph-only marker linked to Scale Hub C is obsidian-seven.";
+    events.push(remember(
+        HUB_SCALE_INCIDENT_COUNT + 1,
+        probe_id,
+        "2025-03-01T10:00:00Z",
+        probe_text,
+        vec!["hub-scale-location"],
+        None,
+        0.8,
+    )?);
+    let query_text = "Which dormant graph-only marker is linked to Scale Hub C?";
+    cluster_inputs[0].push(query_text.to_string());
+    events.push(query(
+        HUB_SCALE_INCIDENT_COUNT + 2,
+        "query-hub-scale",
+        "2025-04-01T10:00:00Z",
+        query_text,
+        vec![probe_id],
+        vec![],
+    )?);
+
+    let mut embedding_concepts = cluster_ids
+        .into_iter()
+        .zip(cluster_inputs)
+        .enumerate()
+        .map(|(index, (cluster, inputs))| {
+            (
+                format!("hub-scale-{index}"),
+                SimilarityConceptFixture {
+                    cluster: cluster.to_string(),
+                    inputs,
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    embedding_concepts.insert(
+        "hub-scale-probe".to_string(),
+        SimilarityConceptFixture {
+            cluster: "hub-scale-probe".to_string(),
+            inputs: vec![probe_text.to_string()],
+        },
+    );
+
+    let mut scenario = scenario(
+        seed,
+        id,
+        ScenarioPattern::HubScale,
+        entities,
+        events,
+        embedding_concepts,
+    )?;
+    correlate_cluster(
+        &mut scenario,
+        "hub-scale-query",
+        "hub-scale-secondary",
+        0.8,
+        0.6,
+    )?;
+    correlate_cluster(
+        &mut scenario,
+        "hub-scale-query",
+        "hub-scale-tertiary",
+        0.6,
+        0.8,
+    )?;
+    correlate_cluster(
+        &mut scenario,
+        "hub-scale-query",
+        "hub-scale-quaternary",
+        0.28,
+        0.96,
+    )?;
+    scenario.validate()?;
+    Ok(scenario)
+}
+
+fn correlate_cluster(
+    scenario: &mut ContinuityScenario,
+    query_cluster: &str,
+    target_cluster: &str,
+    query_component: f32,
+    target_component: f32,
+) -> Result<()> {
+    let query_dimension = scenario
+        .embedding
+        .clusters
+        .get(query_cluster)
+        .with_context(|| format!("missing query embedding cluster {query_cluster:?}"))?
+        .iter()
+        .position(|component| *component == 1.0)
+        .context("query cluster has no deterministic basis dimension")?;
+    let target = scenario
+        .embedding
+        .clusters
+        .get_mut(target_cluster)
+        .with_context(|| format!("missing target embedding cluster {target_cluster:?}"))?;
+    let target_dimension = target
+        .iter()
+        .position(|component| *component == 1.0)
+        .context("target cluster has no deterministic basis dimension")?;
+    target.fill(0.0);
+    target[query_dimension] = query_component;
+    target[target_dimension] = target_component;
+    Ok(())
 }
 
 fn selective_entity(seed: u64) -> Result<ContinuityScenario> {
@@ -790,7 +959,7 @@ mod tests {
         assert_eq!(parse_fixture_bytes(CHECKED_FIXTURE).unwrap(), generated);
 
         let patterns = scenario_patterns(&generated);
-        assert_eq!(patterns.len(), 9);
+        assert_eq!(patterns.len(), 10);
         assert!(patterns.values().all(|count| *count == 1));
         assert_eq!(
             generated
@@ -801,6 +970,7 @@ mod tests {
             vec![
                 "long-gap-recall",
                 "recurring-hub-entity",
+                "hub-scale",
                 "selective-entity",
                 "correction-chains",
                 "thread-drift",
@@ -974,7 +1144,7 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(unlabeled_contrasts, 2);
+        assert_eq!(unlabeled_contrasts, 3);
     }
 
     #[test]
@@ -1051,6 +1221,157 @@ mod tests {
                 .count();
             assert!(degree >= 5, "{} degree was {degree}", entity.external_id);
         }
+    }
+
+    #[test]
+    fn hub_scale_creates_binding_pressure_and_a_graph_only_probe() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scale = scenario(&fixtures, ScenarioPattern::HubScale);
+        let routine = scale
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                InteractionEvent::Remember {
+                    external_id,
+                    text,
+                    salience,
+                    ..
+                } if external_id.starts_with("hub-scale-memory-") => {
+                    Some((text, salience.to_bits()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(routine.len(), HUB_SCALE_INCIDENT_COUNT);
+        assert_eq!(
+            routine
+                .iter()
+                .map(|(_, salience)| *salience)
+                .collect::<BTreeSet<_>>()
+                .len(),
+            4
+        );
+
+        let provider =
+            cmem_eval_core::ControllableSimilarityEmbeddingProvider::new(scale.embedding.clone())
+                .unwrap();
+        let routine_cluster_counts = routine
+            .iter()
+            .map(|(text, _)| {
+                let concept = provider.concept_for_text(text).unwrap();
+                scale.embedding.concepts[concept].cluster.as_str()
+            })
+            .fold(BTreeMap::new(), |mut counts, cluster| {
+                *counts.entry(cluster).or_insert(0) += 1;
+                counts
+            });
+        assert_eq!(
+            routine_cluster_counts,
+            BTreeMap::from([
+                ("hub-scale-query", 4),
+                ("hub-scale-quaternary", 17),
+                ("hub-scale-secondary", 10),
+                ("hub-scale-tertiary", 17),
+            ])
+        );
+        assert_eq!(
+            scale
+                .entities
+                .iter()
+                .map(|entity| (
+                    entity.label.as_str(),
+                    scale.embedding.concepts[provider.concept_for_text(&entity.label).unwrap()]
+                        .cluster
+                        .as_str(),
+                ))
+                .collect::<BTreeMap<_, _>>(),
+            BTreeMap::from([
+                ("Scale Hub A", "hub-scale-query"),
+                ("Scale Hub B", "hub-scale-tertiary"),
+                ("Scale Hub C", "hub-scale-secondary"),
+            ])
+        );
+
+        let query_text = "Which dormant graph-only marker is linked to Scale Hub C?";
+        let probe_text = "The dormant graph-only marker linked to Scale Hub C is obsidian-seven.";
+        let query_vector = provider.vector_for_text(query_text).unwrap();
+        let probe_vector = provider.vector_for_text(probe_text).unwrap();
+        let dot = query_vector
+            .iter()
+            .zip(&probe_vector)
+            .map(|(left, right)| left * right)
+            .sum::<f32>();
+        assert!(dot.abs() < 0.01, "probe/query dot product was {dot}");
+        let query_cluster = &scale.embedding.clusters["hub-scale-query"];
+        let probe_cluster = &scale.embedding.clusters["hub-scale-probe"];
+        assert_eq!(
+            query_cluster
+                .iter()
+                .zip(probe_cluster)
+                .map(|(left, right)| left * right)
+                .sum::<f32>(),
+            0.0
+        );
+
+        let positive_vector_memory_count = routine
+            .iter()
+            .filter(|(text, _)| {
+                provider
+                    .vector_for_text(text)
+                    .unwrap()
+                    .iter()
+                    .zip(&query_vector)
+                    .map(|(left, right)| left * right)
+                    .sum::<f32>()
+                    > 0.0
+            })
+            .count();
+        let positive_vector_entity_count = scale
+            .entities
+            .iter()
+            .filter(|entity| {
+                provider
+                    .vector_for_text(&entity.label)
+                    .unwrap()
+                    .iter()
+                    .zip(&query_vector)
+                    .map(|(left, right)| left * right)
+                    .sum::<f32>()
+                    > 0.0
+            })
+            .count();
+        let positive_vector_object_count =
+            positive_vector_memory_count + positive_vector_entity_count;
+        assert!(positive_vector_object_count > 48);
+
+        let probe = scale
+            .events
+            .iter()
+            .find(|event| {
+                matches!(
+                    event,
+                    InteractionEvent::Remember { external_id, .. }
+                        if external_id == "hub-scale-dormant-probe"
+                )
+            })
+            .unwrap();
+        let InteractionEvent::Remember {
+            entity_external_ids,
+            ..
+        } = probe
+        else {
+            unreachable!("probe lookup only accepts Remember events");
+        };
+        assert_eq!(entity_external_ids, &["hub-scale-location"]);
+        let query = scale.events.last().unwrap();
+        let InteractionEvent::Query { expected, .. } = query else {
+            panic!("hub-scale must end with its measurement query");
+        };
+        assert_eq!(
+            expected.relevant_external_ids,
+            vec!["hub-scale-dormant-probe"]
+        );
+        assert!(expected.irrelevant_external_ids.is_empty());
     }
 
     #[test]
