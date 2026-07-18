@@ -427,7 +427,7 @@ Config hashes cover the tracked LF bytes. Output and report-content hashes are S
 Task_22 replaces the canonical checked fixture with deterministic schema v3 at `crates/cmem-eval-continuity/fixtures/continuity_v3.json`. The catalog now contains 15 scenarios and 23 queries. Five new scenarios extend the prior ten-scenario suite:
 
 - `graded-similarity` uses frozen real-model geometry for one target, two near misses, and an unrelated background memory.
-- `combined-life` uses frozen real-model geometry for a 61-event life history: 53 remembers, two corrections, three explicit links, and three queries. It spans December 2024 through December 2025, interleaves the `lantern-restoration` and `harbor-garden` threads, includes recurring person, organization, and location hubs, and varies salience.
+- `combined-life` uses frozen real-model geometry for a 62-event life history: 54 remembers, two corrections, three explicit links, and three queries. It spans December 2024 through December 2025, interleaves the `lantern-restoration` and `harbor-garden` threads, includes recurring person, organization, and location hubs, and varies salience.
 - `temporal-patterns` uses controllable similarity for explicit temporal progression.
 - `entrenched-correction` uses controllable similarity for repeated misinformation followed by a correction chain.
 - `autobiographical` uses controllable similarity and an ordinary `Person` character so provider judgment remains a measured result rather than fixture-side privileged identity.
