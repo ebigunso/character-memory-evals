@@ -18,8 +18,8 @@ use cmem_eval_core::{
     BenchmarkRunConfig, CandidateValidationResult, CommitWriteOptions, CommitWriteResult,
     ControllableSimilarityEmbeddingProvider, ControllableSimilarityFixture, CorrectMemoryInput,
     CorrectionTargetInput, DeterministicEmbeddingProvider, EpisodeInput, ExternalSourceRefInput,
-    ForgetMemoryInput, FrozenEmbeddingProvider, GraphEnrichmentInput, LifecycleMutationResult,
-    LinkMemoryInput, LinkMemoryResult, MemoryAdapter, MemoryEndpointInput,
+    ForgetMemoryInput, FrozenEmbeddingProvider, FrozenEmbeddingSource, GraphEnrichmentInput,
+    LifecycleMutationResult, LinkMemoryInput, LinkMemoryResult, MemoryAdapter, MemoryEndpointInput,
     NamespaceLifecycleResult, ObservationInput, PrepareWriteInput, PreparedCandidate,
     PreparedWritePlan, ReplacementDerivedMemoryInput, RetrievalFanoutUtilization, RetrievalMode,
     RetrievalRationaleCategory, RetrievalSelectivityDecision, RetrievalTelemetry, RetrieveInput,
@@ -281,6 +281,18 @@ impl CharacterMemoryAdapter {
     }
 
     pub async fn new_with_frozen_embeddings(config: &BenchmarkRunConfig) -> Result<Self> {
+        Self::new_with_frozen_embeddings_internal(config, false).await
+    }
+
+    #[cfg(test)]
+    async fn new_with_test_frozen_embeddings(config: &BenchmarkRunConfig) -> Result<Self> {
+        Self::new_with_frozen_embeddings_internal(config, true).await
+    }
+
+    async fn new_with_frozen_embeddings_internal(
+        config: &BenchmarkRunConfig,
+        allow_test_fixture: bool,
+    ) -> Result<Self> {
         config.validate()?;
         if config.backend.embedding.provider != "frozen" {
             bail!("new_with_frozen_embeddings requires backend.embedding.provider=frozen");
@@ -301,6 +313,12 @@ impl CharacterMemoryAdapter {
             &config.backend.embedding.model,
             vector_size,
         )?;
+        if !allow_test_fixture && provider.source() != FrozenEmbeddingSource::OpenAiApi {
+            bail!(
+                "live frozen embedding adapter requires source=open_ai_api; store {store_path} declares source={:?}",
+                provider.source()
+            );
+        }
         Self::new_internal(config, None, Some(provider)).await
     }
 
@@ -3044,8 +3062,8 @@ mod tests {
         SelectivityCountScope, SelectivityDecision, SelectivityTrace, VectorDatabaseError,
     };
     use cmem_eval_core::{
-        CleanupConfig, DerivedMemoryInput, EmbeddingConfig, EntityInput, FrozenEmbeddingSource,
-        FrozenEmbeddingStore, MemoryLinkInput,
+        CleanupConfig, DerivedMemoryInput, EmbeddingConfig, EntityInput, FrozenEmbeddingStore,
+        MemoryLinkInput,
     };
     use tempfile::tempdir;
 
@@ -3115,6 +3133,54 @@ mod tests {
             .to_string();
         assert!(error.contains("frozen embedding cache miss"), "{error}");
         assert!(error.contains("cmem-eval embeddings generate"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn live_frozen_construction_and_reconstruction_reject_test_fixture_provenance() {
+        let directory = tempdir().unwrap();
+        let store_path = directory.path().join("test-fixture-store.json");
+        let store = FrozenEmbeddingStore::new(
+            "task21-smoke-model",
+            FrozenEmbeddingSource::TestFixture,
+            [("fixture text".to_string(), vec![1.0, 0.0, 0.0])],
+        )
+        .unwrap();
+        fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
+        let mut config = adapter_config(
+            "frozen-provenance".to_string(),
+            "cmem_eval_frozen_provenance".to_string(),
+        );
+        config.backend.embedding.provider = "frozen".to_string();
+        config.backend.embedding.model = "task21-smoke-model".to_string();
+        config.backend.embedding.vector_size = Some(3);
+        config.backend.embedding.store_path = Some(store_path.display().to_string());
+        config.ingest.index_observations = true;
+        config.ingest.index_episode_summaries = true;
+
+        let error = match CharacterMemoryAdapter::new_with_frozen_embeddings(&config).await {
+            Ok(_) => panic!("live construction admitted test-fixture provenance"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("source=open_ai_api"), "{error}");
+        assert!(error.contains("TestFixture"), "{error}");
+        assert!(error.contains(&store_path.display().to_string()), "{error}");
+
+        let error = match CharacterMemoryAdapter::reconstruct_with_frozen_embeddings(
+            &config,
+            "continuity-frozen-provenance",
+        )
+        .await
+        {
+            Ok(_) => panic!("live reconstruction admitted test-fixture provenance"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("source=open_ai_api"), "{error}");
+        assert!(error.contains("TestFixture"), "{error}");
+        assert!(error.contains(&store_path.display().to_string()), "{error}");
+
+        CharacterMemoryAdapter::new_with_test_frozen_embeddings(&config)
+            .await
+            .expect("the cfg(test)-only constructor should admit explicit test provenance");
     }
 
     fn file_contains(path: &Path, needle: &[u8]) -> bool {
