@@ -80,6 +80,11 @@ pub fn insert_continuity_metrics(
     trace: &ContinuityQueryTrace,
     config: &MetricsConfig,
 ) {
+    if trace.pattern == ScenarioPattern::Abstention {
+        insert_pollution_metrics(out, trace);
+        return;
+    }
+
     let retrieved_ids = ranked_ids_for_gold(
         &trace.retrieval.items,
         &trace.expected.relevant_external_ids,
@@ -871,6 +876,23 @@ mod tests {
         assert_eq!(out["sampled_context_pollution_rate"], 0.5);
         assert_eq!(out["sampled_event_pollution_rate"], 0.5);
         assert_eq!(out["sampled_pollution_rationale_share_semantic"], 1.0);
+    }
+
+    #[test]
+    fn abstention_is_scored_with_pollution_metrics_only() {
+        let scenario = scenario(ScenarioPattern::Abstention);
+        let mut trace = trace(ScenarioPattern::Abstention);
+        trace.expected.relevant_external_ids.clear();
+        let mut out = Map::new();
+
+        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+
+        assert_eq!(out["sampled_context_pollution_rate"], 1.0);
+        assert_eq!(out["sampled_event_pollution_rate"], 1.0);
+        assert!(out.get("continuity_gap_days").is_none());
+        assert!(out.get("hub_context_share").is_none());
+        assert!(out.get("typed_rationale_coverage").is_none());
+        assert!(out.get("fanout_over_budget_count").is_none());
     }
 
     #[test]

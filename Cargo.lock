@@ -444,6 +444,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmem-eval-benchmark-convert"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "cmem-eval-continuity",
+ "cmem-eval-core",
+ "cmem-eval-locomo",
+ "cmem-eval-longmemeval",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmem-eval-continuity"
 version = "0.1.0"
 dependencies = [
