@@ -1,6 +1,6 @@
 # Benchmark-Adapted Continuity Fixture Attribution
 
-The `continuity_benchmarks_v1` fixture is a noncommercial evaluation artifact adapted from selected LongMemEval-S and LoCoMo records. Source questions and selected conversation-turn text are copied byte-for-byte; provenance, selection predicates, relevance labels, and conversion metadata remain outside those text fields.
+This public repository distributes the `continuity_benchmarks_v1` fixture as a noncommercial evaluation artifact adapted from selected LongMemEval-S and LoCoMo records. Source questions and selected conversation-turn text are copied byte-for-byte; provenance, selection predicates, relevance labels, and conversion metadata remain outside those text fields.
 
 ## Upstream sources and licenses
 

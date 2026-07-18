@@ -2,6 +2,8 @@
 
 Evaluation harness for the Character Memory memory substrate. This repository measures retrieval quality, continuity-context construction, context-size reduction, latency, and provenance-oriented integrity signals.
 
+CharacterMemoryEvals is the public companion evaluation repository for the public [`ebigunso/character-memory`](https://github.com/ebigunso/character-memory) library.
+
 Benchmark CLI runs default to the live Character Memory adapter. Mock runs are available only as explicit smoke/test runs so benchmark output is not accidentally generated from the mock adapter.
 
 ## Commands
