@@ -101,6 +101,62 @@ The pre-Task_6 README row recipe preserved `run_id`, so the distinct-run row has
 - Stats health and fallback activation — finding recorded in F-BASE-4.
 - Cross-run row normalization — finding recorded in F-HARNESS-2.
 
+## Task_7 continuity tuning sweep
+
+All live metrics, returned-object comparisons, preservation checks, and artifact hashes in this section were produced against Character Memory branch `feature/v0-1-5-write-path-diagnostics` at defect-fixed commit `a23fcda6ce6ef24d52572e9afec31f5727d47ae7`, using the canonical nine-scenario `crates/cmem-eval-continuity/fixtures/continuity_v2.json` fixture at CharacterMemoryEvals commit `cd70d61d08580853e0762a61763d2e2d1d651580`. Each configuration has a distinct run ID, namespace prefix, Oxigraph path, retrieval-stat database, and identity-registry directory.
+
+The matrix holds `max_vector_candidates=48` throughout and covers the default point (`alpha=1.0`, `gamma=1.0`, relation caps `20/5/15`, and `max_graph_roots=12`), alpha `{0.5, 2.0}`, gamma `{0.5, 2.0}`, `about_entity.derived_memory.max=10`, `part_of_thread.derived_memory.max=8`, `participant_entity.episode.max=10`, and `max_graph_roots={24, 48}`. The requested alpha/gamma `1.0` points and graph-root `12` point reuse the explicit default run, yielding ten unique live configurations.
+
+### Comparison
+
+Table values are aggregate means unless marked as totals or percentiles. `Recall S/M/L` is gap-bucket recall@5. `Pollution E/S` is event/surface sampled pollution. `Cap utilization C/S` is configured-cap/selected-cap utilization. `Fallback/scored` is the exact analytical split from `stats_health_events`; score distributions exclude fallback decisions. `Preserve` means recurrence context, temporal contrast, thread scope, and relevant Episode surfaces all remained present.
+
+| Config | Varied value | Recall S/M/L | Pollution E/S | Context reduction | Cap utilization C/S | Fallback/scored | Score mean/p50/p95 | Over budget | Preserve |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `task7_default` | default | 1/1/1 | 0.296296/0.296296 | -0.655718 | 0.099229/0.172224 | 40/29 | 0.355868/0.369070/0.500000 | 0 | pass |
+| `task7_alpha_0_5` | alpha `0.5` | 1/1/1 | 0.296296/0.296296 | -0.655718 | 0.099229/0.155348 | 40/29 | 0.512683/0.557493/0.676343 | 0 | pass |
+| `task7_alpha_2_0` | alpha `2.0` | 1/1/1 | 0.296296/0.296296 | -0.655718 | 0.099012/0.184629 | 40/29 | 0.211612/0.207519/0.317394 | 0 | pass |
+| `task7_gamma_0_5` | gamma `0.5` | 1/1/1 | 0.296296/0.296296 | -0.655718 | 0.099229/0.150140 | 40/29 | 0.355868/0.369070/0.500000 | 0 | pass |
+| `task7_gamma_2_0` | gamma `2.0` | 1/1/1 | 0.296296/0.296296 | -0.655718 | 0.097493/0.180377 | 40/29 | 0.355868/0.369070/0.500000 | 0 | pass |
+| `task7_about_10` | about cap `10` | 1/1/1 | 0.296296/0.296296 | -0.655718 | 0.099229/0.172224 | 40/29 | 0.355868/0.369070/0.500000 | 0 | pass |
+| `task7_thread_8` | thread cap `8` | 1/1/1 | 0.296296/0.296296 | -0.655718 | 0.099229/0.172224 | 40/29 | 0.355868/0.369070/0.500000 | 0 | pass |
+| `task7_participant_10` | participant cap `10` | 1/1/1 | 0.296296/0.296296 | -0.655718 | 0.099229/0.146121 | 40/29 | 0.355868/0.369070/0.500000 | 0 | pass |
+| `task7_roots_24` | graph roots `24` | 1/1/1 | 0.296296/0.296296 | -0.741739 | 0.092632/0.168636 | 46/35 | 0.352997/0.369070/0.500000 | 0 | pass |
+| `task7_roots_48` | graph roots `48` | 1/1/1 | 0.296296/0.296296 | -0.741739 | 0.092632/0.168636 | 46/35 | 0.352997/0.369070/0.500000 | 0 | pass |
+
+Against the default returned-object sets, all alpha, gamma, and relation-cap variants are exact matches in every scenario. The `24`- and `48`-root variants are also exact matches except in `recurring-hub-entity`, where each adds the same six DerivedMemory surfaces (`hub-memory-0:derived` through `hub-memory-5:derived`). Those surfaces do not change recall or event/surface pollution and make aggregate context reduction more negative. The `24`- and `48`-root traces are byte-identical, so the fixture saturates by 24 roots.
+
+The default run records 69 selectivity decisions: 29 scored and 40 conservative fallbacks. The larger-root runs record 81 decisions: 35 scored and 46 fallbacks. Alpha changes the scored distribution as intended, while gamma changes selected-cap utilization, but neither changes fallback count, returned objects, recall, pollution, or context size. The fallback path remains conservative and no relation cap is exceeded.
+
+A true warm rerun is not available through the current CLI lifecycle: every continuity invocation resets and opens its namespace before executing the fixture. Adding a persistent reattach sweep would require harness growth outside Task_7 ownership. The required warm/cold distinction is therefore the approved analytical fallback above, using each query's `stats_health_events` to keep scored decisions separate from conservative fallback decisions. This limits alpha/gamma conclusions to the observed scored paths; it is not evidence about a separately warmed production distribution.
+
+The preservation checks are explicit: `hub-memory-0` through `hub-memory-5` retain the recurrence series, both `archive-january` and `archive-october` retain temporal contrast, `thread-1` retains thread scope, and every non-correction scenario returns at least one relevance-labeled Episode surface. No variant improves pollution, so no apparent pollution gain conflicts with the preserve list.
+
+### Artifact references and hashes
+
+All paths below are under `runs/continuity/v0-1-5-task7/`; hashes are SHA-256 over the raw files.
+
+| Config directory | `results.jsonl` | `summary.json` | `traces.jsonl` | `report.json` |
+|---|---|---|---|---|
+| `task7_default` | `C93E2708B4B8148F7032DBE14A37B024B4420C459141CE867B6998902CEFD89B` | `6A1B3B26BB678BC2BFF230D2E60C132DAD74021CA007D43DF417ABD7A616DDB7` | `767AF66BDAA5455D9576373268BE552F8C580DF9FB39E16D84A708A05CD1C532` | `FFC7C25DE42E67C661AE44F13AD6B7119A52CCC0B8060B435CD389E45FE0031C` |
+| `task7_alpha_0_5` | `6863E534D90DCBF9FC0C50F948FFB6AC672248392F9B21B01A5846D960F28699` | `D64B697E8A3391D840687A5EABDD2A6BD6A820C52FEBC8282B1160E6059369EB` | `80C0B1DC5DB51F121600D0921A35627879F22AEC057C6B55217AA0EA2E4ADAC1` | `ECB1A64CF50119755E8D594D5191CF51E178AFDB5CA0F1E0CFE3D3A4D31B4E60` |
+| `task7_alpha_2_0` | `58872383B4B5054AD6E61FBD1990744CC76E0AA9674ED7373469913DE46A6043` | `34E01660F0D6B38C4EA8740C7FB59AD6C7A4FA1DA2FB0AD49EDD15661881BCED` | `57E644899D3D49EEA67FC42D8A6A672B442851DF0C8F8957822FFA513F3F9C92` | `4309460F406BDC90C6CB3A2A72AF94A2CEEEE0F49A17C138FD71FE9E3DFB2200` |
+| `task7_gamma_0_5` | `8634D8C0452ECBF9C4811618C090A9B60D838872098CBB711D1705D08654C994` | `07A9D0AA84048A2E24B070825AC85B47CA7FA8115EDBB2230899B2C5867D37D4` | `E7B70860A5FD9031C528AF78B9320F8EF767E8143C9A3183C11B767D866F699B` | `8DCEF86573FD45686ACB1E41BC923B41D08D176F8BE43FCF6D97CFA334CE2083` |
+| `task7_gamma_2_0` | `A2505641BB5C8205193571FA8ED5857CE72504AA23660C795FED4E19BE1D8A68` | `495A857A13FC8B3C85DA968A61FFEBE9929ADF9A48825737F1C92F0B0D1FE87A` | `29B9410BBD359A3EC854B47FEC861A0CD3E836D6901DDB8CE1A2C00B95A79DB1` | `85DF41052EED884C45C777E81F2F1B501C6A6A204D59E56B102D7E6B5D78FD48` |
+| `task7_about_10` | `CE70184D16B83A9E76A4EF746B445A00B828EE526231839D187048E964E3CFCE` | `A985C8328F886FE2984392B21946FD39552738E9CEFFF5B55B850976140BD093` | `E00CC2271B3F899A36A83CB16F4805C8E35AF2B3EFB1FE32D2B952B0410F6744` | `C6D68947BA95FBAD4C86CA4B30579F448F0C72EB5810A2062658790CA7FE9A8C` |
+| `task7_thread_8` | `9B557998B0CE118170D51CA593F1004584FDAD58616A1EE8C7C4FB8F3EAD8AE7` | `B72662CA9D8703C5830055092EA10E73C7AF8B16A7052B86B0D44FBD43979EFC` | `16419E43C12DEA6AD54750B984704DDDF8596D735FB86A12BD77116F5784609C` | `66971A1AC5C7AEE18C1A671BAE6D4F3D002F155A6512D655113BC6EEF49A7B98` |
+| `task7_participant_10` | `BFD66757A91968DEC980B9B6B3AF87E0C06BDCF3C433199179B2F83858DA0943` | `916317E8C3479002AA87003ED64C61DDF7B3BFC5C48B7E98B5BC396E955E4DF7` | `41E208B2B6338BBBF34D9068C984AFE287ACB4ED17398199F812162F16E6D024` | `CE2FD25A0E1FEC99D90429434BD60D37B6B27F8BAA6EB674098D4CD079897BC6` |
+| `task7_roots_24` | `6B34279FCC7CBEC394504E9BD96A1998234A767D772097B85EA2171484429F9A` | `0E59BC25D110499092B7CEEE3DE5E0507879A332B4EA79EAECD07F77A6C15406` | `638EB38BDEDD1E9BF81B53B3F58E2FA4E6A57848FCBEABC056FA6BB767777E13` | `454BAE7B25DADCEBCE0D5D3A3D1AB79D22060A799C484101F9188237C5BF82B2` |
+| `task7_roots_48` | `0A8D42BEEA24D241FAC084E939434FC6D480B683ECC1BE2C52D6E4FC733BF28A` | `F4E1A34591317AEC63EB5E71B8959567690FF63ABB26D1F2EC816C15848FFE45` | `638EB38BDEDD1E9BF81B53B3F58E2FA4E6A57848FCBEABC056FA6BB767777E13` | `FF151952778734314023D06FB216A50F6F65FCB41CBF9C1E55DF7B04EA0A54C1` |
+
+### Recommendation for user review
+
+Recommend `alpha=1.0`, `gamma=1.0`, `about_entity.derived_memory.max=10`, `participant_entity.episode.max=5`, `part_of_thread.derived_memory.max=8`, `max_vector_candidates=48`, and `max_graph_roots=12`. This is a recommendation only; Task_7 does not change Character Memory defaults.
+
+The two lower relation caps preserve exact returned-object sets, every scored quality metric, all four required continuity contexts, and zero over-budget decisions while tightening unused headroom. Raising the participant cap to `10` lets decisions select as many as 10 Episodes but yields no output or quality gain, so the existing `5` remains preferable. Alpha and gamma variants move internal scores or selected-cap utilization without any measured outcome improvement, so the current `1.0` values remain the defensible neutral point under the warm-run limitation. Raising graph roots admits six echo-like hub DerivedMemory surfaces, increases fallback work, and worsens context reduction without improving recall or pollution, so `12` remains preferred.
+
+For the active findings, this sweep confirms F-BASE-4's conservative fallback dominance without weakening it; supplies the requested post-fixture tuning evidence for F-BASE-2; and shows that the measured root omission in F-SEED-1 does not reduce this fixture's recall or required recurrence context, while larger root limits worsen context size. It does not resolve F-SEED-1's still-missing root-type attribution.
+
 ## Findings
 
 ### F-SEED-1: Hub entity roots are truncated before graph expansion
