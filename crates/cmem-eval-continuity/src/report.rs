@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::{
-    CONTINUITY_FIXTURE_SCHEMA_VERSION, CONTINUITY_TRACE_SCHEMA_VERSION, ContinuityQueryTrace,
-    ContinuityScenario, InteractionEvent, RestartObservation, ScenarioPattern,
+    CONTINUITY_TRACE_SCHEMA_VERSION, ContinuityQueryTrace, ContinuityScenario, InteractionEvent,
+    RestartObservation, ScenarioPattern,
 };
 
 pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "1.0.0";
@@ -120,6 +120,7 @@ pub struct TuningObservation {
 
 pub struct ContinuityReportInput<'a> {
     pub generated_at: DateTime<Utc>,
+    pub fixture_schema_version: u32,
     pub fixture_seed: u64,
     pub config: Value,
     pub adapter: RunAdapterMetadata,
@@ -141,12 +142,17 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
     let embedding_seeds = input
         .scenarios
         .iter()
-        .map(|scenario| (scenario.fixture_id.clone(), scenario.embedding.seed))
+        .filter_map(|scenario| {
+            scenario
+                .embedding
+                .controllable_similarity()
+                .map(|embedding| (scenario.fixture_id.clone(), embedding.seed))
+        })
         .collect::<BTreeMap<_, _>>();
     let mut schema_versions = BTreeMap::new();
     schema_versions.insert(
         "continuity_fixture".to_string(),
-        CONTINUITY_FIXTURE_SCHEMA_VERSION.to_string(),
+        input.fixture_schema_version.to_string(),
     );
     schema_versions.insert(
         "continuity_report".to_string(),
@@ -391,7 +397,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             run_id: input.summary.run_id.clone(),
             dataset: input.summary.dataset.clone(),
             adapter: input.adapter,
-            fixture_schema_version: CONTINUITY_FIXTURE_SCHEMA_VERSION,
+            fixture_schema_version: input.fixture_schema_version,
             fixture_seed: input.fixture_seed,
             embedding_seeds,
             fixture_ids,

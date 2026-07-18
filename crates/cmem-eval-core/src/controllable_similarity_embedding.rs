@@ -4,6 +4,7 @@ use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ControllableSimilarityFixture {
     pub seed: u64,
     pub vector_size: usize,
@@ -13,6 +14,7 @@ pub struct ControllableSimilarityFixture {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SimilarityConceptFixture {
     pub cluster: String,
     pub inputs: Vec<String>,

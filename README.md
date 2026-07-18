@@ -69,7 +69,7 @@ Continuity fixtures run an ordered, fixture-scripted lifecycle through remember,
 
 ### Configuration and prerequisites
 
-`configs/continuity_retrieval.toml` is the single committed continuity config for both mock smoke runs and live evaluations. A separate mock config is unnecessary because mock selection is an explicit CLI adapter choice. Continuity validation requires the `controllable_similarity` deterministic provider, the fixture's small vector size of 8, and configured persistent Oxigraph and retrieval-stat SQLite paths so restart scenarios can reconstruct those stores. The identity registry is always persistent: `identity_registry_dir` is optional and falls back deterministically to `runs/<run_id>`; the committed config explicitly places it under `runs/continuity/stores/identities`. The config records `max_vector_candidates = 48` and `max_graph_roots = 48` so report tuning observations remain correlated with the measured candidate-limit regime.
+`configs/continuity_retrieval.toml` is the single committed continuity config for both mock smoke runs and live evaluations. A separate mock config is unnecessary because mock selection is an explicit CLI adapter choice. Continuity validation accepts `controllable_similarity`, `frozen`, or `mixed` deterministic embeddings. The checked schema-v2 fixture uses only controllable similarity and its vector size of 8. Schema-v3 fixtures declare a provider in every scenario embedding block; a mixed suite uses `mixed`, and its configured vector size is the frozen-store width while smaller controllable vectors are zero-padded to that width. Frozen and mixed configs also require `backend.embedding.store_path`. Persistent Oxigraph and retrieval-stat SQLite paths remain mandatory so restart scenarios can reconstruct those stores. The identity registry is always persistent: `identity_registry_dir` is optional and falls back deterministically to `runs/<run_id>`; the committed config explicitly places it under `runs/continuity/stores/identities`. The config records `max_vector_candidates = 48` and `max_graph_roots = 48` so report tuning observations remain correlated with the measured candidate-limit regime.
 
 The optional `[backend.character_memory]` table overrides Character Memory's selectivity controls for a run. `selectivity_smoothing_alpha` and `selectivity_gamma` are individually optional and must be finite positive numbers when present. The nested `retrieval.fanout` tables support exactly three relation/object paths: `about_entity.derived_memory`, `participant_entity.episode`, and `part_of_thread.derived_memory`; each leaf budget table is atomic, so a present table must contain both `min` and `max`, and its minimum must not exceed its maximum. The committed values pin the shipped Character Memory defaults (`1.0`, `1.0`, `0/20`, `0/5`, and `0/15`) so baseline reports are self-describing. Omitting `[backend.character_memory]`, either selectivity key, or an entire leaf budget table delegates those settings to the installed Character Memory defaults without adding an eval-side fallback. The exact configured table is preserved under `metadata.config.backend.character_memory` in continuity reports.
 
@@ -91,7 +91,42 @@ min = 0
 max = 15
 ```
 
-Mock runs require Rust 1.97.0 and the checked fixture only; they do not connect to Qdrant, Oxigraph, SQLite, OpenAI, or another service. Live runs additionally require the sibling `../CharacterMemory` checkout, a local Qdrant gRPC endpoint such as `http://localhost:6334`, and writable paths under `runs/continuity/stores/`. The controllable-similarity provider does not require `OPENAI_API_KEY`.
+Mock runs require Rust 1.97.0 and the checked fixture only; they do not connect to Qdrant, Oxigraph, SQLite, OpenAI, or another service. Live runs additionally require the sibling `../CharacterMemory` checkout, a local Qdrant gRPC endpoint such as `http://localhost:6334`, and writable paths under `runs/continuity/stores/`. Neither controllable-similarity nor frozen runtime providers require `OPENAI_API_KEY`; only the explicit offline frozen-store generation command uses it.
+
+### Generate and validate frozen real embeddings
+
+A frozen store is schema-versioned, LF-stable JSON keyed by its model and the SHA-256 of each exact UTF-8 text. Each entry retains the exact text beside its `f32` vector so hash collisions, stale authoring, and review diffs remain visible. Runtime loading verifies the schema, model, vector width, hash, ordering, finite components, and exact text bytes. A missing text fails before a live continuity run mutates a namespace and prints the `cmem-eval embeddings generate` command needed to regenerate the store; runtime never falls back to synthetic vectors or a network call.
+
+The generation manifest has stable text IDs plus optional `similarity_orderings`. Each ordering names an anchor and candidate IDs from most to least similar, with a non-negative minimum adjacent margin. This is the authoring gate for real-embedding scenarios: a target, same-domain near miss, and unrelated background can be declared in descending order, and generation fails before writing the store unless measured cosine similarities satisfy that order. Revise the embedded texts when the intended geometry fails; do not weaken the ordering to preserve placeholder prose.
+
+Set `OPENAI_API_KEY`, then run the one explicit network step. The command deduplicates exact texts by SHA-256 and sends one batched [OpenAI embeddings request](https://developers.openai.com/api/reference/resources/embeddings/methods/create), with one returned vector per unique text and no automatic retry after an ambiguous network failure:
+
+```bash
+cargo run -p cmem-eval-runner -- embeddings generate \
+  --manifest ./crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_manifest.json \
+  --model text-embedding-3-large \
+  --out ./crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_store.json
+```
+
+Recheck store integrity, coverage, and semantic orderings without a key or network:
+
+```bash
+cargo run -p cmem-eval-runner -- embeddings validate \
+  --manifest ./crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_manifest.json \
+  --store ./crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_store.json
+```
+
+Use the resulting store with a schema-v3 frozen-only config:
+
+```toml
+[backend.embedding]
+provider = "frozen"
+model = "text-embedding-3-large"
+vector_size = 3072
+store_path = "crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_store.json"
+```
+
+Use `provider = "mixed"` when selected schema-v3 scenarios contain both explicit `controllable_similarity` and `frozen` embedding blocks. The committed `task21_smoke_manifest.json` and `task21_smoke_store.json` exercise format and validation machinery only: their store declares `source = "test_fixture"`, so live frozen preflight rejects it rather than representing its hand-authored three-dimensional vectors as OpenAI output. Generated production stores declare `source = "open_ai_api"` and record the requested model.
 
 Set the live endpoint in the current shell before a live run:
 
@@ -196,9 +231,11 @@ Fixture `irrelevant_external_ids` are sampled negatives, not an exhaustive compl
 
 1. Add or update a deterministic scenario constructor in `crates/cmem-eval-continuity/src/generator.rs`; add a `ScenarioPattern` variant in `fixture.rs` only when the scenario represents a new pattern.
 2. Give every event, query, and created object a stable unique external ID. Do not add backend memory IDs to the fixture schema: the driver derives persistence identities from external IDs. Events must be chronological, and correction, forget, link, and relevance references must target supported object kinds admitted earlier in that scenario.
-3. Declare non-empty, unique `relevant_external_ids` for every query. Sampled `irrelevant_external_ids` may be empty when no defensible negative exists; when present, they must be unique and disjoint from the relevant IDs. Keep these labels in fixture/scoring paths only; do not copy them into adapter inputs or metadata.
-4. Assign every text that reaches the controllable-similarity provider to exactly one embedding concept. Entity labels are embedding inputs as well as display text, so every entity label must also appear exactly once in `embedding.concepts`; the generator assigns referenced entity labels to the first referencing concept and unreferenced labels to `entity_background`.
-5. Regenerate a candidate with the checked seed, inspect the semantic and byte diff, and run the fixture parser, generator determinism, mock driver, and workspace tests before replacing the checked JSON.
+3. Declare non-empty, unique `relevant_external_ids` for every non-abstention query. A scenario with pattern `abstention` instead requires every query to have an empty relevant set; no other pattern may use one. Sampled `irrelevant_external_ids` may be empty when no defensible negative exists; when present, they must be unique and disjoint from the relevant IDs. Keep these labels in fixture/scoring paths only; do not copy them into adapter inputs or metadata.
+4. Assign every text that reaches the controllable-similarity provider to exactly one embedding concept. Entity labels are embedding inputs as well as display text, so every entity label must also appear exactly once in `embedding.concepts`; the generator assigns referenced entity labels to the first referencing concept and unreferenced labels to `entity_background`. For a frozen scenario, put every exact runtime text in the generation manifest and declare the semantic orderings that scenario needs.
+5. Keep legacy controllable-only fixtures at schema v2. Schema v3 requires an explicit `"provider": "controllable_similarity"` or `"provider": "frozen"` in every scenario embedding block; provider-tagged or frozen blocks are invalid under v2, and untagged legacy blocks are invalid under v3.
+6. Use the dedicated v3 patterns rather than overloading earlier measurements: `graded_similarity` covers target/near-miss/background discrimination; `combined_life` covers interleaved patterns in one namespace; `temporal_patterns` covers interval, recurrence, and one-off-versus-repeated structure; `entrenched_correction` covers late correction after reinforcement; `autobiographical` covers self-history continuity; `multi_evidence_assembly` covers answers requiring several evidence items; and `abstention` covers pollution-only no-answer queries. Existing patterns remain for their established semantics.
+7. Regenerate a candidate with the checked seed, inspect the semantic and byte diff, run offline frozen-store validation when applicable, and run the fixture parser, generator determinism, mock driver, and workspace tests before replacing checked JSON.
 
 ### Add a continuity metric
 

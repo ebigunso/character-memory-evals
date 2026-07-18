@@ -278,16 +278,18 @@ fn correlate_cluster(
     query_component: f32,
     target_component: f32,
 ) -> Result<()> {
-    let query_dimension = scenario
+    let embedding = scenario
         .embedding
+        .controllable_similarity_mut()
+        .context("cluster correlation requires a controllable-similarity scenario")?;
+    let query_dimension = embedding
         .clusters
         .get(query_cluster)
         .with_context(|| format!("missing query embedding cluster {query_cluster:?}"))?
         .iter()
         .position(|component| *component == 1.0)
         .context("query cluster has no deterministic basis dimension")?;
-    let target = scenario
-        .embedding
+    let target = embedding
         .clusters
         .get_mut(target_cluster)
         .with_context(|| format!("missing target embedding cluster {target_cluster:?}"))?;
@@ -716,7 +718,8 @@ fn scenario(
             noise_magnitude: 1.0 / 1024.0,
             clusters: cluster_vectors,
             concepts,
-        },
+        }
+        .into(),
         events,
     })
 }
@@ -1181,7 +1184,13 @@ mod tests {
             .unwrap()
             .label
             .clone();
-        for concept in scenario.embedding.concepts.values_mut() {
+        for concept in scenario
+            .embedding
+            .controllable_similarity_mut()
+            .unwrap()
+            .concepts
+            .values_mut()
+        {
             concept.inputs.retain(|input| input != &entity_label);
         }
         let bytes = serde_json::to_vec(&fixtures).unwrap();
@@ -1252,14 +1261,15 @@ mod tests {
             4
         );
 
+        let embedding = scale.embedding.controllable_similarity().unwrap();
         let provider =
-            cmem_eval_core::ControllableSimilarityEmbeddingProvider::new(scale.embedding.clone())
+            cmem_eval_core::ControllableSimilarityEmbeddingProvider::new(embedding.clone())
                 .unwrap();
         let routine_cluster_counts = routine
             .iter()
             .map(|(text, _)| {
                 let concept = provider.concept_for_text(text).unwrap();
-                scale.embedding.concepts[concept].cluster.as_str()
+                embedding.concepts[concept].cluster.as_str()
             })
             .fold(BTreeMap::new(), |mut counts, cluster| {
                 *counts.entry(cluster).or_insert(0) += 1;
@@ -1280,7 +1290,7 @@ mod tests {
                 .iter()
                 .map(|entity| (
                     entity.label.as_str(),
-                    scale.embedding.concepts[provider.concept_for_text(&entity.label).unwrap()]
+                    embedding.concepts[provider.concept_for_text(&entity.label).unwrap()]
                         .cluster
                         .as_str(),
                 ))
@@ -1302,8 +1312,8 @@ mod tests {
             .map(|(left, right)| left * right)
             .sum::<f32>();
         assert!(dot.abs() < 0.01, "probe/query dot product was {dot}");
-        let query_cluster = &scale.embedding.clusters["hub-scale-query"];
-        let probe_cluster = &scale.embedding.clusters["hub-scale-probe"];
+        let query_cluster = &embedding.clusters["hub-scale-query"];
+        let probe_cluster = &embedding.clusters["hub-scale-probe"];
         assert_eq!(
             query_cluster
                 .iter()
@@ -1453,7 +1463,11 @@ mod tests {
         assert!(!serialized.contains("\"role\""));
         for scenario in &fixtures.scenarios {
             let provider = cmem_eval_core::ControllableSimilarityEmbeddingProvider::new(
-                scenario.embedding.clone(),
+                scenario
+                    .embedding
+                    .controllable_similarity()
+                    .unwrap()
+                    .clone(),
             )
             .unwrap();
             for event in &scenario.events {

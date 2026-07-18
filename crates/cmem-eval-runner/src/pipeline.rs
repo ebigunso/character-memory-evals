@@ -11,18 +11,18 @@ use cmem_eval_continuity::{
     write_continuity_report, write_continuity_traces,
 };
 use cmem_eval_core::{
-    BenchmarkRunConfig, DatasetKind, EpisodeInput, GraphEnrichmentInput, GraphSnapshotInput,
-    MemoryAdapter, MetricFamily, MetricsConfig, MockMemoryAdapter, NamespaceLifecycleResult,
-    ObservationInput, PerQuestionResult, ReaderResult, ResultContextMetrics, RetrieveInput,
-    RetrievedContextPack, RetrievedItem, RunAdapterMetadata, Timer, composition_metrics,
-    count_tokens, estimate_word_count, initialize_registry_metrics_for, insert_composition_metrics,
-    insert_context_metrics, insert_integrity_detail_metrics, insert_retrieval_metrics,
-    insert_telemetry_metrics, integrity_details_with_telemetry, summarize_rows, write_jsonl,
-    write_summary,
+    BenchmarkRunConfig, DatasetKind, EpisodeInput, FrozenEmbeddingProvider, FrozenEmbeddingSource,
+    GraphEnrichmentInput, GraphSnapshotInput, MemoryAdapter, MetricFamily, MetricsConfig,
+    MockMemoryAdapter, NamespaceLifecycleResult, ObservationInput, PerQuestionResult, ReaderResult,
+    ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem, RunAdapterMetadata,
+    Timer, composition_metrics, count_tokens, estimate_word_count, initialize_registry_metrics_for,
+    insert_composition_metrics, insert_context_metrics, insert_integrity_detail_metrics,
+    insert_retrieval_metrics, insert_telemetry_metrics, integrity_details_with_telemetry,
+    summarize_rows, write_jsonl, write_summary,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
@@ -35,11 +35,19 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
     let config = read_config(&args.run.config)?;
     ContinuitySpec::validate_config(&config)?;
     let fixture = load_continuity_fixture(&args.run.dataset)?;
+    let fixture_schema_version = fixture.schema_version;
     let fixture_seed = fixture.seed;
     let scenarios = select_continuity_scenarios(fixture.scenarios, args.scenario.as_deref())?;
     validate_continuity_embedding_sizes(&config, &scenarios)?;
     args.run.validate_adapter_selection(&config)?;
-    run_continuity_pipeline(args, config, fixture_seed, scenarios).await
+    run_continuity_pipeline(
+        args,
+        config,
+        fixture_schema_version,
+        fixture_seed,
+        scenarios,
+    )
+    .await
 }
 
 pub(crate) async fn run_longmemeval(args: RunArgs) -> Result<()> {
@@ -135,16 +143,87 @@ fn validate_continuity_embedding_sizes(
     let configured_size = config.backend.embedding.vector_size.context(
         "continuity dataset requires backend.embedding.vector_size to match every selected fixture scenario",
     )?;
-    for scenario in scenarios {
-        if scenario.embedding.vector_size != configured_size {
+    let scenario_providers = scenarios
+        .iter()
+        .map(|scenario| scenario.embedding.provider_name())
+        .collect::<BTreeSet<_>>();
+    match config.backend.embedding.provider.as_str() {
+        "controllable_similarity"
+            if scenario_providers != BTreeSet::from(["controllable_similarity"]) =>
+        {
             bail!(
-                "continuity scenario {:?} embedding vector_size {} does not match backend.embedding.vector_size {configured_size}",
-                scenario.fixture_id,
-                scenario.embedding.vector_size
+                "backend.embedding.provider=controllable_similarity cannot run selected scenario providers {scenario_providers:?}; use frozen for frozen-only selection or mixed for a mixed suite"
             );
+        }
+        "frozen" if scenario_providers != BTreeSet::from(["frozen"]) => {
+            bail!(
+                "backend.embedding.provider=frozen cannot run selected scenario providers {scenario_providers:?}; use controllable_similarity for legacy selection or mixed for a mixed suite"
+            );
+        }
+        "controllable_similarity" | "frozen" | "mixed" => {}
+        provider => bail!("unsupported continuity embedding provider {provider:?}"),
+    }
+
+    for scenario in scenarios {
+        if let Some(fixture_size) = scenario.embedding.vector_size() {
+            let valid = if config.backend.embedding.provider == "mixed" {
+                fixture_size <= configured_size
+            } else {
+                fixture_size == configured_size
+            };
+            if !valid {
+                bail!(
+                    "continuity scenario {:?} controllable embedding vector_size {fixture_size} is incompatible with backend.embedding.vector_size {configured_size} for provider {:?}",
+                    scenario.fixture_id,
+                    config.backend.embedding.provider
+                );
+            }
+        }
+    }
+
+    if scenario_providers.contains("frozen") {
+        let store_path = config
+            .backend
+            .embedding
+            .store_path
+            .as_deref()
+            .context("frozen continuity scenarios require backend.embedding.store_path")?;
+        let provider = FrozenEmbeddingProvider::load(
+            Path::new(store_path),
+            &config.backend.embedding.model,
+            configured_size,
+        )?;
+        if provider.source() != FrozenEmbeddingSource::OpenAiApi {
+            bail!(
+                "frozen continuity evaluations require a store with source=open_ai_api; {} declares source={:?}",
+                store_path,
+                provider.source()
+            );
+        }
+        for scenario in scenarios
+            .iter()
+            .filter(|scenario| scenario.embedding.provider_name() == "frozen")
+        {
+            for text in scenario.embedding_inputs() {
+                provider.vector_for_text(text).map_err(|error| {
+                    anyhow::anyhow!(
+                        "preflight frozen embeddings for continuity scenario {:?}: {error}",
+                        scenario.fixture_id
+                    )
+                })?;
+            }
         }
     }
     Ok(())
+}
+
+fn continuity_config_for_scenario(
+    config: &BenchmarkRunConfig,
+    scenario: &ContinuityScenario,
+) -> BenchmarkRunConfig {
+    let mut scenario_config = config.clone();
+    scenario_config.backend.embedding.provider = scenario.embedding.provider_name().to_string();
+    scenario_config
 }
 
 fn select_continuity_scenarios(
@@ -531,6 +610,7 @@ enum RunnerContinuityRuntime {
         active: Option<Box<CharacterMemoryAdapter>>,
         config: Box<BenchmarkRunConfig>,
         scenario: Box<ContinuityScenario>,
+        allow_controllable_padding: bool,
     },
 }
 
@@ -548,17 +628,33 @@ impl RunnerContinuityRuntime {
                     active,
                 })
             }
-            AdapterKind::Real => Ok(Self::Real {
-                active: Some(Box::new(
-                    CharacterMemoryAdapter::new_with_controllable_similarity(
-                        config,
-                        scenario.embedding.clone(),
-                    )
-                    .await?,
-                )),
-                config: Box::new(config.clone()),
-                scenario: Box::new(scenario.clone()),
-            }),
+            AdapterKind::Real => {
+                let scenario_config = continuity_config_for_scenario(config, scenario);
+                let allow_controllable_padding = config.backend.embedding.provider == "mixed";
+                let adapter = if let Some(fixture) = scenario.embedding.controllable_similarity() {
+                    if allow_controllable_padding {
+                        CharacterMemoryAdapter::new_with_padded_controllable_similarity(
+                            &scenario_config,
+                            fixture.clone(),
+                        )
+                        .await?
+                    } else {
+                        CharacterMemoryAdapter::new_with_controllable_similarity(
+                            &scenario_config,
+                            fixture.clone(),
+                        )
+                        .await?
+                    }
+                } else {
+                    CharacterMemoryAdapter::new_with_frozen_embeddings(&scenario_config).await?
+                };
+                Ok(Self::Real {
+                    active: Some(Box::new(adapter)),
+                    config: Box::new(scenario_config),
+                    scenario: Box::new(scenario.clone()),
+                    allow_controllable_padding,
+                })
+            }
         }
     }
 }
@@ -587,18 +683,37 @@ impl ContinuityRuntime for RunnerContinuityRuntime {
                 active,
                 config,
                 scenario: configured_scenario,
+                allow_controllable_padding,
             } => {
                 let previous = active
                     .take()
                     .context("real continuity runtime lost its active adapter")?;
                 drop(previous);
-                let (replacement, lifecycle) =
-                    CharacterMemoryAdapter::reconstruct_with_controllable_similarity(
+                let (replacement, lifecycle) = if let Some(fixture) =
+                    configured_scenario.embedding.controllable_similarity()
+                {
+                    if *allow_controllable_padding {
+                        CharacterMemoryAdapter::reconstruct_with_padded_controllable_similarity(
+                            config.as_ref(),
+                            &scenario.namespace,
+                            fixture.clone(),
+                        )
+                        .await?
+                    } else {
+                        CharacterMemoryAdapter::reconstruct_with_controllable_similarity(
+                            config.as_ref(),
+                            &scenario.namespace,
+                            fixture.clone(),
+                        )
+                        .await?
+                    }
+                } else {
+                    CharacterMemoryAdapter::reconstruct_with_frozen_embeddings(
                         config.as_ref(),
                         &scenario.namespace,
-                        configured_scenario.embedding.clone(),
                     )
-                    .await?;
+                    .await?
+                };
                 *active = Some(Box::new(replacement));
                 Ok(lifecycle)
             }
@@ -609,6 +724,7 @@ impl ContinuityRuntime for RunnerContinuityRuntime {
 async fn run_continuity_pipeline(
     args: ContinuityRunArgs,
     config: BenchmarkRunConfig,
+    fixture_schema_version: u32,
     fixture_seed: u64,
     scenarios: Vec<ContinuityScenario>,
 ) -> Result<()> {
@@ -676,6 +792,7 @@ async fn run_continuity_pipeline(
     );
     let report = assemble_continuity_report(ContinuityReportInput {
         generated_at: Utc::now(),
+        fixture_schema_version,
         fixture_seed,
         config: config_value,
         adapter: adapter_metadata,
@@ -1828,6 +1945,7 @@ mod tests {
         assert_eq!(measured_row.latency_ms, 37);
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1845,6 +1963,7 @@ mod tests {
         swapped_rows.swap(0, 1);
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1867,6 +1986,7 @@ mod tests {
         invented_rows[0].question_id = "invented-query".to_string();
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1889,6 +2009,7 @@ mod tests {
         duplicate_rows[1].question_id = duplicate_rows[0].question_id.clone();
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1910,6 +2031,7 @@ mod tests {
         unknown_restart_observations.insert("unknown-fixture".to_string(), Vec::new());
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1927,6 +2049,7 @@ mod tests {
 
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1947,6 +2070,7 @@ mod tests {
         stale_summary.num_questions -= 1;
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: stale_summary.config.clone(),
             adapter: stale_summary.adapter.clone(),
@@ -1965,6 +2089,7 @@ mod tests {
         stale_summary.metrics["continuity_gap_days"]["mean"] = serde_json::json!(-1.0);
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: stale_summary.config.clone(),
             adapter: stale_summary.adapter.clone(),
@@ -2016,7 +2141,7 @@ mod tests {
         let error = ContinuitySpec::validate_config(&config)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("backend.embedding.provider=controllable_similarity"));
+        assert!(error.contains("controllable_similarity, frozen, or mixed"));
         assert!(error.contains("openai"));
     }
 
@@ -2054,14 +2179,75 @@ mod tests {
             "{error}"
         );
 
-        config.backend.embedding.vector_size = Some(fixture.scenarios[0].embedding.vector_size + 1);
+        config.backend.embedding.vector_size =
+            Some(fixture.scenarios[0].embedding.vector_size().unwrap() + 1);
         let error = validate_continuity_embedding_sizes(&config, &fixture.scenarios)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("does not match"), "{error}");
+        assert!(error.contains("is incompatible"), "{error}");
         assert!(error.contains(&fixture.scenarios[0].fixture_id), "{error}");
 
-        config.backend.embedding.vector_size = Some(fixture.scenarios[0].embedding.vector_size);
+        config.backend.embedding.vector_size =
+            Some(fixture.scenarios[0].embedding.vector_size().unwrap());
+        validate_continuity_embedding_sizes(&config, &fixture.scenarios).unwrap();
+    }
+
+    #[test]
+    fn frozen_scenario_preflight_rejects_test_provenance_and_cache_misses() {
+        let fixture =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
+        let mut scenario = fixture.scenarios[0].clone();
+        scenario.embedding = cmem_eval_continuity::ContinuityScenarioEmbedding::frozen();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../cmem-eval-continuity/fixtures/embeddings");
+        let mut config =
+            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        config.backend.embedding.provider = "frozen".to_string();
+        config.backend.embedding.model = "task21-smoke-model".to_string();
+        config.backend.embedding.vector_size = Some(3);
+        config.backend.embedding.store_path = Some(
+            fixtures
+                .join("task21_smoke_store.json")
+                .display()
+                .to_string(),
+        );
+
+        let error = validate_continuity_embedding_sizes(&config, &[scenario.clone()])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("source=open_ai_api"), "{error}");
+        assert!(error.contains("TestFixture"), "{error}");
+
+        let directory = tempfile::tempdir().unwrap();
+        let store_path = directory.path().join("partial-openai-store.json");
+        let store = cmem_eval_core::FrozenEmbeddingStore::new(
+            "task21-smoke-model",
+            FrozenEmbeddingSource::OpenAiApi,
+            [("unrelated cached text".to_string(), vec![1.0, 0.0, 0.0])],
+        )
+        .unwrap();
+        fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
+        config.backend.embedding.store_path = Some(store_path.display().to_string());
+        let error = validate_continuity_embedding_sizes(&config, &[scenario])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("preflight frozen embeddings"), "{error}");
+        assert!(error.contains("frozen embedding cache miss"), "{error}");
+    }
+
+    #[test]
+    fn mixed_provider_allows_controllable_fixture_padding() {
+        let fixture =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
+        let mut config =
+            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        config.backend.embedding.provider = "mixed".to_string();
+        config.backend.embedding.model = "text-embedding-3-large".to_string();
+        config.backend.embedding.vector_size = Some(3072);
+        config.backend.embedding.store_path = Some("unused-for-this-selection.json".to_string());
+
         validate_continuity_embedding_sizes(&config, &fixture.scenarios).unwrap();
     }
 }

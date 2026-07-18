@@ -18,10 +18,10 @@ use cmem_eval_core::{
     BenchmarkRunConfig, CandidateValidationResult, CommitWriteOptions, CommitWriteResult,
     ControllableSimilarityEmbeddingProvider, ControllableSimilarityFixture, CorrectMemoryInput,
     CorrectionTargetInput, DeterministicEmbeddingProvider, EpisodeInput, ExternalSourceRefInput,
-    ForgetMemoryInput, GraphEnrichmentInput, LifecycleMutationResult, LinkMemoryInput,
-    LinkMemoryResult, MemoryAdapter, MemoryEndpointInput, NamespaceLifecycleResult,
-    ObservationInput, PrepareWriteInput, PreparedCandidate, PreparedWritePlan,
-    ReplacementDerivedMemoryInput, RetrievalFanoutUtilization, RetrievalMode,
+    ForgetMemoryInput, FrozenEmbeddingProvider, GraphEnrichmentInput, LifecycleMutationResult,
+    LinkMemoryInput, LinkMemoryResult, MemoryAdapter, MemoryEndpointInput,
+    NamespaceLifecycleResult, ObservationInput, PrepareWriteInput, PreparedCandidate,
+    PreparedWritePlan, ReplacementDerivedMemoryInput, RetrievalFanoutUtilization, RetrievalMode,
     RetrievalRationaleCategory, RetrievalSelectivityDecision, RetrievalTelemetry, RetrieveInput,
     RetrievedContextPack, RetrievedItem, SourceProvenanceInput, SupersessionResult,
 };
@@ -47,6 +47,7 @@ const IDENTITY_REGISTRY_PERSIST_BACKOFF_MS: u64 = 25;
 pub struct CharacterMemoryAdapter {
     config: BenchmarkRunConfig,
     controllable_similarity_fixture: Option<ControllableSimilarityFixture>,
+    frozen_embedding_provider: Option<FrozenEmbeddingProvider>,
     qdrant: Qdrant,
     openai_http: reqwest::Client,
     namespaces: Arc<Mutex<HashMap<String, NamespaceState>>>,
@@ -223,17 +224,33 @@ struct VectorHit {
 
 impl CharacterMemoryAdapter {
     pub async fn new(config: &BenchmarkRunConfig) -> Result<Self> {
-        if config.backend.embedding.provider == "controllable_similarity" {
-            bail!(
-                "controllable_similarity requires a scenario fixture; use CharacterMemoryAdapter::new_with_controllable_similarity"
-            );
+        if matches!(
+            config.backend.embedding.provider.as_str(),
+            "controllable_similarity" | "frozen" | "mixed"
+        ) {
+            bail!("continuity embedding providers require an explicit scenario constructor");
         }
-        Self::new_internal(config, None).await
+        Self::new_internal(config, None, None).await
     }
 
     pub async fn new_with_controllable_similarity(
         config: &BenchmarkRunConfig,
         fixture: ControllableSimilarityFixture,
+    ) -> Result<Self> {
+        Self::new_with_controllable_similarity_internal(config, fixture, false).await
+    }
+
+    pub async fn new_with_padded_controllable_similarity(
+        config: &BenchmarkRunConfig,
+        fixture: ControllableSimilarityFixture,
+    ) -> Result<Self> {
+        Self::new_with_controllable_similarity_internal(config, fixture, true).await
+    }
+
+    async fn new_with_controllable_similarity_internal(
+        config: &BenchmarkRunConfig,
+        fixture: ControllableSimilarityFixture,
+        allow_storage_padding: bool,
     ) -> Result<Self> {
         config.validate()?;
         if config.backend.embedding.provider != "controllable_similarity" {
@@ -242,19 +259,55 @@ impl CharacterMemoryAdapter {
             );
         }
         let provider = ControllableSimilarityEmbeddingProvider::new(fixture.clone())?;
-        if config.backend.embedding.vector_size != Some(provider.vector_size()) {
+        let configured_size = config.backend.embedding.vector_size;
+        let valid_size = if allow_storage_padding {
+            configured_size.is_some_and(|size| size >= provider.vector_size())
+        } else {
+            configured_size == Some(provider.vector_size())
+        };
+        if !valid_size {
+            let requirement = if allow_storage_padding {
+                "at least"
+            } else {
+                "exactly"
+            };
             bail!(
-                "backend.embedding.vector_size must equal the controllable similarity fixture vector_size {}; got {:?}",
+                "backend.embedding.vector_size must be {requirement} the controllable similarity fixture vector_size {}; got {:?}",
                 provider.vector_size(),
-                config.backend.embedding.vector_size
+                configured_size
             );
         }
-        Self::new_internal(config, Some(fixture)).await
+        Self::new_internal(config, Some(fixture), None).await
+    }
+
+    pub async fn new_with_frozen_embeddings(config: &BenchmarkRunConfig) -> Result<Self> {
+        config.validate()?;
+        if config.backend.embedding.provider != "frozen" {
+            bail!("new_with_frozen_embeddings requires backend.embedding.provider=frozen");
+        }
+        let store_path = config
+            .backend
+            .embedding
+            .store_path
+            .as_deref()
+            .context("frozen embedding provider requires backend.embedding.store_path")?;
+        let vector_size = config
+            .backend
+            .embedding
+            .vector_size
+            .context("frozen embedding provider requires backend.embedding.vector_size")?;
+        let provider = FrozenEmbeddingProvider::load(
+            Path::new(store_path),
+            &config.backend.embedding.model,
+            vector_size,
+        )?;
+        Self::new_internal(config, None, Some(provider)).await
     }
 
     async fn new_internal(
         config: &BenchmarkRunConfig,
         controllable_similarity_fixture: Option<ControllableSimilarityFixture>,
+        frozen_embedding_provider: Option<FrozenEmbeddingProvider>,
     ) -> Result<Self> {
         let qdrant = Qdrant::from_url(
             &config
@@ -268,6 +321,7 @@ impl CharacterMemoryAdapter {
         Ok(Self {
             config: config.clone(),
             controllable_similarity_fixture,
+            frozen_embedding_provider,
             qdrant,
             openai_http: reqwest::Client::new(),
             namespaces: Arc::new(Mutex::new(HashMap::new())),
@@ -291,6 +345,27 @@ impl CharacterMemoryAdapter {
     ) -> Result<(Self, NamespaceLifecycleResult)> {
         config.validate()?;
         let adapter = Self::new_with_controllable_similarity(config, fixture).await?;
+        let lifecycle = adapter.reattach_namespace(namespace).await?;
+        Ok((adapter, lifecycle))
+    }
+
+    pub async fn reconstruct_with_padded_controllable_similarity(
+        config: &BenchmarkRunConfig,
+        namespace: &str,
+        fixture: ControllableSimilarityFixture,
+    ) -> Result<(Self, NamespaceLifecycleResult)> {
+        config.validate()?;
+        let adapter = Self::new_with_padded_controllable_similarity(config, fixture).await?;
+        let lifecycle = adapter.reattach_namespace(namespace).await?;
+        Ok((adapter, lifecycle))
+    }
+
+    pub async fn reconstruct_with_frozen_embeddings(
+        config: &BenchmarkRunConfig,
+        namespace: &str,
+    ) -> Result<(Self, NamespaceLifecycleResult)> {
+        config.validate()?;
+        let adapter = Self::new_with_frozen_embeddings(config).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
     }
@@ -329,6 +404,18 @@ impl CharacterMemoryAdapter {
                 )
                 .await?
             }
+            "frozen" => {
+                let provider = self
+                    .frozen_embedding_provider
+                    .clone()
+                    .context("frozen embedding adapter is missing its loaded store")?;
+                CharacterMemory::new_with_embedding_provider(
+                    settings,
+                    collection_name.clone(),
+                    Box::new(CharacterMemoryFrozenEmbeddingProvider { inner: provider }),
+                )
+                .await?
+            }
             _ => CharacterMemory::new(settings, collection_name.clone()).await?,
         };
 
@@ -354,7 +441,7 @@ impl CharacterMemoryAdapter {
             .unwrap_or_else(|_| {
                 if matches!(
                     self.config.backend.embedding.provider.as_str(),
-                    "deterministic" | "controllable_similarity"
+                    "deterministic" | "controllable_similarity" | "frozen"
                 ) {
                     "deterministic-unused".to_string()
                 } else {
@@ -2790,6 +2877,10 @@ struct CharacterMemoryControllableSimilarityEmbeddingProvider {
     storage_vector_size: usize,
 }
 
+struct CharacterMemoryFrozenEmbeddingProvider {
+    inner: FrozenEmbeddingProvider,
+}
+
 fn parse_retention_state(value: &str) -> Result<RetentionState> {
     parse_snake_enum(value, "forget.target_retention_state")
 }
@@ -2835,6 +2926,28 @@ impl CharacterMemoryControllableSimilarityEmbeddingProvider {
         vector.resize(self.storage_vector_size, 0.0);
         Ok(vector)
     }
+}
+
+impl CharacterMemoryFrozenEmbeddingProvider {
+    fn vector_for_text(&self, text: &str) -> Result<Vec<f32>> {
+        self.inner.vector_for_text(text).or_else(|original_error| {
+            runtime_fixture_text(text)
+                .map(|fixture_text| self.inner.vector_for_text(fixture_text))
+                .unwrap_or(Err(original_error))
+        })
+    }
+}
+
+fn runtime_fixture_text(text: &str) -> Option<&str> {
+    [
+        "Episode summary: ",
+        "Observation excerpt: ",
+        "Reflection: ",
+        "Entity: ",
+        "Thread summary: ",
+    ]
+    .into_iter()
+    .find_map(|prefix| text.strip_prefix(prefix))
 }
 
 #[async_trait]
@@ -2891,6 +3004,36 @@ impl EmbeddingProvider for CharacterMemoryControllableSimilarityEmbeddingProvide
     }
 }
 
+#[async_trait]
+impl EmbeddingProvider for CharacterMemoryFrozenEmbeddingProvider {
+    fn vector_size(&self) -> usize {
+        self.inner.vector_size()
+    }
+
+    async fn generate_embedding<'a>(
+        &self,
+        text: &'a str,
+    ) -> std::result::Result<Vec<f32>, character_memory::CustomError> {
+        self.vector_for_text(text).map_err(|error| {
+            character_memory::CustomError::EmbeddingGenerationError(error.to_string())
+        })
+    }
+
+    async fn bulk_generate_embeddings<'a>(
+        &self,
+        texts: &'a [&'a str],
+    ) -> std::result::Result<Vec<Vec<f32>>, character_memory::CustomError> {
+        texts
+            .iter()
+            .map(|text| {
+                self.vector_for_text(text).map_err(|error| {
+                    character_memory::CustomError::EmbeddingGenerationError(error.to_string())
+                })
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2901,7 +3044,8 @@ mod tests {
         SelectivityCountScope, SelectivityDecision, SelectivityTrace, VectorDatabaseError,
     };
     use cmem_eval_core::{
-        CleanupConfig, DerivedMemoryInput, EmbeddingConfig, EntityInput, MemoryLinkInput,
+        CleanupConfig, DerivedMemoryInput, EmbeddingConfig, EntityInput, FrozenEmbeddingSource,
+        FrozenEmbeddingStore, MemoryLinkInput,
     };
     use tempfile::tempdir;
 
@@ -2934,6 +3078,43 @@ mod tests {
             ingest: Default::default(),
             metrics: Default::default(),
         }
+    }
+
+    #[tokio::test]
+    async fn frozen_provider_uses_exact_fixture_text_after_runtime_prefixes() {
+        let store = FrozenEmbeddingStore::new(
+            "task21-smoke-model",
+            FrozenEmbeddingSource::TestFixture,
+            [(
+                "The cobalt notebook is in the east cabinet.".to_string(),
+                vec![1.0, 0.0, 0.0],
+            )],
+        )
+        .unwrap();
+        let provider = CharacterMemoryFrozenEmbeddingProvider {
+            inner: FrozenEmbeddingProvider::from_store(
+                store,
+                "fixtures/smoke.json",
+                "task21-smoke-model",
+                3,
+            )
+            .unwrap(),
+        };
+
+        assert_eq!(
+            provider
+                .generate_embedding("Episode summary: The cobalt notebook is in the east cabinet.",)
+                .await
+                .unwrap(),
+            vec![1.0, 0.0, 0.0]
+        );
+        let error = provider
+            .generate_embedding("Episode summary: This text is absent.")
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("frozen embedding cache miss"), "{error}");
+        assert!(error.contains("cmem-eval embeddings generate"), "{error}");
     }
 
     fn file_contains(path: &Path, needle: &[u8]) -> bool {
@@ -3456,14 +3637,21 @@ mod tests {
             )]),
         };
 
-        let error = match CharacterMemoryAdapter::new_with_controllable_similarity(&config, fixture)
-            .await
+        let error = match CharacterMemoryAdapter::new_with_controllable_similarity(
+            &config,
+            fixture.clone(),
+        )
+        .await
         {
             Ok(_) => panic!("mismatched fixture dimension was accepted"),
             Err(error) => error.to_string(),
         };
         assert!(error.contains("fixture vector_size 2"));
         assert!(error.contains("Some(3)"));
+
+        CharacterMemoryAdapter::new_with_padded_controllable_similarity(&config, fixture)
+            .await
+            .expect("mixed-provider storage padding should be accepted explicitly");
     }
 
     #[test]

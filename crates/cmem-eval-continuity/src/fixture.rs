@@ -3,9 +3,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use cmem_eval_core::ControllableSimilarityFixture;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
+use serde_json::{Map, Value};
 
-pub const CONTINUITY_FIXTURE_SCHEMA_VERSION: u32 = 2;
+pub const CONTINUITY_FIXTURE_SCHEMA_VERSION_V2: u32 = 2;
+pub const CONTINUITY_FIXTURE_SCHEMA_VERSION_V3: u32 = 3;
+pub const CONTINUITY_FIXTURE_SCHEMA_VERSION: u32 = CONTINUITY_FIXTURE_SCHEMA_VERSION_V2;
+pub const LATEST_CONTINUITY_FIXTURE_SCHEMA_VERSION: u32 = CONTINUITY_FIXTURE_SCHEMA_VERSION_V3;
 
 /// Relation names accepted by continuity fixtures and checked against the live
 /// CharacterMemory facade by the adapter crate's exhaustive parity test.
@@ -41,8 +45,181 @@ pub struct ContinuityScenario {
     pub namespace: String,
     pub pattern: ScenarioPattern,
     pub entities: Vec<EntityDeclaration>,
-    pub embedding: ControllableSimilarityFixture,
+    pub embedding: ContinuityScenarioEmbedding,
     pub events: Vec<InteractionEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContinuityScenarioEmbedding {
+    LegacyControllableSimilarity(ControllableSimilarityFixture),
+    ControllableSimilarity(ControllableSimilarityFixture),
+    Frozen,
+}
+
+impl ContinuityScenarioEmbedding {
+    pub fn provider_name(&self) -> &'static str {
+        match self {
+            Self::LegacyControllableSimilarity(_) | Self::ControllableSimilarity(_) => {
+                "controllable_similarity"
+            }
+            Self::Frozen => "frozen",
+        }
+    }
+
+    pub fn controllable_similarity(&self) -> Option<&ControllableSimilarityFixture> {
+        match self {
+            Self::LegacyControllableSimilarity(fixture) | Self::ControllableSimilarity(fixture) => {
+                Some(fixture)
+            }
+            Self::Frozen => None,
+        }
+    }
+
+    pub fn controllable_similarity_mut(&mut self) -> Option<&mut ControllableSimilarityFixture> {
+        match self {
+            Self::LegacyControllableSimilarity(fixture) | Self::ControllableSimilarity(fixture) => {
+                Some(fixture)
+            }
+            Self::Frozen => None,
+        }
+    }
+
+    pub fn is_legacy_v2(&self) -> bool {
+        matches!(self, Self::LegacyControllableSimilarity(_))
+    }
+
+    pub fn tagged_controllable_similarity(fixture: ControllableSimilarityFixture) -> Self {
+        Self::ControllableSimilarity(fixture)
+    }
+
+    pub fn frozen() -> Self {
+        Self::Frozen
+    }
+
+    pub fn vector_size(&self) -> Option<usize> {
+        self.controllable_similarity()
+            .map(|fixture| fixture.vector_size)
+    }
+}
+
+impl From<ControllableSimilarityFixture> for ContinuityScenarioEmbedding {
+    fn from(value: ControllableSimilarityFixture) -> Self {
+        Self::LegacyControllableSimilarity(value)
+    }
+}
+
+impl Serialize for ContinuityScenarioEmbedding {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::LegacyControllableSimilarity(fixture) => fixture.serialize(serializer),
+            Self::ControllableSimilarity(fixture) => {
+                let mut object = serde_json::to_value(fixture)
+                    .map_err(serde::ser::Error::custom)?
+                    .as_object()
+                    .cloned()
+                    .expect("controllable similarity fixture serializes as an object");
+                object.insert(
+                    "provider".to_string(),
+                    Value::String("controllable_similarity".to_string()),
+                );
+                object.serialize(serializer)
+            }
+            Self::Frozen => {
+                Map::from_iter([("provider".to_string(), Value::String("frozen".to_string()))])
+                    .serialize(serializer)
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ContinuityScenarioEmbedding {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| D::Error::custom("continuity embedding block must be an object"))?;
+        match object.get("provider") {
+            Some(Value::String(provider)) if provider == "frozen" => {
+                if let Some(field) = unknown_embedding_field(object, &["provider"]) {
+                    return Err(D::Error::custom(format!(
+                        "unknown field {field:?} in frozen embedding block"
+                    )));
+                }
+                Ok(Self::Frozen)
+            }
+            Some(Value::String(provider)) if provider == "controllable_similarity" => {
+                if let Some(field) = unknown_embedding_field(
+                    object,
+                    &[
+                        "provider",
+                        "seed",
+                        "vector_size",
+                        "noise_magnitude",
+                        "clusters",
+                        "concepts",
+                    ],
+                ) {
+                    return Err(D::Error::custom(format!(
+                        "unknown field {field:?} in controllable_similarity embedding block"
+                    )));
+                }
+                let mut fixture = object.clone();
+                fixture.remove("provider");
+                serde_json::from_value(Value::Object(fixture))
+                    .map(Self::ControllableSimilarity)
+                    .map_err(|error| {
+                        D::Error::custom(format!(
+                            "malformed controllable_similarity embedding block: {error}"
+                        ))
+                    })
+            }
+            Some(Value::String(provider)) => Err(D::Error::custom(format!(
+                "unsupported continuity embedding provider {provider:?}; expected controllable_similarity or frozen"
+            ))),
+            Some(_) => Err(D::Error::custom(
+                "continuity embedding field `provider` must be a string",
+            )),
+            None => {
+                if let Some(field) = unknown_embedding_field(
+                    object,
+                    &[
+                        "seed",
+                        "vector_size",
+                        "noise_magnitude",
+                        "clusters",
+                        "concepts",
+                    ],
+                ) {
+                    return Err(D::Error::custom(format!(
+                        "unknown field {field:?} in legacy schema-v2 controllable_similarity embedding block; frozen schema-v3 blocks require `provider: frozen`"
+                    )));
+                }
+                serde_json::from_value(value)
+                    .map(Self::LegacyControllableSimilarity)
+                    .map_err(|error| {
+                        D::Error::custom(format!(
+                            "malformed legacy schema-v2 controllable_similarity embedding block; frozen schema-v3 blocks require `provider: frozen`: {error}"
+                        ))
+                    })
+            }
+        }
+    }
+}
+
+fn unknown_embedding_field<'a>(
+    object: &'a Map<String, Value>,
+    allowed: &[&str],
+) -> Option<&'a str> {
+    object
+        .keys()
+        .find(|field| !allowed.contains(&field.as_str()))
+        .map(String::as_str)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -58,6 +235,28 @@ pub enum ScenarioPattern {
     MixedSalienceAccumulation,
     CrossStoreStress,
     SurfaceContribution,
+    MultiEvidenceAssembly,
+    Abstention,
+    GradedSimilarity,
+    CombinedLife,
+    TemporalPatterns,
+    EntrenchedCorrection,
+    Autobiographical,
+}
+
+impl ScenarioPattern {
+    fn requires_schema_v3(self) -> bool {
+        matches!(
+            self,
+            Self::MultiEvidenceAssembly
+                | Self::Abstention
+                | Self::GradedSimilarity
+                | Self::CombinedLife
+                | Self::TemporalPatterns
+                | Self::EntrenchedCorrection
+                | Self::Autobiographical
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -194,12 +393,30 @@ pub struct ExpectedRelevance {
 }
 
 impl ContinuityFixtureSet {
+    pub fn into_schema_v3(mut self) -> Result<Self> {
+        self.schema_version = CONTINUITY_FIXTURE_SCHEMA_VERSION_V3;
+        for scenario in &mut self.scenarios {
+            if let ContinuityScenarioEmbedding::LegacyControllableSimilarity(fixture) =
+                &scenario.embedding
+            {
+                scenario.embedding =
+                    ContinuityScenarioEmbedding::ControllableSimilarity(fixture.clone());
+            }
+        }
+        self.validate()?;
+        Ok(self)
+    }
+
     pub fn validate(&self) -> Result<()> {
-        if self.schema_version != CONTINUITY_FIXTURE_SCHEMA_VERSION {
+        if !matches!(
+            self.schema_version,
+            CONTINUITY_FIXTURE_SCHEMA_VERSION_V2 | CONTINUITY_FIXTURE_SCHEMA_VERSION_V3
+        ) {
             bail!(
-                "unsupported continuity fixture schema_version {}; expected {}",
+                "unsupported continuity fixture schema_version {}; expected {} or {}",
                 self.schema_version,
-                CONTINUITY_FIXTURE_SCHEMA_VERSION
+                CONTINUITY_FIXTURE_SCHEMA_VERSION_V2,
+                CONTINUITY_FIXTURE_SCHEMA_VERSION_V3
             );
         }
         if self.scenarios.is_empty() {
@@ -210,6 +427,27 @@ impl ContinuityFixtureSet {
         let mut namespaces = BTreeSet::new();
         let mut query_ids = BTreeSet::new();
         for scenario in &self.scenarios {
+            match self.schema_version {
+                CONTINUITY_FIXTURE_SCHEMA_VERSION_V2 if !scenario.embedding.is_legacy_v2() => {
+                    bail!(
+                        "continuity fixture schema_version 2 requires legacy controllable_similarity embedding blocks; provider-tagged and frozen blocks require schema_version 3"
+                    );
+                }
+                CONTINUITY_FIXTURE_SCHEMA_VERSION_V3 if scenario.embedding.is_legacy_v2() => {
+                    bail!(
+                        "continuity fixture schema_version 3 requires every embedding block to declare provider=controllable_similarity or provider=frozen"
+                    );
+                }
+                _ => {}
+            }
+            if self.schema_version == CONTINUITY_FIXTURE_SCHEMA_VERSION_V2
+                && scenario.pattern.requires_schema_v3()
+            {
+                bail!(
+                    "continuity scenario pattern {:?} requires schema_version 3",
+                    scenario.pattern
+                );
+            }
             require_non_empty("fixture_id", &scenario.fixture_id)?;
             require_non_empty("namespace", &scenario.namespace)?;
             if !fixture_ids.insert(&scenario.fixture_id) {
@@ -232,8 +470,47 @@ impl ContinuityFixtureSet {
 }
 
 impl ContinuityScenario {
+    pub fn embedding_inputs(&self) -> BTreeSet<&str> {
+        let mut inputs = self
+            .entities
+            .iter()
+            .map(|entity| entity.label.as_str())
+            .collect::<BTreeSet<_>>();
+        for event in &self.events {
+            match event {
+                InteractionEvent::Remember {
+                    text,
+                    surface_texts,
+                    ..
+                } => {
+                    inputs.insert(text);
+                    if let Some(surface_texts) = surface_texts {
+                        inputs.insert(&surface_texts.episode);
+                        inputs.insert(&surface_texts.observation);
+                        inputs.insert(&surface_texts.derived);
+                    }
+                }
+                InteractionEvent::Correct {
+                    replacement_text, ..
+                } => {
+                    inputs.insert(replacement_text);
+                }
+                InteractionEvent::Query { text, .. } => {
+                    inputs.insert(text);
+                }
+                InteractionEvent::Forget { .. }
+                | InteractionEvent::Link { .. }
+                | InteractionEvent::Restart { .. } => {}
+            }
+        }
+        inputs
+    }
+
     pub fn validate(&self) -> Result<()> {
-        cmem_eval_core::ControllableSimilarityEmbeddingProvider::new(self.embedding.clone())?;
+        let controllable_embedding = self.embedding.controllable_similarity();
+        if let Some(embedding) = controllable_embedding {
+            cmem_eval_core::ControllableSimilarityEmbeddingProvider::new(embedding.clone())?;
+        }
         let declared_entities = self
             .entities
             .iter()
@@ -248,19 +525,20 @@ impl ContinuityScenario {
         for entity in &self.entities {
             require_non_empty("entity.external_id", &entity.external_id)?;
             require_non_empty("entity.label", &entity.label)?;
-            let assignment_count = self
-                .embedding
-                .concepts
-                .values()
-                .flat_map(|concept| &concept.inputs)
-                .filter(|input| *input == &entity.label)
-                .count();
-            if assignment_count != 1 {
-                bail!(
-                    "scenario {:?} entity label {:?} must have exactly one embedding concept assignment; found {assignment_count}",
-                    self.fixture_id,
-                    entity.label
-                );
+            if let Some(embedding) = controllable_embedding {
+                let assignment_count = embedding
+                    .concepts
+                    .values()
+                    .flat_map(|concept| &concept.inputs)
+                    .filter(|input| *input == &entity.label)
+                    .count();
+                if assignment_count != 1 {
+                    bail!(
+                        "scenario {:?} entity label {:?} must have exactly one embedding concept assignment; found {assignment_count}",
+                        self.fixture_id,
+                        entity.label
+                    );
+                }
             }
         }
 
@@ -272,12 +550,13 @@ impl ContinuityScenario {
             .map(|entity| (entity.external_id.clone(), ContinuityObjectKind::Entity))
             .collect::<BTreeMap<_, _>>();
         let mut previous_timestamp = None;
-        let assigned_inputs = self
-            .embedding
-            .concepts
-            .values()
-            .flat_map(|concept| concept.inputs.iter().map(String::as_str))
-            .collect::<BTreeSet<_>>();
+        let assigned_inputs = controllable_embedding.map(|embedding| {
+            embedding
+                .concepts
+                .values()
+                .flat_map(|concept| concept.inputs.iter().map(String::as_str))
+                .collect::<BTreeSet<_>>()
+        });
 
         for (event_index, event) in self.events.iter().enumerate() {
             let event_id = event.event_id();
@@ -334,12 +613,12 @@ impl ContinuityScenario {
                         ] {
                             require_embedding_input(
                                 &self.fixture_id,
-                                &assigned_inputs,
+                                assigned_inputs.as_ref(),
                                 surface_text,
                             )?;
                         }
                     }
-                    require_embedding_input(&self.fixture_id, &assigned_inputs, text)?;
+                    require_embedding_input(&self.fixture_id, assigned_inputs.as_ref(), text)?;
                     admit_external_id(
                         &self.fixture_id,
                         "remember.external_id",
@@ -386,7 +665,11 @@ impl ContinuityScenario {
                         ],
                         &admitted_external_ids,
                     )?;
-                    require_embedding_input(&self.fixture_id, &assigned_inputs, replacement_text)?;
+                    require_embedding_input(
+                        &self.fixture_id,
+                        assigned_inputs.as_ref(),
+                        replacement_text,
+                    )?;
                     admit_external_id(
                         &self.fixture_id,
                         "correct.replacement_external_id",
@@ -482,9 +765,10 @@ impl ContinuityScenario {
                             self.fixture_id
                         );
                     }
-                    require_embedding_input(&self.fixture_id, &assigned_inputs, text)?;
+                    require_embedding_input(&self.fixture_id, assigned_inputs.as_ref(), text)?;
                     validate_expected_relevance(
                         &self.fixture_id,
+                        self.pattern,
                         expected,
                         &admitted_external_ids,
                     )?;
@@ -580,10 +864,10 @@ pub fn scenario_patterns(fixtures: &ContinuityFixtureSet) -> BTreeMap<ScenarioPa
 
 fn require_embedding_input(
     fixture_id: &str,
-    assigned_inputs: &BTreeSet<&str>,
+    assigned_inputs: Option<&BTreeSet<&str>>,
     text: &str,
 ) -> Result<()> {
-    if !assigned_inputs.contains(text) {
+    if assigned_inputs.is_some_and(|assigned_inputs| !assigned_inputs.contains(text)) {
         bail!("scenario {fixture_id:?} has text without an embedding concept assignment");
     }
     Ok(())
@@ -673,11 +957,19 @@ fn require_supported_relation(fixture_id: &str, relation: &str) -> Result<()> {
 
 fn validate_expected_relevance(
     fixture_id: &str,
+    pattern: ScenarioPattern,
     expected: &ExpectedRelevance,
     admitted_external_ids: &BTreeMap<String, ContinuityObjectKind>,
 ) -> Result<()> {
-    if expected.relevant_external_ids.is_empty() {
-        bail!("scenario {fixture_id:?} query must declare relevant_external_ids");
+    if pattern == ScenarioPattern::Abstention && !expected.relevant_external_ids.is_empty() {
+        bail!(
+            "scenario {fixture_id:?} uses pattern=abstention, so every query must have empty relevant_external_ids"
+        );
+    }
+    if pattern != ScenarioPattern::Abstention && expected.relevant_external_ids.is_empty() {
+        bail!(
+            "scenario {fixture_id:?} is non-abstention and every query must declare relevant_external_ids"
+        );
     }
     let relevant = expected
         .relevant_external_ids
@@ -751,6 +1043,10 @@ mod tests {
     fn parse_error(fixtures: &ContinuityFixtureSet) -> String {
         let bytes = serde_json::to_vec(fixtures).unwrap();
         parse_fixture_bytes(&bytes).unwrap_err().to_string()
+    }
+
+    fn upgrade_to_v3(fixtures: &mut ContinuityFixtureSet) {
+        *fixtures = fixtures.clone().into_schema_v3().unwrap();
     }
 
     fn scenario_mut(
@@ -1389,12 +1685,131 @@ mod tests {
     #[test]
     fn fixture_reader_rejects_an_incompatible_schema_version() {
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        fixtures.schema_version = CONTINUITY_FIXTURE_SCHEMA_VERSION + 1;
+        fixtures.schema_version = CONTINUITY_FIXTURE_SCHEMA_VERSION_V3 + 1;
         let error = parse_fixture_bytes(&serde_json::to_vec(&fixtures).unwrap())
             .unwrap_err()
             .to_string();
         assert!(error.contains("unsupported continuity fixture schema_version"));
-        assert!(error.contains(&(CONTINUITY_FIXTURE_SCHEMA_VERSION + 1).to_string()));
-        assert!(error.contains(&CONTINUITY_FIXTURE_SCHEMA_VERSION.to_string()));
+        assert!(error.contains(&(CONTINUITY_FIXTURE_SCHEMA_VERSION_V3 + 1).to_string()));
+        assert!(
+            error.contains(&CONTINUITY_FIXTURE_SCHEMA_VERSION_V2.to_string()),
+            "{error}"
+        );
+        assert!(
+            error.contains(&CONTINUITY_FIXTURE_SCHEMA_VERSION_V3.to_string()),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn public_parser_accepts_explicit_v3_providers_and_rejects_cross_version_blocks() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let mut v3 = serde_json::to_value(&fixtures).unwrap();
+        v3["schema_version"] = Value::from(CONTINUITY_FIXTURE_SCHEMA_VERSION_V3);
+        for scenario in v3["scenarios"].as_array_mut().unwrap() {
+            scenario["embedding"].as_object_mut().unwrap().insert(
+                "provider".to_string(),
+                Value::String("controllable_similarity".to_string()),
+            );
+        }
+        v3["scenarios"][0]["embedding"] = serde_json::json!({"provider": "frozen"});
+        let parsed = parse_fixture_bytes(&serde_json::to_vec(&v3).unwrap()).unwrap();
+        assert_eq!(
+            parsed.schema_version,
+            LATEST_CONTINUITY_FIXTURE_SCHEMA_VERSION
+        );
+        assert_eq!(parsed.scenarios[0].embedding.provider_name(), "frozen");
+        assert!(
+            parsed.scenarios[1..]
+                .iter()
+                .all(|scenario| !scenario.embedding.is_legacy_v2())
+        );
+
+        let mut v2_with_frozen = serde_json::to_value(&fixtures).unwrap();
+        v2_with_frozen["scenarios"][0]["embedding"] = serde_json::json!({"provider": "frozen"});
+        let error = parse_fixture_bytes(&serde_json::to_vec(&v2_with_frozen).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("schema_version 2"), "{error}");
+        assert!(error.contains("require schema_version 3"), "{error}");
+
+        let mut v3_with_legacy = serde_json::to_value(&fixtures).unwrap();
+        v3_with_legacy["schema_version"] = Value::from(CONTINUITY_FIXTURE_SCHEMA_VERSION_V3);
+        let error = parse_fixture_bytes(&serde_json::to_vec(&v3_with_legacy).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("schema_version 3"), "{error}");
+        assert!(error.contains("declare provider"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_partial_malformed_and_typoed_v3_embedding_blocks() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let mut base = serde_json::to_value(&fixtures).unwrap();
+        base["schema_version"] = Value::from(CONTINUITY_FIXTURE_SCHEMA_VERSION_V3);
+        for scenario in base["scenarios"].as_array_mut().unwrap() {
+            scenario["embedding"].as_object_mut().unwrap().insert(
+                "provider".to_string(),
+                Value::String("controllable_similarity".to_string()),
+            );
+        }
+
+        let mut typoed = base.clone();
+        typoed["scenarios"][0]["embedding"] = serde_json::json!({"provder": "frozen"});
+        let error = parse_fixture_bytes(&serde_json::to_vec(&typoed).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown field \"provder\""), "{error}");
+        assert!(error.contains("provider: frozen"), "{error}");
+
+        let mut malformed_frozen = base.clone();
+        malformed_frozen["scenarios"][0]["embedding"] =
+            serde_json::json!({"provider": "frozen", "vector_size": 8});
+        let error = parse_fixture_bytes(&serde_json::to_vec(&malformed_frozen).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown field \"vector_size\""), "{error}");
+        assert!(error.contains("frozen embedding block"), "{error}");
+
+        let mut partial = base;
+        partial["scenarios"][0]["embedding"] = serde_json::json!({
+            "provider": "controllable_similarity",
+            "seed": 1,
+            "vector_size": 8
+        });
+        let error = parse_fixture_bytes(&serde_json::to_vec(&partial).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("malformed controllable_similarity embedding block"),
+            "{error}"
+        );
+        assert!(error.contains("missing field"), "{error}");
+    }
+
+    #[test]
+    fn schema_v3_admits_downstream_patterns_and_couples_abstention_labels() {
+        let mut v2 = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        v2.scenarios[0].pattern = ScenarioPattern::GradedSimilarity;
+        let error = parse_error(&v2);
+        assert!(error.contains("GradedSimilarity"), "{error}");
+        assert!(error.contains("requires schema_version 3"), "{error}");
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        upgrade_to_v3(&mut fixtures);
+        fixtures.scenarios[0].pattern = ScenarioPattern::Abstention;
+        let error = parse_error(&fixtures);
+        assert!(error.contains("pattern=abstention"), "{error}");
+        assert!(error.contains("empty relevant_external_ids"), "{error}");
+
+        expected_mut(&mut fixtures.scenarios[0])
+            .relevant_external_ids
+            .clear();
+        parse_fixture_bytes(&serde_json::to_vec(&fixtures).unwrap()).unwrap();
+
+        fixtures.scenarios[0].pattern = ScenarioPattern::Autobiographical;
+        let error = parse_error(&fixtures);
+        assert!(error.contains("non-abstention"), "{error}");
+        assert!(error.contains("declare relevant_external_ids"), "{error}");
     }
 }

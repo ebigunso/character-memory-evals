@@ -52,10 +52,13 @@ impl BenchmarkRunConfig {
     pub fn validate_for_dataset_kind(&self, dataset_kind: DatasetKind) -> Result<()> {
         self.validate()?;
         if dataset_kind == DatasetKind::Continuity
-            && self.backend.embedding.provider != "controllable_similarity"
+            && !matches!(
+                self.backend.embedding.provider.as_str(),
+                "controllable_similarity" | "frozen" | "mixed"
+            )
         {
             bail!(
-                "continuity dataset requires backend.embedding.provider=controllable_similarity; got {:?}",
+                "continuity dataset requires backend.embedding.provider to be controllable_similarity, frozen, or mixed; got {:?}",
                 self.backend.embedding.provider
             );
         }
@@ -138,6 +141,20 @@ impl BackendConfig {
                 );
             }
         }
+        if self.embedding.uses_frozen_store() {
+            if self.embedding.vector_size.is_none() {
+                bail!(
+                    "backend.embedding.provider={} requires backend.embedding.vector_size",
+                    self.embedding.provider
+                );
+            }
+            if self.embedding.store_path.is_none() {
+                bail!(
+                    "backend.embedding.provider={} requires backend.embedding.store_path",
+                    self.embedding.provider
+                );
+            }
+        }
         for (field, value) in [
             (
                 "backend.oxigraph_persistence_path",
@@ -150,6 +167,10 @@ impl BackendConfig {
             (
                 "backend.identity_registry_dir",
                 self.identity_registry_dir.as_deref(),
+            ),
+            (
+                "backend.embedding.store_path",
+                self.embedding.store_path.as_deref(),
             ),
         ] {
             if value.is_some_and(|value| value.trim().is_empty()) {
@@ -418,6 +439,8 @@ pub struct EmbeddingConfig {
     pub model: String,
     #[serde(default)]
     pub vector_size: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store_path: Option<String>,
 }
 
 impl Default for EmbeddingConfig {
@@ -426,7 +449,14 @@ impl Default for EmbeddingConfig {
             provider: default_embedding_provider(),
             model: default_embedding_model(),
             vector_size: None,
+            store_path: None,
         }
+    }
+}
+
+impl EmbeddingConfig {
+    pub fn uses_frozen_store(&self) -> bool {
+        matches!(self.provider.as_str(), "frozen" | "mixed")
     }
 }
 
@@ -727,29 +757,71 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("continuity dataset"));
-        assert!(error.contains("backend.embedding.provider=controllable_similarity"));
+        assert!(error.contains("controllable_similarity, frozen, or mixed"));
         assert!(error.contains("openai"));
 
         config.backend.embedding = EmbeddingConfig {
             provider: "deterministic".into(),
             model: "text-embedding-3-large".into(),
             vector_size: Some(3072),
+            store_path: None,
         };
         let error = config
             .validate_for_dataset_kind(DatasetKind::Continuity)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("backend.embedding.provider=controllable_similarity"));
+        assert!(error.contains("controllable_similarity, frozen, or mixed"));
         assert!(error.contains("deterministic"));
 
         config.backend.embedding = EmbeddingConfig {
             provider: "controllable_similarity".into(),
             model: "fixture-declared".into(),
             vector_size: Some(8),
+            store_path: None,
         };
         config
             .validate_for_dataset_kind(DatasetKind::Continuity)
             .unwrap();
+
+        config.backend.embedding = EmbeddingConfig {
+            provider: "frozen".into(),
+            model: "text-embedding-3-large".into(),
+            vector_size: Some(3072),
+            store_path: Some("fixtures/embeddings/continuity.json".into()),
+        };
+        config
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap();
+    }
+
+    #[test]
+    fn frozen_embedding_config_requires_store_path_and_vector_size() {
+        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "continuity-run",
+            "dataset": "continuity",
+            "backend": {
+                "embedding": {
+                    "provider": "frozen",
+                    "model": "text-embedding-3-large"
+                },
+                "oxigraph_persistence_path": "runs/continuity/oxigraph",
+                "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
+            },
+            "ingest": {"index_observations": true, "index_episode_summaries": true}
+        }))
+        .unwrap();
+
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("backend.embedding.vector_size"), "{error}");
+
+        config.backend.embedding.vector_size = Some(256);
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("backend.embedding.store_path"), "{error}");
+
+        config.backend.embedding.store_path = Some("  ".to_string());
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("backend.embedding.store_path"), "{error}");
+        assert!(error.contains("must not be empty"), "{error}");
     }
 
     #[test]

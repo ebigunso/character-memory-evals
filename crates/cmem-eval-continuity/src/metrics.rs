@@ -655,7 +655,8 @@ mod tests {
                 noise_magnitude: 0.0,
                 clusters: BTreeMap::new(),
                 concepts: BTreeMap::new(),
-            },
+            }
+            .into(),
             events: vec![
                 InteractionEvent::Remember {
                     event_id: "remember".to_string(),
