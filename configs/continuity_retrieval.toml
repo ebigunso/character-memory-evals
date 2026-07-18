@@ -28,9 +28,10 @@ enabled = false
 require_collection_prefix = "cmem_eval_continuity"
 
 [backend.embedding]
-provider = "controllable_similarity"
-model = "text-embedding-3-small"
-vector_size = 8
+provider = "mixed"
+model = "text-embedding-3-large"
+vector_size = 3072
+store_path = "crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json"
 
 [retrieval]
 mode = "hybrid"

@@ -1116,7 +1116,7 @@ mod tests {
                 _ => 0,
             })
             .sum::<usize>();
-        assert_eq!(traces.len(), 10);
+        assert_eq!(traces.len(), 23);
         for operation in [
             "remember",
             "prepare",

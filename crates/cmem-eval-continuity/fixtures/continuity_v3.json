@@ -1,0 +1,3808 @@
+{
+  "schema_version": 3,
+  "seed": 20260712,
+  "scenarios": [
+    {
+      "fixture_id": "long-gap-recall",
+      "namespace": "continuity-long-gap-recall-0000000001352768",
+      "pattern": "long_gap_recall",
+      "entities": [
+        {
+          "external_id": "entity-location",
+          "entity_type": "location",
+          "label": "Entity C",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-organization",
+          "entity_type": "organization",
+          "label": "Entity B",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-person",
+          "entity_type": "person",
+          "label": "Entity A",
+          "is_hub": false
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "distractor": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "entity_background": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "dormant": {
+            "cluster": "target",
+            "inputs": [
+              "A dormant project uses the cobalt protocol.",
+              "Which protocol belongs to the dormant project?",
+              "Entity A"
+            ]
+          },
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity C"
+            ]
+          },
+          "recent": {
+            "cluster": "distractor",
+            "inputs": [
+              "A recent project uses the amber protocol.",
+              "Entity B"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "memory-dormant",
+          "timestamp": "2025-01-05T10:00:00Z",
+          "text": "A dormant project uses the cobalt protocol.",
+          "entity_external_ids": [
+            "entity-person"
+          ],
+          "thread": null,
+          "salience": 0.8
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "memory-recent",
+          "timestamp": "2025-06-05T10:00:00Z",
+          "text": "A recent project uses the amber protocol.",
+          "entity_external_ids": [
+            "entity-organization"
+          ],
+          "thread": null,
+          "salience": 0.6
+        },
+        {
+          "kind": "query",
+          "event_id": "event-003",
+          "query_id": "query-long-gap",
+          "timestamp": "2025-12-20T10:00:00Z",
+          "text": "Which protocol belongs to the dormant project?",
+          "expected": {
+            "relevant_external_ids": [
+              "memory-dormant"
+            ],
+            "irrelevant_external_ids": [
+              "memory-recent"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "recurring-hub-entity",
+      "namespace": "continuity-recurring-hub-entity-0000000001352768",
+      "pattern": "recurring_hub_entity",
+      "entities": [
+        {
+          "external_id": "entity-location",
+          "entity_type": "location",
+          "label": "Hub C",
+          "is_hub": true
+        },
+        {
+          "external_id": "entity-organization",
+          "entity_type": "organization",
+          "label": "Hub B",
+          "is_hub": true
+        },
+        {
+          "external_id": "entity-person",
+          "entity_type": "person",
+          "label": "Hub A",
+          "is_hub": true
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "hub": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "hub": {
+            "cluster": "hub",
+            "inputs": [
+              "Hub incident 0 connects all declared entity kinds.",
+              "Hub incident 1 connects all declared entity kinds.",
+              "Hub incident 2 connects all declared entity kinds.",
+              "Hub incident 3 connects all declared entity kinds.",
+              "Hub incident 4 connects all declared entity kinds.",
+              "Hub incident 5 connects all declared entity kinds.",
+              "Which incident most recently connected every hub?",
+              "Hub C",
+              "Hub B",
+              "Hub A"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "hub-memory-0",
+          "timestamp": "2025-01-10T10:00:00Z",
+          "text": "Hub incident 0 connects all declared entity kinds.",
+          "entity_external_ids": [
+            "entity-person",
+            "entity-organization",
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.5
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "hub-memory-1",
+          "timestamp": "2025-02-10T10:00:00Z",
+          "text": "Hub incident 1 connects all declared entity kinds.",
+          "entity_external_ids": [
+            "entity-person",
+            "entity-organization",
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.5
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-003",
+          "external_id": "hub-memory-2",
+          "timestamp": "2025-03-10T10:00:00Z",
+          "text": "Hub incident 2 connects all declared entity kinds.",
+          "entity_external_ids": [
+            "entity-person",
+            "entity-organization",
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.5
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-004",
+          "external_id": "hub-memory-3",
+          "timestamp": "2025-04-10T10:00:00Z",
+          "text": "Hub incident 3 connects all declared entity kinds.",
+          "entity_external_ids": [
+            "entity-person",
+            "entity-organization",
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.5
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-005",
+          "external_id": "hub-memory-4",
+          "timestamp": "2025-05-10T10:00:00Z",
+          "text": "Hub incident 4 connects all declared entity kinds.",
+          "entity_external_ids": [
+            "entity-person",
+            "entity-organization",
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.5
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-006",
+          "external_id": "hub-memory-5",
+          "timestamp": "2025-06-10T10:00:00Z",
+          "text": "Hub incident 5 connects all declared entity kinds.",
+          "entity_external_ids": [
+            "entity-person",
+            "entity-organization",
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.5
+        },
+        {
+          "kind": "query",
+          "event_id": "event-007",
+          "query_id": "query-hub",
+          "timestamp": "2025-07-10T10:00:00Z",
+          "text": "Which incident most recently connected every hub?",
+          "expected": {
+            "relevant_external_ids": [
+              "hub-memory-5"
+            ],
+            "irrelevant_external_ids": []
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "hub-scale",
+      "namespace": "continuity-hub-scale-0000000001352768",
+      "pattern": "hub_scale",
+      "entities": [
+        {
+          "external_id": "hub-scale-location",
+          "entity_type": "location",
+          "label": "Scale Hub C",
+          "is_hub": true
+        },
+        {
+          "external_id": "hub-scale-organization",
+          "entity_type": "organization",
+          "label": "Scale Hub B",
+          "is_hub": true
+        },
+        {
+          "external_id": "hub-scale-person",
+          "entity_type": "person",
+          "label": "Scale Hub A",
+          "is_hub": true
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "hub-scale-probe": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "hub-scale-quaternary": [
+            0.0,
+            0.9599999785423279,
+            0.2800000011920929,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "hub-scale-query": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "hub-scale-secondary": [
+            0.0,
+            0.0,
+            0.800000011920929,
+            0.6000000238418579,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "hub-scale-tertiary": [
+            0.0,
+            0.0,
+            0.6000000238418579,
+            0.0,
+            0.800000011920929,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "hub-scale-0": {
+            "cluster": "hub-scale-query",
+            "inputs": [
+              "Binding-scale hub incident 00 records routine continuity context.",
+              "Binding-scale hub incident 01 records routine continuity context.",
+              "Binding-scale hub incident 02 records routine continuity context.",
+              "Binding-scale hub incident 03 records routine continuity context.",
+              "Which dormant graph-only marker is linked to Scale Hub C?",
+              "Scale Hub A"
+            ]
+          },
+          "hub-scale-1": {
+            "cluster": "hub-scale-secondary",
+            "inputs": [
+              "Binding-scale hub incident 04 records routine continuity context.",
+              "Binding-scale hub incident 05 records routine continuity context.",
+              "Binding-scale hub incident 06 records routine continuity context.",
+              "Binding-scale hub incident 07 records routine continuity context.",
+              "Binding-scale hub incident 08 records routine continuity context.",
+              "Binding-scale hub incident 09 records routine continuity context.",
+              "Binding-scale hub incident 10 records routine continuity context.",
+              "Binding-scale hub incident 11 records routine continuity context.",
+              "Binding-scale hub incident 12 records routine continuity context.",
+              "Binding-scale hub incident 13 records routine continuity context.",
+              "Scale Hub C"
+            ]
+          },
+          "hub-scale-2": {
+            "cluster": "hub-scale-tertiary",
+            "inputs": [
+              "Binding-scale hub incident 14 records routine continuity context.",
+              "Binding-scale hub incident 15 records routine continuity context.",
+              "Binding-scale hub incident 16 records routine continuity context.",
+              "Binding-scale hub incident 17 records routine continuity context.",
+              "Binding-scale hub incident 18 records routine continuity context.",
+              "Binding-scale hub incident 19 records routine continuity context.",
+              "Binding-scale hub incident 20 records routine continuity context.",
+              "Binding-scale hub incident 21 records routine continuity context.",
+              "Binding-scale hub incident 22 records routine continuity context.",
+              "Binding-scale hub incident 23 records routine continuity context.",
+              "Binding-scale hub incident 24 records routine continuity context.",
+              "Binding-scale hub incident 25 records routine continuity context.",
+              "Binding-scale hub incident 26 records routine continuity context.",
+              "Binding-scale hub incident 27 records routine continuity context.",
+              "Binding-scale hub incident 28 records routine continuity context.",
+              "Binding-scale hub incident 29 records routine continuity context.",
+              "Binding-scale hub incident 30 records routine continuity context.",
+              "Scale Hub B"
+            ]
+          },
+          "hub-scale-3": {
+            "cluster": "hub-scale-quaternary",
+            "inputs": [
+              "Binding-scale hub incident 31 records routine continuity context.",
+              "Binding-scale hub incident 32 records routine continuity context.",
+              "Binding-scale hub incident 33 records routine continuity context.",
+              "Binding-scale hub incident 34 records routine continuity context.",
+              "Binding-scale hub incident 35 records routine continuity context.",
+              "Binding-scale hub incident 36 records routine continuity context.",
+              "Binding-scale hub incident 37 records routine continuity context.",
+              "Binding-scale hub incident 38 records routine continuity context.",
+              "Binding-scale hub incident 39 records routine continuity context.",
+              "Binding-scale hub incident 40 records routine continuity context.",
+              "Binding-scale hub incident 41 records routine continuity context.",
+              "Binding-scale hub incident 42 records routine continuity context.",
+              "Binding-scale hub incident 43 records routine continuity context.",
+              "Binding-scale hub incident 44 records routine continuity context.",
+              "Binding-scale hub incident 45 records routine continuity context.",
+              "Binding-scale hub incident 46 records routine continuity context.",
+              "Binding-scale hub incident 47 records routine continuity context."
+            ]
+          },
+          "hub-scale-probe": {
+            "cluster": "hub-scale-probe",
+            "inputs": [
+              "The dormant graph-only marker linked to Scale Hub C is obsidian-seven."
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "hub-scale-memory-00",
+          "timestamp": "2025-01-01T10:00:00Z",
+          "text": "Binding-scale hub incident 00 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-person"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "hub-scale-memory-01",
+          "timestamp": "2025-01-02T10:00:00Z",
+          "text": "Binding-scale hub incident 01 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-person"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-003",
+          "external_id": "hub-scale-memory-02",
+          "timestamp": "2025-01-03T10:00:00Z",
+          "text": "Binding-scale hub incident 02 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-person"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-004",
+          "external_id": "hub-scale-memory-03",
+          "timestamp": "2025-01-04T10:00:00Z",
+          "text": "Binding-scale hub incident 03 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-person"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-005",
+          "external_id": "hub-scale-memory-04",
+          "timestamp": "2025-01-05T10:00:00Z",
+          "text": "Binding-scale hub incident 04 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-006",
+          "external_id": "hub-scale-memory-05",
+          "timestamp": "2025-01-06T10:00:00Z",
+          "text": "Binding-scale hub incident 05 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-007",
+          "external_id": "hub-scale-memory-06",
+          "timestamp": "2025-01-07T10:00:00Z",
+          "text": "Binding-scale hub incident 06 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-008",
+          "external_id": "hub-scale-memory-07",
+          "timestamp": "2025-01-08T10:00:00Z",
+          "text": "Binding-scale hub incident 07 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-009",
+          "external_id": "hub-scale-memory-08",
+          "timestamp": "2025-01-09T10:00:00Z",
+          "text": "Binding-scale hub incident 08 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-010",
+          "external_id": "hub-scale-memory-09",
+          "timestamp": "2025-01-10T10:00:00Z",
+          "text": "Binding-scale hub incident 09 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-011",
+          "external_id": "hub-scale-memory-10",
+          "timestamp": "2025-01-11T10:00:00Z",
+          "text": "Binding-scale hub incident 10 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-012",
+          "external_id": "hub-scale-memory-11",
+          "timestamp": "2025-01-12T10:00:00Z",
+          "text": "Binding-scale hub incident 11 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-013",
+          "external_id": "hub-scale-memory-12",
+          "timestamp": "2025-01-13T10:00:00Z",
+          "text": "Binding-scale hub incident 12 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-014",
+          "external_id": "hub-scale-memory-13",
+          "timestamp": "2025-01-14T10:00:00Z",
+          "text": "Binding-scale hub incident 13 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-015",
+          "external_id": "hub-scale-memory-14",
+          "timestamp": "2025-01-15T10:00:00Z",
+          "text": "Binding-scale hub incident 14 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-016",
+          "external_id": "hub-scale-memory-15",
+          "timestamp": "2025-01-16T10:00:00Z",
+          "text": "Binding-scale hub incident 15 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-017",
+          "external_id": "hub-scale-memory-16",
+          "timestamp": "2025-01-17T10:00:00Z",
+          "text": "Binding-scale hub incident 16 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-018",
+          "external_id": "hub-scale-memory-17",
+          "timestamp": "2025-01-18T10:00:00Z",
+          "text": "Binding-scale hub incident 17 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-019",
+          "external_id": "hub-scale-memory-18",
+          "timestamp": "2025-01-19T10:00:00Z",
+          "text": "Binding-scale hub incident 18 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-020",
+          "external_id": "hub-scale-memory-19",
+          "timestamp": "2025-01-20T10:00:00Z",
+          "text": "Binding-scale hub incident 19 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-021",
+          "external_id": "hub-scale-memory-20",
+          "timestamp": "2025-01-21T10:00:00Z",
+          "text": "Binding-scale hub incident 20 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-022",
+          "external_id": "hub-scale-memory-21",
+          "timestamp": "2025-01-22T10:00:00Z",
+          "text": "Binding-scale hub incident 21 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-023",
+          "external_id": "hub-scale-memory-22",
+          "timestamp": "2025-01-23T10:00:00Z",
+          "text": "Binding-scale hub incident 22 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-024",
+          "external_id": "hub-scale-memory-23",
+          "timestamp": "2025-01-24T10:00:00Z",
+          "text": "Binding-scale hub incident 23 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-025",
+          "external_id": "hub-scale-memory-24",
+          "timestamp": "2025-02-01T10:00:00Z",
+          "text": "Binding-scale hub incident 24 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-026",
+          "external_id": "hub-scale-memory-25",
+          "timestamp": "2025-02-02T10:00:00Z",
+          "text": "Binding-scale hub incident 25 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-027",
+          "external_id": "hub-scale-memory-26",
+          "timestamp": "2025-02-03T10:00:00Z",
+          "text": "Binding-scale hub incident 26 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-028",
+          "external_id": "hub-scale-memory-27",
+          "timestamp": "2025-02-04T10:00:00Z",
+          "text": "Binding-scale hub incident 27 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-029",
+          "external_id": "hub-scale-memory-28",
+          "timestamp": "2025-02-05T10:00:00Z",
+          "text": "Binding-scale hub incident 28 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-030",
+          "external_id": "hub-scale-memory-29",
+          "timestamp": "2025-02-06T10:00:00Z",
+          "text": "Binding-scale hub incident 29 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-031",
+          "external_id": "hub-scale-memory-30",
+          "timestamp": "2025-02-07T10:00:00Z",
+          "text": "Binding-scale hub incident 30 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-032",
+          "external_id": "hub-scale-memory-31",
+          "timestamp": "2025-02-08T10:00:00Z",
+          "text": "Binding-scale hub incident 31 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-033",
+          "external_id": "hub-scale-memory-32",
+          "timestamp": "2025-02-09T10:00:00Z",
+          "text": "Binding-scale hub incident 32 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-034",
+          "external_id": "hub-scale-memory-33",
+          "timestamp": "2025-02-10T10:00:00Z",
+          "text": "Binding-scale hub incident 33 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-035",
+          "external_id": "hub-scale-memory-34",
+          "timestamp": "2025-02-11T10:00:00Z",
+          "text": "Binding-scale hub incident 34 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-036",
+          "external_id": "hub-scale-memory-35",
+          "timestamp": "2025-02-12T10:00:00Z",
+          "text": "Binding-scale hub incident 35 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-037",
+          "external_id": "hub-scale-memory-36",
+          "timestamp": "2025-02-13T10:00:00Z",
+          "text": "Binding-scale hub incident 36 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-038",
+          "external_id": "hub-scale-memory-37",
+          "timestamp": "2025-02-14T10:00:00Z",
+          "text": "Binding-scale hub incident 37 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-039",
+          "external_id": "hub-scale-memory-38",
+          "timestamp": "2025-02-15T10:00:00Z",
+          "text": "Binding-scale hub incident 38 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-040",
+          "external_id": "hub-scale-memory-39",
+          "timestamp": "2025-02-16T10:00:00Z",
+          "text": "Binding-scale hub incident 39 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-041",
+          "external_id": "hub-scale-memory-40",
+          "timestamp": "2025-02-17T10:00:00Z",
+          "text": "Binding-scale hub incident 40 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-042",
+          "external_id": "hub-scale-memory-41",
+          "timestamp": "2025-02-18T10:00:00Z",
+          "text": "Binding-scale hub incident 41 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-043",
+          "external_id": "hub-scale-memory-42",
+          "timestamp": "2025-02-19T10:00:00Z",
+          "text": "Binding-scale hub incident 42 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-044",
+          "external_id": "hub-scale-memory-43",
+          "timestamp": "2025-02-20T10:00:00Z",
+          "text": "Binding-scale hub incident 43 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-045",
+          "external_id": "hub-scale-memory-44",
+          "timestamp": "2025-02-21T10:00:00Z",
+          "text": "Binding-scale hub incident 44 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.15
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-046",
+          "external_id": "hub-scale-memory-45",
+          "timestamp": "2025-02-22T10:00:00Z",
+          "text": "Binding-scale hub incident 45 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.35
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-047",
+          "external_id": "hub-scale-memory-46",
+          "timestamp": "2025-02-23T10:00:00Z",
+          "text": "Binding-scale hub incident 46 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.65
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-048",
+          "external_id": "hub-scale-memory-47",
+          "timestamp": "2025-02-24T10:00:00Z",
+          "text": "Binding-scale hub incident 47 records routine continuity context.",
+          "entity_external_ids": [
+            "hub-scale-organization"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-049",
+          "external_id": "hub-scale-dormant-probe",
+          "timestamp": "2025-03-01T10:00:00Z",
+          "text": "The dormant graph-only marker linked to Scale Hub C is obsidian-seven.",
+          "entity_external_ids": [
+            "hub-scale-location"
+          ],
+          "thread": null,
+          "salience": 0.8
+        },
+        {
+          "kind": "query",
+          "event_id": "event-050",
+          "query_id": "query-hub-scale",
+          "timestamp": "2025-04-01T10:00:00Z",
+          "text": "Which dormant graph-only marker is linked to Scale Hub C?",
+          "expected": {
+            "relevant_external_ids": [
+              "hub-scale-dormant-probe"
+            ],
+            "irrelevant_external_ids": []
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "selective-entity",
+      "namespace": "continuity-selective-entity-0000000001352768",
+      "pattern": "selective_entity",
+      "entities": [
+        {
+          "external_id": "entity-location",
+          "entity_type": "location",
+          "label": "Entity C",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-organization",
+          "entity_type": "organization",
+          "label": "Entity B",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-person",
+          "entity_type": "person",
+          "label": "Entity A",
+          "is_hub": false
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "distractor": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "entity_background": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "common": {
+            "cluster": "distractor",
+            "inputs": [
+              "A frequent organization carries routine status updates.",
+              "Entity B"
+            ]
+          },
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity A"
+            ]
+          },
+          "rare": {
+            "cluster": "target",
+            "inputs": [
+              "A rare location carries the violet access token.",
+              "Which access token belongs to the rare location?",
+              "Entity C"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "common-memory",
+          "timestamp": "2025-01-01T09:00:00Z",
+          "text": "A frequent organization carries routine status updates.",
+          "entity_external_ids": [
+            "entity-organization"
+          ],
+          "thread": null,
+          "salience": 0.2
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "rare-memory",
+          "timestamp": "2025-05-01T09:00:00Z",
+          "text": "A rare location carries the violet access token.",
+          "entity_external_ids": [
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "query",
+          "event_id": "event-003",
+          "query_id": "query-selective",
+          "timestamp": "2025-09-01T09:00:00Z",
+          "text": "Which access token belongs to the rare location?",
+          "expected": {
+            "relevant_external_ids": [
+              "rare-memory"
+            ],
+            "irrelevant_external_ids": [
+              "common-memory"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "correction-chains",
+      "namespace": "continuity-correction-chains-0000000001352768",
+      "pattern": "correction_chains",
+      "entities": [
+        {
+          "external_id": "entity-location",
+          "entity_type": "location",
+          "label": "Entity C",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-organization",
+          "entity_type": "organization",
+          "label": "Entity B",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-person",
+          "entity_type": "person",
+          "label": "Entity A",
+          "is_hub": false
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "current": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "entity_background": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "superseded": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "current": {
+            "cluster": "current",
+            "inputs": [
+              "The delivery window is Thursday.",
+              "What is the corrected delivery window?"
+            ]
+          },
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity C",
+              "Entity A"
+            ]
+          },
+          "old": {
+            "cluster": "superseded",
+            "inputs": [
+              "The delivery window is Monday.",
+              "The delivery window is Tuesday.",
+              "Entity B"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "delivery-v1",
+          "timestamp": "2025-01-01T08:00:00Z",
+          "text": "The delivery window is Monday.",
+          "entity_external_ids": [
+            "entity-organization"
+          ],
+          "thread": null,
+          "salience": 0.7
+        },
+        {
+          "kind": "correct",
+          "event_id": "event-002",
+          "target_external_id": "delivery-v1",
+          "replacement_external_id": "delivery-v2",
+          "timestamp": "2025-02-01T08:00:00Z",
+          "replacement_text": "The delivery window is Tuesday."
+        },
+        {
+          "kind": "correct",
+          "event_id": "event-003",
+          "target_external_id": "delivery-v2",
+          "replacement_external_id": "delivery-v3",
+          "timestamp": "2025-03-01T08:00:00Z",
+          "replacement_text": "The delivery window is Thursday."
+        },
+        {
+          "kind": "forget",
+          "event_id": "event-004",
+          "target_external_ids": [
+            "delivery-v1",
+            "delivery-v1:observation"
+          ],
+          "timestamp": "2025-03-02T08:00:00Z",
+          "suppress_derived_from_target": false,
+          "apply_to_derived_from_target": false
+        },
+        {
+          "kind": "query",
+          "event_id": "event-005",
+          "query_id": "query-correction",
+          "timestamp": "2025-04-01T08:00:00Z",
+          "text": "What is the corrected delivery window?",
+          "expected": {
+            "relevant_external_ids": [
+              "delivery-v3"
+            ],
+            "irrelevant_external_ids": [
+              "delivery-v1",
+              "delivery-v2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "thread-drift",
+      "namespace": "continuity-thread-drift-0000000001352768",
+      "pattern": "thread_drift",
+      "entities": [
+        {
+          "external_id": "entity-location",
+          "entity_type": "location",
+          "label": "Entity C",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-organization",
+          "entity_type": "organization",
+          "label": "Entity B",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-person",
+          "entity_type": "person",
+          "label": "Entity A",
+          "is_hub": false
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "distractor": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "entity_background": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "drift": {
+            "cluster": "distractor",
+            "inputs": [
+              "Thread broadens to deployment details.",
+              "Thread drifts into unrelated travel planning.",
+              "Entity C"
+            ]
+          },
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity A"
+            ]
+          },
+          "focus": {
+            "cluster": "target",
+            "inputs": [
+              "Thread starts with a focused migration.",
+              "What was the thread's original focus?",
+              "Entity B"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "thread-focus",
+          "timestamp": "2025-01-01T08:00:00Z",
+          "text": "Thread starts with a focused migration.",
+          "entity_external_ids": [
+            "entity-organization"
+          ],
+          "thread": {
+            "thread_external_id": "thread-1",
+            "confidence": 0.95
+          },
+          "salience": 0.8
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "thread-broader",
+          "timestamp": "2025-02-01T08:00:00Z",
+          "text": "Thread broadens to deployment details.",
+          "entity_external_ids": [
+            "entity-organization"
+          ],
+          "thread": {
+            "thread_external_id": "thread-1",
+            "confidence": 0.65
+          },
+          "salience": 0.5
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-003",
+          "external_id": "thread-drifted",
+          "timestamp": "2025-03-01T08:00:00Z",
+          "text": "Thread drifts into unrelated travel planning.",
+          "entity_external_ids": [
+            "entity-location"
+          ],
+          "thread": {
+            "thread_external_id": "thread-1",
+            "confidence": 0.25
+          },
+          "salience": 0.2
+        },
+        {
+          "kind": "query",
+          "event_id": "event-004",
+          "query_id": "query-thread",
+          "timestamp": "2025-04-01T08:00:00Z",
+          "text": "What was the thread's original focus?",
+          "expected": {
+            "relevant_external_ids": [
+              "thread-focus"
+            ],
+            "irrelevant_external_ids": [
+              "thread-drifted"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "temporal-structure",
+      "namespace": "continuity-temporal-structure-0000000001352768",
+      "pattern": "temporal_structure",
+      "entities": [
+        {
+          "external_id": "entity-location",
+          "entity_type": "location",
+          "label": "Entity C",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-organization",
+          "entity_type": "organization",
+          "label": "Entity B",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-person",
+          "entity_type": "person",
+          "label": "Entity A",
+          "is_hub": false
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "current": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "entity_background": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "past": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "current": {
+            "cluster": "current",
+            "inputs": [
+              "The archive moved to the east wing in October.",
+              "Where was the archive after the October move?"
+            ]
+          },
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity B",
+              "Entity A"
+            ]
+          },
+          "old": {
+            "cluster": "past",
+            "inputs": [
+              "The archive was stored in the west wing in January.",
+              "Entity C"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "archive-january",
+          "timestamp": "2025-01-15T12:00:00Z",
+          "text": "The archive was stored in the west wing in January.",
+          "entity_external_ids": [
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.6
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "archive-october",
+          "timestamp": "2025-10-15T12:00:00Z",
+          "text": "The archive moved to the east wing in October.",
+          "entity_external_ids": [
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.8
+        },
+        {
+          "kind": "query",
+          "event_id": "event-003",
+          "query_id": "query-temporal",
+          "timestamp": "2025-11-15T12:00:00Z",
+          "text": "Where was the archive after the October move?",
+          "expected": {
+            "relevant_external_ids": [
+              "archive-october"
+            ],
+            "irrelevant_external_ids": []
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "mixed-salience-accumulation",
+      "namespace": "continuity-mixed-salience-accumulation-0000000001352768",
+      "pattern": "mixed_salience_accumulation",
+      "entities": [
+        {
+          "external_id": "entity-location",
+          "entity_type": "location",
+          "label": "Entity C",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-organization",
+          "entity_type": "organization",
+          "label": "Entity B",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-person",
+          "entity_type": "person",
+          "label": "Entity A",
+          "is_hub": false
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "distractor": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "routine": {
+            "cluster": "distractor",
+            "inputs": [
+              "A low-salience routine note was recorded.",
+              "A medium-salience schedule change was recorded.",
+              "Entity B",
+              "Entity A"
+            ]
+          },
+          "signal": {
+            "cluster": "target",
+            "inputs": [
+              "A high-salience emergency access code is delta-nine.",
+              "What is the emergency access code?",
+              "Entity C"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "salience-low",
+          "timestamp": "2025-01-01T07:00:00Z",
+          "text": "A low-salience routine note was recorded.",
+          "entity_external_ids": [
+            "entity-person"
+          ],
+          "thread": null,
+          "salience": 0.1
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "salience-medium",
+          "timestamp": "2025-02-01T07:00:00Z",
+          "text": "A medium-salience schedule change was recorded.",
+          "entity_external_ids": [
+            "entity-organization"
+          ],
+          "thread": null,
+          "salience": 0.5
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-003",
+          "external_id": "salience-high",
+          "timestamp": "2025-03-01T07:00:00Z",
+          "text": "A high-salience emergency access code is delta-nine.",
+          "entity_external_ids": [
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.95
+        },
+        {
+          "kind": "query",
+          "event_id": "event-004",
+          "query_id": "query-salience",
+          "timestamp": "2025-08-01T07:00:00Z",
+          "text": "What is the emergency access code?",
+          "expected": {
+            "relevant_external_ids": [
+              "salience-high"
+            ],
+            "irrelevant_external_ids": [
+              "salience-low",
+              "salience-medium"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "cross-store-stress",
+      "namespace": "continuity-cross-store-stress-0000000001352768",
+      "pattern": "cross_store_stress",
+      "entities": [
+        {
+          "external_id": "entity-location",
+          "entity_type": "location",
+          "label": "Entity C",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-organization",
+          "entity_type": "organization",
+          "label": "Entity B",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-person",
+          "entity_type": "person",
+          "label": "Entity A",
+          "is_hub": false
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "entity_background": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity C"
+            ]
+          },
+          "marker": {
+            "cluster": "target",
+            "inputs": [
+              "The persistent cross-store marker is quartz-seven.",
+              "What marker must survive the restart?",
+              "Entity B",
+              "Entity A"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "restart-marker",
+          "timestamp": "2025-01-01T06:00:00Z",
+          "text": "The persistent cross-store marker is quartz-seven.",
+          "entity_external_ids": [
+            "entity-person",
+            "entity-organization"
+          ],
+          "thread": null,
+          "salience": 0.9
+        },
+        {
+          "kind": "link",
+          "event_id": "event-002",
+          "external_id": "restart-link",
+          "timestamp": "2025-01-01T06:05:00Z",
+          "from_external_id": "entity-person",
+          "relation": "about",
+          "to_external_id": "restart-marker"
+        },
+        {
+          "kind": "restart",
+          "event_id": "event-003",
+          "timestamp": "2025-01-01T06:10:00Z",
+          "reopen_graph": true,
+          "reopen_stats": true
+        },
+        {
+          "kind": "query",
+          "event_id": "event-004",
+          "query_id": "query-restart",
+          "timestamp": "2025-01-01T06:15:00Z",
+          "text": "What marker must survive the restart?",
+          "expected": {
+            "relevant_external_ids": [
+              "restart-marker"
+            ],
+            "irrelevant_external_ids": [
+              "restart-link"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "surface-contribution",
+      "namespace": "continuity-surface-contribution-0000000001352768",
+      "pattern": "surface_contribution",
+      "entities": [
+        {
+          "external_id": "entity-location",
+          "entity_type": "location",
+          "label": "Entity C",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-organization",
+          "entity_type": "organization",
+          "label": "Entity B",
+          "is_hub": false
+        },
+        {
+          "external_id": "entity-person",
+          "entity_type": "person",
+          "label": "Entity A",
+          "is_hub": false
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "distractor": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "entity_background": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "entity_background": {
+            "cluster": "entity_background",
+            "inputs": [
+              "Entity B"
+            ]
+          },
+          "irrelevant-event": {
+            "cluster": "distractor",
+            "inputs": [
+              "During meal planning, the crew reviewed the galley provisions.",
+              "The cook said fennel soup is available after dusk.",
+              "The character prefers fennel soup for the evening meal.",
+              "Entity A"
+            ]
+          },
+          "relevant-event": {
+            "cluster": "target",
+            "inputs": [
+              "During route planning, the crew reviewed the north beacon passage.",
+              "The navigator said the north beacon passage stays clear after dusk.",
+              "The character trusts the north beacon passage for night travel.",
+              "Which passage does the character trust for night travel?",
+              "Entity C"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "surface-relevant",
+          "timestamp": "2025-01-01T05:00:00Z",
+          "text": "During route planning, the crew reviewed the north beacon passage.",
+          "surface_texts": {
+            "episode": "During route planning, the crew reviewed the north beacon passage.",
+            "observation": "The navigator said the north beacon passage stays clear after dusk.",
+            "derived": "The character trusts the north beacon passage for night travel."
+          },
+          "entity_external_ids": [
+            "entity-location"
+          ],
+          "thread": null,
+          "salience": 0.8
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "surface-irrelevant",
+          "timestamp": "2025-01-02T05:00:00Z",
+          "text": "During meal planning, the crew reviewed the galley provisions.",
+          "surface_texts": {
+            "episode": "During meal planning, the crew reviewed the galley provisions.",
+            "observation": "The cook said fennel soup is available after dusk.",
+            "derived": "The character prefers fennel soup for the evening meal."
+          },
+          "entity_external_ids": [
+            "entity-person"
+          ],
+          "thread": null,
+          "salience": 0.5
+        },
+        {
+          "kind": "query",
+          "event_id": "event-003",
+          "query_id": "query-surface-contribution",
+          "timestamp": "2025-02-01T05:00:00Z",
+          "text": "Which passage does the character trust for night travel?",
+          "expected": {
+            "relevant_external_ids": [
+              "surface-relevant"
+            ],
+            "irrelevant_external_ids": [
+              "surface-irrelevant"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "graded-similarity",
+      "namespace": "continuity-graded-similarity-0000000001352768",
+      "pattern": "graded_similarity",
+      "entities": [
+        {
+          "external_id": "graded-cabinet",
+          "entity_type": "location",
+          "label": "East instrument cabinet",
+          "is_hub": false
+        },
+        {
+          "external_id": "graded-character",
+          "entity_type": "person",
+          "label": "Iris Vale",
+          "is_hub": false
+        },
+        {
+          "external_id": "graded-colleague",
+          "entity_type": "person",
+          "label": "Mara Chen",
+          "is_hub": false
+        },
+        {
+          "external_id": "graded-observatory",
+          "entity_type": "organization",
+          "label": "Northlight Observatory",
+          "is_hub": true
+        }
+      ],
+      "embedding": {
+        "provider": "frozen"
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "graded-target",
+          "timestamp": "2025-01-18T19:10:00Z",
+          "text": "After calibrating the aurora camera, Iris left her blue field notebook in the east instrument cabinet.",
+          "entity_external_ids": [
+            "graded-character",
+            "graded-observatory",
+            "graded-cabinet"
+          ],
+          "thread": {
+            "thread_external_id": "aurora-calibration",
+            "confidence": 0.96
+          },
+          "salience": 0.9
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "graded-near-miss",
+          "timestamp": "2025-02-11T18:45:00Z",
+          "text": "After calibrating the meteor camera, Iris left her amber field notebook in the west instrument cabinet.",
+          "entity_external_ids": [
+            "graded-character",
+            "graded-observatory"
+          ],
+          "thread": {
+            "thread_external_id": "meteor-calibration",
+            "confidence": 0.91
+          },
+          "salience": 0.7
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-003",
+          "external_id": "graded-second-near-miss",
+          "timestamp": "2025-03-03T10:20:00Z",
+          "text": "Before the aurora camera test, Mara returned a blue maintenance binder to the east archive shelf.",
+          "entity_external_ids": [
+            "graded-colleague",
+            "graded-observatory"
+          ],
+          "thread": {
+            "thread_external_id": "aurora-calibration",
+            "confidence": 0.62
+          },
+          "salience": 0.5
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-004",
+          "external_id": "graded-background",
+          "timestamp": "2025-04-09T07:30:00Z",
+          "text": "The harbor bakery served cardamom rolls while rain moved across the fishing pier.",
+          "entity_external_ids": [
+            "graded-character"
+          ],
+          "thread": null,
+          "salience": 0.2
+        },
+        {
+          "kind": "query",
+          "event_id": "event-005",
+          "query_id": "query-graded-similarity",
+          "timestamp": "2025-07-21T09:00:00Z",
+          "text": "Where did Iris put her blue field notebook after the aurora camera calibration?",
+          "expected": {
+            "relevant_external_ids": [
+              "graded-target"
+            ],
+            "irrelevant_external_ids": [
+              "graded-near-miss",
+              "graded-second-near-miss",
+              "graded-background"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "combined-life",
+      "namespace": "continuity-combined-life-0000000001352768",
+      "pattern": "combined_life",
+      "entities": [
+        {
+          "external_id": "life-character",
+          "entity_type": "person",
+          "label": "Iris Vale",
+          "is_hub": true
+        },
+        {
+          "external_id": "life-elian",
+          "entity_type": "person",
+          "label": "Elian Moss",
+          "is_hub": false
+        },
+        {
+          "external_id": "life-harbor",
+          "entity_type": "location",
+          "label": "Tideglass Harbor",
+          "is_hub": true
+        },
+        {
+          "external_id": "life-mara",
+          "entity_type": "person",
+          "label": "Mara Chen",
+          "is_hub": true
+        },
+        {
+          "external_id": "life-observatory",
+          "entity_type": "organization",
+          "label": "Northlight Observatory",
+          "is_hub": true
+        },
+        {
+          "external_id": "life-workshop",
+          "entity_type": "organization",
+          "label": "Aster Workshop",
+          "is_hub": true
+        }
+      ],
+      "embedding": {
+        "provider": "frozen"
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "life-first-sight",
+          "timestamp": "2024-12-12T17:30:00Z",
+          "text": "Iris chose to restore Tideglass Harbor's dark lantern after seeing its unlit tower from the evening ferry.",
+          "entity_external_ids": [
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.98
+          },
+          "salience": 0.92
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "life-key-handover",
+          "timestamp": "2025-01-02T09:15:00Z",
+          "text": "Northlight Observatory entrusted Iris with the lantern-room key and the surviving maintenance ledger.",
+          "entity_external_ids": [
+            "life-character",
+            "life-observatory",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.95
+          },
+          "salience": 0.82
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-003",
+          "external_id": "life-maker-mark",
+          "timestamp": "2025-01-07T11:40:00Z",
+          "text": "Mara found the original lens maker's crescent mark beneath a layer of soot on the brass collar.",
+          "entity_external_ids": [
+            "life-mara",
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.93
+          },
+          "salience": 0.76
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-004",
+          "external_id": "life-rosemary-start",
+          "timestamp": "2025-01-10T08:20:00Z",
+          "text": "Elian gave Iris two rosemary cuttings for the exposed community garden above the ferry shed.",
+          "entity_external_ids": [
+            "life-elian",
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.91
+          },
+          "salience": 0.48
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-005",
+          "external_id": "life-panel-catalog",
+          "timestamp": "2025-01-14T14:10:00Z",
+          "text": "Iris catalogued seven dented brass panels before anyone removed them from the lantern housing.",
+          "entity_external_ids": [
+            "life-character",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.9
+          },
+          "salience": 0.52
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-006",
+          "external_id": "life-wind-screen",
+          "timestamp": "2025-01-20T07:50:00Z",
+          "text": "The first garden wind screen tore loose overnight, so Iris and Elian anchored its corners with sand-filled canvas pockets.",
+          "entity_external_ids": [
+            "life-character",
+            "life-elian",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.88
+          },
+          "salience": 0.44
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-007",
+          "external_id": "life-first-prism",
+          "timestamp": "2025-01-28T16:35:00Z",
+          "text": "Mara and Iris cleaned the first intact prism with distilled water and a brush softer than the ledger recommended.",
+          "entity_external_ids": [
+            "life-character",
+            "life-mara",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.94
+          },
+          "salience": 0.66
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-008",
+          "external_id": "life-ferry-tea",
+          "timestamp": "2025-01-31T18:05:00Z",
+          "text": "Iris began taking Friday tea on the last ferry, where the engine noise gave her a quiet boundary after workshop days.",
+          "entity_external_ids": [
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": null,
+          "salience": 0.31
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-009",
+          "external_id": "life-padded-cradle",
+          "timestamp": "2025-02-05T10:45:00Z",
+          "text": "Aster Workshop built a padded oak cradle so the fragile lens assembly could be rotated without lifting it by hand.",
+          "entity_external_ids": [
+            "life-workshop",
+            "life-character"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.96
+          },
+          "salience": 0.7
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-010",
+          "external_id": "life-rosemary-frost",
+          "timestamp": "2025-02-10T06:55:00Z",
+          "text": "A sharp frost browned one rosemary cutting, but the stem stayed green beneath the bark.",
+          "entity_external_ids": [
+            "life-character",
+            "life-elian",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.84
+          },
+          "salience": 0.37
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-011",
+          "external_id": "life-preserve-initials",
+          "timestamp": "2025-02-16T13:25:00Z",
+          "text": "Iris promised Mara that the maker's scratched initials would remain visible inside the restored lantern.",
+          "entity_external_ids": [
+            "life-character",
+            "life-mara"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.97
+          },
+          "salience": 0.88
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-012",
+          "external_id": "life-salt-corrosion",
+          "timestamp": "2025-02-24T15:10:00Z",
+          "text": "Salt corrosion had fused the lower bearing cover, so Iris stopped before forcing the screws and documented their condition.",
+          "entity_external_ids": [
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.92
+          },
+          "salience": 0.73
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-013",
+          "external_id": "life-soil-test",
+          "timestamp": "2025-03-02T09:30:00Z",
+          "text": "Elian's soil test showed the garden beds were too alkaline for blueberries but suitable for sea kale and thyme.",
+          "entity_external_ids": [
+            "life-elian",
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.9
+          },
+          "salience": 0.51
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-014",
+          "external_id": "life-cracked-prism",
+          "timestamp": "2025-03-08T14:45:00Z",
+          "text": "Iris cracked a replacement prism by tightening its brass frame too quickly during a dry fitting.",
+          "entity_external_ids": [
+            "life-character",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.98
+          },
+          "salience": 0.97
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-015",
+          "external_id": "life-admitted-mistake",
+          "timestamp": "2025-03-08T17:20:00Z",
+          "text": "Iris told Mara the cracked prism was her own mistake and wrote the failed torque setting into the maintenance ledger.",
+          "entity_external_ids": [
+            "life-character",
+            "life-mara"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.96
+          },
+          "salience": 0.94
+        },
+        {
+          "kind": "link",
+          "event_id": "event-905",
+          "external_id": "life-link-mara-admission",
+          "timestamp": "2025-03-09T09:00:00Z",
+          "from_external_id": "life-mara",
+          "relation": "about",
+          "to_external_id": "life-admitted-mistake"
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-016",
+          "external_id": "life-cork-gasket",
+          "timestamp": "2025-03-18T12:10:00Z",
+          "text": "Iris rebuilt the prism frame with a cork gasket and a gentler hand-tightened fit.",
+          "entity_external_ids": [
+            "life-character",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.94
+          },
+          "salience": 0.81
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-017",
+          "external_id": "life-nesting-pause",
+          "timestamp": "2025-03-25T08:40:00Z",
+          "text": "Work paused for four days when a pair of swallows began nesting beside the lantern-room vent.",
+          "entity_external_ids": [
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.72
+          },
+          "salience": 0.42
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-018",
+          "external_id": "life-sea-kale",
+          "timestamp": "2025-04-01T07:35:00Z",
+          "text": "Iris planted sea kale along the garden's windward edge while Elian moved the surviving rosemary behind a low slate wall.",
+          "entity_external_ids": [
+            "life-character",
+            "life-elian",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.93
+          },
+          "salience": 0.55
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-019",
+          "external_id": "life-clear-glass-arrival",
+          "timestamp": "2025-04-07T11:15:00Z",
+          "text": "The replacement lens glass arrived from the mainland wrapped in wool and marked as optically clear.",
+          "entity_external_ids": [
+            "life-character",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.91
+          },
+          "salience": 0.69
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-020",
+          "external_id": "life-amber-glass",
+          "timestamp": "2025-04-12T19:05:00Z",
+          "text": "At sunset Iris noticed the new glass cast an amber band that would distort the harbor signal.",
+          "entity_external_ids": [
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.95
+          },
+          "salience": 0.84
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-021",
+          "external_id": "life-glass-return",
+          "timestamp": "2025-04-15T09:00:00Z",
+          "text": "Mara backed Iris's decision to return the amber-tinted glass even though it threatened the public schedule.",
+          "entity_external_ids": [
+            "life-mara",
+            "life-character"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.94
+          },
+          "salience": 0.78
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-022",
+          "external_id": "life-watering-roster",
+          "timestamp": "2025-04-20T17:25:00Z",
+          "text": "The garden adopted a watering roster after Iris found three beds soaked and the thyme bed dry on the same evening.",
+          "entity_external_ids": [
+            "life-character",
+            "life-elian",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.9
+          },
+          "salience": 0.43
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-023",
+          "external_id": "life-opening-date-v1",
+          "timestamp": "2025-05-01T10:00:00Z",
+          "text": "Northlight Observatory announced that the restored harbor lantern would reopen to the public on May 18.",
+          "entity_external_ids": [
+            "life-character",
+            "life-observatory",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.97
+          },
+          "salience": 0.86
+        },
+        {
+          "kind": "link",
+          "event_id": "event-903",
+          "external_id": "life-link-character-opening",
+          "timestamp": "2025-05-02T09:00:00Z",
+          "from_external_id": "life-character",
+          "relation": "about",
+          "to_external_id": "life-opening-date-v1"
+        },
+        {
+          "kind": "link",
+          "event_id": "event-904",
+          "external_id": "life-link-observatory-opening",
+          "timestamp": "2025-05-02T09:05:00Z",
+          "from_external_id": "life-observatory",
+          "relation": "about",
+          "to_external_id": "life-opening-date-v1"
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-024",
+          "external_id": "life-oral-history",
+          "timestamp": "2025-05-05T15:30:00Z",
+          "text": "Mara recorded retired keeper Sela Rowan describing how fog once made the old lens appear to breathe.",
+          "entity_external_ids": [
+            "life-mara",
+            "life-observatory",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.78
+          },
+          "salience": 0.62
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-025",
+          "external_id": "life-public-class",
+          "timestamp": "2025-05-10T13:00:00Z",
+          "text": "Iris taught a small Aster Workshop class to polish spare brass without erasing tool marks.",
+          "entity_external_ids": [
+            "life-character",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.83
+          },
+          "salience": 0.57
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-026",
+          "external_id": "life-ramp-flood",
+          "timestamp": "2025-05-17T22:15:00Z",
+          "text": "A spring storm flooded the lantern loading ramp and carried two stacks of staging timber into the harbor.",
+          "entity_external_ids": [
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.96
+          },
+          "salience": 0.91
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-027",
+          "external_id": "life-sage-bloom",
+          "timestamp": "2025-05-21T07:10:00Z",
+          "text": "The garden's purple sage bloomed after the storm, drawing bees to the sheltered side of the ferry shed.",
+          "entity_external_ids": [
+            "life-character",
+            "life-elian",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.86
+          },
+          "salience": 0.38
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-028",
+          "external_id": "life-bearing-squeal",
+          "timestamp": "2025-05-29T16:50:00Z",
+          "text": "The lantern bearing turned freely under load but produced a high squeal near the north stop.",
+          "entity_external_ids": [
+            "life-character",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.93
+          },
+          "salience": 0.71
+        },
+        {
+          "kind": "correct",
+          "event_id": "event-901",
+          "target_external_id": "life-opening-date-v1",
+          "replacement_external_id": "life-opening-date-v2",
+          "timestamp": "2025-06-02T09:00:00Z",
+          "replacement_text": "After the flooded ramp delayed repairs, Northlight moved the public reopening from May 18 to July 6."
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-029",
+          "external_id": "life-rotation-test",
+          "timestamp": "2025-06-05T20:10:00Z",
+          "text": "Iris completed a full manual rotation test and marked the squealing sector for later lubrication.",
+          "entity_external_ids": [
+            "life-character",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.94
+          },
+          "salience": 0.68
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-030",
+          "external_id": "life-winter-rosemary-promise",
+          "timestamp": "2025-06-11T08:05:00Z",
+          "text": "Iris promised Elian she would keep the strongest rosemary plant in the workshop window through winter and return cuttings in spring.",
+          "entity_external_ids": [
+            "life-character",
+            "life-elian",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.95
+          },
+          "salience": 0.87
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-031",
+          "external_id": "life-neutral-glass",
+          "timestamp": "2025-06-18T10:25:00Z",
+          "text": "A second glass shipment arrived with a neutral beam and a handwritten apology from the mainland maker.",
+          "entity_external_ids": [
+            "life-character",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.92
+          },
+          "salience": 0.74
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-032",
+          "external_id": "life-handrail",
+          "timestamp": "2025-06-25T12:40:00Z",
+          "text": "Aster Workshop installed a lower handrail on the lantern stair after Iris saw a visiting keeper struggle with the final turn.",
+          "entity_external_ids": [
+            "life-character",
+            "life-workshop",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.82
+          },
+          "salience": 0.63
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-033",
+          "external_id": "life-lens-installed",
+          "timestamp": "2025-07-03T14:20:00Z",
+          "text": "Iris and Mara seated the neutral lens glass in the restored frame without covering the maker's initials.",
+          "entity_external_ids": [
+            "life-character",
+            "life-mara"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.98
+          },
+          "salience": 0.9
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-034",
+          "external_id": "life-garden-bees",
+          "timestamp": "2025-07-09T07:45:00Z",
+          "text": "Elian counted three native bee species moving between the sage, thyme, and sea kale flowers.",
+          "entity_external_ids": [
+            "life-elian",
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.84
+          },
+          "salience": 0.4
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-035",
+          "external_id": "life-beam-alignment",
+          "timestamp": "2025-07-17T21:05:00Z",
+          "text": "The first powered beam crossed the harbor mouth six degrees too far north, so Iris stopped the motor before the public test.",
+          "entity_external_ids": [
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.97
+          },
+          "salience": 0.89
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-036",
+          "external_id": "life-fog-test",
+          "timestamp": "2025-07-24T04:55:00Z",
+          "text": "During a natural fog Iris verified that the corrected beam remained visible from the south breakwater.",
+          "entity_external_ids": [
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.96
+          },
+          "salience": 0.85
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-037",
+          "external_id": "life-children-workshop",
+          "timestamp": "2025-08-02T12:30:00Z",
+          "text": "Iris let harbor children turn a wooden lens model while Mara explained why each prism bends light inward.",
+          "entity_external_ids": [
+            "life-character",
+            "life-mara",
+            "life-observatory"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.8
+          },
+          "salience": 0.58
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-038",
+          "external_id": "life-painted-trim",
+          "timestamp": "2025-08-09T15:15:00Z",
+          "text": "Mara painted the lantern-room trim in the muted green found beneath its newest coats.",
+          "entity_external_ids": [
+            "life-mara",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.87
+          },
+          "salience": 0.49
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-039",
+          "external_id": "life-alignment-apology",
+          "timestamp": "2025-08-16T10:35:00Z",
+          "text": "Iris apologized for dismissing Mara's first alignment reading and asked her to lead the independent recheck.",
+          "entity_external_ids": [
+            "life-character",
+            "life-mara"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.91
+          },
+          "salience": 0.88
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-040",
+          "external_id": "life-tomato-harvest",
+          "timestamp": "2025-08-23T08:15:00Z",
+          "text": "The garden shared its first tomato harvest at the ferry queue, with the smallest fruit saved for seed.",
+          "entity_external_ids": [
+            "life-character",
+            "life-elian",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.82
+          },
+          "salience": 0.36
+        },
+        {
+          "kind": "correct",
+          "event_id": "event-902",
+          "target_external_id": "life-opening-date-v2",
+          "replacement_external_id": "life-opening-date-v3",
+          "timestamp": "2025-09-01T09:00:00Z",
+          "replacement_text": "After the final lens and alignment checks, Northlight set the public reopening for September 14."
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-041",
+          "external_id": "life-final-mount",
+          "timestamp": "2025-09-05T13:50:00Z",
+          "text": "The restored lens assembly was lifted into its permanent mount and rotated twice without binding.",
+          "entity_external_ids": [
+            "life-character",
+            "life-workshop",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.98
+          },
+          "salience": 0.9
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-042",
+          "external_id": "life-dress-rehearsal",
+          "timestamp": "2025-09-12T20:00:00Z",
+          "text": "Mara ran the reopening rehearsal while Iris watched the beam from the south breakwater.",
+          "entity_external_ids": [
+            "life-character",
+            "life-mara",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.96
+          },
+          "salience": 0.83
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-043",
+          "external_id": "life-reopening",
+          "timestamp": "2025-09-14T19:30:00Z",
+          "text": "The Northlight harbor lantern reopened on September 14, and Iris invited retired keeper Sela Rowan to start its first rotation.",
+          "entity_external_ids": [
+            "life-character",
+            "life-observatory",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.99
+          },
+          "salience": 0.98
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-044",
+          "external_id": "life-winter-garden-plan",
+          "timestamp": "2025-09-20T09:25:00Z",
+          "text": "Iris and Elian moved the garden's thyme into cold frames and chose one rosemary plant for the workshop window.",
+          "entity_external_ids": [
+            "life-character",
+            "life-elian",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.93
+          },
+          "salience": 0.67
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-045",
+          "external_id": "life-visitor-log",
+          "timestamp": "2025-10-01T16:45:00Z",
+          "text": "The first two weeks of the visitor log contained more sketches of the lens than signatures.",
+          "entity_external_ids": [
+            "life-character",
+            "life-observatory"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.76
+          },
+          "salience": 0.34
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-046",
+          "external_id": "life-mara-retelling",
+          "timestamp": "2025-10-08T18:10:00Z",
+          "text": "Mara recorded Iris retelling the prism accident without hiding her mistake or exaggerating the repair.",
+          "entity_external_ids": [
+            "life-character",
+            "life-mara",
+            "life-observatory"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.89
+          },
+          "salience": 0.79
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-047",
+          "external_id": "life-rosemary-cuttings",
+          "timestamp": "2025-10-15T08:30:00Z",
+          "text": "Iris moved the strongest rosemary plant into Aster Workshop and labeled it for Elian's spring cuttings.",
+          "entity_external_ids": [
+            "life-character",
+            "life-elian",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.97
+          },
+          "salience": 0.86
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-048",
+          "external_id": "life-winter-cover",
+          "timestamp": "2025-10-22T11:55:00Z",
+          "text": "A breathable winter cover replaced the lantern's old tar sheet so trapped salt moisture could escape.",
+          "entity_external_ids": [
+            "life-character",
+            "life-workshop",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.86
+          },
+          "salience": 0.61
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-049",
+          "external_id": "life-november-storm",
+          "timestamp": "2025-11-02T23:10:00Z",
+          "text": "After the November gale Iris checked the lantern bearing before checking the garden and found both unharmed.",
+          "entity_external_ids": [
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": null,
+          "salience": 0.7
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-050",
+          "external_id": "life-garden-shelter",
+          "timestamp": "2025-11-12T09:20:00Z",
+          "text": "Elian added a clear shelter panel that kept rain off the winter rosemary without blocking the weak morning sun.",
+          "entity_external_ids": [
+            "life-elian",
+            "life-character",
+            "life-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.88
+          },
+          "salience": 0.54
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-051",
+          "external_id": "life-annual-reflection",
+          "timestamp": "2025-11-20T17:40:00Z",
+          "text": "Iris wrote that the lantern taught her to treat hesitation as information rather than as a failure of nerve.",
+          "entity_external_ids": [
+            "life-character",
+            "life-observatory"
+          ],
+          "thread": null,
+          "salience": 0.9
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-052",
+          "external_id": "life-ferry-return",
+          "timestamp": "2025-12-05T18:25:00Z",
+          "text": "From the evening ferry Iris saw the restored beam cross the water and remembered the dark tower that began the year.",
+          "entity_external_ids": [
+            "life-character",
+            "life-harbor"
+          ],
+          "thread": null,
+          "salience": 0.93
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-053",
+          "external_id": "life-community-supper",
+          "timestamp": "2025-12-12T19:00:00Z",
+          "text": "The garden volunteers held a winter supper beneath the lantern, using dried thyme from the roof beds in every shared pot.",
+          "entity_external_ids": [
+            "life-character",
+            "life-elian",
+            "life-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-garden",
+            "confidence": 0.83
+          },
+          "salience": 0.6
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-054",
+          "external_id": "life-ledger-close",
+          "timestamp": "2025-12-18T15:30:00Z",
+          "text": "Iris closed the year's maintenance ledger with the reopening date, the prism torque limit, and Elian's rosemary plan on separate pages.",
+          "entity_external_ids": [
+            "life-character",
+            "life-observatory",
+            "life-elian"
+          ],
+          "thread": null,
+          "salience": 0.91
+        },
+        {
+          "kind": "query",
+          "event_id": "event-951",
+          "query_id": "query-combined-reopening",
+          "timestamp": "2025-12-20T09:00:00Z",
+          "text": "On what date did the Northlight harbor lantern finally reopen after the delays?",
+          "expected": {
+            "relevant_external_ids": [
+              "life-opening-date-v3",
+              "life-reopening"
+            ],
+            "irrelevant_external_ids": [
+              "life-opening-date-v1",
+              "life-opening-date-v2"
+            ]
+          }
+        },
+        {
+          "kind": "query",
+          "event_id": "event-952",
+          "query_id": "query-combined-rosemary",
+          "timestamp": "2025-12-20T09:05:00Z",
+          "text": "What did Iris promise Elian she would do for the rosemary through winter?",
+          "expected": {
+            "relevant_external_ids": [
+              "life-winter-rosemary-promise",
+              "life-rosemary-cuttings"
+            ],
+            "irrelevant_external_ids": [
+              "life-rosemary-frost",
+              "life-sage-bloom"
+            ]
+          }
+        },
+        {
+          "kind": "query",
+          "event_id": "event-953",
+          "query_id": "query-combined-mistake",
+          "timestamp": "2025-12-20T09:10:00Z",
+          "text": "Which restoration mistake did Iris openly admit was her own?",
+          "expected": {
+            "relevant_external_ids": [
+              "life-cracked-prism",
+              "life-admitted-mistake"
+            ],
+            "irrelevant_external_ids": [
+              "life-cork-gasket",
+              "life-amber-glass"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "temporal-patterns",
+      "namespace": "continuity-temporal-patterns-0000000001352768",
+      "pattern": "temporal_patterns",
+      "entities": [
+        {
+          "external_id": "temporal-character",
+          "entity_type": "person",
+          "label": "Iris Vale",
+          "is_hub": false
+        },
+        {
+          "external_id": "temporal-harbor",
+          "entity_type": "location",
+          "label": "Tideglass Harbor",
+          "is_hub": false
+        },
+        {
+          "external_id": "temporal-observatory",
+          "entity_type": "organization",
+          "label": "Northlight Observatory",
+          "is_hub": true
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "interval": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "one-off": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "recurrence": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "interval": {
+            "cluster": "interval",
+            "inputs": [
+              "The winter residency at Northlight Observatory began on March 3.",
+              "The winter residency at Northlight Observatory ended on April 28.",
+              "Which memories mark the beginning and end of the winter residency?",
+              "Northlight Observatory"
+            ]
+          },
+          "one-off": {
+            "cluster": "one-off",
+            "inputs": [
+              "Iris rang the restored solstice bell once at noon on June 21.",
+              "What bell event happened only once rather than recurring?"
+            ]
+          },
+          "recurrence": {
+            "cluster": "recurrence",
+            "inputs": [
+              "Iris rehearsed the harbor bell sequence before sunrise on January 9.",
+              "Iris repeated the harbor bell rehearsal before sunrise on February 13.",
+              "Iris returned for a third harbor bell rehearsal before sunrise on May 8.",
+              "Which activity did Iris repeat on several mornings?",
+              "Iris Vale",
+              "Tideglass Harbor"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "temporal-rehearsal-1",
+          "timestamp": "2025-01-09T05:40:00Z",
+          "text": "Iris rehearsed the harbor bell sequence before sunrise on January 9.",
+          "entity_external_ids": [
+            "temporal-character",
+            "temporal-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-bells",
+            "confidence": 0.88
+          },
+          "salience": 0.45
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "temporal-rehearsal-2",
+          "timestamp": "2025-02-13T05:35:00Z",
+          "text": "Iris repeated the harbor bell rehearsal before sunrise on February 13.",
+          "entity_external_ids": [
+            "temporal-character",
+            "temporal-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-bells",
+            "confidence": 0.9
+          },
+          "salience": 0.45
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-003",
+          "external_id": "temporal-residency-start",
+          "timestamp": "2025-03-03T09:00:00Z",
+          "text": "The winter residency at Northlight Observatory began on March 3.",
+          "entity_external_ids": [
+            "temporal-character",
+            "temporal-observatory"
+          ],
+          "thread": {
+            "thread_external_id": "winter-residency",
+            "confidence": 0.96
+          },
+          "salience": 0.75
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-004",
+          "external_id": "temporal-residency-end",
+          "timestamp": "2025-04-28T17:00:00Z",
+          "text": "The winter residency at Northlight Observatory ended on April 28.",
+          "entity_external_ids": [
+            "temporal-character",
+            "temporal-observatory"
+          ],
+          "thread": {
+            "thread_external_id": "winter-residency",
+            "confidence": 0.96
+          },
+          "salience": 0.75
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-005",
+          "external_id": "temporal-rehearsal-3",
+          "timestamp": "2025-05-08T05:20:00Z",
+          "text": "Iris returned for a third harbor bell rehearsal before sunrise on May 8.",
+          "entity_external_ids": [
+            "temporal-character",
+            "temporal-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-bells",
+            "confidence": 0.92
+          },
+          "salience": 0.5
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-006",
+          "external_id": "temporal-solstice-once",
+          "timestamp": "2025-06-21T12:00:00Z",
+          "text": "Iris rang the restored solstice bell once at noon on June 21.",
+          "entity_external_ids": [
+            "temporal-character",
+            "temporal-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "harbor-bells",
+            "confidence": 0.7
+          },
+          "salience": 0.9
+        },
+        {
+          "kind": "query",
+          "event_id": "event-007",
+          "query_id": "query-temporal-recurrence",
+          "timestamp": "2025-11-02T10:00:00Z",
+          "text": "Which activity did Iris repeat on several mornings?",
+          "expected": {
+            "relevant_external_ids": [
+              "temporal-rehearsal-1",
+              "temporal-rehearsal-2",
+              "temporal-rehearsal-3"
+            ],
+            "irrelevant_external_ids": [
+              "temporal-solstice-once"
+            ]
+          }
+        },
+        {
+          "kind": "query",
+          "event_id": "event-008",
+          "query_id": "query-temporal-interval",
+          "timestamp": "2025-11-02T10:05:00Z",
+          "text": "Which memories mark the beginning and end of the winter residency?",
+          "expected": {
+            "relevant_external_ids": [
+              "temporal-residency-start",
+              "temporal-residency-end"
+            ],
+            "irrelevant_external_ids": [
+              "temporal-rehearsal-2"
+            ]
+          }
+        },
+        {
+          "kind": "query",
+          "event_id": "event-009",
+          "query_id": "query-temporal-one-off",
+          "timestamp": "2025-11-02T10:10:00Z",
+          "text": "What bell event happened only once rather than recurring?",
+          "expected": {
+            "relevant_external_ids": [
+              "temporal-solstice-once"
+            ],
+            "irrelevant_external_ids": [
+              "temporal-rehearsal-1",
+              "temporal-rehearsal-2",
+              "temporal-rehearsal-3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "entrenched-correction",
+      "namespace": "continuity-entrenched-correction-0000000001352768",
+      "pattern": "entrenched_correction",
+      "entities": [
+        {
+          "external_id": "entrenched-character",
+          "entity_type": "person",
+          "label": "Iris Vale",
+          "is_hub": true
+        },
+        {
+          "external_id": "entrenched-colleague",
+          "entity_type": "person",
+          "label": "Mara Chen",
+          "is_hub": false
+        },
+        {
+          "external_id": "entrenched-map-room",
+          "entity_type": "location",
+          "label": "Northlight map room",
+          "is_hub": false
+        },
+        {
+          "external_id": "entrenched-observatory",
+          "entity_type": "organization",
+          "label": "Northlight Observatory",
+          "is_hub": true
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "current": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "old": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "entrenched-current": {
+            "cluster": "current",
+            "inputs": [
+              "The Northlight map room now opens to volunteers at noon every Sunday.",
+              "After Mara's September correction, when does the map room open?"
+            ]
+          },
+          "entrenched-old": {
+            "cluster": "old",
+            "inputs": [
+              "The Northlight map room opens to volunteers at sunrise every Saturday.",
+              "Mara scheduled the spring survey team around the map room's Saturday sunrise opening.",
+              "When can volunteers enter the Northlight map room?",
+              "What opening time did the spring survey schedule assume?",
+              "Iris Vale",
+              "Mara Chen",
+              "Northlight map room",
+              "Northlight Observatory"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "map-hours-v1",
+          "timestamp": "2025-01-04T08:00:00Z",
+          "text": "The Northlight map room opens to volunteers at sunrise every Saturday.",
+          "entity_external_ids": [
+            "entrenched-character",
+            "entrenched-observatory",
+            "entrenched-map-room"
+          ],
+          "thread": {
+            "thread_external_id": "survey-planning",
+            "confidence": 0.95
+          },
+          "salience": 0.75
+        },
+        {
+          "kind": "link",
+          "event_id": "event-002",
+          "external_id": "map-link-character",
+          "timestamp": "2025-01-05T09:00:00Z",
+          "from_external_id": "entrenched-character",
+          "relation": "about",
+          "to_external_id": "map-hours-v1"
+        },
+        {
+          "kind": "link",
+          "event_id": "event-003",
+          "external_id": "map-link-observatory",
+          "timestamp": "2025-01-05T09:05:00Z",
+          "from_external_id": "entrenched-observatory",
+          "relation": "about",
+          "to_external_id": "map-hours-v1"
+        },
+        {
+          "kind": "link",
+          "event_id": "event-004",
+          "external_id": "map-link-room",
+          "timestamp": "2025-01-05T09:10:00Z",
+          "from_external_id": "entrenched-map-room",
+          "relation": "about",
+          "to_external_id": "map-hours-v1"
+        },
+        {
+          "kind": "query",
+          "event_id": "event-005",
+          "query_id": "query-map-hours-before",
+          "timestamp": "2025-02-01T08:00:00Z",
+          "text": "When can volunteers enter the Northlight map room?",
+          "expected": {
+            "relevant_external_ids": [
+              "map-hours-v1"
+            ],
+            "irrelevant_external_ids": []
+          }
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-006",
+          "external_id": "map-hours-reinforcement",
+          "timestamp": "2025-03-17T11:30:00Z",
+          "text": "Mara scheduled the spring survey team around the map room's Saturday sunrise opening.",
+          "entity_external_ids": [
+            "entrenched-colleague",
+            "entrenched-observatory",
+            "entrenched-map-room"
+          ],
+          "thread": {
+            "thread_external_id": "survey-planning",
+            "confidence": 0.88
+          },
+          "salience": 0.65
+        },
+        {
+          "kind": "query",
+          "event_id": "event-007",
+          "query_id": "query-map-hours-assumption",
+          "timestamp": "2025-04-20T08:00:00Z",
+          "text": "What opening time did the spring survey schedule assume?",
+          "expected": {
+            "relevant_external_ids": [
+              "map-hours-v1",
+              "map-hours-reinforcement"
+            ],
+            "irrelevant_external_ids": []
+          }
+        },
+        {
+          "kind": "correct",
+          "event_id": "event-008",
+          "target_external_id": "map-hours-v1",
+          "replacement_external_id": "map-hours-v2",
+          "timestamp": "2025-09-12T14:00:00Z",
+          "replacement_text": "The Northlight map room now opens to volunteers at noon every Sunday."
+        },
+        {
+          "kind": "query",
+          "event_id": "event-009",
+          "query_id": "query-map-hours-after",
+          "timestamp": "2025-10-03T08:00:00Z",
+          "text": "After Mara's September correction, when does the map room open?",
+          "expected": {
+            "relevant_external_ids": [
+              "map-hours-v2"
+            ],
+            "irrelevant_external_ids": [
+              "map-hours-v1",
+              "map-hours-reinforcement"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "autobiographical",
+      "namespace": "continuity-autobiographical-0000000001352768",
+      "pattern": "autobiographical",
+      "entities": [
+        {
+          "external_id": "auto-character",
+          "entity_type": "person",
+          "label": "Iris Vale",
+          "is_hub": true
+        },
+        {
+          "external_id": "auto-colleague",
+          "entity_type": "person",
+          "label": "Mara Chen",
+          "is_hub": false
+        },
+        {
+          "external_id": "auto-harbor",
+          "entity_type": "location",
+          "label": "Tideglass Harbor",
+          "is_hub": true
+        },
+        {
+          "external_id": "auto-workshop",
+          "entity_type": "organization",
+          "label": "Aster Workshop",
+          "is_hub": false
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "commitment": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "growth": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mistake": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "origin": [
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "auto-commitment": {
+            "cluster": "commitment",
+            "inputs": [
+              "Iris promised Mara she would preserve the maker's scratched initials inside the lantern.",
+              "Which promise about the lantern's history did Iris keep?",
+              "Mara Chen"
+            ]
+          },
+          "auto-growth": {
+            "cluster": "growth",
+            "inputs": [
+              "Iris rebuilt the prism frame with a cork gasket and a gentler hand-tightened fit.",
+              "Iris now pauses before irreversible adjustments and asks a colleague to check the load."
+            ]
+          },
+          "auto-mistake": {
+            "cluster": "mistake",
+            "inputs": [
+              "Iris cracked a replacement prism by tightening its brass frame too quickly.",
+              "Iris told Mara the cracked prism was her own mistake and recorded the failed torque setting.",
+              "What mistake does Iris remember making during the restoration?",
+              "Aster Workshop"
+            ]
+          },
+          "auto-origin": {
+            "cluster": "origin",
+            "inputs": [
+              "Iris chose to restore the neglected harbor lantern after seeing its dark tower from the ferry.",
+              "Why did Iris begin restoring the harbor lantern?",
+              "Iris Vale",
+              "Tideglass Harbor"
+            ]
+          }
+        },
+        "noise_magnitude": 0.0009765625,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "auto-first-choice",
+          "timestamp": "2024-12-12T17:30:00Z",
+          "text": "Iris chose to restore the neglected harbor lantern after seeing its dark tower from the ferry.",
+          "entity_external_ids": [
+            "auto-character",
+            "auto-harbor"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.95
+          },
+          "salience": 0.9
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-002",
+          "external_id": "auto-promise",
+          "timestamp": "2025-01-06T10:00:00Z",
+          "text": "Iris promised Mara she would preserve the maker's scratched initials inside the lantern.",
+          "entity_external_ids": [
+            "auto-character",
+            "auto-colleague"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.92
+          },
+          "salience": 0.85
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-003",
+          "external_id": "auto-mistake",
+          "timestamp": "2025-03-22T16:20:00Z",
+          "text": "Iris cracked a replacement prism by tightening its brass frame too quickly.",
+          "entity_external_ids": [
+            "auto-character",
+            "auto-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.94
+          },
+          "salience": 0.95
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-004",
+          "external_id": "auto-admission",
+          "timestamp": "2025-03-22T18:05:00Z",
+          "text": "Iris told Mara the cracked prism was her own mistake and recorded the failed torque setting.",
+          "entity_external_ids": [
+            "auto-character",
+            "auto-colleague"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.9
+          },
+          "salience": 0.9
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-005",
+          "external_id": "auto-repair",
+          "timestamp": "2025-04-04T13:15:00Z",
+          "text": "Iris rebuilt the prism frame with a cork gasket and a gentler hand-tightened fit.",
+          "entity_external_ids": [
+            "auto-character",
+            "auto-workshop"
+          ],
+          "thread": {
+            "thread_external_id": "lantern-restoration",
+            "confidence": 0.93
+          },
+          "salience": 0.8
+        },
+        {
+          "kind": "remember",
+          "event_id": "event-006",
+          "external_id": "auto-lesson",
+          "timestamp": "2025-05-19T09:40:00Z",
+          "text": "Iris now pauses before irreversible adjustments and asks a colleague to check the load.",
+          "entity_external_ids": [
+            "auto-character",
+            "auto-colleague"
+          ],
+          "thread": null,
+          "salience": 0.75
+        },
+        {
+          "kind": "query",
+          "event_id": "event-007",
+          "query_id": "query-auto-choice",
+          "timestamp": "2025-12-01T09:00:00Z",
+          "text": "Why did Iris begin restoring the harbor lantern?",
+          "expected": {
+            "relevant_external_ids": [
+              "auto-first-choice"
+            ],
+            "irrelevant_external_ids": [
+              "auto-repair"
+            ]
+          }
+        },
+        {
+          "kind": "query",
+          "event_id": "event-008",
+          "query_id": "query-auto-mistake",
+          "timestamp": "2025-12-01T09:05:00Z",
+          "text": "What mistake does Iris remember making during the restoration?",
+          "expected": {
+            "relevant_external_ids": [
+              "auto-mistake",
+              "auto-admission"
+            ],
+            "irrelevant_external_ids": [
+              "auto-repair"
+            ]
+          }
+        },
+        {
+          "kind": "query",
+          "event_id": "event-009",
+          "query_id": "query-auto-promise",
+          "timestamp": "2025-12-01T09:10:00Z",
+          "text": "Which promise about the lantern's history did Iris keep?",
+          "expected": {
+            "relevant_external_ids": [
+              "auto-promise"
+            ],
+            "irrelevant_external_ids": [
+              "auto-lesson"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

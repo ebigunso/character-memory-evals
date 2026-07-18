@@ -1040,6 +1040,54 @@ mod tests {
     use super::*;
     use crate::{CHECKED_FIXTURE_SEED, generate_fixture_set};
 
+    const EXPLICIT_V2_FIXTURE: &[u8] = br#"{
+  "schema_version": 2,
+  "seed": 7,
+  "scenarios": [
+    {
+      "fixture_id": "explicit-v2-boundary",
+      "namespace": "continuity-explicit-v2-boundary",
+      "pattern": "long_gap_recall",
+      "entities": [],
+      "embedding": {
+        "seed": 7,
+        "vector_size": 1,
+        "noise_magnitude": 0.0,
+        "clusters": {"target": [1.0]},
+        "concepts": {
+          "target": {"cluster": "target", "inputs": ["remembered target", "target query"]}
+        }
+      },
+      "events": [
+        {
+          "kind": "remember",
+          "event_id": "event-001",
+          "external_id": "memory-target",
+          "timestamp": "2025-01-01T00:00:00Z",
+          "text": "remembered target",
+          "entity_external_ids": [],
+          "salience": 0.8
+        },
+        {
+          "kind": "query",
+          "event_id": "event-002",
+          "query_id": "query-target",
+          "timestamp": "2025-02-01T00:00:00Z",
+          "text": "target query",
+          "expected": {
+            "relevant_external_ids": ["memory-target"],
+            "irrelevant_external_ids": []
+          }
+        }
+      ]
+    }
+  ]
+}"#;
+
+    fn explicit_v2_fixture() -> ContinuityFixtureSet {
+        parse_fixture_bytes(EXPLICIT_V2_FIXTURE).unwrap()
+    }
+
     fn parse_error(fixtures: &ContinuityFixtureSet) -> String {
         let bytes = serde_json::to_vec(fixtures).unwrap();
         parse_fixture_bytes(&bytes).unwrap_err().to_string()
@@ -1703,7 +1751,7 @@ mod tests {
 
     #[test]
     fn public_parser_accepts_explicit_v3_providers_and_rejects_cross_version_blocks() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let fixtures = explicit_v2_fixture();
         let mut v3 = serde_json::to_value(&fixtures).unwrap();
         v3["schema_version"] = Value::from(CONTINUITY_FIXTURE_SCHEMA_VERSION_V3);
         for scenario in v3["scenarios"].as_array_mut().unwrap() {
@@ -1744,7 +1792,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_partial_malformed_and_typoed_v3_embedding_blocks() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let fixtures = explicit_v2_fixture();
         let mut base = serde_json::to_value(&fixtures).unwrap();
         base["schema_version"] = Value::from(CONTINUITY_FIXTURE_SCHEMA_VERSION_V3);
         for scenario in base["scenarios"].as_array_mut().unwrap() {
@@ -1789,13 +1837,13 @@ mod tests {
 
     #[test]
     fn schema_v3_admits_downstream_patterns_and_couples_abstention_labels() {
-        let mut v2 = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let mut v2 = explicit_v2_fixture();
         v2.scenarios[0].pattern = ScenarioPattern::GradedSimilarity;
         let error = parse_error(&v2);
         assert!(error.contains("GradedSimilarity"), "{error}");
         assert!(error.contains("requires schema_version 3"), "{error}");
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let mut fixtures = explicit_v2_fixture();
         upgrade_to_v3(&mut fixtures);
         fixtures.scenarios[0].pattern = ScenarioPattern::Abstention;
         let error = parse_error(&fixtures);

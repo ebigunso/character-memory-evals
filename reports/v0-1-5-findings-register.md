@@ -421,3 +421,32 @@ Config hashes cover the tracked LF bytes. Output and report-content hashes are S
 | `about-10` | `F2F482395326B7FEA3BE4129DBC7F2F659EB14494F0737EC1DB81E6797E8855F` | `9C16291C63019504033E14EC690A131C9B3F8900B11DD206BF46B4CD06ADF311` | `F427DFD9D4E64B99B4CBD8D8A7FDFA6459C1644D7ABAA5468F25B4DD1B6BB600` | `A7BFFC4B8DF55EE901AE722FFE49143C738A3F4E3BBEC91BB5130BD84F31C4CF` | `63F50BD8A13E7ED9D4D0EAA91CC742C896C5157EF6490988D2932847ABA36782` | `99AE6EC044886E71FADC8E11AF4ABAE08CF69ABC7F084F2C64F393A1046F6A29` |
 | `roots-24` | `848177BF11F2D7718C3220A94FCC55F45C927322B6EEA38E35CAC1168596F3B4` | `8C0390D21D489C5B3EF9DD8E8800B3D08CC2531FE290A7CB680B6A18652F4CC0` | `36FBD84B9A3B18BDE111DF4D910D0CA652A9EF9641B1FA4656069E0393035E16` | `F52FE6A25A4376AEA279BC4C88DB419D08C3F9DFF94AB0DF7C9008BB07E801EE` | `A847C691D0F3694553CFD79826388836B1B55D6F226338C6B154B4F851D476E8` | `29E5DB23F9AF7BEE161FD9483545A1E85FEA2611074730C64B6D79873CA087E9` |
 | `mock` | `7A4198CEE1D84AB60D8F41869650F205F94DDB9EA214D046DE2AAC08BC0816AD` | `E523C8BABAEFEFE329862B67C7CC1833A42DDC896BC145C88F0BD772CE72D773` | `7E141025BD3A399B70BAF89889A6A2032C15DE90777FD64833B19B3BACD191B5` | `3ADB05C1F33B574049DB92D737BD3418C13045490CDADBC9287DE2B4F38B54DA` | `3268EAE89E33D76494F83539C204F17C780063DB0622E850C421D7E4E0746B37` | `7802176D151F64E1D6A45DC7101546C177783F002B199062FE6D2DD7792104DB` |
+
+## Task_22 schema-v3 catalog expansion
+
+Task_22 replaces the canonical checked fixture with deterministic schema v3 at `crates/cmem-eval-continuity/fixtures/continuity_v3.json`. The catalog now contains 15 scenarios and 23 queries. Five new scenarios extend the prior ten-scenario suite:
+
+- `graded-similarity` uses frozen real-model geometry for one target, two near misses, and an unrelated background memory.
+- `combined-life` uses frozen real-model geometry for a 61-event life history: 53 remembers, two corrections, three explicit links, and three queries. It spans December 2024 through December 2025, interleaves the `lantern-restoration` and `harbor-garden` threads, includes recurring person, organization, and location hubs, and varies salience.
+- `temporal-patterns` uses controllable similarity for explicit temporal progression.
+- `entrenched-correction` uses controllable similarity for repeated misinformation followed by a correction chain.
+- `autobiographical` uses controllable similarity and an ordinary `Person` character so provider judgment remains a measured result rather than fixture-side privileged identity.
+
+The suite declares `provider = frozen` only for `graded-similarity` and `combined-life`; the other 13 scenarios declare `provider = controllable_similarity`. The committed mixed-provider config uses `text-embedding-3-large`, vector size 3072, and `task22_real_store.json`. Generation made one authorized OpenAI embedding request for 71 unique fixture texts, then all validation was offline. The store records `source = open_ai_api`, contains 71 vectors of width 3072, and has an out-of-band manifest. Ranked-cosine validation measured:
+
+- graded similarity: target `0.861572146` > near miss `0.792349458` > background `0.180675849`;
+- combined reopening: target `0.671678662` > near miss `0.650091052` > background `0.210112855`;
+- combined rosemary: target `0.866143465` > near miss `0.634959161` > background `0.327862471`;
+- combined mistake: target `0.602975190` > near miss `0.516644597` > background `0.377437443`.
+
+The canonical fixture SHA-256 is `BF5E392EB3F0EB79F2F48FCA6EAD38A2E69109A7BEBD257A47AEA62F091F8EB3`. The manifest hash is `DDA314592900088234132503404ED6C4D3885F7E1C36EDF4396473CB608CC38C`; the frozen-store hash is `5BE3715FE360CF3971E4AF4F268B1D1ABE344BF39B339D53097A50BF1E8CA6DA`.
+
+### Mock and live evidence
+
+The expanded mock run completed all 15 scenarios and 23 queries using the committed v3 fixture and mixed config. Its results, summary, traces, and report hashes are `2B2B38798D25C3B678E35EF4D00DE9B2AE717D1CD05BB89AE1A47722F97C7CC6`, `5AE4B2CDE326CA855723F8885881824FAC31594C41529AEB612E9DFCE395B7DC`, `7069E5A02623DDE0E63F218AEC846AE935173DD5541BEAB1F93DEBF10305925C`, and `8CAD8037C50A004D7971821FFBBA005DDD3C82943701DCB4BBF31462E9661438`.
+
+The bounded live confirmation ran only `combined-life` against Character Memory branch `feature/v0-1-5-embedded-default` at source `43a54bbfc35b66a0376f12661effdf2db8b60c4d`, Qdrant gRPC `http://127.0.0.1:6334`, and shipped retrieval defaults. The completed retry used run ID `v0-1-5-task22-combined-life-retry`, namespace prefix `cmem_eval_task22_retry`, and fresh Oxigraph, retrieval-stat, and identity-registry paths. Runner elapsed time was 129.986 seconds; observed command wall clock was 135.8 seconds. The interrupted predecessor collection was explicitly pruned before the successful retry.
+
+The three live queries measured long-gap recall `0.5` at both 5 and 10, medium-gap recall `0.5` at 5 and `1.0` at 10, mean context pollution `0.15873015873015872`, mean event pollution `0.1111111111111111`, and mean context reduction `0.6625883632408919`. Fanout-over-budget, orphan-vector leakage, superseded-current leakage, suppressed-memory leakage, graph-object-missing returned count, and unsafe-lifecycle returned count were all numeric zero. These are confirmation measurements, not a newly introduced acceptance threshold. The top results visibly include the corrected September reopening (`life-reopening` and `life-opening-date-v3`), rosemary origin and winter promise (`life-rosemary-start` and `life-winter-rosemary-promise`), and the admitted prism mistake and its later retelling (`life-admitted-mistake` and `life-mara-retelling`).
+
+Live config, results, summary, traces, and report hashes are `E11E71DB6A21B19118B0F8DBC39293A99BC47D4FC6689D5701F46D41C4FD1948`, `A7A4BB5B01AD3A5ACE8D8E93128AD52C1A729AF430136B54F64DE8BCF89ABD56`, `9E5858C2E1E5F3B902297DAB01D96C1BA3064CCB80D381E7B883A6863F2F24DA`, `BAA9670E989CB2279A34463BCA39CB50504C2FF14F35043A96700A2776B2786B`, and `15CA0FC1342858253C85A7E9AE3ABF3AE79B2D5D6F4E9EBA047393BF6E4EA57C`.

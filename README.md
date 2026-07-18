@@ -69,7 +69,9 @@ Continuity fixtures run an ordered, fixture-scripted lifecycle through remember,
 
 ### Configuration and prerequisites
 
-`configs/continuity_retrieval.toml` is the single committed continuity config for both mock smoke runs and live evaluations. A separate mock config is unnecessary because mock selection is an explicit CLI adapter choice. Continuity validation accepts `controllable_similarity`, `frozen`, or `mixed` deterministic embeddings. The checked schema-v2 fixture uses only controllable similarity and its vector size of 8. Schema-v3 fixtures declare a provider in every scenario embedding block; a mixed suite uses `mixed`, and its configured vector size is the frozen-store width while smaller controllable vectors are zero-padded to that width. Frozen and mixed configs also require `backend.embedding.store_path`. Persistent Oxigraph and retrieval-stat SQLite paths remain mandatory so restart scenarios can reconstruct those stores. The identity registry is always persistent: `identity_registry_dir` is optional and falls back deterministically to `runs/<run_id>`; the committed config explicitly places it under `runs/continuity/stores/identities`. The config records `max_vector_candidates = 48` and `max_graph_roots = 48` so report tuning observations remain correlated with the measured candidate-limit regime.
+`configs/continuity_retrieval.toml` is the single committed continuity config for both mock smoke runs and live evaluations. A separate mock config is unnecessary because mock selection is an explicit CLI adapter choice. Continuity validation accepts `controllable_similarity`, `frozen`, or `mixed` deterministic embeddings. The checked schema-v3 fixture is a mixed suite: its two semantic-geometry scenarios use the committed `text-embedding-3-large` frozen store, while its thirteen structural scenarios use controllable similarity and are zero-padded from eight dimensions to the store width. Schema-v3 fixtures declare a provider in every scenario embedding block, and frozen or mixed configs require `backend.embedding.store_path`. Persistent Oxigraph and retrieval-stat SQLite paths remain mandatory so restart scenarios can reconstruct those stores. The identity registry is always persistent: `identity_registry_dir` is optional and falls back deterministically to `runs/<run_id>`; the committed config explicitly places it under `runs/continuity/stores/identities`. The config records `max_vector_candidates = 48` and `max_graph_roots = 48` so report tuning observations remain correlated with the measured candidate-limit regime.
+
+The v3 catalog adds five purpose-built scenarios. `graded-similarity` uses frozen real-model geometry to require target > near miss > background. `combined-life` uses the same frozen store for a 61-event, year-spanning life history with two interleaved threads, correction chains, links, hubs, and varied salience. `temporal-patterns`, `entrenched-correction`, and `autobiographical` use controllable similarity so temporal structure, repeated-misinformation correction, and ordinary-person provider judgment remain deterministic and independently interpretable.
 
 The optional `[backend.character_memory]` table overrides Character Memory's selectivity controls for a run. `selectivity_smoothing_alpha` and `selectivity_gamma` are individually optional and must be finite positive numbers when present. The nested `retrieval.fanout` tables support exactly three relation/object paths: `about_entity.derived_memory`, `participant_entity.episode`, and `part_of_thread.derived_memory`; each leaf budget table is atomic, so a present table must contain both `min` and `max`, and its minimum must not exceed its maximum. The committed values pin the shipped Character Memory defaults (`1.0`, `1.0`, `0/20`, `0/5`, and `0/15`) so baseline reports are self-describing. Omitting `[backend.character_memory]`, either selectivity key, or an entire leaf budget table delegates those settings to the installed Character Memory defaults without adding an eval-side fallback. The exact configured table is preserved under `metadata.config.backend.character_memory` in continuity reports.
 
@@ -138,11 +140,11 @@ PowerShell uses `$env:QDRANT_CONNECTION_STRING = "http://localhost:6334"` for th
 
 ### Run a service-free mock smoke
 
-The guarded mock command runs all ten checked scenarios, writes visibly marked `mock_smoke` artifacts, and uses the same config and metric registry as the live path:
+The guarded mock command runs all fifteen checked scenarios, writes visibly marked `mock_smoke` artifacts, and uses the same config and metric registry as the live path:
 
 ```bash
 cargo run -p cmem-eval-runner -- run continuity \
-  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v2.json \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json \
   --config ./configs/continuity_retrieval.toml \
   --out ./runs/continuity/mock/results.jsonl \
   --summary-out ./runs/continuity/mock/summary.json \
@@ -158,7 +160,7 @@ This bounded live command exercises Qdrant plus the configured persistent stores
 
 ```bash
 cargo run -p cmem-eval-runner -- run continuity \
-  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v2.json \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json \
   --config ./configs/continuity_retrieval.toml \
   --out ./runs/continuity/live/results.jsonl \
   --summary-out ./runs/continuity/live/summary.json \
@@ -177,7 +179,7 @@ Continuity metric families include fixture-derived entity-kind keys, so `summari
 cargo run -p cmem-eval-runner -- summarize \
   --input ./runs/continuity/mock/results.jsonl \
   --config ./configs/continuity_retrieval.toml \
-  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v2.json \
+  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json \
   --out ./runs/continuity/mock/resummary.json
 ```
 
@@ -187,10 +189,10 @@ The checked fixture seed is `20260712`. Generate into `runs/` for inspection ins
 
 ```bash
 cargo run -p cmem-eval-continuity --bin generate_continuity_fixtures -- \
-  ./runs/continuity/generated/continuity_v2.json 20260712
+  ./runs/continuity/generated/continuity_v3.json 20260712
 ```
 
-Schema v2 derives backend persistence identities from config, stable namespaces, and external IDs; it rejects the retired caller-supplied `collection_name`, `memory_id`, and `replacement_memory_id` fields. Parse the candidate, inspect its semantic diff against `crates/cmem-eval-continuity/fixtures/continuity_v2.json`, and run the generator determinism tests before replacing the checked fixture.
+Schema v3 keeps backend persistence identities derived from config, stable namespaces, and external IDs and continues to reject the retired caller-supplied `collection_name`, `memory_id`, and `replacement_memory_id` fields. It also requires every scenario to declare `provider = controllable_similarity` or `provider = frozen`; the parser retains explicit schema-v2 compatibility for historical controllable-only fixtures. Parse the candidate, inspect its semantic diff against `crates/cmem-eval-continuity/fixtures/continuity_v3.json`, validate the frozen store, and run the generator determinism tests before replacing the checked fixture.
 
 ### Read the continuity artifacts
 

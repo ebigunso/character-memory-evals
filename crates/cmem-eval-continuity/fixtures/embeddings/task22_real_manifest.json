@@ -1,0 +1,343 @@
+{
+  "schema_version": 1,
+  "texts": [
+    {
+      "id": "graded-similarity/entity/graded-cabinet",
+      "text": "East instrument cabinet"
+    },
+    {
+      "id": "graded-similarity/entity/graded-character",
+      "text": "Iris Vale"
+    },
+    {
+      "id": "graded-similarity/entity/graded-colleague",
+      "text": "Mara Chen"
+    },
+    {
+      "id": "graded-similarity/entity/graded-observatory",
+      "text": "Northlight Observatory"
+    },
+    {
+      "id": "graded-similarity/remember/graded-target",
+      "text": "After calibrating the aurora camera, Iris left her blue field notebook in the east instrument cabinet."
+    },
+    {
+      "id": "graded-similarity/remember/graded-near-miss",
+      "text": "After calibrating the meteor camera, Iris left her amber field notebook in the west instrument cabinet."
+    },
+    {
+      "id": "graded-similarity/remember/graded-second-near-miss",
+      "text": "Before the aurora camera test, Mara returned a blue maintenance binder to the east archive shelf."
+    },
+    {
+      "id": "graded-similarity/remember/graded-background",
+      "text": "The harbor bakery served cardamom rolls while rain moved across the fishing pier."
+    },
+    {
+      "id": "graded-similarity/query/query-graded-similarity",
+      "text": "Where did Iris put her blue field notebook after the aurora camera calibration?"
+    },
+    {
+      "id": "combined-life/entity/life-character",
+      "text": "Iris Vale"
+    },
+    {
+      "id": "combined-life/entity/life-elian",
+      "text": "Elian Moss"
+    },
+    {
+      "id": "combined-life/entity/life-harbor",
+      "text": "Tideglass Harbor"
+    },
+    {
+      "id": "combined-life/entity/life-mara",
+      "text": "Mara Chen"
+    },
+    {
+      "id": "combined-life/entity/life-observatory",
+      "text": "Northlight Observatory"
+    },
+    {
+      "id": "combined-life/entity/life-workshop",
+      "text": "Aster Workshop"
+    },
+    {
+      "id": "combined-life/remember/life-first-sight",
+      "text": "Iris chose to restore Tideglass Harbor's dark lantern after seeing its unlit tower from the evening ferry."
+    },
+    {
+      "id": "combined-life/remember/life-key-handover",
+      "text": "Northlight Observatory entrusted Iris with the lantern-room key and the surviving maintenance ledger."
+    },
+    {
+      "id": "combined-life/remember/life-maker-mark",
+      "text": "Mara found the original lens maker's crescent mark beneath a layer of soot on the brass collar."
+    },
+    {
+      "id": "combined-life/remember/life-rosemary-start",
+      "text": "Elian gave Iris two rosemary cuttings for the exposed community garden above the ferry shed."
+    },
+    {
+      "id": "combined-life/remember/life-panel-catalog",
+      "text": "Iris catalogued seven dented brass panels before anyone removed them from the lantern housing."
+    },
+    {
+      "id": "combined-life/remember/life-wind-screen",
+      "text": "The first garden wind screen tore loose overnight, so Iris and Elian anchored its corners with sand-filled canvas pockets."
+    },
+    {
+      "id": "combined-life/remember/life-first-prism",
+      "text": "Mara and Iris cleaned the first intact prism with distilled water and a brush softer than the ledger recommended."
+    },
+    {
+      "id": "combined-life/remember/life-ferry-tea",
+      "text": "Iris began taking Friday tea on the last ferry, where the engine noise gave her a quiet boundary after workshop days."
+    },
+    {
+      "id": "combined-life/remember/life-padded-cradle",
+      "text": "Aster Workshop built a padded oak cradle so the fragile lens assembly could be rotated without lifting it by hand."
+    },
+    {
+      "id": "combined-life/remember/life-rosemary-frost",
+      "text": "A sharp frost browned one rosemary cutting, but the stem stayed green beneath the bark."
+    },
+    {
+      "id": "combined-life/remember/life-preserve-initials",
+      "text": "Iris promised Mara that the maker's scratched initials would remain visible inside the restored lantern."
+    },
+    {
+      "id": "combined-life/remember/life-salt-corrosion",
+      "text": "Salt corrosion had fused the lower bearing cover, so Iris stopped before forcing the screws and documented their condition."
+    },
+    {
+      "id": "combined-life/remember/life-soil-test",
+      "text": "Elian's soil test showed the garden beds were too alkaline for blueberries but suitable for sea kale and thyme."
+    },
+    {
+      "id": "combined-life/remember/life-cracked-prism",
+      "text": "Iris cracked a replacement prism by tightening its brass frame too quickly during a dry fitting."
+    },
+    {
+      "id": "combined-life/remember/life-admitted-mistake",
+      "text": "Iris told Mara the cracked prism was her own mistake and wrote the failed torque setting into the maintenance ledger."
+    },
+    {
+      "id": "combined-life/remember/life-cork-gasket",
+      "text": "Iris rebuilt the prism frame with a cork gasket and a gentler hand-tightened fit."
+    },
+    {
+      "id": "combined-life/remember/life-nesting-pause",
+      "text": "Work paused for four days when a pair of swallows began nesting beside the lantern-room vent."
+    },
+    {
+      "id": "combined-life/remember/life-sea-kale",
+      "text": "Iris planted sea kale along the garden's windward edge while Elian moved the surviving rosemary behind a low slate wall."
+    },
+    {
+      "id": "combined-life/remember/life-clear-glass-arrival",
+      "text": "The replacement lens glass arrived from the mainland wrapped in wool and marked as optically clear."
+    },
+    {
+      "id": "combined-life/remember/life-amber-glass",
+      "text": "At sunset Iris noticed the new glass cast an amber band that would distort the harbor signal."
+    },
+    {
+      "id": "combined-life/remember/life-glass-return",
+      "text": "Mara backed Iris's decision to return the amber-tinted glass even though it threatened the public schedule."
+    },
+    {
+      "id": "combined-life/remember/life-watering-roster",
+      "text": "The garden adopted a watering roster after Iris found three beds soaked and the thyme bed dry on the same evening."
+    },
+    {
+      "id": "combined-life/remember/life-opening-date-v1",
+      "text": "Northlight Observatory announced that the restored harbor lantern would reopen to the public on May 18."
+    },
+    {
+      "id": "combined-life/remember/life-oral-history",
+      "text": "Mara recorded retired keeper Sela Rowan describing how fog once made the old lens appear to breathe."
+    },
+    {
+      "id": "combined-life/remember/life-public-class",
+      "text": "Iris taught a small Aster Workshop class to polish spare brass without erasing tool marks."
+    },
+    {
+      "id": "combined-life/remember/life-ramp-flood",
+      "text": "A spring storm flooded the lantern loading ramp and carried two stacks of staging timber into the harbor."
+    },
+    {
+      "id": "combined-life/remember/life-sage-bloom",
+      "text": "The garden's purple sage bloomed after the storm, drawing bees to the sheltered side of the ferry shed."
+    },
+    {
+      "id": "combined-life/remember/life-bearing-squeal",
+      "text": "The lantern bearing turned freely under load but produced a high squeal near the north stop."
+    },
+    {
+      "id": "combined-life/correct/life-opening-date-v2",
+      "text": "After the flooded ramp delayed repairs, Northlight moved the public reopening from May 18 to July 6."
+    },
+    {
+      "id": "combined-life/remember/life-rotation-test",
+      "text": "Iris completed a full manual rotation test and marked the squealing sector for later lubrication."
+    },
+    {
+      "id": "combined-life/remember/life-winter-rosemary-promise",
+      "text": "Iris promised Elian she would keep the strongest rosemary plant in the workshop window through winter and return cuttings in spring."
+    },
+    {
+      "id": "combined-life/remember/life-neutral-glass",
+      "text": "A second glass shipment arrived with a neutral beam and a handwritten apology from the mainland maker."
+    },
+    {
+      "id": "combined-life/remember/life-handrail",
+      "text": "Aster Workshop installed a lower handrail on the lantern stair after Iris saw a visiting keeper struggle with the final turn."
+    },
+    {
+      "id": "combined-life/remember/life-lens-installed",
+      "text": "Iris and Mara seated the neutral lens glass in the restored frame without covering the maker's initials."
+    },
+    {
+      "id": "combined-life/remember/life-garden-bees",
+      "text": "Elian counted three native bee species moving between the sage, thyme, and sea kale flowers."
+    },
+    {
+      "id": "combined-life/remember/life-beam-alignment",
+      "text": "The first powered beam crossed the harbor mouth six degrees too far north, so Iris stopped the motor before the public test."
+    },
+    {
+      "id": "combined-life/remember/life-fog-test",
+      "text": "During a natural fog Iris verified that the corrected beam remained visible from the south breakwater."
+    },
+    {
+      "id": "combined-life/remember/life-children-workshop",
+      "text": "Iris let harbor children turn a wooden lens model while Mara explained why each prism bends light inward."
+    },
+    {
+      "id": "combined-life/remember/life-painted-trim",
+      "text": "Mara painted the lantern-room trim in the muted green found beneath its newest coats."
+    },
+    {
+      "id": "combined-life/remember/life-alignment-apology",
+      "text": "Iris apologized for dismissing Mara's first alignment reading and asked her to lead the independent recheck."
+    },
+    {
+      "id": "combined-life/remember/life-tomato-harvest",
+      "text": "The garden shared its first tomato harvest at the ferry queue, with the smallest fruit saved for seed."
+    },
+    {
+      "id": "combined-life/correct/life-opening-date-v3",
+      "text": "After the final lens and alignment checks, Northlight set the public reopening for September 14."
+    },
+    {
+      "id": "combined-life/remember/life-final-mount",
+      "text": "The restored lens assembly was lifted into its permanent mount and rotated twice without binding."
+    },
+    {
+      "id": "combined-life/remember/life-dress-rehearsal",
+      "text": "Mara ran the reopening rehearsal while Iris watched the beam from the south breakwater."
+    },
+    {
+      "id": "combined-life/remember/life-reopening",
+      "text": "The Northlight harbor lantern reopened on September 14, and Iris invited retired keeper Sela Rowan to start its first rotation."
+    },
+    {
+      "id": "combined-life/remember/life-winter-garden-plan",
+      "text": "Iris and Elian moved the garden's thyme into cold frames and chose one rosemary plant for the workshop window."
+    },
+    {
+      "id": "combined-life/remember/life-visitor-log",
+      "text": "The first two weeks of the visitor log contained more sketches of the lens than signatures."
+    },
+    {
+      "id": "combined-life/remember/life-mara-retelling",
+      "text": "Mara recorded Iris retelling the prism accident without hiding her mistake or exaggerating the repair."
+    },
+    {
+      "id": "combined-life/remember/life-rosemary-cuttings",
+      "text": "Iris moved the strongest rosemary plant into Aster Workshop and labeled it for Elian's spring cuttings."
+    },
+    {
+      "id": "combined-life/remember/life-winter-cover",
+      "text": "A breathable winter cover replaced the lantern's old tar sheet so trapped salt moisture could escape."
+    },
+    {
+      "id": "combined-life/remember/life-november-storm",
+      "text": "After the November gale Iris checked the lantern bearing before checking the garden and found both unharmed."
+    },
+    {
+      "id": "combined-life/remember/life-garden-shelter",
+      "text": "Elian added a clear shelter panel that kept rain off the winter rosemary without blocking the weak morning sun."
+    },
+    {
+      "id": "combined-life/remember/life-annual-reflection",
+      "text": "Iris wrote that the lantern taught her to treat hesitation as information rather than as a failure of nerve."
+    },
+    {
+      "id": "combined-life/remember/life-ferry-return",
+      "text": "From the evening ferry Iris saw the restored beam cross the water and remembered the dark tower that began the year."
+    },
+    {
+      "id": "combined-life/remember/life-community-supper",
+      "text": "The garden volunteers held a winter supper beneath the lantern, using dried thyme from the roof beds in every shared pot."
+    },
+    {
+      "id": "combined-life/remember/life-ledger-close",
+      "text": "Iris closed the year's maintenance ledger with the reopening date, the prism torque limit, and Elian's rosemary plan on separate pages."
+    },
+    {
+      "id": "combined-life/query/query-combined-reopening",
+      "text": "On what date did the Northlight harbor lantern finally reopen after the delays?"
+    },
+    {
+      "id": "combined-life/query/query-combined-rosemary",
+      "text": "What did Iris promise Elian she would do for the rosemary through winter?"
+    },
+    {
+      "id": "combined-life/query/query-combined-mistake",
+      "text": "Which restoration mistake did Iris openly admit was her own?"
+    }
+  ],
+  "similarity_orderings": [
+    {
+      "description": "graded target then same-domain near miss then unrelated background",
+      "anchor_id": "graded-similarity/query/query-graded-similarity",
+      "descending_ids": [
+        "graded-similarity/remember/graded-target",
+        "graded-similarity/remember/graded-near-miss",
+        "graded-similarity/remember/graded-background"
+      ],
+      "min_margin": 0.01
+    },
+    {
+      "description": "actual reopening then final schedule then unrelated garden maintenance",
+      "anchor_id": "combined-life/query/query-combined-reopening",
+      "descending_ids": [
+        "combined-life/remember/life-reopening",
+        "combined-life/correct/life-opening-date-v3",
+        "combined-life/remember/life-garden-shelter"
+      ],
+      "min_margin": 0.01
+    },
+    {
+      "description": "winter rosemary promise then its later fulfillment then unrelated prism work",
+      "anchor_id": "combined-life/query/query-combined-rosemary",
+      "descending_ids": [
+        "combined-life/remember/life-winter-rosemary-promise",
+        "combined-life/remember/life-rosemary-cuttings",
+        "combined-life/remember/life-first-prism"
+      ],
+      "min_margin": 0.01
+    },
+    {
+      "description": "admission of the prism mistake then the accident then unrelated watering logistics",
+      "anchor_id": "combined-life/query/query-combined-mistake",
+      "descending_ids": [
+        "combined-life/remember/life-admitted-mistake",
+        "combined-life/remember/life-cracked-prism",
+        "combined-life/remember/life-watering-roster"
+      ],
+      "min_margin": 0.01
+    }
+  ]
+}

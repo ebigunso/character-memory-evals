@@ -1644,10 +1644,24 @@ mod tests {
     }
 
     fn continuity_mock_args(directory: &Path) -> ContinuityRunArgs {
+        let source_config = fs::read_to_string("../../configs/continuity_retrieval.toml").unwrap();
+        let store_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../cmem-eval-continuity/fixtures/embeddings/task22_real_store.json")
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        let config = source_config.replace(
+            "store_path = \"crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json\"",
+            &format!("store_path = \"{store_path}\""),
+        );
+        let config_path = directory.join("continuity-config.toml");
+        fs::write(&config_path, config).unwrap();
         ContinuityRunArgs {
             run: RunArgs {
-                dataset: PathBuf::from("../cmem-eval-continuity/fixtures/continuity_v2.json"),
-                config: PathBuf::from("../../configs/continuity_retrieval.toml"),
+                dataset: PathBuf::from("../cmem-eval-continuity/fixtures/continuity_v3.json"),
+                config: config_path,
                 out: directory.join("continuity.jsonl"),
                 summary_out: directory.join("continuity-summary.json"),
                 adapter: Some(AdapterKind::Mock),
@@ -1854,20 +1868,20 @@ mod tests {
             &fs::read(second_directory.path().join("continuity-report.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(rows.len(), 10);
-        assert_eq!(traces.len(), 10);
-        assert_eq!(summary.num_questions, 10);
+        assert_eq!(rows.len(), 23);
+        assert_eq!(traces.len(), 23);
+        assert_eq!(summary.num_questions, 23);
         assert_eq!(resummary.config, summary.config);
         assert_eq!(resummary.metric_support, summary.metric_support);
         assert_eq!(resummary.registry_coverage, summary.registry_coverage);
-        assert_eq!(report.content.aggregate.query_count, 10);
+        assert_eq!(report.content.aggregate.query_count, 23);
         assert_eq!(report.content.aggregate.restart_count, 1);
         assert_eq!(report.content, second_report.content);
         assert_eq!(
             report.schema_version,
             cmem_eval_continuity::CONTINUITY_REPORT_SCHEMA_VERSION
         );
-        assert_eq!(report.metadata.embedding_seeds.len(), 10);
+        assert_eq!(report.metadata.embedding_seeds.len(), 13);
         assert_eq!(
             report.metadata.normalization.nondeterministic_paths,
             vec!["metadata.generated_at"]
@@ -1890,12 +1904,12 @@ mod tests {
             report.metadata.schema_versions["continuity_report"],
             cmem_eval_continuity::CONTINUITY_REPORT_SCHEMA_VERSION
         );
-        assert_eq!(report.content.scenarios.len(), 10);
+        assert_eq!(report.content.scenarios.len(), 15);
         assert!(report.content.scenarios.values().all(|scenario| {
-            scenario.query_count == 1
-                && scenario.rationale_samples.len() == 1
-                && scenario.fanout_decisions.len() == 1
-                && scenario.stats_health_events.len() == 1
+            scenario.query_count >= 1
+                && scenario.rationale_samples.len() == scenario.query_count
+                && scenario.fanout_decisions.len() == scenario.query_count
+                && scenario.stats_health_events.len() == scenario.query_count
                 && scenario.registry_coverage["missing_required_metrics"] == serde_json::json!([])
         }));
         assert!(report.content.tuning_observations.is_empty());
@@ -1958,7 +1972,7 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(error.contains("10 traces but 9 result rows"), "{error}");
+        assert!(error.contains("23 traces but 22 result rows"), "{error}");
         let mut swapped_rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
         swapped_rows.swap(0, 1);
         let error = assemble_continuity_report(ContinuityReportInput {
@@ -2167,11 +2181,13 @@ mod tests {
         let fixture =
             cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
                 .unwrap();
+        let scenarios = &fixture.scenarios[..1];
         let mut config =
             read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        config.backend.embedding.provider = "controllable_similarity".to_string();
 
         config.backend.embedding.vector_size = None;
-        let error = validate_continuity_embedding_sizes(&config, &fixture.scenarios)
+        let error = validate_continuity_embedding_sizes(&config, scenarios)
             .unwrap_err()
             .to_string();
         assert!(
@@ -2180,16 +2196,15 @@ mod tests {
         );
 
         config.backend.embedding.vector_size =
-            Some(fixture.scenarios[0].embedding.vector_size().unwrap() + 1);
-        let error = validate_continuity_embedding_sizes(&config, &fixture.scenarios)
+            Some(scenarios[0].embedding.vector_size().unwrap() + 1);
+        let error = validate_continuity_embedding_sizes(&config, scenarios)
             .unwrap_err()
             .to_string();
         assert!(error.contains("is incompatible"), "{error}");
-        assert!(error.contains(&fixture.scenarios[0].fixture_id), "{error}");
+        assert!(error.contains(&scenarios[0].fixture_id), "{error}");
 
-        config.backend.embedding.vector_size =
-            Some(fixture.scenarios[0].embedding.vector_size().unwrap());
-        validate_continuity_embedding_sizes(&config, &fixture.scenarios).unwrap();
+        config.backend.embedding.vector_size = Some(scenarios[0].embedding.vector_size().unwrap());
+        validate_continuity_embedding_sizes(&config, scenarios).unwrap();
     }
 
     #[test]
@@ -2246,7 +2261,12 @@ mod tests {
         config.backend.embedding.provider = "mixed".to_string();
         config.backend.embedding.model = "text-embedding-3-large".to_string();
         config.backend.embedding.vector_size = Some(3072);
-        config.backend.embedding.store_path = Some("unused-for-this-selection.json".to_string());
+        config.backend.embedding.store_path = Some(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../cmem-eval-continuity/fixtures/embeddings/task22_real_store.json")
+                .display()
+                .to_string(),
+        );
 
         validate_continuity_embedding_sizes(&config, &fixture.scenarios).unwrap();
     }
