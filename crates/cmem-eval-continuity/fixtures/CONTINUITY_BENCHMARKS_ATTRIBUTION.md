@@ -35,7 +35,7 @@ The curated selection manifest is `crates/cmem-eval-benchmark-convert/continuity
 
 Session timestamps are normalized to UTC and intra-session event offsets are synthesized deterministically. Event IDs, namespaces, selection labels, fixture structure, and embeddings are additions made by this repository. The selected source questions and turn text are not rewritten, summarized, speaker-prefixed, or otherwise modified.
 
-The frozen store was generated from the fixture's exact embedding inputs with OpenAI `text-embedding-3-large`. It contains numerical vectors, the model identifier, the source tag `open_ai_api`, and source text required by the frozen-store integrity contract; it contains no API credential.
+The frozen store was generated from the fixture's exact runtime lookup inputs with OpenAI `text-embedding-3-large`: CharacterMemory-normalized content for `Remember` and `Correct` writes after adapter prefix removal, and byte-exact source questions for `Query` events. This runtime normalization does not alter the fixture's source-exact event text. The store contains numerical vectors, the model identifier, the source tag `open_ai_api`, and lookup text required by the frozen-store integrity contract; it contains no API credential.
 
 ## Special abstention case
 

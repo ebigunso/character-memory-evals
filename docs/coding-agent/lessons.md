@@ -767,3 +767,26 @@ Prevention:
 
 Evidence:
 - Attractor A trace `EC71FACD3A7AC341252EDC5F9B05A82309E2A4A195B20FB1785C6492CE7FFA7F` returns 49 items and places the probe at rank 17; attractor B trace `C0FD93F6742DBAED4A9E8198B9E878504D9065E2C857F84FA3B8BA7A8F8705D9` returns 51 items and places it at rank 16. Both select all 48 roots and keep recall@5/@10 at `0`.
+
+## 2026-07-19 — Require Exact Frozen-Store Runtime Coverage  [tags: correction, embeddings, fixtures, runtime-contract, validation]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: benchmark frozen-store cache-miss fix
+- Roles involved: Worker | Orchestrator
+
+Symptom:
+- The initial repair proposal retained 167 source-exact embeddings that runtime could no longer request after CharacterMemory normalized fixture whitespace, which would have left dead vectors outside the manifest's runtime lookup set.
+
+Root cause:
+- Source-fidelity evidence and runtime cache coverage were treated as one storage concern, so retaining superseded vectors appeared useful even though converter regeneration already proves source-byte preservation independently.
+
+Fix applied:
+- Keep fixture event text byte-exact to the official sources, enumerate CharacterMemory-normalized write text plus raw query text in the embedding manifest, reuse unchanged embeddings by exact key, generate only genuinely new runtime texts, and remove superseded store entries.
+
+Prevention:
+- Frozen embedding stores for generated fixtures must be a strict bijection with the manifest's unique runtime lookup texts: no cache misses, no unused entries, and no source-audit vectors.
+- Prove source fidelity through deterministic converter checks against the authoritative datasets; prove runtime coverage separately through a preflight that composes every fixture event's runtime lookup text.
+
+Evidence:
+- The benchmark fix regression compares the full committed fixture runtime lookup set with both manifest texts and store keys before live namespace mutation.

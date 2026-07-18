@@ -99,7 +99,7 @@ Mock runs require Rust 1.97.0 and the checked fixture only; they do not connect 
 
 A frozen store is schema-versioned, LF-stable JSON keyed by its model and the SHA-256 of each exact UTF-8 text. Each entry retains the exact text beside its `f32` vector so hash collisions, stale authoring, and review diffs remain visible. Runtime loading verifies the schema, model, vector width, hash, ordering, finite components, and exact text bytes. A missing text fails before a live continuity run mutates a namespace and prints the `cmem-eval embeddings generate` command needed to regenerate the store; runtime never falls back to synthetic vectors or a network call.
 
-The generation manifest has stable text IDs plus optional `similarity_orderings`. Each ordering names an anchor and candidate IDs from most to least similar, with a non-negative minimum adjacent margin. This is the authoring gate for real-embedding scenarios: a target, same-domain near miss, and unrelated background can be declared in descending order, and generation fails before writing the store unless measured cosine similarities satisfy that order. Revise the embedded texts when the intended geometry fails; do not weaken the ordering to preserve placeholder prose.
+The generation manifest has stable text IDs plus optional `similarity_orderings`. Continuity manifests enumerate exact frozen-provider lookup text: CharacterMemory-normalized content for write events after the adapter removes the object-surface prefix, and byte-exact fixture text for queries. Fixture event text remains source-exact; normalization belongs only to the runtime embedding contract. Each ordering names an anchor and candidate IDs from most to least similar, with a non-negative minimum adjacent margin. This is the authoring gate for real-embedding scenarios: a target, same-domain near miss, and unrelated background can be declared in descending order, and generation fails before writing the store unless measured cosine similarities satisfy that order. Revise the embedded texts when the intended geometry fails; do not weaken the ordering to preserve placeholder prose.
 
 Set `OPENAI_API_KEY`, then run the one explicit network step. The command deduplicates exact texts by SHA-256 and sends one batched [OpenAI embeddings request](https://developers.openai.com/api/reference/resources/embeddings/methods/create), with one returned vector per unique text and no automatic retry after an ambiguous network failure:
 
@@ -110,6 +110,8 @@ cargo run -p cmem-eval-runner -- embeddings generate \
   --out ./crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_store.json
 ```
 
+When a manifest changes, pass `--reuse-store <existing-store>` to reuse vectors only for byte-identical manifest texts and request embeddings only for missing texts. The output contains exactly the manifest's unique lookup set, so entries removed from the manifest are not carried forward as unused cache data.
+
 Recheck store integrity, coverage, and semantic orderings without a key or network:
 
 ```bash
@@ -118,7 +120,7 @@ cargo run -p cmem-eval-runner -- embeddings validate \
   --store ./crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_store.json
 ```
 
-Use the resulting store with a schema-v3 frozen-only config:
+Use the resulting store with a schema-v3 frozen-only config. Production fixture stores are expected to be a strict bijection with their manifest's unique runtime lookup texts:
 
 ```toml
 [backend.embedding]

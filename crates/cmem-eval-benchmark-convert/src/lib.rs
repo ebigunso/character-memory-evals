@@ -7,7 +7,7 @@ use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use cmem_eval_continuity::{
     ContinuityFixtureSet, ContinuityScenario, ContinuityScenarioEmbedding, ExpectedRelevance,
     InteractionEvent, LATEST_CONTINUITY_FIXTURE_SCHEMA_VERSION, ScenarioPattern,
-    canonical_fixture_bytes,
+    canonical_fixture_bytes, runtime_memory_embedding_text,
 };
 use cmem_eval_core::{
     FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION, FrozenEmbeddingManifest, FrozenEmbeddingText,
@@ -740,7 +740,7 @@ fn build_embedding_manifest(
                     external_id, text, ..
                 } => texts.push(FrozenEmbeddingText {
                     id: converted.text_id_by_external_id[external_id].clone(),
-                    text: text.clone(),
+                    text: runtime_memory_embedding_text(text),
                 }),
                 InteractionEvent::Correct {
                     replacement_external_id,
@@ -748,7 +748,7 @@ fn build_embedding_manifest(
                     ..
                 } => texts.push(FrozenEmbeddingText {
                     id: converted.text_id_by_external_id[replacement_external_id].clone(),
-                    text: replacement_text.clone(),
+                    text: runtime_memory_embedding_text(replacement_text),
                 }),
                 InteractionEvent::Query { text, .. } => texts.push(FrozenEmbeddingText {
                     id: converted.query_text_id.clone(),
@@ -795,15 +795,15 @@ fn build_embedding_manifest(
     embedding_manifest.validate()?;
     let expected_texts = converted
         .iter()
-        .flat_map(|converted| converted.scenario.embedding_inputs())
+        .flat_map(|converted| converted.scenario.runtime_embedding_inputs())
         .collect::<BTreeSet<_>>();
     let manifest_texts = embedding_manifest
         .texts
         .iter()
-        .map(|item| item.text.as_str())
+        .map(|item| item.text.clone())
         .collect::<BTreeSet<_>>();
     if expected_texts != manifest_texts {
-        bail!("embedding manifest text coverage does not match fixture embedding inputs");
+        bail!("embedding manifest text coverage does not match fixture runtime embedding inputs");
     }
     Ok(embedding_manifest)
 }
@@ -977,8 +977,8 @@ mod tests {
                 "2024/01/03 (Wed) 00:00"
             ],
             "haystack_sessions": [
-                [{"role":"user","content":"old café","has_answer":true}],
-                [{"role":"user","content":"new 東京","has_answer":true}],
+                [{"role":"user","content":"old\n  café","has_answer":true}],
+                [{"role":"user","content":"new \t東京","has_answer":true}],
                 [{"role":"user","content":"background"}]
             ],
             "answer_session_ids": ["old", "new"]
@@ -989,7 +989,7 @@ mod tests {
         assert!(scenario.events.iter().any(|event| matches!(
             event,
             InteractionEvent::Remember { external_id, text, .. }
-                if external_id == "old:turn:1" && text.as_bytes() == "old café".as_bytes()
+                if external_id == "old:turn:1" && text.as_bytes() == "old\n  café".as_bytes()
         )));
         assert!(scenario.events.iter().any(|event| matches!(
             event,
@@ -1000,7 +1000,7 @@ mod tests {
                 ..
             } if target_external_id == "old:turn:1"
                 && replacement_external_id == "new:turn:1"
-                && replacement_text.as_bytes() == "new 東京".as_bytes()
+                && replacement_text.as_bytes() == "new \t東京".as_bytes()
         )));
         let InteractionEvent::Query { text, expected, .. } = scenario.events.last().unwrap() else {
             panic!("last event must be query");
@@ -1011,6 +1011,31 @@ mod tests {
             expected
                 .irrelevant_external_ids
                 .contains(&"old:turn:1".to_string())
+        );
+
+        let manifest_texts = artifacts
+            .embedding_manifest
+            .texts
+            .iter()
+            .map(|item| (item.id.as_str(), item.text.as_str()))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            manifest_texts["fixture:remember:0001:embedding"],
+            "old café"
+        );
+        assert_eq!(manifest_texts["fixture:correct:embedding"], "new 東京");
+        assert_eq!(
+            manifest_texts["fixture:query:embedding"].as_bytes(),
+            "What is current?\nExactly.".as_bytes()
+        );
+        assert_eq!(
+            scenario.runtime_embedding_inputs(),
+            artifacts
+                .embedding_manifest
+                .texts
+                .iter()
+                .map(|item| item.text.clone())
+                .collect()
         );
     }
 
