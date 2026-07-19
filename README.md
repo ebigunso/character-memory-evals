@@ -107,9 +107,9 @@ Set `OPENAI_API_KEY`, then run the one explicit network step. The command dedupl
 
 ```bash
 cargo run -p cmem-eval-runner -- embeddings generate \
-  --manifest ./crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_manifest.json \
+  --manifest ./crates/cmem-eval-continuity/fixtures/embeddings/task22_real_manifest.json \
   --model text-embedding-3-large \
-  --out ./crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_store.json
+  --out ./crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json
 ```
 
 When a manifest changes, pass `--reuse-store <existing-store>` to reuse vectors only for byte-identical manifest texts and request embeddings only for missing texts. If `--dimensions` is omitted, generation inherits the existing store's vector width for new requests. The output contains exactly the manifest's unique lookup set, so entries removed from the manifest are not carried forward as unused cache data.
@@ -118,8 +118,8 @@ Recheck store integrity, coverage, and semantic orderings without a key or netwo
 
 ```bash
 cargo run -p cmem-eval-runner -- embeddings validate \
-  --manifest ./crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_manifest.json \
-  --store ./crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_store.json
+  --manifest ./crates/cmem-eval-continuity/fixtures/embeddings/task22_real_manifest.json \
+  --store ./crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json
 ```
 
 Use the resulting store with a schema-v3 frozen-only config. Production fixture stores are expected to be a strict bijection with their manifest's unique runtime lookup texts:
@@ -129,10 +129,10 @@ Use the resulting store with a schema-v3 frozen-only config. Production fixture 
 provider = "frozen"
 model = "text-embedding-3-large"
 vector_size = 3072
-store_path = "crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_store.json"
+store_path = "crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json"
 ```
 
-Use `provider = "mixed"` when selected schema-v3 scenarios contain both explicit `controllable_similarity` and `frozen` embedding blocks. The committed `task21_smoke_manifest.json` and `task21_smoke_store.json` exercise format and validation machinery only: their store declares `source = "test_fixture"`, so live frozen preflight rejects it rather than representing its hand-authored three-dimensional vectors as OpenAI output. Generated production stores declare `source = "open_ai_api"` and record the requested model.
+Use `provider = "mixed"` when selected schema-v3 scenarios contain both explicit `controllable_similarity` and `frozen` embedding blocks. The committed `task21_smoke_manifest.json` and `task21_smoke_store.json` exercise format and validation machinery with a store that declares `source = "test_fixture"`. Frozen-store cache coverage is preflighted for both mock and live real-adapter runs. A mock run may use test-provenance vectors when they cover every selected runtime text; the mock adapter does not call an embedding service. Live real-adapter runs additionally require `source = "open_ai_api"`, so they reject the task21 smoke store rather than representing its hand-authored three-dimensional vectors as OpenAI output. Generated production stores record that production source and the requested model.
 
 Set the live endpoint in the current shell before a live run:
 

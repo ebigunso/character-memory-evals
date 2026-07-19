@@ -38,7 +38,8 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
     let fixture_schema_version = fixture.schema_version;
     let fixture_seed = fixture.seed;
     let scenarios = select_continuity_scenarios(fixture.scenarios, args.scenario.as_deref())?;
-    validate_continuity_embedding_sizes(&config, &scenarios)?;
+    let selected_adapter = args.run.selected_adapter();
+    validate_continuity_embedding_sizes(&config, &scenarios, Some(selected_adapter))?;
     args.run.validate_adapter_selection(&config)?;
     run_continuity_pipeline(
         args,
@@ -74,7 +75,7 @@ pub(crate) fn metric_family_for_config(
                 "summarizing continuity results requires --dataset with the source fixture path",
             )?;
             let scenarios = load_continuity_scenarios(dataset, continuity_scenario)?;
-            validate_continuity_embedding_sizes(config, &scenarios)?;
+            validate_continuity_embedding_sizes(config, &scenarios, None)?;
             Ok(continuity_metric_family(&config.metrics, &scenarios))
         }
         "longmemeval_s" => {
@@ -139,6 +140,7 @@ fn load_continuity_fixture(path: &Path) -> Result<cmem_eval_continuity::Continui
 fn validate_continuity_embedding_sizes(
     config: &BenchmarkRunConfig,
     scenarios: &[ContinuityScenario],
+    selected_adapter: Option<AdapterKind>,
 ) -> Result<()> {
     let configured_size = config.backend.embedding.vector_size.context(
         "continuity dataset requires backend.embedding.vector_size to match every selected fixture scenario",
@@ -193,7 +195,9 @@ fn validate_continuity_embedding_sizes(
             &config.backend.embedding.model,
             configured_size,
         )?;
-        if provider.source() != FrozenEmbeddingSource::OpenAiApi {
+        if selected_adapter == Some(AdapterKind::Real)
+            && provider.source() != FrozenEmbeddingSource::OpenAiApi
+        {
             bail!(
                 "frozen continuity evaluations require a store with source=open_ai_api; {} declares source={:?}",
                 store_path,
@@ -1673,6 +1677,66 @@ mod tests {
         }
     }
 
+    fn frozen_mock_args(directory: &Path, omit_runtime_text: bool) -> ContinuityRunArgs {
+        let mut fixture =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
+        fixture.scenarios.truncate(1);
+        fixture.scenarios[0].embedding =
+            cmem_eval_continuity::ContinuityScenarioEmbedding::frozen();
+        let mut runtime_texts = fixture.scenarios[0].runtime_embedding_inputs();
+        if omit_runtime_text {
+            runtime_texts.pop_last().unwrap();
+        }
+        let store = cmem_eval_core::FrozenEmbeddingStore::new(
+            "test-frozen-model",
+            FrozenEmbeddingSource::TestFixture,
+            runtime_texts
+                .into_iter()
+                .map(|text| (text, vec![1.0, 0.0, 0.0])),
+        )
+        .unwrap();
+        let store_path = directory.join("test-provenance-store.json");
+        fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
+
+        let fixture_path = directory.join("frozen-continuity.json");
+        fs::write(
+            &fixture_path,
+            cmem_eval_continuity::canonical_fixture_bytes(&fixture).unwrap(),
+        )
+        .unwrap();
+
+        let source_config = fs::read_to_string("../../configs/continuity_retrieval.toml").unwrap();
+        let store_path = store_path.display().to_string().replace('\\', "/");
+        let config = source_config
+            .replace("provider = \"mixed\"", "provider = \"frozen\"")
+            .replace(
+                "model = \"text-embedding-3-large\"",
+                "model = \"test-frozen-model\"",
+            )
+            .replace("vector_size = 3072", "vector_size = 3")
+            .replace(
+                "crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json",
+                &store_path,
+            );
+        let config_path = directory.join("frozen-continuity.toml");
+        fs::write(&config_path, config).unwrap();
+
+        ContinuityRunArgs {
+            run: RunArgs {
+                dataset: fixture_path,
+                config: config_path,
+                out: directory.join("frozen-continuity.jsonl"),
+                summary_out: directory.join("frozen-continuity-summary.json"),
+                adapter: Some(AdapterKind::Mock),
+                allow_mock_benchmark: true,
+            },
+            trace_out: directory.join("frozen-continuity-traces.jsonl"),
+            report_out: directory.join("frozen-continuity-report.json"),
+            scenario: None,
+        }
+    }
+
     fn service_free_config(source: &str, directory: &Path) -> PathBuf {
         let config = fs::read_to_string(source).unwrap();
         let config = config
@@ -2187,7 +2251,7 @@ mod tests {
         config.backend.embedding.provider = "controllable_similarity".to_string();
 
         config.backend.embedding.vector_size = None;
-        let error = validate_continuity_embedding_sizes(&config, scenarios)
+        let error = validate_continuity_embedding_sizes(&config, scenarios, None)
             .unwrap_err()
             .to_string();
         assert!(
@@ -2197,18 +2261,18 @@ mod tests {
 
         config.backend.embedding.vector_size =
             Some(scenarios[0].embedding.vector_size().unwrap() + 1);
-        let error = validate_continuity_embedding_sizes(&config, scenarios)
+        let error = validate_continuity_embedding_sizes(&config, scenarios, None)
             .unwrap_err()
             .to_string();
         assert!(error.contains("is incompatible"), "{error}");
         assert!(error.contains(&scenarios[0].fixture_id), "{error}");
 
         config.backend.embedding.vector_size = Some(scenarios[0].embedding.vector_size().unwrap());
-        validate_continuity_embedding_sizes(&config, scenarios).unwrap();
+        validate_continuity_embedding_sizes(&config, scenarios, None).unwrap();
     }
 
     #[test]
-    fn frozen_scenario_preflight_rejects_test_provenance_and_cache_misses() {
+    fn frozen_scenario_preflight_gates_provenance_on_real_and_coverage_on_mock() {
         let fixture =
             cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
                 .unwrap();
@@ -2228,9 +2292,13 @@ mod tests {
                 .to_string(),
         );
 
-        let error = validate_continuity_embedding_sizes(&config, &[scenario.clone()])
-            .unwrap_err()
-            .to_string();
+        let error = validate_continuity_embedding_sizes(
+            &config,
+            &[scenario.clone()],
+            Some(AdapterKind::Real),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("source=open_ai_api"), "{error}");
         assert!(error.contains("TestFixture"), "{error}");
 
@@ -2244,9 +2312,32 @@ mod tests {
         .unwrap();
         fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
         config.backend.embedding.store_path = Some(store_path.display().to_string());
-        let error = validate_continuity_embedding_sizes(&config, &[scenario])
+        let error =
+            validate_continuity_embedding_sizes(&config, &[scenario], Some(AdapterKind::Mock))
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("preflight frozen embeddings"), "{error}");
+        assert!(error.contains("frozen embedding cache miss"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn mock_continuity_accepts_test_provenance_store_with_complete_coverage() {
+        let directory = tempfile::tempdir().unwrap();
+
+        run_continuity(frozen_mock_args(directory.path(), false))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn mock_continuity_rejects_test_provenance_store_with_cache_miss() {
+        let directory = tempfile::tempdir().unwrap();
+
+        let error = run_continuity(frozen_mock_args(directory.path(), true))
+            .await
             .unwrap_err()
             .to_string();
+
         assert!(error.contains("preflight frozen embeddings"), "{error}");
         assert!(error.contains("frozen embedding cache miss"), "{error}");
     }
@@ -2305,6 +2396,6 @@ mod tests {
                 .to_string(),
         );
 
-        validate_continuity_embedding_sizes(&config, &fixture.scenarios).unwrap();
+        validate_continuity_embedding_sizes(&config, &fixture.scenarios, None).unwrap();
     }
 }

@@ -379,6 +379,45 @@ impl FrozenEmbeddingManifest {
         provider: &FrozenEmbeddingProvider,
     ) -> Result<Vec<FrozenSimilarityMeasurement>> {
         self.validate()?;
+        let manifest_hashes = self
+            .unique_texts()?
+            .into_iter()
+            .map(|text| text_sha256(&text))
+            .collect::<BTreeSet<_>>();
+        let store_hashes = provider
+            .inner
+            .store
+            .entries
+            .iter()
+            .map(|entry| entry.text_sha256.clone())
+            .collect::<BTreeSet<_>>();
+        let missing = manifest_hashes
+            .difference(&store_hashes)
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let extras = store_hashes
+            .difference(&manifest_hashes)
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        if !missing.is_empty() || !extras.is_empty() {
+            bail!(
+                "frozen embedding manifest/store must be a strict bijection: missing manifest entry count: {} (first SHA-256 keys: [{}]); extra store entry count: {} (first SHA-256 keys: [{}])",
+                missing.len(),
+                missing
+                    .iter()
+                    .take(5)
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                extras.len(),
+                extras
+                    .iter()
+                    .take(5)
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
         let texts_by_id = self
             .texts
             .iter()
@@ -518,6 +557,37 @@ mod tests {
         assert_eq!(measurements.len(), 3);
         assert!(measurements[0].cosine_similarity > measurements[1].cosine_similarity);
         assert!(measurements[1].cosine_similarity > measurements[2].cosine_similarity);
+    }
+
+    #[test]
+    fn manifest_validation_rejects_store_supersets() {
+        let extra_text = "This stale vector is not part of the runtime lookup set.";
+        let store = FrozenEmbeddingStore::new(
+            "task21-smoke-model",
+            FrozenEmbeddingSource::TestFixture,
+            smoke_store()
+                .entries
+                .into_iter()
+                .map(|entry| (entry.text, entry.embedding))
+                .chain([(extra_text.to_string(), vec![0.0, 1.0, 0.0])]),
+        )
+        .unwrap();
+        let provider = FrozenEmbeddingProvider::from_store(
+            store,
+            "fixtures/superset.json",
+            "task21-smoke-model",
+            3,
+        )
+        .unwrap();
+
+        let error = smoke_manifest()
+            .validate_store(&provider)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("strict bijection"), "{error}");
+        assert!(error.contains("extra store entry count: 1"), "{error}");
+        assert!(error.contains(&text_sha256(extra_text)), "{error}");
     }
 
     #[test]

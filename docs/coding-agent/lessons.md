@@ -838,3 +838,30 @@ Prevention:
 
 Evidence:
 - The initial command reported `0 passed` and `70 filtered out`; the corrected module-qualified invocation is recorded in the Task_25c validation packet.
+
+## 2026-07-20 — Test Exact-Set And Admission Contracts In Both Directions  [tags: review, validation, embeddings, admission, documentation]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: PR #13 Copilot findings
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Frozen-store validation proved that every manifest text existed but accepted unused store entries, the preflight coupled universal cache coverage with real-adapter provenance, and README examples named fixture files that were never committed.
+
+Root cause:
+- Contract claims were checked only along their expected success direction: manifest-to-store lookup without store-to-manifest rejection, production provenance without the mock/real admission matrix, and command prose without resolving every referenced path against the repository tree.
+
+Fix applied:
+- Compare manifest and store text hashes as a strict bijection with actionable missing and extra diagnostics, keep cache coverage universal while gating production provenance on the real adapter, add mock success and cache-miss regressions, and align every README example with verified committed fixture names.
+
+Prevention:
+- For exact-set contracts, test both subset failures: required items missing and forbidden extras present.
+- For admission policies with independent axes, cover the matrix explicitly rather than inferring one axis from another; here that means adapter kind, cache coverage, and provenance.
+- Before committing runnable documentation, resolve every local path directly against the working tree and sweep the whole document for sibling stale forms.
+- Repo rule candidate: require direct path-existence validation for runnable README examples and symmetric regressions for exact-set promises.
+- Harness migration candidate: none; the existing contract and evidence guidance is sufficient when applied symmetrically.
+- Residual risk / waiver: none.
+
+Evidence:
+- PR #13 regressions cover a superset store, a complete test-provenance mock run, real-adapter provenance rejection, and mock cache-miss rejection; the README path sweep resolves the corrected `task22_real_*` examples to committed files.
