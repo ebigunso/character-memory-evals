@@ -1985,8 +1985,21 @@ mod tests {
         assert_eq!(traces.len(), 23);
         assert_eq!(summary.num_questions, 23);
         assert_eq!(resummary.config, summary.config);
+        assert_eq!(resummary.metrics, summary.metrics);
         assert_eq!(resummary.metric_support, summary.metric_support);
         assert_eq!(resummary.registry_coverage, summary.registry_coverage);
+        assert_eq!(
+            summary.metric_support["temporal_recall_fraction@5"]["numeric_rows"],
+            4
+        );
+        assert_eq!(
+            summary.metric_support["supersession_replacement_recall"]["numeric_rows"],
+            2
+        );
+        assert_eq!(
+            summary.registry_coverage["missing_required_metrics"],
+            serde_json::json!([])
+        );
         assert_eq!(report.content.aggregate.query_count, 23);
         assert_eq!(report.content.aggregate.restart_count, 1);
         assert_eq!(report.content, second_report.content);

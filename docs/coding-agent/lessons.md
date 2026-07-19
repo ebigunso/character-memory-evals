@@ -944,3 +944,29 @@ Prevention:
 
 Evidence:
 - PR #13 round-4 runner regressions cover failed publication preserving the old store and bounded Windows permission retry preserving the complete staged bytes.
+
+## 2026-07-20 — Route Every Scenario Variant Through Its Semantic Metric Family  [tags: review, metrics, scenarios, reporting, parity]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: PR #13 Copilot round 5
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- The purpose-built `temporal_patterns` and `entrenched_correction` scenarios emitted only generic continuity metrics because specialized routing still recognized only the older `temporal_structure` and `correction_chains` variants.
+
+Root cause:
+- Adding scenario enum variants, fixture generation, and catalog tests did not include an exhaustive audit of every semantic dispatcher, and existing run/resummarize parity checks compared registry shape without pinning the expected numeric support contributed by each specialized scenario family.
+
+Fix applied:
+- Route both newer patterns alongside their established semantic family, add hand-computed temporal and correction metric regressions, and pin run/resummarize metric, support, and coverage parity with canonical-fixture numeric-row expectations.
+
+Prevention:
+- When extending a closed scenario or dataset-kind enum, audit every semantic dispatcher—not just parsing and generation—and classify each new variant explicitly as a member of an existing metric family or intentionally unsupported.
+- For derived summaries, compare primary and reconstruction paths through the same family constructor and pin at least one expected numeric-support count per newly routed scenario family.
+- Repo rule candidate: add exhaustive semantic-dispatch and run/resummarize numeric-support parity to continuity review hotspots when `ScenarioPattern` changes.
+- Harness migration candidate: none; existing contract-scope and reconstruction-parity guidance already covers the class.
+- Residual risk / waiver: none. Sealed Task_9b evidence remains valid as captured; this correction expands specialized-metric coverage for future runs without rewriting recorded baselines.
+
+Evidence:
+- PR #13 round-5 unit regressions use hand-computed recall and lifecycle/replacement expectations, while the canonical mock run/resummarize regression pins four temporal rows, two replacement-recall rows, and zero missing required metrics on both paths.

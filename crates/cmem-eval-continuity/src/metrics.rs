@@ -105,7 +105,10 @@ pub fn insert_continuity_metrics(
     }
 
     insert_hub_metrics(out, scenario, trace);
-    if trace.pattern == ScenarioPattern::TemporalStructure {
+    if matches!(
+        trace.pattern,
+        ScenarioPattern::TemporalStructure | ScenarioPattern::TemporalPatterns
+    ) {
         for k in &config.ks_session {
             if let Some(summary) =
                 retrieval_metrics(&retrieved_ids, &trace.expected.relevant_external_ids, *k)
@@ -232,7 +235,10 @@ fn insert_correction_metrics(
     trace: &ContinuityQueryTrace,
     retrieved_ids: &[String],
 ) {
-    if scenario.pattern != ScenarioPattern::CorrectionChains {
+    if !matches!(
+        scenario.pattern,
+        ScenarioPattern::CorrectionChains | ScenarioPattern::EntrenchedCorrection
+    ) {
         return;
     }
     let telemetry = &trace.retrieval.telemetry;
@@ -811,9 +817,38 @@ mod tests {
     }
 
     #[test]
+    fn temporal_patterns_route_to_temporal_recall_with_hand_computed_expectation() {
+        let scenario = scenario(ScenarioPattern::TemporalPatterns);
+        let mut trace = trace(ScenarioPattern::TemporalPatterns);
+        trace
+            .expected
+            .relevant_external_ids
+            .push("relevant-not-returned".to_string());
+        let mut out = Map::new();
+
+        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+
+        assert_eq!(out["temporal_recall_fraction@5"], 0.5);
+    }
+
+    #[test]
     fn correction_safety_combines_lifecycle_telemetry_and_replacement_labels() {
         let out = metrics(ScenarioPattern::CorrectionChains);
         assert_eq!(out["correction_lifecycle_safe_admission_rate"], 1.0);
+        assert_eq!(out["supersession_replacement_recall"], 1.0);
+    }
+
+    #[test]
+    fn entrenched_correction_routes_to_correction_metrics_with_hand_computed_expectations() {
+        let scenario = scenario(ScenarioPattern::EntrenchedCorrection);
+        let mut trace = trace(ScenarioPattern::EntrenchedCorrection);
+        trace.retrieval.telemetry.unsafe_lifecycle_returned_count = Some(1);
+        let mut out = Map::new();
+
+        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+
+        assert_eq!(trace.retrieval.items.len(), 2);
+        assert_eq!(out["correction_lifecycle_safe_admission_rate"], 0.5);
         assert_eq!(out["supersession_replacement_recall"], 1.0);
     }
 
