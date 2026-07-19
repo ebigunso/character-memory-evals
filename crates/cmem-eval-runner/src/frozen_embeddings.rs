@@ -150,23 +150,26 @@ async fn generate(args: GenerateArgs) -> Result<()> {
             (text, embedding)
         }),
     )?;
+    let store_bytes = store.canonical_bytes()?;
+    let store_entry_count = store.entries.len();
+    let store_vector_size = store.vector_size;
     let provider = FrozenEmbeddingProvider::from_store(
-        store.clone(),
+        store,
         args.out.clone(),
-        &store.model,
-        store.vector_size,
+        &args.model,
+        store_vector_size,
     )?;
     let measurements = manifest.validate_store(&provider)?;
 
-    write_store(&args.out, &store)?;
+    write_store(&args.out, &store_bytes)?;
     println!(
         "wrote {} unique {}-dimension embeddings for model {} to {} (reused {}, generated {})",
-        store.entries.len(),
-        store.vector_size,
-        store.model,
+        store_entry_count,
+        store_vector_size,
+        args.model,
         args.out.display(),
         reused_count,
-        store.entries.len() - reused_count
+        store_entry_count - reused_count
     );
     print_measurements(&measurements);
     Ok(())
@@ -240,30 +243,33 @@ fn select_reusable_embeddings(
 fn validate(args: ValidateArgs) -> Result<()> {
     let manifest = FrozenEmbeddingManifest::load(&args.manifest)?;
     let store = FrozenEmbeddingStore::load(&args.store)?;
+    let store_entry_count = store.entries.len();
+    let store_vector_size = store.vector_size;
+    let store_model = store.model.clone();
     let provider = FrozenEmbeddingProvider::from_store(
-        store.clone(),
+        store,
         args.store.clone(),
-        &store.model,
-        store.vector_size,
+        &store_model,
+        store_vector_size,
     )?;
     let measurements = manifest.validate_store(&provider)?;
     println!(
         "validated {} unique {}-dimension embeddings for model {} from {}",
-        store.entries.len(),
-        store.vector_size,
-        store.model,
+        store_entry_count,
+        store_vector_size,
+        store_model,
         args.store.display()
     );
     print_measurements(&measurements);
     Ok(())
 }
 
-fn write_store(path: &Path, store: &FrozenEmbeddingStore) -> Result<()> {
+fn write_store(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create frozen embedding directory {}", parent.display()))?;
     }
-    fs::write(path, store.canonical_bytes()?)
+    fs::write(path, bytes)
         .with_context(|| format!("write frozen embedding store {}", path.display()))
 }
 

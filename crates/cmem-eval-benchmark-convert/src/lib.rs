@@ -5,8 +5,8 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use cmem_eval_continuity::{
-    ContinuityFixtureSet, ContinuityScenario, ContinuityScenarioEmbedding, ExpectedRelevance,
-    InteractionEvent, LATEST_CONTINUITY_FIXTURE_SCHEMA_VERSION, ScenarioPattern,
+    CONTINUITY_FIXTURE_SCHEMA_VERSION, ContinuityFixtureSet, ContinuityScenario,
+    ContinuityScenarioEmbedding, ExpectedRelevance, InteractionEvent, ScenarioPattern,
     canonical_fixture_bytes, runtime_memory_embedding_text,
 };
 use cmem_eval_core::{
@@ -331,16 +331,16 @@ pub fn convert_loaded_datasets(
         converted.push(scenario);
     }
 
+    let embedding_manifest = build_embedding_manifest(manifest, &converted)?;
     let fixtures = ContinuityFixtureSet {
-        schema_version: LATEST_CONTINUITY_FIXTURE_SCHEMA_VERSION,
+        schema_version: CONTINUITY_FIXTURE_SCHEMA_VERSION,
         seed: BENCHMARK_FIXTURE_SEED,
         scenarios: converted
-            .iter()
-            .map(|converted| converted.scenario.clone())
+            .into_iter()
+            .map(|converted| converted.scenario)
             .collect(),
     };
     fixtures.validate()?;
-    let embedding_manifest = build_embedding_manifest(manifest, &converted)?;
     Ok(ConversionArtifacts {
         fixtures,
         embedding_manifest,

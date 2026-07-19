@@ -813,3 +813,28 @@ Prevention:
 
 Evidence:
 - `live_frozen_write_surface_matches_continuity_runtime_normalization` crosses the real adapter and CharacterMemory write-surface seam with leading/trailing whitespace, repeated spaces, a tab, and a newline.
+
+## 2026-07-19 — Qualify Rust Test Names Before Exact Filtering  [tags: validation, rust, cargo-test, evidence]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: Task_25c
+- Roles involved: Worker
+
+Symptom:
+- A corrective targeted test command exited successfully but executed zero tests because `--exact` was paired with an unqualified Rust test name.
+
+Root cause:
+- The filter omitted the test module path required by libtest exact matching, and the command result was inspected only after execution.
+
+Fix applied:
+- Rerun the test with its module-qualified name and require a positive executed-test count before accepting the evidence.
+
+Prevention:
+- Before using `cargo test ... -- --exact`, obtain or infer the fully qualified libtest name; if uncertain, use `-- --list` or a non-exact filter first, then confirm the reported executed-test count is greater than zero.
+- Repo rule candidate: none; `common.md` and `worker.md` already require positive targeted-test counts.
+- Harness migration candidate: none; the existing validation model already rejects zero-test evidence.
+- Residual risk / waiver: none.
+
+Evidence:
+- The initial command reported `0 passed` and `70 filtered out`; the corrected module-qualified invocation is recorded in the Task_25c validation packet.

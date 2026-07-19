@@ -15,7 +15,7 @@ const EMBEDDING_VECTOR_SIZE: usize = 8;
 const HUB_SCALE_INCIDENT_COUNT: usize = 48;
 
 pub fn generate_fixture_set(seed: u64) -> Result<ContinuityFixtureSet> {
-    ContinuityFixtureSet {
+    let fixtures = ContinuityFixtureSet {
         schema_version: CONTINUITY_FIXTURE_SCHEMA_VERSION,
         seed,
         scenarios: vec![
@@ -35,8 +35,9 @@ pub fn generate_fixture_set(seed: u64) -> Result<ContinuityFixtureSet> {
             entrenched_correction(seed)?,
             autobiographical(seed)?,
         ],
-    }
-    .into_schema_v3()
+    };
+    fixtures.validate()?;
+    Ok(fixtures)
 }
 
 fn long_gap_recall(seed: u64) -> Result<ContinuityScenario> {
@@ -1753,14 +1754,15 @@ fn scenario(
         namespace: format!("continuity-{id}-{seed:016x}"),
         pattern,
         entities,
-        embedding: ControllableSimilarityFixture {
-            seed,
-            vector_size: EMBEDDING_VECTOR_SIZE,
-            noise_magnitude: 1.0 / 1024.0,
-            clusters: cluster_vectors,
-            concepts,
-        }
-        .into(),
+        embedding: ContinuityScenarioEmbedding::controllable_similarity_provider(
+            ControllableSimilarityFixture {
+                seed,
+                vector_size: EMBEDDING_VECTOR_SIZE,
+                noise_magnitude: 1.0 / 1024.0,
+                clusters: cluster_vectors,
+                concepts,
+            },
+        ),
         events,
     })
 }

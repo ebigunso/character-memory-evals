@@ -623,7 +623,9 @@ fn metric_slug(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ContinuityEntityKind, EntityDeclaration, ExpectedRelevance};
+    use crate::{
+        ContinuityEntityKind, ContinuityScenarioEmbedding, EntityDeclaration, ExpectedRelevance,
+    };
     use chrono::{TimeZone, Utc};
     use cmem_eval_core::{
         RetrievalFanoutUtilization, RetrievalSelectivityDecision, RetrievalTelemetry,
@@ -654,14 +656,15 @@ mod tests {
                 label: "Hub".to_string(),
                 is_hub: true,
             }],
-            embedding: cmem_eval_core::ControllableSimilarityFixture {
-                seed: 1,
-                vector_size: 2,
-                noise_magnitude: 0.0,
-                clusters: BTreeMap::new(),
-                concepts: BTreeMap::new(),
-            }
-            .into(),
+            embedding: ContinuityScenarioEmbedding::controllable_similarity_provider(
+                cmem_eval_core::ControllableSimilarityFixture {
+                    seed: 1,
+                    vector_size: 2,
+                    noise_magnitude: 0.0,
+                    clusters: BTreeMap::new(),
+                    concepts: BTreeMap::new(),
+                },
+            ),
             events: vec![
                 InteractionEvent::Remember {
                     event_id: "remember".to_string(),

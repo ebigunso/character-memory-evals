@@ -196,7 +196,7 @@ cargo run -p cmem-eval-continuity --bin generate_continuity_fixtures -- \
   ./runs/continuity/generated/continuity_v3.json 20260712
 ```
 
-Schema v3 keeps backend persistence identities derived from config, stable namespaces, and external IDs and continues to reject the retired caller-supplied `collection_name`, `memory_id`, and `replacement_memory_id` fields. It also requires every scenario to declare `provider = controllable_similarity` or `provider = frozen`; the parser retains explicit schema-v2 compatibility for historical controllable-only fixtures. Parse the candidate, inspect its semantic diff against `crates/cmem-eval-continuity/fixtures/continuity_v3.json`, validate the frozen store, and run the generator determinism tests before replacing the checked fixture.
+Schema v3 keeps backend persistence identities derived from config, stable namespaces, and external IDs and continues to reject the retired caller-supplied `collection_name`, `memory_id`, and `replacement_memory_id` fields. It requires every scenario to declare `provider = controllable_similarity` or `provider = frozen`; older fixture schema versions are rejected with the found and expected versions. Parse the candidate, inspect its semantic diff against `crates/cmem-eval-continuity/fixtures/continuity_v3.json`, validate the frozen store, and run the generator determinism tests before replacing the checked fixture.
 
 ### Read the continuity artifacts
 
