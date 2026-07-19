@@ -204,8 +204,8 @@ fn validate_continuity_embedding_sizes(
             .iter()
             .filter(|scenario| scenario.embedding.provider_name() == "frozen")
         {
-            for text in scenario.embedding_inputs() {
-                provider.vector_for_text(text).map_err(|error| {
+            for text in scenario.runtime_embedding_inputs() {
+                provider.vector_for_text(&text).map_err(|error| {
                     anyhow::anyhow!(
                         "preflight frozen embeddings for continuity scenario {:?}: {error}",
                         scenario.fixture_id
@@ -2249,6 +2249,43 @@ mod tests {
             .to_string();
         assert!(error.contains("preflight frozen embeddings"), "{error}");
         assert!(error.contains("frozen embedding cache miss"), "{error}");
+    }
+
+    #[test]
+    fn committed_benchmark_store_is_exactly_the_runtime_lookup_set() {
+        let fixture_root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmem-eval-continuity/fixtures");
+        let fixture = parse_fixture_bytes(
+            &fs::read(fixture_root.join("continuity_benchmarks_v1.json")).unwrap(),
+        )
+        .unwrap();
+        let runtime_texts = fixture
+            .scenarios
+            .iter()
+            .flat_map(ContinuityScenario::runtime_embedding_inputs)
+            .collect::<BTreeSet<_>>();
+        let manifest = cmem_eval_core::FrozenEmbeddingManifest::load(
+            &fixture_root.join("embeddings/continuity_benchmarks_v1_manifest.json"),
+        )
+        .unwrap();
+        let manifest_texts = manifest
+            .texts
+            .iter()
+            .map(|item| item.text.clone())
+            .collect::<BTreeSet<_>>();
+        let store = cmem_eval_core::FrozenEmbeddingStore::load(
+            &fixture_root.join("embeddings/continuity_benchmarks_v1_store.json"),
+        )
+        .unwrap();
+        let store_texts = store
+            .entries
+            .iter()
+            .map(|entry| entry.text.clone())
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(runtime_texts.len(), 635);
+        assert_eq!(runtime_texts, manifest_texts);
+        assert_eq!(runtime_texts, store_texts);
     }
 
     #[test]

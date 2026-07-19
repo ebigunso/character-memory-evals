@@ -767,3 +767,49 @@ Prevention:
 
 Evidence:
 - Attractor A trace `EC71FACD3A7AC341252EDC5F9B05A82309E2A4A195B20FB1785C6492CE7FFA7F` returns 49 items and places the probe at rank 17; attractor B trace `C0FD93F6742DBAED4A9E8198B9E878504D9065E2C857F84FA3B8BA7A8F8705D9` returns 51 items and places it at rank 16. Both select all 48 roots and keep recall@5/@10 at `0`.
+
+## 2026-07-19 — Require Exact Frozen-Store Runtime Coverage  [tags: correction, embeddings, fixtures, runtime-contract, validation]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: benchmark frozen-store cache-miss fix
+- Roles involved: Worker | Orchestrator
+
+Symptom:
+- The initial repair proposal retained 167 source-exact embeddings that runtime could no longer request after CharacterMemory normalized fixture whitespace, which would have left dead vectors outside the manifest's runtime lookup set.
+
+Root cause:
+- Source-fidelity evidence and runtime cache coverage were treated as one storage concern, so retaining superseded vectors appeared useful even though converter regeneration already proves source-byte preservation independently.
+
+Fix applied:
+- Keep fixture event text byte-exact to the official sources, enumerate CharacterMemory-normalized write text plus raw query text in the embedding manifest, reuse unchanged embeddings by exact key, generate only genuinely new runtime texts, and remove superseded store entries.
+
+Prevention:
+- Frozen embedding stores for generated fixtures must be a strict bijection with the manifest's unique runtime lookup texts: no cache misses, no unused entries, and no source-audit vectors.
+- Prove source fidelity through deterministic converter checks against the authoritative datasets; prove runtime coverage separately through a preflight that composes every fixture event's runtime lookup text.
+
+Evidence:
+- The benchmark fix regression compares the full committed fixture runtime lookup set with both manifest texts and store keys before live namespace mutation.
+
+## 2026-07-19 — Cross-Repository Contract Mirrors Need Executable Seam Tests  [tags: review, contracts, cross-repository, drift, validation]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: Task_24 reviewer bounce
+- Roles involved: Worker | Reviewer | Orchestrator
+
+Symptom:
+- CharacterMemoryEvals mirrored CharacterMemory's private whitespace-normalization algorithm, but every regression tested either the mirror or the upstream implementation in isolation. Both repositories could remain green after upstream drift while generated frozen stores became unusable at runtime.
+
+Root cause:
+- Algorithm equality at one pinned commit was treated as contract evidence even though no test exercised a whitespace-rich write across the repository boundary.
+
+Fix applied:
+- Add a live adapter regression whose strict frozen store contains only the CharacterMemoryEvals-normalized key, then commit deliberately whitespace-rich content through CharacterMemory's public write path. Any upstream surface-policy drift produces a cache miss and fails the downstream test.
+
+Prevention:
+- When one repository must mirror a private policy from another, pair the mirror with a production-reachable cross-boundary regression that fails when either implementation changes independently.
+- Link the mirror and drift regression in code so contract ownership and required paired maintenance are discoverable.
+
+Evidence:
+- `live_frozen_write_surface_matches_continuity_runtime_normalization` crosses the real adapter and CharacterMemory write-surface seam with leading/trailing whitespace, repeated spaces, a tab, and a newline.

@@ -471,14 +471,24 @@ Each scenario selects three to five sessions. The machine-readable selection man
 
 ### Frozen embedding evidence
 
-The ranked-cosine manifest covers every unique fixture embedding input and declares one evidence-or-trap-versus-background ordering per scenario. The committed store contains 635 unique 3072-dimensional vectors from `text-embedding-3-large`, records `source=open_ai_api`, and passes all 18 ordering checks. The first generated candidate set correctly failed its intent gate because a `conv-50` background turn was more similar to the query than the evidence; Task_23 replaced that ordering candidate with an already-selected semantically unrelated turn and regenerated the committed store. This was generation-time validation only, not an evaluation run.
+The ranked-cosine manifest covers every unique runtime lookup input and declares one evidence-or-trap-versus-background ordering per scenario. Write-event inputs use CharacterMemory's whitespace-normalized content after adapter prefix removal; query inputs retain exact fixture bytes. The committed store is a strict bijection with those 635 inputs, contains 3072-dimensional vectors from `text-embedding-3-large`, records `source=open_ai_api`, and passes all 18 ordering checks. The first generated candidate set correctly failed its intent gate because a `conv-50` background turn was more similar to the query than the evidence; Task_23 replaced that ordering candidate with an already-selected semantically unrelated turn and regenerated the committed store. This was generation-time validation only, not an evaluation run.
+
+### MAJOR: frozen store omitted normalized runtime write text
+
+Classification: fixture/harness defect, fixed before benchmark evidence, excluded from CharacterMemory library findings.
+
+The store at merged baseline `98b818e` enumerated byte-exact source turns for every event, while CharacterMemory deliberately collapses whitespace when composing persisted Episode and Observation embedding surfaces. The adapter removes the surface prefix before frozen lookup but preserves the normalized suffix. For `benchmark-lme-update-01493427:remember:0002`, the manifest text had 2,977 characters and SHA-256 `998C6FE35EA9CB25666050F62CDCA61493082C1497BF8E8553CD5282364735AC`; the 2,970-character runtime lookup suffix had SHA-256 `FF3479504257D3DAB5C12C7F675FBA8CD01DE25C9C6FBF65062DD4823F2B0E74`, matching the first live cache miss.
+
+The same transformation affected 167 `Remember` events across 15 of 18 benchmark scenarios; no `Correct` replacement changed under normalization. The fixture remains byte-identical to its official-source conversion. The corrected manifest enumerates normalized `Remember`/`Correct` lookup text and raw `Query` text. Store regeneration reused 468 byte-identical vectors, generated only the 167 new normalized texts, and discarded 167 superseded entries so runtime, manifest, and store each contain the same 635 unique keys. Runner preflight checks composed runtime lookup inputs before namespace mutation, a committed regression asserts strict equality across all fixture scenarios, manifest texts, and store keys, and a live adapter drift guard feeds whitespace-rich content through CharacterMemory's public write path against a store containing only the mirrored normalized key.
+
+Before/after artifact references: fixture SHA-256 remains `46B9981225D2395EACA30078D9B19BE4CFA25F9698ADEA3CD84CBD503E0014A6`; manifest changed from `A030632BD820C056A3FD8F5B5475ACC9B12B534BFB2E23F5A4C38F0A30BF4FCB` to `D71AACE9109AD3509CA0D4AB54863E5E9ACAE3C7CB8BD3CEC27F2B4007622761`; store changed from `143D8BCF80F01B208F73DA1FF613A813C5ACA8F227F9D69FDD40C15A66F30C79` to `D6D586FB19C2F117B8FEC5DD474754794DE3A1ADA8838F0E54432D3DB1C45886`.
 
 ### Artifacts
 
 - Converter and selection: `crates/cmem-eval-benchmark-convert/`.
-- Fixture: `crates/cmem-eval-continuity/fixtures/continuity_benchmarks_v1.json`, SHA-256 `46B9981225D2395EACA30078D9B19BE4CFA25F9698ADEA3CD84CBD503E0014A6` at Task_23 generation time.
-- Ranked-cosine manifest: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_manifest.json`, SHA-256 `A030632BD820C056A3FD8F5B5475ACC9B12B534BFB2E23F5A4C38F0A30BF4FCB` at Task_23 generation time.
-- Frozen store: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_store.json`, SHA-256 `143D8BCF80F01B208F73DA1FF613A813C5ACA8F227F9D69FDD40C15A66F30C79` at Task_23 generation time.
+- Fixture: `crates/cmem-eval-continuity/fixtures/continuity_benchmarks_v1.json`, SHA-256 `46B9981225D2395EACA30078D9B19BE4CFA25F9698ADEA3CD84CBD503E0014A6`.
+- Ranked-cosine manifest: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_manifest.json`, SHA-256 `D71AACE9109AD3509CA0D4AB54863E5E9ACAE3C7CB8BD3CEC27F2B4007622761`.
+- Frozen store: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_store.json`, SHA-256 `D6D586FB19C2F117B8FEC5DD474754794DE3A1ADA8838F0E54432D3DB1C45886`.
 - Attribution and adaptation record: `crates/cmem-eval-continuity/fixtures/CONTINUITY_BENCHMARKS_ATTRIBUTION.md`.
 
 ## Task_9b expanded confirmation

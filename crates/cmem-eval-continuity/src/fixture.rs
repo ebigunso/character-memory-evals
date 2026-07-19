@@ -506,6 +506,45 @@ impl ContinuityScenario {
         inputs
     }
 
+    /// Exact texts requested from the frozen provider after CharacterMemory
+    /// composes and normalizes write surfaces. Queries bypass that write-time
+    /// normalization and therefore remain byte-exact fixture text.
+    pub fn runtime_embedding_inputs(&self) -> BTreeSet<String> {
+        let mut inputs = self
+            .entities
+            .iter()
+            .map(|entity| runtime_memory_embedding_text(&entity.label))
+            .collect::<BTreeSet<_>>();
+        for event in &self.events {
+            match event {
+                InteractionEvent::Remember {
+                    text,
+                    surface_texts,
+                    ..
+                } => {
+                    inputs.insert(runtime_memory_embedding_text(text));
+                    if let Some(surface_texts) = surface_texts {
+                        inputs.insert(runtime_memory_embedding_text(&surface_texts.episode));
+                        inputs.insert(runtime_memory_embedding_text(&surface_texts.observation));
+                        inputs.insert(runtime_memory_embedding_text(&surface_texts.derived));
+                    }
+                }
+                InteractionEvent::Correct {
+                    replacement_text, ..
+                } => {
+                    inputs.insert(runtime_memory_embedding_text(replacement_text));
+                }
+                InteractionEvent::Query { text, .. } => {
+                    inputs.insert(text.clone());
+                }
+                InteractionEvent::Forget { .. }
+                | InteractionEvent::Link { .. }
+                | InteractionEvent::Restart { .. } => {}
+            }
+        }
+        inputs
+    }
+
     pub fn validate(&self) -> Result<()> {
         let controllable_embedding = self.embedding.controllable_similarity();
         if let Some(embedding) = controllable_embedding {
@@ -809,6 +848,17 @@ impl ContinuityScenario {
     }
 }
 
+/// Mirrors CharacterMemory's write-surface `clean_text` in
+/// `src/policy/embedding_surface.rs`. The live adapter removes the object-type
+/// prefix before frozen lookup, leaving this normalized suffix as the exact
+/// cache key. Keep this mirror paired with the cross-repository drift guard
+/// `live_frozen_write_surface_matches_continuity_runtime_normalization` in the
+/// CharacterMemory adapter tests; that test must fail if the upstream policy
+/// changes without a corresponding fixture-contract update.
+pub fn runtime_memory_embedding_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 impl InteractionEvent {
     pub fn event_id(&self) -> &str {
         match self {
@@ -1086,6 +1136,28 @@ mod tests {
 
     fn explicit_v2_fixture() -> ContinuityFixtureSet {
         parse_fixture_bytes(EXPLICIT_V2_FIXTURE).unwrap()
+    }
+
+    #[test]
+    fn runtime_embedding_inputs_normalize_writes_but_preserve_queries() {
+        let mut fixture = explicit_v2_fixture();
+        let scenario = &mut fixture.scenarios[0];
+        let InteractionEvent::Remember { text, .. } = &mut scenario.events[0] else {
+            panic!("first event must be remember");
+        };
+        *text = "  remembered\n\ttarget  ".to_string();
+        let InteractionEvent::Query { text, .. } = &mut scenario.events[1] else {
+            panic!("second event must be query");
+        };
+        *text = "  target\nquery  ".to_string();
+
+        assert_eq!(
+            scenario.runtime_embedding_inputs(),
+            BTreeSet::from([
+                "  target\nquery  ".to_string(),
+                "remembered target".to_string(),
+            ])
+        );
     }
 
     fn parse_error(fixtures: &ContinuityFixtureSet) -> String {
