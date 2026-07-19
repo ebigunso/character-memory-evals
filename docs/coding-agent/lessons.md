@@ -790,3 +790,26 @@ Prevention:
 
 Evidence:
 - The benchmark fix regression compares the full committed fixture runtime lookup set with both manifest texts and store keys before live namespace mutation.
+
+## 2026-07-19 — Cross-Repository Contract Mirrors Need Executable Seam Tests  [tags: review, contracts, cross-repository, drift, validation]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: Task_24 reviewer bounce
+- Roles involved: Worker | Reviewer | Orchestrator
+
+Symptom:
+- CharacterMemoryEvals mirrored CharacterMemory's private whitespace-normalization algorithm, but every regression tested either the mirror or the upstream implementation in isolation. Both repositories could remain green after upstream drift while generated frozen stores became unusable at runtime.
+
+Root cause:
+- Algorithm equality at one pinned commit was treated as contract evidence even though no test exercised a whitespace-rich write across the repository boundary.
+
+Fix applied:
+- Add a live adapter regression whose strict frozen store contains only the CharacterMemoryEvals-normalized key, then commit deliberately whitespace-rich content through CharacterMemory's public write path. Any upstream surface-policy drift produces a cache miss and fails the downstream test.
+
+Prevention:
+- When one repository must mirror a private policy from another, pair the mirror with a production-reachable cross-boundary regression that fails when either implementation changes independently.
+- Link the mirror and drift regression in code so contract ownership and required paired maintenance are discoverable.
+
+Evidence:
+- `live_frozen_write_surface_matches_continuity_runtime_normalization` crosses the real adapter and CharacterMemory write-surface seam with leading/trailing whitespace, repeated spaces, a tab, and a newline.

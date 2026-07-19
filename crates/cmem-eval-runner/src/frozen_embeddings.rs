@@ -80,6 +80,7 @@ async fn generate(args: GenerateArgs) -> Result<()> {
         .as_deref()
         .map(FrozenEmbeddingStore::load)
         .transpose()?;
+    let request_dimensions = effective_embedding_dimensions(args.dimensions, reuse_store.as_ref());
     let ReusableEmbeddingSelection {
         mut embeddings_by_text,
         missing_texts,
@@ -87,7 +88,7 @@ async fn generate(args: GenerateArgs) -> Result<()> {
         &unique_texts,
         reuse_store.as_ref(),
         &args.model,
-        args.dimensions,
+        request_dimensions,
     )?;
     if missing_texts.len() > MAX_EMBEDDING_INPUTS_PER_REQUEST {
         bail!(
@@ -122,7 +123,7 @@ async fn generate(args: GenerateArgs) -> Result<()> {
                 model: &args.model,
                 input: &missing_texts,
                 encoding_format: "float",
-                dimensions: args.dimensions,
+                dimensions: request_dimensions,
             })
             .send()
             .await
@@ -171,9 +172,17 @@ async fn generate(args: GenerateArgs) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
 struct ReusableEmbeddingSelection {
     embeddings_by_text: BTreeMap<String, Vec<f32>>,
     missing_texts: Vec<String>,
+}
+
+fn effective_embedding_dimensions(
+    requested_dimensions: Option<usize>,
+    reuse_store: Option<&FrozenEmbeddingStore>,
+) -> Option<usize> {
+    requested_dimensions.or_else(|| reuse_store.map(|store| store.vector_size))
 }
 
 fn select_reusable_embeddings(
@@ -362,6 +371,75 @@ mod tests {
         );
         assert_eq!(missing, ["new"]);
         assert!(!reused.contains_key("unused"));
+    }
+
+    #[test]
+    fn reduced_width_reuse_with_a_miss_inherits_width_before_generation() {
+        let store = FrozenEmbeddingStore::new(
+            "text-embedding-3-large",
+            FrozenEmbeddingSource::OpenAiApi,
+            [("kept".to_string(), vec![1.0, 0.0, 0.0])],
+        )
+        .unwrap();
+        let unique_texts = vec!["kept".to_string(), "new".to_string()];
+        let request_dimensions = effective_embedding_dimensions(None, Some(&store));
+        let ReusableEmbeddingSelection {
+            mut embeddings_by_text,
+            missing_texts,
+        } = select_reusable_embeddings(
+            &unique_texts,
+            Some(&store),
+            "text-embedding-3-large",
+            request_dimensions,
+        )
+        .unwrap();
+
+        assert_eq!(request_dimensions, Some(3));
+        assert_eq!(missing_texts, ["new"]);
+
+        // This represents the response shape requested from OpenAI. Combining it
+        // with the reused vector must produce a valid store without reaching the
+        // former post-request mixed-width failure.
+        embeddings_by_text.insert("new".to_string(), vec![0.0, 1.0, 0.0]);
+        let output = FrozenEmbeddingStore::new(
+            "text-embedding-3-large",
+            FrozenEmbeddingSource::OpenAiApi,
+            unique_texts.into_iter().map(|text| {
+                let embedding = embeddings_by_text.remove(&text).unwrap();
+                (text, embedding)
+            }),
+        )
+        .unwrap();
+        assert_eq!(output.vector_size, 3);
+        assert!(
+            output
+                .entries
+                .iter()
+                .all(|entry| entry.embedding.len() == 3)
+        );
+    }
+
+    #[test]
+    fn explicit_dimensions_conflicting_with_reuse_fail_before_generation() {
+        let store = FrozenEmbeddingStore::new(
+            "text-embedding-3-large",
+            FrozenEmbeddingSource::OpenAiApi,
+            [("kept".to_string(), vec![1.0, 0.0, 0.0])],
+        )
+        .unwrap();
+        let requested_dimensions = effective_embedding_dimensions(Some(2), Some(&store));
+
+        let error = select_reusable_embeddings(
+            &["kept".to_string(), "new".to_string()],
+            Some(&store),
+            "text-embedding-3-large",
+            requested_dimensions,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("vector_size 3"), "{error}");
+        assert!(error.contains("requested dimensions 2"), "{error}");
     }
 
     #[test]

@@ -848,9 +848,13 @@ impl ContinuityScenario {
     }
 }
 
-/// Mirrors CharacterMemory's write-surface `clean_text` policy. The live
-/// adapter removes the object-type prefix before frozen lookup, leaving this
-/// normalized suffix as the exact cache key.
+/// Mirrors CharacterMemory's write-surface `clean_text` in
+/// `src/policy/embedding_surface.rs`. The live adapter removes the object-type
+/// prefix before frozen lookup, leaving this normalized suffix as the exact
+/// cache key. Keep this mirror paired with the cross-repository drift guard
+/// `live_frozen_write_surface_matches_continuity_runtime_normalization` in the
+/// CharacterMemory adapter tests; that test must fail if the upstream policy
+/// changes without a corresponding fixture-contract update.
 pub fn runtime_memory_embedding_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

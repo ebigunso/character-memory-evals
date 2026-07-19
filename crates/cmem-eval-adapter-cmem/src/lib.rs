@@ -3922,6 +3922,100 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn live_frozen_write_surface_matches_continuity_runtime_normalization() {
+        let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
+        let directory = tempdir().unwrap();
+        let token = unique_test_token();
+        let prefix = format!("cmem_eval_frozen_drift_{token}");
+        let namespace = "frozen-runtime-normalization";
+        let content = "  The  cobalt\tnotebook\nis in   the east cabinet.  ";
+        let runtime_lookup_text = cmem_eval_continuity::runtime_memory_embedding_text(content);
+        let store_path = directory.path().join("strict-runtime-store.json");
+        let store = FrozenEmbeddingStore::new(
+            "text-embedding-3-small",
+            FrozenEmbeddingSource::TestFixture,
+            [(runtime_lookup_text, vec![1.0; 1_536])],
+        )
+        .unwrap();
+        fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
+
+        let mut config = adapter_config(format!("frozen-drift-{token}"), prefix.clone());
+        config.backend.embedding.provider = "frozen".to_string();
+        config.backend.embedding.model = "text-embedding-3-small".to_string();
+        config.backend.embedding.vector_size = Some(1_536);
+        config.backend.embedding.store_path = Some(store_path.display().to_string());
+        config.backend.identity_registry_dir = Some(
+            directory
+                .path()
+                .join("identities")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        config.backend.oxigraph_persistence_path = Some(
+            directory
+                .path()
+                .join("oxigraph")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        config.backend.retrieval_stats_path = Some(
+            directory
+                .path()
+                .join("retrieval-stats.sqlite")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        config.ingest.index_observations = true;
+        config.ingest.index_episode_summaries = true;
+
+        let mut qdrant_was_available = false;
+        let adapter = live_call_or_skip!(
+            qdrant_was_available,
+            "frozen drift-guard adapter construction",
+            false,
+            CharacterMemoryAdapter::new_with_test_frozen_embeddings(&config).await
+        );
+        live_call_or_skip!(
+            qdrant_was_available,
+            "frozen drift-guard namespace open",
+            true,
+            adapter.open_namespace(namespace).await
+        );
+        let plan = live_call_or_skip!(
+            qdrant_was_available,
+            "frozen drift-guard write preparation",
+            true,
+            adapter
+                .prepare(PrepareWriteInput {
+                    namespace: namespace.to_string(),
+                    content: content.to_string(),
+                    episode_external_id: "whitespace-episode".to_string(),
+                    observation_external_id: "whitespace-observation".to_string(),
+                    episode_started_at: None,
+                    observation_observed_at: None,
+                    raw_refs: Vec::new(),
+                    idempotency_key: Some("whitespace-drift-guard".to_string()),
+                    include_vector_index_candidates: true,
+                    include_stats_update_candidates: true,
+                })
+                .await
+        );
+        let outcome = live_call_or_skip!(
+            qdrant_was_available,
+            "frozen drift-guard write commit",
+            true,
+            adapter.commit(plan, CommitWriteOptions::default()).await
+        );
+        assert_eq!(outcome.vector_indexed_object_refs.len(), 2);
+        live_teardown_with_one_retry!(
+            qdrant_was_available,
+            "frozen drift-guard namespace cleanup",
+            adapter.reset_namespace(namespace).await,
+            adapter.reset_namespace(namespace).await
+        );
+    }
+
+    #[tokio::test]
     async fn live_adapter_reattaches_with_external_ids() {
         let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
         let directory = tempdir().unwrap();

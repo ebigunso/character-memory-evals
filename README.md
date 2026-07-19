@@ -110,7 +110,7 @@ cargo run -p cmem-eval-runner -- embeddings generate \
   --out ./crates/cmem-eval-continuity/fixtures/embeddings/continuity_real_store.json
 ```
 
-When a manifest changes, pass `--reuse-store <existing-store>` to reuse vectors only for byte-identical manifest texts and request embeddings only for missing texts. The output contains exactly the manifest's unique lookup set, so entries removed from the manifest are not carried forward as unused cache data.
+When a manifest changes, pass `--reuse-store <existing-store>` to reuse vectors only for byte-identical manifest texts and request embeddings only for missing texts. If `--dimensions` is omitted, generation inherits the existing store's vector width for new requests. The output contains exactly the manifest's unique lookup set, so entries removed from the manifest are not carried forward as unused cache data.
 
 Recheck store integrity, coverage, and semantic orderings without a key or network:
 
