@@ -493,13 +493,15 @@ mod tests {
     }
 
     #[test]
-    fn committed_smoke_store_validates_without_a_mock_or_network() {
+    fn all_committed_stores_validate_without_a_mock_or_network() {
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../cmem-eval-continuity/fixtures/embeddings");
-        validate(ValidateArgs {
-            manifest: fixtures.join("task21_smoke_manifest.json"),
-            store: fixtures.join("task21_smoke_store.json"),
-        })
-        .unwrap();
+        for pair in ["task21_smoke", "task22_real", "continuity_benchmarks_v1"] {
+            validate(ValidateArgs {
+                manifest: fixtures.join(format!("{pair}_manifest.json")),
+                store: fixtures.join(format!("{pair}_store.json")),
+            })
+            .unwrap_or_else(|error| panic!("committed frozen pair {pair:?} failed: {error:#}"));
+        }
     }
 }

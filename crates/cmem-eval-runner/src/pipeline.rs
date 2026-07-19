@@ -24,8 +24,10 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+type FrozenEmbeddingProviders = HashMap<PathBuf, FrozenEmbeddingProvider>;
 
 pub(crate) async fn run_synthetic(args: RunArgs) -> Result<()> {
     run_pipeline::<SyntheticSpec>(args).await
@@ -39,7 +41,8 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
     let fixture_seed = fixture.seed;
     let scenarios = select_continuity_scenarios(fixture.scenarios, args.scenario.as_deref())?;
     let selected_adapter = args.run.selected_adapter();
-    validate_continuity_embedding_sizes(&config, &scenarios, Some(selected_adapter))?;
+    let frozen_embedding_providers =
+        validate_continuity_embedding_sizes(&config, &scenarios, Some(selected_adapter))?;
     args.run.validate_adapter_selection(&config)?;
     run_continuity_pipeline(
         args,
@@ -47,6 +50,7 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
         fixture_schema_version,
         fixture_seed,
         scenarios,
+        frozen_embedding_providers,
     )
     .await
 }
@@ -141,7 +145,8 @@ fn validate_continuity_embedding_sizes(
     config: &BenchmarkRunConfig,
     scenarios: &[ContinuityScenario],
     selected_adapter: Option<AdapterKind>,
-) -> Result<()> {
+) -> Result<FrozenEmbeddingProviders> {
+    let mut frozen_embedding_providers = HashMap::new();
     let configured_size = config.backend.embedding.vector_size.context(
         "continuity dataset requires backend.embedding.vector_size to match every selected fixture scenario",
     )?;
@@ -184,14 +189,16 @@ fn validate_continuity_embedding_sizes(
     }
 
     if scenario_providers.contains("frozen") {
-        let store_path = config
-            .backend
-            .embedding
-            .store_path
-            .as_deref()
-            .context("frozen continuity scenarios require backend.embedding.store_path")?;
+        let store_path = PathBuf::from(
+            config
+                .backend
+                .embedding
+                .store_path
+                .as_deref()
+                .context("frozen continuity scenarios require backend.embedding.store_path")?,
+        );
         let provider = FrozenEmbeddingProvider::load(
-            Path::new(store_path),
+            &store_path,
             &config.backend.embedding.model,
             configured_size,
         )?;
@@ -200,7 +207,7 @@ fn validate_continuity_embedding_sizes(
         {
             bail!(
                 "frozen continuity evaluations require a store with source=open_ai_api; {} declares source={:?}",
-                store_path,
+                store_path.display(),
                 provider.source()
             );
         }
@@ -217,8 +224,9 @@ fn validate_continuity_embedding_sizes(
                 })?;
             }
         }
+        frozen_embedding_providers.insert(store_path, provider);
     }
-    Ok(())
+    Ok(frozen_embedding_providers)
 }
 
 fn continuity_config_for_scenario(
@@ -615,6 +623,7 @@ enum RunnerContinuityRuntime {
         config: Box<BenchmarkRunConfig>,
         scenario: Box<ContinuityScenario>,
         allow_controllable_padding: bool,
+        frozen_embedding_provider: Option<FrozenEmbeddingProvider>,
     },
 }
 
@@ -623,6 +632,7 @@ impl RunnerContinuityRuntime {
         selected: AdapterKind,
         config: &BenchmarkRunConfig,
         scenario: &ContinuityScenario,
+        frozen_embedding_provider: Option<FrozenEmbeddingProvider>,
     ) -> Result<Self> {
         match selected {
             AdapterKind::Mock => {
@@ -650,13 +660,20 @@ impl RunnerContinuityRuntime {
                         .await?
                     }
                 } else {
-                    CharacterMemoryAdapter::new_with_frozen_embeddings(&scenario_config).await?
+                    CharacterMemoryAdapter::new_with_frozen_embedding_provider(
+                        &scenario_config,
+                        frozen_embedding_provider.clone().context(
+                            "frozen continuity runtime is missing its preflight provider",
+                        )?,
+                    )
+                    .await?
                 };
                 Ok(Self::Real {
                     active: Some(Box::new(adapter)),
                     config: Box::new(scenario_config),
                     scenario: Box::new(scenario.clone()),
                     allow_controllable_padding,
+                    frozen_embedding_provider,
                 })
             }
         }
@@ -688,6 +705,7 @@ impl ContinuityRuntime for RunnerContinuityRuntime {
                 config,
                 scenario: configured_scenario,
                 allow_controllable_padding,
+                frozen_embedding_provider,
             } => {
                 let previous = active
                     .take()
@@ -712,9 +730,12 @@ impl ContinuityRuntime for RunnerContinuityRuntime {
                         .await?
                     }
                 } else {
-                    CharacterMemoryAdapter::reconstruct_with_frozen_embeddings(
+                    CharacterMemoryAdapter::reconstruct_with_frozen_embedding_provider(
                         config.as_ref(),
                         &scenario.namespace,
+                        frozen_embedding_provider.clone().context(
+                            "frozen continuity runtime is missing its preflight provider",
+                        )?,
                     )
                     .await?
                 };
@@ -731,6 +752,7 @@ async fn run_continuity_pipeline(
     fixture_schema_version: u32,
     fixture_seed: u64,
     scenarios: Vec<ContinuityScenario>,
+    frozen_embedding_providers: FrozenEmbeddingProviders,
 ) -> Result<()> {
     let selected = args.run.selected_adapter();
     let adapter_metadata = selected.metadata();
@@ -741,12 +763,35 @@ async fn run_continuity_pipeline(
     let mut traces = Vec::with_capacity(total_queries);
     let mut operation_counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut restart_observations: BTreeMap<String, Vec<RestartObservation>> = BTreeMap::new();
-    let mut runtimes = Vec::with_capacity(scenarios.len());
+    let mut runtimes = config
+        .backend
+        .cleanup
+        .enabled
+        .then(|| Vec::with_capacity(scenarios.len()));
 
     for (index, scenario) in scenarios.iter().enumerate() {
         let item_number = index + 1;
         progress.item_started(item_number, &scenario.fixture_id);
-        let mut runtime = RunnerContinuityRuntime::new(selected, &config, scenario).await?;
+        let frozen_embedding_provider = if scenario.embedding.provider_name() == "frozen" {
+            let store_path = config
+                .backend
+                .embedding
+                .store_path
+                .as_deref()
+                .context("frozen continuity runtime requires backend.embedding.store_path")?;
+            let provider = frozen_embedding_providers
+                .get(Path::new(store_path))
+                .cloned()
+                .with_context(|| {
+                    format!("frozen continuity runtime has no preflight provider for {store_path}")
+                })?;
+            Some(provider)
+        } else {
+            None
+        };
+        let mut runtime =
+            RunnerContinuityRuntime::new(selected, &config, scenario, frozen_embedding_provider)
+                .await?;
         let run = run_continuity_scenario(&mut runtime, scenario, &config.retrieval).await?;
         restart_observations.insert(scenario.fixture_id.clone(), run.restart_observations);
         for (operation, count) in run.operation_counts {
@@ -774,7 +819,9 @@ async fn run_continuity_pipeline(
             traces.push(trace);
         }
         progress.item_finished(item_number, &scenario.fixture_id, 0);
-        runtimes.push((scenario.namespace.clone(), runtime));
+        if let Some(runtimes) = &mut runtimes {
+            runtimes.push((scenario.namespace.clone(), runtime));
+        }
     }
 
     if let Some(parent) = args.trace_out.parent() {
@@ -819,8 +866,8 @@ async fn run_continuity_pipeline(
         serde_json::to_string(&operation_counts)?
     );
 
-    progress.cleanup_started(runtimes.len());
-    if config.backend.cleanup.enabled {
+    progress.cleanup_started(runtimes.as_ref().map_or(0, Vec::len));
+    if let Some(runtimes) = runtimes {
         for (namespace, runtime) in runtimes {
             runtime.adapter().cleanup_namespace(&namespace).await?;
         }

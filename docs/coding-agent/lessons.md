@@ -865,3 +865,30 @@ Prevention:
 
 Evidence:
 - PR #13 regressions cover a superset store, a complete test-provenance mock run, real-adapter provenance rejection, and mock cache-miss rejection; the README path sweep resolves the corrected `task22_real_*` examples to committed files.
+
+## 2026-07-20 — Cache Immutable Artifacts At The Run Boundary  [tags: review, performance, embeddings, lifecycle, ownership]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: PR #13 Copilot round 2
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Every frozen continuity scenario and restart reparsed the same large embedding store, while the runner retained every completed runtime until the end even when post-run cleanup was disabled.
+
+Root cause:
+- Adapter construction coupled immutable artifact loading to each consumer instance, and the deferred-cleanup lifetime was applied to runtimes regardless of whether cleanup would execute.
+
+Fix applied:
+- Load each distinct store once during run preflight, pass its cheap Arc-backed provider clones through provider-consuming construction and reconstruction APIs, keep provenance validation at that consumption boundary, and retain completed runtimes only when deferred cleanup is enabled.
+
+Prevention:
+- Separate loading of large immutable artifacts from construction of short-lived consumers, cache the artifact at the narrowest shared run scope, and key the cache by artifact identity.
+- When a resource is retained for a deferred operation, make its lifetime conditional on that operation being enabled.
+- Exercise security or provenance guards through every constructor variant so a performance-oriented injection seam cannot become an admission bypass.
+- Repo rule candidate: none; existing architecture, security-boundary, and latent-risk guidance already covers shared ownership and entry-point parity when applied together.
+- Harness migration candidate: none.
+- Residual risk / waiver: none.
+
+Evidence:
+- PR #13 round-2 validation covers provider-path provenance rejection, all three committed manifest/store pairs, byte-consistent canonical and benchmark mock repeats, and the full workspace suite.

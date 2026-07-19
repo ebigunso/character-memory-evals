@@ -284,9 +284,24 @@ impl CharacterMemoryAdapter {
         Self::new_with_frozen_embeddings_internal(config, false).await
     }
 
+    pub async fn new_with_frozen_embedding_provider(
+        config: &BenchmarkRunConfig,
+        provider: FrozenEmbeddingProvider,
+    ) -> Result<Self> {
+        Self::new_with_frozen_embedding_provider_internal(config, provider, false).await
+    }
+
     #[cfg(test)]
     async fn new_with_test_frozen_embeddings(config: &BenchmarkRunConfig) -> Result<Self> {
         Self::new_with_frozen_embeddings_internal(config, true).await
+    }
+
+    #[cfg(test)]
+    async fn new_with_test_frozen_embedding_provider(
+        config: &BenchmarkRunConfig,
+        provider: FrozenEmbeddingProvider,
+    ) -> Result<Self> {
+        Self::new_with_frozen_embedding_provider_internal(config, provider, true).await
     }
 
     async fn new_with_frozen_embeddings_internal(
@@ -313,6 +328,43 @@ impl CharacterMemoryAdapter {
             &config.backend.embedding.model,
             vector_size,
         )?;
+        Self::new_with_frozen_embedding_provider_internal(config, provider, allow_test_fixture)
+            .await
+    }
+
+    async fn new_with_frozen_embedding_provider_internal(
+        config: &BenchmarkRunConfig,
+        provider: FrozenEmbeddingProvider,
+        allow_test_fixture: bool,
+    ) -> Result<Self> {
+        config.validate()?;
+        if config.backend.embedding.provider != "frozen" {
+            bail!("new_with_frozen_embedding_provider requires backend.embedding.provider=frozen");
+        }
+        let store_path = config
+            .backend
+            .embedding
+            .store_path
+            .as_deref()
+            .context("frozen embedding provider requires backend.embedding.store_path")?;
+        let vector_size = config
+            .backend
+            .embedding
+            .vector_size
+            .context("frozen embedding provider requires backend.embedding.vector_size")?;
+        if provider.model() != config.backend.embedding.model {
+            bail!(
+                "frozen embedding provider model {:?} does not match configured model {:?}",
+                provider.model(),
+                config.backend.embedding.model
+            );
+        }
+        if provider.vector_size() != vector_size {
+            bail!(
+                "frozen embedding provider vector_size {} does not match configured vector_size {vector_size}",
+                provider.vector_size()
+            );
+        }
         if !allow_test_fixture && provider.source() != FrozenEmbeddingSource::OpenAiApi {
             bail!(
                 "live frozen embedding adapter requires source=open_ai_api; store {store_path} declares source={:?}",
@@ -384,6 +436,17 @@ impl CharacterMemoryAdapter {
     ) -> Result<(Self, NamespaceLifecycleResult)> {
         config.validate()?;
         let adapter = Self::new_with_frozen_embeddings(config).await?;
+        let lifecycle = adapter.reattach_namespace(namespace).await?;
+        Ok((adapter, lifecycle))
+    }
+
+    pub async fn reconstruct_with_frozen_embedding_provider(
+        config: &BenchmarkRunConfig,
+        namespace: &str,
+        provider: FrozenEmbeddingProvider,
+    ) -> Result<(Self, NamespaceLifecycleResult)> {
+        config.validate()?;
+        let adapter = Self::new_with_frozen_embedding_provider(config, provider).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
     }
@@ -3156,6 +3219,7 @@ mod tests {
         config.backend.embedding.store_path = Some(store_path.display().to_string());
         config.ingest.index_observations = true;
         config.ingest.index_episode_summaries = true;
+        let provider = FrozenEmbeddingProvider::load(&store_path, "task21-smoke-model", 3).unwrap();
 
         let error = match CharacterMemoryAdapter::new_with_frozen_embeddings(&config).await {
             Ok(_) => panic!("live construction admitted test-fixture provenance"),
@@ -3178,9 +3242,41 @@ mod tests {
         assert!(error.contains("TestFixture"), "{error}");
         assert!(error.contains(&store_path.display().to_string()), "{error}");
 
+        let error = match CharacterMemoryAdapter::new_with_frozen_embedding_provider(
+            &config,
+            provider.clone(),
+        )
+        .await
+        {
+            Ok(_) => panic!("provider construction admitted test-fixture provenance"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("source=open_ai_api"), "{error}");
+        assert!(error.contains("TestFixture"), "{error}");
+        assert!(error.contains(&store_path.display().to_string()), "{error}");
+
+        let error = match CharacterMemoryAdapter::reconstruct_with_frozen_embedding_provider(
+            &config,
+            "continuity-frozen-provider-provenance",
+            provider.clone(),
+        )
+        .await
+        {
+            Ok(_) => panic!("provider reconstruction admitted test-fixture provenance"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("source=open_ai_api"), "{error}");
+        assert!(error.contains("TestFixture"), "{error}");
+        assert!(error.contains(&store_path.display().to_string()), "{error}");
+
         CharacterMemoryAdapter::new_with_test_frozen_embeddings(&config)
             .await
             .expect("the cfg(test)-only constructor should admit explicit test provenance");
+        CharacterMemoryAdapter::new_with_test_frozen_embedding_provider(&config, provider)
+            .await
+            .expect(
+                "the cfg(test)-only provider constructor should admit explicit test provenance",
+            );
     }
 
     fn file_contains(path: &Path, needle: &[u8]) -> bool {
