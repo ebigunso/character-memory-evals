@@ -480,3 +480,22 @@ The ranked-cosine manifest covers every unique fixture embedding input and decla
 - Ranked-cosine manifest: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_manifest.json`, SHA-256 `A030632BD820C056A3FD8F5B5475ACC9B12B534BFB2E23F5A4C38F0A30BF4FCB` at Task_23 generation time.
 - Frozen store: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_store.json`, SHA-256 `143D8BCF80F01B208F73DA1FF613A813C5ACA8F227F9D69FDD40C15A66F30C79` at Task_23 generation time.
 - Attribution and adaptation record: `crates/cmem-eval-continuity/fixtures/CONTINUITY_BENCHMARKS_ATTRIBUTION.md`.
+
+## Task_9b expanded confirmation
+
+Task_9b confirms the expanded fixtures in the shipped-default retrieval regime: `max_vector_candidates = 48`, `max_graph_roots = 12`, selectivity alpha and gamma `1.0`, and fanout budgets `0/20`, `0/5`, and `0/15`. The general-purpose committed `configs/continuity_retrieval.toml` remains a roots-48 evaluation config; the dedicated Task_9b configs deliberately pin roots 12 so the canonical fixture's ten inherited scenarios are directly comparable with Task_9. Character Memory provenance is fixed source `19d650e7c9b298d51054db22081dcbe75428b16f`; the sibling checkout was at docs-only descendant `43a54bbfc35b66a0376f12661effdf2db8b60c4d`, whose `src` tree is byte-identical to the fixed source. Every live run uses Qdrant gRPC at `http://127.0.0.1:6334` and a distinct run ID, namespace prefix, Oxigraph path, retrieval-stat database, and identity-registry directory.
+
+### Canonical schema-v3 repeated-run result
+
+The canonical pair covers all 15 scenarios and 23 queries in `continuity_v3.json` at SHA-256 `BF5E392EB3F0EB79F2F48FCA6EAD38A2E69109A7BEBD257A47AEA62F091F8EB3`. Its raw traces are byte-identical at `1CACDC3BDB7E578EFFADFE6C2ED4C74815E588D6A3EDE64AA9E7C4AAE6F09055`; README-normalized rows are byte-identical at `170A1BAAAC90A4E7DE6953149221D323D48CD27ABFFD9AEBA30148F6CE078352`; and metadata-free report content is byte-identical at `D9CDE4BB4FCDB8EB725DF75EB3CCF19CE965B90C7C990FD81BB1894772D5636E`. Runner elapsed times were 301.479 seconds for A and 269.216 seconds for B.
+
+All ten scenarios inherited from the Task_9 fixture reproduce their Task_9 per-scenario metric objects exactly. Across the expanded 15-scenario suite, mean recall at 5/10 is `1/1` for short gaps, `0.8636363636363636/0.9090909090909091` for medium gaps, and `0.8888888888888888/0.8888888888888888` for long gaps. Mean surface pollution is `0.3061491538764266`, mean event pollution is `0.3143939393939394`, mean context reduction is `-0.38644108916927383`, and mean fanout-over-budget is `0`.
+
+Both aggregate sections and all 30 scenario sections have empty `missing_required_metrics` lists. Fanout-over-budget, orphan-vector leakage, superseded-current leakage and returns, suppressed-memory leakage and returns, unsafe-lifecycle returns, graph-object-missing returns, missing external IDs, and derived-memory provenance failures are numeric zero throughout the live pair.
+
+Config hashes cover tracked LF bytes. Raw results, summaries, and full reports retain run identity or measured timing; deterministic comparisons use the README normalization contract.
+
+| Run | Config SHA-256 | Results | Summary | Traces | Report | Normalized rows | Report content |
+|---|---|---|---|---|---|---|---|
+| `canonical-a` | `043FC4B2567F22776E3617BAA8D9F416BC8BBCC3403EEF0F3D704E9A0AE26930` | `BA3B11FDB0F98A97E3A51974C827875416DC43B08BC235B9A950E2BA5D0D97DC` | `47F2298BDC6998DDA62789CF86A9EB2C89666128EFEA985884484D18C0885F3F` | `1CACDC3BDB7E578EFFADFE6C2ED4C74815E588D6A3EDE64AA9E7C4AAE6F09055` | `B91F3149878DF2896F416A4593C2E387D0041F0958501ADFE2EE3A3FB47D5BC9` | `170A1BAAAC90A4E7DE6953149221D323D48CD27ABFFD9AEBA30148F6CE078352` | `D9CDE4BB4FCDB8EB725DF75EB3CCF19CE965B90C7C990FD81BB1894772D5636E` |
+| `canonical-b` | `4EE299032EE0D9836C707CBA83F9C8F43782234FA9C113428ECEDFD0E83594DB` | `B9A224D6C0A8D5A26A4D6E929C7D48E9E8D03087630A8A68A8C90B9BB8957F7F` | `9758C7B8DCAE021E2AC1BAD3941FD9C440723C204039ABF9329A50E6455F0F06` | `1CACDC3BDB7E578EFFADFE6C2ED4C74815E588D6A3EDE64AA9E7C4AAE6F09055` | `17BE908132A11BAA841142877C9103DA6904FA025918DE6CDEF4FA8F9710FA25` | `170A1BAAAC90A4E7DE6953149221D323D48CD27ABFFD9AEBA30148F6CE078352` | `D9CDE4BB4FCDB8EB725DF75EB3CCF19CE965B90C7C990FD81BB1894772D5636E` |
