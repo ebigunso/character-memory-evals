@@ -627,13 +627,7 @@ fn default_embedding_model() -> String {
 }
 
 fn embedding_model_vector_size(model: &str) -> Result<usize> {
-    match model.trim() {
-        "text-embedding-3-small" | "text-embedding-ada-002" => Ok(1536),
-        "text-embedding-3-large" => Ok(3072),
-        _ => bail!(
-            "backend.embedding.model {model:?} is unsupported for deterministic provider; expected text-embedding-3-small, text-embedding-3-large, or text-embedding-ada-002"
-        ),
-    }
+    crate::frozen_embedding::model_native_embedding_vector_size(model)
 }
 
 fn default_openai_api_key_env() -> String {

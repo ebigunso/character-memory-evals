@@ -892,3 +892,29 @@ Prevention:
 
 Evidence:
 - PR #13 round-2 validation covers provider-path provenance rejection, all three committed manifest/store pairs, byte-consistent canonical and benchmark mock repeats, and the full workspace suite.
+
+## 2026-07-20 — Persist Exceptional Producer Intent And Recheck It At Consumption  [tags: review, validation, configuration, artifacts, embeddings]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: PR #13 Copilot round 3
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- The embeddings CLI could generate an otherwise valid reduced-width OpenAI store that Character Memory would reject only during live adapter construction, despite an earlier lesson already requiring coupled model/dimension validation for deterministic configuration.
+
+Root cause:
+- The known cross-field invariant was enforced only in the deterministic config path; the artifact producer, persisted store contract, and live frozen consumer were reviewed independently instead of as three entrypoints to the same downstream model-width contract.
+
+Fix applied:
+- Centralize canonical model widths, require an explicit generation opt-in before credentials or network work for a nonstandard effective width, persist that exception in store schema v2, and reject the same width with the same actionable diagnostic during real continuity preflight.
+
+Prevention:
+- For generated artifacts consumed by another library, trace coupled options from producer arguments through persisted metadata to the downstream constructor invariant.
+- Persist every exceptional opt-in that changes consumer compatibility, then add one producer-boundary regression and one production-reachable consumer-boundary regression using the same validator.
+- Repo rule candidate: add generated-artifact producer/consumer parity and persisted-exception review to the repository review-risk hotspots; this repeats the model/dimension coupling miss recorded on 2026-07-12.
+- Harness migration candidate: none; existing contract-scope, entrypoint-admission, and validation-boundary guidance already covers the class.
+- Residual risk / waiver: none.
+
+Evidence:
+- PR #13 round-3 regressions prove ungated generation fails before output, gated no-network reuse succeeds with `explicit_nonstandard` metadata, real preflight rejects the store before adapter construction, and all three committed schema-v2 store pairs validate offline.

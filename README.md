@@ -99,7 +99,7 @@ Mock runs require Rust 1.97.0 and the checked fixture only; they do not connect 
 
 ### Generate and validate frozen real embeddings
 
-A frozen store is schema-versioned, LF-stable JSON keyed by its model and the SHA-256 of each exact UTF-8 text. Each entry retains the exact text beside its `f32` vector so hash collisions, stale authoring, and review diffs remain visible. Runtime loading verifies the schema, model, vector width, hash, ordering, finite components, and exact text bytes. A missing text fails before a live continuity run mutates a namespace and prints the `cmem-eval embeddings generate` command needed to regenerate the store; runtime never falls back to synthetic vectors or a network call.
+A frozen store is schema-versioned, LF-stable JSON keyed by its model and the SHA-256 of each exact UTF-8 text. Store schema v2 records whether dimensions are model-native, explicitly nonstandard, or test-fixture supplied. Each entry retains the exact text beside its `f32` vector so hash collisions, stale authoring, and review diffs remain visible. Runtime loading verifies the schema, model, vector width, dimension policy, hash, ordering, finite components, and exact text bytes. A missing text fails before a live continuity run mutates a namespace and prints the `cmem-eval embeddings generate` command needed to regenerate the store; runtime never falls back to synthetic vectors or a network call.
 
 The generation manifest has stable text IDs plus optional `similarity_orderings`. Continuity manifests enumerate exact frozen-provider lookup text: CharacterMemory-normalized content for write events after the adapter removes the object-surface prefix, and byte-exact fixture text for queries. Fixture event text remains source-exact; normalization belongs only to the runtime embedding contract. Each ordering names an anchor and candidate IDs from most to least similar, with a non-negative minimum adjacent margin. This is the authoring gate for real-embedding scenarios: a target, same-domain near miss, and unrelated background can be declared in descending order, and generation fails before writing the store unless measured cosine similarities satisfy that order. Revise the embedded texts when the intended geometry fails; do not weaken the ordering to preserve placeholder prose.
 
@@ -113,6 +113,8 @@ cargo run -p cmem-eval-runner -- embeddings generate \
 ```
 
 When a manifest changes, pass `--reuse-store <existing-store>` to reuse vectors only for byte-identical manifest texts and request embeddings only for missing texts. If `--dimensions` is omitted, generation inherits the existing store's vector width for new requests. The output contains exactly the manifest's unique lookup set, so entries removed from the manifest are not carried forward as unused cache data.
+
+Generation defaults to each supported model's canonical width. A differing explicit or inherited width requires `--allow-nonstandard-dimensions`, is recorded as `"dimension_policy": "explicit_nonstandard"`, and is intended only for test artifacts; real Character Memory continuity preflight rejects such a store before adapter construction because the live backend requires the model-native width.
 
 Recheck store integrity, coverage, and semantic orderings without a key or network:
 

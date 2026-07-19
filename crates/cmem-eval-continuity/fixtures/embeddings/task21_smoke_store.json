@@ -1,7 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "model": "task21-smoke-model",
   "vector_size": 3,
+  "dimension_policy": "test_fixture",
   "source": "test_fixture",
   "entries": [
     {

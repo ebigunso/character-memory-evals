@@ -7,7 +7,9 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 use cmem_eval_core::{
-    FrozenEmbeddingManifest, FrozenEmbeddingProvider, FrozenEmbeddingSource, FrozenEmbeddingStore,
+    FrozenEmbeddingDimensionPolicy, FrozenEmbeddingManifest, FrozenEmbeddingProvider,
+    FrozenEmbeddingSource, FrozenEmbeddingStore, classify_frozen_embedding_dimensions,
+    model_native_embedding_vector_size,
 };
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +38,9 @@ struct GenerateArgs {
     model: String,
     #[arg(long)]
     dimensions: Option<usize>,
+    /// Permit an explicit non-model-native width for a test-only store.
+    #[arg(long)]
+    allow_nonstandard_dimensions: bool,
     #[arg(long)]
     out: PathBuf,
     /// Reuse exact-text vectors from an existing OpenAI store and request only
@@ -81,6 +86,13 @@ async fn generate(args: GenerateArgs) -> Result<()> {
         .map(FrozenEmbeddingStore::load)
         .transpose()?;
     let request_dimensions = effective_embedding_dimensions(args.dimensions, reuse_store.as_ref());
+    let effective_vector_size =
+        request_dimensions.unwrap_or(model_native_embedding_vector_size(&args.model)?);
+    let dimension_policy: FrozenEmbeddingDimensionPolicy = classify_frozen_embedding_dimensions(
+        &args.model,
+        effective_vector_size,
+        args.allow_nonstandard_dimensions,
+    )?;
     let ReusableEmbeddingSelection {
         mut embeddings_by_text,
         missing_texts,
@@ -138,11 +150,20 @@ async fn generate(args: GenerateArgs) -> Result<()> {
             .await
             .context("parse offline OpenAI embedding response")?;
         let embeddings = ordered_embeddings(&args.model, missing_texts.len(), response)?;
+        for (index, embedding) in embeddings.iter().enumerate() {
+            if embedding.len() != effective_vector_size {
+                bail!(
+                    "OpenAI embedding response index {index} has vector_size {}, expected requested width {effective_vector_size}",
+                    embedding.len()
+                );
+            }
+        }
         embeddings_by_text.extend(missing_texts.into_iter().zip(embeddings));
     }
-    let store = FrozenEmbeddingStore::new(
+    let store = FrozenEmbeddingStore::new_with_dimension_policy(
         args.model.clone(),
         FrozenEmbeddingSource::OpenAiApi,
+        dimension_policy,
         unique_texts.into_iter().map(|text| {
             let embedding = embeddings_by_text
                 .remove(&text)
@@ -163,11 +184,12 @@ async fn generate(args: GenerateArgs) -> Result<()> {
 
     write_store(&args.out, &store_bytes)?;
     println!(
-        "wrote {} unique {}-dimension embeddings for model {} to {} (reused {}, generated {})",
+        "wrote {} unique {}-dimension embeddings for model {} to {} with dimension_policy={:?} (reused {}, generated {})",
         store_entry_count,
         store_vector_size,
         args.model,
         args.out.display(),
+        dimension_policy,
         reused_count,
         store_entry_count - reused_count
     );
@@ -351,9 +373,10 @@ mod tests {
 
     #[test]
     fn reuse_selects_exact_manifest_keys_and_drops_unused_entries() {
-        let store = FrozenEmbeddingStore::new(
+        let store = FrozenEmbeddingStore::new_with_dimension_policy(
             "text-embedding-3-large",
             FrozenEmbeddingSource::OpenAiApi,
+            FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
             [
                 ("kept".to_string(), vec![1.0, 0.0]),
                 ("unused".to_string(), vec![0.0, 1.0]),
@@ -381,9 +404,10 @@ mod tests {
 
     #[test]
     fn reduced_width_reuse_with_a_miss_inherits_width_before_generation() {
-        let store = FrozenEmbeddingStore::new(
+        let store = FrozenEmbeddingStore::new_with_dimension_policy(
             "text-embedding-3-large",
             FrozenEmbeddingSource::OpenAiApi,
+            FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
             [("kept".to_string(), vec![1.0, 0.0, 0.0])],
         )
         .unwrap();
@@ -407,9 +431,10 @@ mod tests {
         // with the reused vector must produce a valid store without reaching the
         // former post-request mixed-width failure.
         embeddings_by_text.insert("new".to_string(), vec![0.0, 1.0, 0.0]);
-        let output = FrozenEmbeddingStore::new(
+        let output = FrozenEmbeddingStore::new_with_dimension_policy(
             "text-embedding-3-large",
             FrozenEmbeddingSource::OpenAiApi,
+            FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
             unique_texts.into_iter().map(|text| {
                 let embedding = embeddings_by_text.remove(&text).unwrap();
                 (text, embedding)
@@ -427,9 +452,10 @@ mod tests {
 
     #[test]
     fn explicit_dimensions_conflicting_with_reuse_fail_before_generation() {
-        let store = FrozenEmbeddingStore::new(
+        let store = FrozenEmbeddingStore::new_with_dimension_policy(
             "text-embedding-3-large",
             FrozenEmbeddingSource::OpenAiApi,
+            FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
             [("kept".to_string(), vec![1.0, 0.0, 0.0])],
         )
         .unwrap();
@@ -446,6 +472,54 @@ mod tests {
 
         assert!(error.contains("vector_size 3"), "{error}");
         assert!(error.contains("requested dimensions 2"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn nonstandard_dimensions_require_opt_in_and_persist_the_choice() {
+        let directory = tempfile::tempdir().unwrap();
+        let manifest_path = directory.path().join("manifest.json");
+        let reuse_path = directory.path().join("reuse.json");
+        let output_path = directory.path().join("output.json");
+        let manifest = FrozenEmbeddingManifest {
+            schema_version: cmem_eval_core::FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION,
+            texts: vec![cmem_eval_core::FrozenEmbeddingText {
+                id: "kept".to_string(),
+                text: "kept".to_string(),
+            }],
+            similarity_orderings: Vec::new(),
+        };
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let reuse = FrozenEmbeddingStore::new_with_dimension_policy(
+            "text-embedding-3-large",
+            FrozenEmbeddingSource::OpenAiApi,
+            FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
+            [("kept".to_string(), vec![1.0, 0.0])],
+        )
+        .unwrap();
+        fs::write(&reuse_path, reuse.canonical_bytes().unwrap()).unwrap();
+
+        let args = |allow_nonstandard_dimensions| GenerateArgs {
+            manifest: manifest_path.clone(),
+            model: "text-embedding-3-large".to_string(),
+            dimensions: Some(2),
+            allow_nonstandard_dimensions,
+            out: output_path.clone(),
+            reuse_store: Some(reuse_path.clone()),
+            api_key_env: "CMEM_EVAL_UNUSED_OPENAI_KEY".to_string(),
+        };
+        let error = generate(args(false)).await.unwrap_err().to_string();
+        assert!(error.contains("vector_size 2"), "{error}");
+        assert!(error.contains("canonical width 3072"), "{error}");
+        assert!(error.contains("--allow-nonstandard-dimensions"), "{error}");
+        assert!(!output_path.exists());
+
+        generate(args(true)).await.unwrap();
+        let output = FrozenEmbeddingStore::load(&output_path).unwrap();
+        assert_eq!(output.vector_size, 2);
+        assert_eq!(
+            output.dimension_policy,
+            FrozenEmbeddingDimensionPolicy::ExplicitNonstandard
+        );
     }
 
     #[test]

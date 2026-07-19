@@ -15,10 +15,11 @@ use cmem_eval_core::{
     GraphEnrichmentInput, GraphSnapshotInput, MemoryAdapter, MetricFamily, MetricsConfig,
     MockMemoryAdapter, NamespaceLifecycleResult, ObservationInput, PerQuestionResult, ReaderResult,
     ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem, RunAdapterMetadata,
-    Timer, composition_metrics, count_tokens, estimate_word_count, initialize_registry_metrics_for,
-    insert_composition_metrics, insert_context_metrics, insert_integrity_detail_metrics,
-    insert_retrieval_metrics, insert_telemetry_metrics, integrity_details_with_telemetry,
-    summarize_rows, write_jsonl, write_summary,
+    Timer, classify_frozen_embedding_dimensions, composition_metrics, count_tokens,
+    estimate_word_count, initialize_registry_metrics_for, insert_composition_metrics,
+    insert_context_metrics, insert_integrity_detail_metrics, insert_retrieval_metrics,
+    insert_telemetry_metrics, integrity_details_with_telemetry, summarize_rows, write_jsonl,
+    write_summary,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -202,14 +203,15 @@ fn validate_continuity_embedding_sizes(
             &config.backend.embedding.model,
             configured_size,
         )?;
-        if selected_adapter == Some(AdapterKind::Real)
-            && provider.source() != FrozenEmbeddingSource::OpenAiApi
-        {
-            bail!(
-                "frozen continuity evaluations require a store with source=open_ai_api; {} declares source={:?}",
-                store_path.display(),
-                provider.source()
-            );
+        if selected_adapter == Some(AdapterKind::Real) {
+            if provider.source() != FrozenEmbeddingSource::OpenAiApi {
+                bail!(
+                    "frozen continuity evaluations require a store with source=open_ai_api; {} declares source={:?}",
+                    store_path.display(),
+                    provider.source()
+                );
+            }
+            classify_frozen_embedding_dimensions(provider.model(), provider.vector_size(), false)?;
         }
         for scenario in scenarios
             .iter()
@@ -2353,7 +2355,7 @@ mod tests {
         let store_path = directory.path().join("partial-openai-store.json");
         let store = cmem_eval_core::FrozenEmbeddingStore::new(
             "task21-smoke-model",
-            FrozenEmbeddingSource::OpenAiApi,
+            FrozenEmbeddingSource::TestFixture,
             [("unrelated cached text".to_string(), vec![1.0, 0.0, 0.0])],
         )
         .unwrap();
@@ -2365,6 +2367,44 @@ mod tests {
                 .to_string();
         assert!(error.contains("preflight frozen embeddings"), "{error}");
         assert!(error.contains("frozen embedding cache miss"), "{error}");
+    }
+
+    #[test]
+    fn real_preflight_rejects_explicit_nonstandard_store_width() {
+        let fixture =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
+        let mut scenario = fixture.scenarios[0].clone();
+        scenario.embedding = cmem_eval_continuity::ContinuityScenarioEmbedding::frozen();
+        let directory = tempfile::tempdir().unwrap();
+        let store_path = directory.path().join("nonstandard-openai-store.json");
+        let store = cmem_eval_core::FrozenEmbeddingStore::new_with_dimension_policy(
+            "text-embedding-3-large",
+            FrozenEmbeddingSource::OpenAiApi,
+            cmem_eval_core::FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
+            scenario
+                .runtime_embedding_inputs()
+                .into_iter()
+                .map(|text| (text, vec![0.0; 1_024])),
+        )
+        .unwrap();
+        fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
+        let mut config =
+            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        config.backend.embedding.provider = "frozen".to_string();
+        config.backend.embedding.model = "text-embedding-3-large".to_string();
+        config.backend.embedding.vector_size = Some(1_024);
+        config.backend.embedding.store_path = Some(store_path.display().to_string());
+
+        let error =
+            validate_continuity_embedding_sizes(&config, &[scenario], Some(AdapterKind::Real))
+                .unwrap_err()
+                .to_string();
+
+        assert!(error.contains("vector_size 1024"), "{error}");
+        assert!(error.contains("canonical width 3072"), "{error}");
+        assert!(error.contains("--allow-nonstandard-dimensions"), "{error}");
+        assert!(error.contains("live Character Memory"), "{error}");
     }
 
     #[tokio::test]

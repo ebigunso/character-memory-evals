@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const FROZEN_EMBEDDING_STORE_SCHEMA_VERSION: u32 = 1;
+pub const FROZEN_EMBEDDING_STORE_SCHEMA_VERSION: u32 = 2;
 pub const FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -17,12 +17,21 @@ pub enum FrozenEmbeddingSource {
     TestFixture,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FrozenEmbeddingDimensionPolicy {
+    ModelNative,
+    ExplicitNonstandard,
+    TestFixture,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct FrozenEmbeddingStore {
     pub schema_version: u32,
     pub model: String,
     pub vector_size: usize,
+    pub dimension_policy: FrozenEmbeddingDimensionPolicy,
     pub source: FrozenEmbeddingSource,
     pub entries: Vec<FrozenEmbeddingEntry>,
 }
@@ -39,6 +48,19 @@ impl FrozenEmbeddingStore {
     pub fn new(
         model: impl Into<String>,
         source: FrozenEmbeddingSource,
+        embeddings: impl IntoIterator<Item = (String, Vec<f32>)>,
+    ) -> Result<Self> {
+        let dimension_policy = match source {
+            FrozenEmbeddingSource::OpenAiApi => FrozenEmbeddingDimensionPolicy::ModelNative,
+            FrozenEmbeddingSource::TestFixture => FrozenEmbeddingDimensionPolicy::TestFixture,
+        };
+        Self::new_with_dimension_policy(model, source, dimension_policy, embeddings)
+    }
+
+    pub fn new_with_dimension_policy(
+        model: impl Into<String>,
+        source: FrozenEmbeddingSource,
+        dimension_policy: FrozenEmbeddingDimensionPolicy,
         embeddings: impl IntoIterator<Item = (String, Vec<f32>)>,
     ) -> Result<Self> {
         let model = model.into();
@@ -59,6 +81,7 @@ impl FrozenEmbeddingStore {
             schema_version: FROZEN_EMBEDDING_STORE_SCHEMA_VERSION,
             model,
             vector_size,
+            dimension_policy,
             source,
             entries,
         };
@@ -94,6 +117,33 @@ impl FrozenEmbeddingStore {
         }
         if self.vector_size == 0 {
             bail!("frozen embedding store vector_size must be greater than zero");
+        }
+        match (self.source, self.dimension_policy) {
+            (
+                FrozenEmbeddingSource::OpenAiApi,
+                FrozenEmbeddingDimensionPolicy::ModelNative
+                | FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
+            ) => {
+                let expected_policy = classify_frozen_embedding_dimensions(
+                    &self.model,
+                    self.vector_size,
+                    self.dimension_policy == FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
+                )?;
+                if self.dimension_policy != expected_policy {
+                    bail!(
+                        "frozen embedding store dimension_policy={:?} is inconsistent with model {:?} and vector_size {}",
+                        self.dimension_policy,
+                        self.model,
+                        self.vector_size
+                    );
+                }
+            }
+            (FrozenEmbeddingSource::TestFixture, FrozenEmbeddingDimensionPolicy::TestFixture) => {}
+            (source, policy) => {
+                bail!(
+                    "frozen embedding store source={source:?} is incompatible with dimension_policy={policy:?}"
+                );
+            }
         }
         if self.entries.is_empty() {
             bail!("frozen embedding store must contain at least one entry");
@@ -144,6 +194,33 @@ impl FrozenEmbeddingStore {
         bytes.push(b'\n');
         Ok(bytes)
     }
+}
+
+pub fn model_native_embedding_vector_size(model: &str) -> Result<usize> {
+    match model.trim() {
+        "text-embedding-3-small" | "text-embedding-ada-002" => Ok(1536),
+        "text-embedding-3-large" => Ok(3072),
+        _ => bail!(
+            "embedding model {model:?} has no known canonical width; expected text-embedding-3-small, text-embedding-3-large, or text-embedding-ada-002"
+        ),
+    }
+}
+
+pub fn classify_frozen_embedding_dimensions(
+    model: &str,
+    vector_size: usize,
+    allow_nonstandard_dimensions: bool,
+) -> Result<FrozenEmbeddingDimensionPolicy> {
+    let canonical_width = model_native_embedding_vector_size(model)?;
+    if vector_size == canonical_width {
+        return Ok(FrozenEmbeddingDimensionPolicy::ModelNative);
+    }
+    if allow_nonstandard_dimensions {
+        return Ok(FrozenEmbeddingDimensionPolicy::ExplicitNonstandard);
+    }
+    bail!(
+        "embedding vector_size {vector_size} for model {model:?} differs from canonical width {canonical_width}; pass --allow-nonstandard-dimensions only to generate an explicit nonstandard test fixture; live Character Memory continuity requires canonical width {canonical_width}"
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -525,6 +602,48 @@ mod tests {
     }
 
     #[test]
+    fn openai_store_dimension_policy_is_explicit_and_self_consistent() {
+        let native = FrozenEmbeddingStore::new(
+            "text-embedding-3-small",
+            FrozenEmbeddingSource::OpenAiApi,
+            [("native".to_string(), vec![0.0; 1_536])],
+        )
+        .unwrap();
+        assert_eq!(
+            native.dimension_policy,
+            FrozenEmbeddingDimensionPolicy::ModelNative
+        );
+
+        let error = FrozenEmbeddingStore::new(
+            "text-embedding-3-large",
+            FrozenEmbeddingSource::OpenAiApi,
+            [("reduced".to_string(), vec![0.0; 1_024])],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("vector_size 1024"), "{error}");
+        assert!(error.contains("canonical width 3072"), "{error}");
+        assert!(error.contains("--allow-nonstandard-dimensions"), "{error}");
+
+        let reduced = FrozenEmbeddingStore::new_with_dimension_policy(
+            "text-embedding-3-large",
+            FrozenEmbeddingSource::OpenAiApi,
+            FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
+            [("reduced".to_string(), vec![0.0; 1_024])],
+        )
+        .unwrap();
+        assert_eq!(
+            reduced.dimension_policy,
+            FrozenEmbeddingDimensionPolicy::ExplicitNonstandard
+        );
+        assert!(
+            String::from_utf8(reduced.canonical_bytes().unwrap())
+                .unwrap()
+                .contains("\"dimension_policy\": \"explicit_nonstandard\"")
+        );
+    }
+
+    #[test]
     fn cache_miss_fails_loudly_with_regeneration_command() {
         let provider = FrozenEmbeddingProvider::from_store(
             smoke_store(),
@@ -612,10 +731,13 @@ mod tests {
     fn store_loader_rejects_wrong_version_with_found_and_expected_values() {
         let path = temporary_path("wrong-version");
         let mut value = serde_json::to_value(smoke_store()).unwrap();
-        value["schema_version"] = serde_json::json!(2);
+        value["schema_version"] = serde_json::json!(FROZEN_EMBEDDING_STORE_SCHEMA_VERSION + 1);
         fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
         let error = FrozenEmbeddingStore::load(&path).unwrap_err().to_string();
-        assert!(error.contains("schema_version 2"), "{error}");
+        assert!(
+            error.contains(&(FROZEN_EMBEDDING_STORE_SCHEMA_VERSION + 1).to_string()),
+            "{error}"
+        );
         assert!(
             error.contains(&FROZEN_EMBEDDING_STORE_SCHEMA_VERSION.to_string()),
             "{error}"
