@@ -1,6 +1,6 @@
 # v0.1.5 Findings Register
 
-- Status: active
+- Status: closed
 - Scope snapshot: 2026-07-17
 - Governing source: Character Memory `docs/design/roadmap-phases/v0_1_5_eval_driven_v0_1_family_closeout.md` §3.1–§3.3
 
@@ -25,6 +25,10 @@ Every finding records these fields:
 Before the Task_4 user disposition gate, `OPEN` marks a finding whose disposition has not been selected; `OPEN` is workflow state, not a fourth disposition.
 
 After the Task_4 gate, `CONFIRMED` marks a finding whose disposition was selected by the user; findings deliberately held for additional evidence remain `OPEN`.
+
+### Canonical finding identity and census
+
+The phase-final canonical register census is eleven findings: the ten formal `F-*` records already listed under Findings plus `F-HARNESS-3`. The plan Decision Log's working label `F-BASE-5` for the user-directed write-path warning diagnostics was delivered as a Character Memory library change under Task_5 phase 2 at capture commit `a23fcda` (rebased equivalent `c3d7539`) with reviewer approval; it is not carried as an evaluation finding.
 
 ## Disposition rules
 
@@ -473,7 +477,20 @@ Each scenario selects three to five sessions. The machine-readable selection man
 
 The ranked-cosine manifest covers every unique runtime lookup input and declares one evidence-or-trap-versus-background ordering per scenario. Write-event inputs use CharacterMemory's whitespace-normalized content after adapter prefix removal; query inputs retain exact fixture bytes. The committed store is a strict bijection with those 635 inputs, contains 3072-dimensional vectors from `text-embedding-3-large`, records `source=open_ai_api`, and passes all 18 ordering checks. The first generated candidate set correctly failed its intent gate because a `conv-50` background turn was more similar to the query than the evidence; Task_23 replaced that ordering candidate with an already-selected semantically unrelated turn and regenerated the committed store. This was generation-time validation only, not an evaluation run.
 
-### MAJOR: frozen store omitted normalized runtime write text
+### F-HARNESS-3: Frozen store omitted normalized runtime write text
+
+- Finding ID: `F-HARNESS-3`
+- Status: `CONFIRMED`
+- Scenario and metric: Task_9b benchmark-adapted live run A, scenario `benchmark-lme-update-01493427`, event `remember:0002`; frozen-provider runtime lookup coverage and strict fixture/manifest/store key-set equality.
+- Observed behavior: The first live benchmark attempt stopped before completing its first scenario because the frozen store did not contain the Character Memory-normalized runtime write surface at SHA-256 `FF3479504257D3DAB5C12C7F675FBA8CD01DE25C9C6FBF65062DD4823F2B0E74`; the source-exact fixture text remained present, so the converter's enumerated lookup surface diverged from the adapter's actual runtime surface.
+- Expected behavior: The benchmark converter, manifest, and frozen store form a strict bijection with every runtime embedding lookup input, and runner preflight rejects any drift before namespace mutation or live evaluation.
+- Severity: `major`, because the missing runtime surface blocked the entire benchmark-adapted live suite and invalidated the original store as evaluation input.
+- Suspected layer: `fixture/harness defect`.
+- Disposition: `fix-now`, fixed in Task_24; this harness defect does not count against the Character Memory library.
+- Disposition rationale: Character Memory intentionally normalizes persisted write surfaces, while the benchmark converter had enumerated byte-exact source turns. Task_24 corrected the harness at the converter/runtime-surface boundary, regenerated only changed embedding keys, enforced strict bijection in preflight, and added a live adapter drift regression without changing fixture text or library semantics.
+- Target phase: `v0.1.5` Task_24.
+- Before report references: Merged CME baseline `98b818e`; first-live cache-miss lookup SHA-256 `FF3479504257D3DAB5C12C7F675FBA8CD01DE25C9C6FBF65062DD4823F2B0E74`; old manifest SHA-256 `A030632BD820C056A3FD8F5B5475ACC9B12B534BFB2E23F5A4C38F0A30BF4FCB`; old store SHA-256 `143D8BCF80F01B208F73DA1FF613A813C5ACA8F227F9D69FDD40C15A66F30C79`.
+- After report references: Task_24 approved fix tip `a2d137a`, merged in CME `8087879`; corrected manifest SHA-256 `D71AACE9109AD3509CA0D4AB54863E5E9ACAE3C7CB8BD3CEC27F2B4007622761`; corrected store SHA-256 `D6D586FB19C2F117B8FEC5DD474754794DE3A1ADA8838F0E54432D3DB1C45886`; unchanged fixture SHA-256 `46B9981225D2395EACA30078D9B19BE4CFA25F9698ADEA3CD84CBD503E0014A6`; Task_9b final evidence commit `8b14d71`, whose benchmark A/B traces, README-normalized rows, and metadata-free report content are byte-identical at `E19036EEA841C3BB4FF7C425F4467366168169375D18C3D276131800EC99B71C`, `1388BEC4C57C5463314E27BBD3704C5416166ED562FCE696D6BBC2150D9CC51C`, and `D09E949A3CE36C65E928F193F6912AF0409BCE2545ADA14AFA51C53044B4ACA5`.
 
 Classification: fixture/harness defect, fixed before benchmark evidence, excluded from CharacterMemory library findings.
 
