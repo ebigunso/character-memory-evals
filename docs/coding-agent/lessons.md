@@ -918,3 +918,29 @@ Prevention:
 
 Evidence:
 - PR #13 round-3 regressions prove ungated generation fails before output, gated no-network reuse succeeds with `explicit_nonstandard` metadata, real preflight rejects the store before adapter construction, and all three committed schema-v2 store pairs validate offline.
+
+## 2026-07-20 — Replace Authoritative Artifacts Only After Complete Staging  [tags: review, persistence, atomicity, embeddings, windows]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: PR #13 Copilot round 4
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Frozen embedding generation wrote directly to `--out`, so an interrupted or failed write could destroy the previous valid store, including when `--reuse-store` and `--out` named the same artifact.
+
+Root cause:
+- Store generation validated the complete replacement in memory but treated filesystem publication as an ordinary write instead of the same authoritative-persistence boundary already established for the external-ID registry.
+
+Fix applied:
+- Stage and sync complete store bytes in a sibling `NamedTempFile`, publish only by atomic persistence, and retain the same complete stage across bounded Windows `PermissionDenied` retries.
+
+Prevention:
+- Audit every overwrite of an authoritative artifact for sibling staging, sync-before-publish, atomic replacement, retry scope, and preservation of the last valid destination on failure.
+- Add a failure-injection regression that begins with valid destination bytes, observes complete staged bytes, fails before publication, and proves both destination preservation and temporary-file cleanup.
+- Repo rule candidate: add crash-safe replacement evidence to the review hotspots for generated artifacts and durable metadata, especially when an input/reuse path may alias the output path.
+- Harness migration candidate: none; existing persistence failure-mode and state-invariant guidance covers the class.
+- Residual risk / waiver: none.
+
+Evidence:
+- PR #13 round-4 runner regressions cover failed publication preserving the old store and bounded Windows permission retry preserving the complete staged bytes.

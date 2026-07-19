@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -15,6 +16,8 @@ use serde::{Deserialize, Serialize};
 
 const OPENAI_EMBEDDINGS_ENDPOINT: &str = "https://api.openai.com/v1/embeddings";
 const MAX_EMBEDDING_INPUTS_PER_REQUEST: usize = 2_048;
+const FROZEN_STORE_PERSIST_ATTEMPTS: usize = 4;
+const FROZEN_STORE_PERSIST_BACKOFF_MS: u64 = 25;
 
 #[derive(Debug, Args)]
 pub(crate) struct EmbeddingsCommand {
@@ -287,12 +290,78 @@ fn validate(args: ValidateArgs) -> Result<()> {
 }
 
 fn write_store(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create frozen embedding directory {}", parent.display()))?;
+    write_store_with_before_persist(path, bytes, |_| Ok(()))
+}
+
+fn write_store_with_before_persist<F>(path: &Path, bytes: &[u8], before_persist: F) -> Result<()>
+where
+    F: FnOnce(&Path) -> Result<()>,
+{
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create frozen embedding directory {}", parent.display()))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent).with_context(|| {
+        format!(
+            "create temporary frozen embedding store beside {}",
+            path.display()
+        )
+    })?;
+    temporary.write_all(bytes).with_context(|| {
+        format!(
+            "write temporary frozen embedding store for {}",
+            path.display()
+        )
+    })?;
+    temporary.as_file().sync_all().with_context(|| {
+        format!(
+            "sync temporary frozen embedding store for {}",
+            path.display()
+        )
+    })?;
+    before_persist(temporary.path())?;
+    persist_store_with_retry(temporary, path, |temporary, path| temporary.persist(path))
+}
+
+fn persist_store_with_retry<F>(
+    mut temporary: tempfile::NamedTempFile,
+    path: &Path,
+    mut persist: F,
+) -> Result<()>
+where
+    F: FnMut(
+        tempfile::NamedTempFile,
+        &Path,
+    ) -> std::result::Result<std::fs::File, tempfile::PersistError>,
+{
+    for attempt in 1..=FROZEN_STORE_PERSIST_ATTEMPTS {
+        match persist(temporary, path) {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                let retryable = error.error.kind() == std::io::ErrorKind::PermissionDenied
+                    && attempt < FROZEN_STORE_PERSIST_ATTEMPTS;
+                if !retryable {
+                    return Err(error.error).with_context(|| {
+                        format!(
+                            "atomically replace frozen embedding store {}",
+                            path.display()
+                        )
+                    });
+                }
+
+                // Match the registry persistence precedent: Windows AV/indexers can
+                // briefly hold the destination during replacement. Keep the same
+                // complete staged file and retry only that bounded transient error.
+                temporary = error.file;
+                std::thread::sleep(Duration::from_millis(
+                    FROZEN_STORE_PERSIST_BACKOFF_MS * attempt as u64,
+                ));
+            }
+        }
     }
-    fs::write(path, bytes)
-        .with_context(|| format!("write frozen embedding store {}", path.display()))
+    unreachable!("frozen store persist loop always returns")
 }
 
 fn print_measurements(measurements: &[cmem_eval_core::FrozenSimilarityMeasurement]) {
@@ -370,6 +439,60 @@ fn ordered_embeddings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_store_write_preserves_preexisting_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("store.json");
+        let previous_bytes = b"previous complete store\n";
+        let replacement_bytes = b"replacement complete store\n";
+        fs::write(&path, previous_bytes).unwrap();
+        let mut staged_path = None;
+
+        let error = write_store_with_before_persist(&path, replacement_bytes, |temporary_path| {
+            staged_path = Some(temporary_path.to_path_buf());
+            assert_eq!(temporary_path.parent(), path.parent());
+            assert_eq!(fs::read(temporary_path).unwrap(), replacement_bytes);
+            assert_eq!(fs::read(&path).unwrap(), previous_bytes);
+            bail!("simulated failure before atomic store replacement")
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("simulated failure"), "{error}");
+        assert_eq!(fs::read(&path).unwrap(), previous_bytes);
+        assert!(!staged_path.unwrap().exists());
+    }
+
+    #[test]
+    fn store_persist_retries_permission_denied_with_same_staged_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("store.json");
+        fs::write(&path, b"previous complete store\n").unwrap();
+        let staged_bytes = b"replacement complete store\n";
+        let mut temporary = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
+        temporary.write_all(staged_bytes).unwrap();
+        temporary.as_file().sync_all().unwrap();
+        let mut attempts = 0;
+
+        persist_store_with_retry(temporary, &path, |temporary, path| {
+            attempts += 1;
+            assert_eq!(fs::read(temporary.path()).unwrap(), staged_bytes);
+            if attempts == 1 {
+                return Err(tempfile::PersistError {
+                    error: std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "injected Windows replace contention",
+                    ),
+                    file: temporary,
+                });
+            }
+            temporary.persist(path)
+        })
+        .unwrap();
+
+        assert_eq!(attempts, 2);
+        assert_eq!(fs::read(&path).unwrap(), staged_bytes);
+    }
 
     #[test]
     fn reuse_selects_exact_manifest_keys_and_drops_unused_entries() {
