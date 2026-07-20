@@ -970,3 +970,29 @@ Prevention:
 
 Evidence:
 - PR #13 round-5 unit regressions use hand-computed recall and lifecycle/replacement expectations, while the canonical mock run/resummarize regression pins four temporal rows, two replacement-recall rows, and zero missing required metrics on both paths.
+
+## 2026-07-20 — Separate Effective Values From Optional API Parameters  [tags: review, embeddings, api-contracts, serialization, validation]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: PR #13 Copilot round 6
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- The embeddings CLI accepted `--dimensions` for `text-embedding-ada-002` and also inferred a dimensions request from a reuse store, even though that fixed-width model does not support OpenAI's optional dimensions request field.
+
+Root cause:
+- One optional value represented both the effective vector width used for local validation and the model-specific request parameter serialized at the external API boundary.
+
+Fix applied:
+- Reject explicit dimensions for the fixed-width Ada model before credentials or network access, keep its effective width at 1536 for local and reuse-store validation, and serialize no dimensions field on its default request path.
+
+Prevention:
+- Model an effective domain value separately from an optional transport parameter whenever an API supports the parameter for only part of a model or endpoint family.
+- For model-specific request capabilities, add one production-reachable rejection regression and one serialization regression proving unsupported fields are absent on the default path.
+- Repo rule candidate: none; existing contract-scope, admission-boundary, and serialization evidence guidance covers the class.
+- Harness migration candidate: none.
+- Residual risk / waiver: none.
+
+Evidence:
+- PR #13 round-6 runner regressions prove explicit Ada dimensions fail before credential lookup or request construction and default Ada generation with a native-width reuse store omits the dimensions member from request JSON.

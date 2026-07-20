@@ -88,7 +88,8 @@ async fn generate(args: GenerateArgs) -> Result<()> {
         .as_deref()
         .map(FrozenEmbeddingStore::load)
         .transpose()?;
-    let request_dimensions = effective_embedding_dimensions(args.dimensions, reuse_store.as_ref());
+    let request_dimensions =
+        openai_request_dimensions(&args.model, args.dimensions, reuse_store.as_ref())?;
     let effective_vector_size =
         request_dimensions.unwrap_or(model_native_embedding_vector_size(&args.model)?);
     let dimension_policy: FrozenEmbeddingDimensionPolicy = classify_frozen_embedding_dimensions(
@@ -103,7 +104,7 @@ async fn generate(args: GenerateArgs) -> Result<()> {
         &unique_texts,
         reuse_store.as_ref(),
         &args.model,
-        request_dimensions,
+        effective_vector_size,
     )?;
     if missing_texts.len() > MAX_EMBEDDING_INPUTS_PER_REQUEST {
         bail!(
@@ -206,18 +207,29 @@ struct ReusableEmbeddingSelection {
     missing_texts: Vec<String>,
 }
 
-fn effective_embedding_dimensions(
+fn openai_request_dimensions(
+    model: &str,
     requested_dimensions: Option<usize>,
     reuse_store: Option<&FrozenEmbeddingStore>,
-) -> Option<usize> {
-    requested_dimensions.or_else(|| reuse_store.map(|store| store.vector_size))
+) -> Result<Option<usize>> {
+    let native_width = model_native_embedding_vector_size(model)?;
+    if model.trim() == "text-embedding-ada-002" {
+        if requested_dimensions.is_some() {
+            bail!(
+                "--dimensions is not supported for model {:?}; it uses fixed width {native_width}; omit --dimensions",
+                model.trim()
+            );
+        }
+        return Ok(None);
+    }
+    Ok(requested_dimensions.or_else(|| reuse_store.map(|store| store.vector_size)))
 }
 
 fn select_reusable_embeddings(
     unique_texts: &[String],
     reuse_store: Option<&FrozenEmbeddingStore>,
     requested_model: &str,
-    requested_dimensions: Option<usize>,
+    effective_vector_size: usize,
 ) -> Result<ReusableEmbeddingSelection> {
     let Some(reuse_store) = reuse_store else {
         return Ok(ReusableEmbeddingSelection {
@@ -237,11 +249,10 @@ fn select_reusable_embeddings(
             reuse_store.model
         );
     }
-    if requested_dimensions.is_some_and(|dimensions| dimensions != reuse_store.vector_size) {
+    if reuse_store.vector_size != effective_vector_size {
         bail!(
-            "--reuse-store vector_size {} does not match requested dimensions {}",
+            "--reuse-store vector_size {} does not match effective embedding width {effective_vector_size}",
             reuse_store.vector_size,
-            requested_dimensions.expect("checked as some")
         );
     }
 
@@ -513,7 +524,7 @@ mod tests {
             &["kept".to_string(), "new".to_string()],
             Some(&store),
             "text-embedding-3-large",
-            Some(2),
+            2,
         )
         .unwrap();
 
@@ -535,7 +546,10 @@ mod tests {
         )
         .unwrap();
         let unique_texts = vec!["kept".to_string(), "new".to_string()];
-        let request_dimensions = effective_embedding_dimensions(None, Some(&store));
+        let request_dimensions =
+            openai_request_dimensions("text-embedding-3-large", None, Some(&store)).unwrap();
+        let effective_vector_size = request_dimensions
+            .unwrap_or(model_native_embedding_vector_size("text-embedding-3-large").unwrap());
         let ReusableEmbeddingSelection {
             mut embeddings_by_text,
             missing_texts,
@@ -543,7 +557,7 @@ mod tests {
             &unique_texts,
             Some(&store),
             "text-embedding-3-large",
-            request_dimensions,
+            effective_vector_size,
         )
         .unwrap();
 
@@ -582,19 +596,78 @@ mod tests {
             [("kept".to_string(), vec![1.0, 0.0, 0.0])],
         )
         .unwrap();
-        let requested_dimensions = effective_embedding_dimensions(Some(2), Some(&store));
+        let requested_dimensions =
+            openai_request_dimensions("text-embedding-3-large", Some(2), Some(&store)).unwrap();
+        let effective_vector_size = requested_dimensions
+            .unwrap_or(model_native_embedding_vector_size("text-embedding-3-large").unwrap());
 
         let error = select_reusable_embeddings(
             &["kept".to_string(), "new".to_string()],
             Some(&store),
             "text-embedding-3-large",
-            requested_dimensions,
+            effective_vector_size,
         )
         .unwrap_err()
         .to_string();
 
         assert!(error.contains("vector_size 3"), "{error}");
-        assert!(error.contains("requested dimensions 2"), "{error}");
+        assert!(error.contains("effective embedding width 2"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn ada_explicit_dimensions_fail_before_credentials_or_network() {
+        let directory = tempfile::tempdir().unwrap();
+        let manifest_path = directory.path().join("manifest.json");
+        let output_path = directory.path().join("output.json");
+        let manifest = FrozenEmbeddingManifest {
+            schema_version: cmem_eval_core::FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION,
+            texts: vec![cmem_eval_core::FrozenEmbeddingText {
+                id: "input".to_string(),
+                text: "exact input".to_string(),
+            }],
+            similarity_orderings: Vec::new(),
+        };
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let error = generate(GenerateArgs {
+            manifest: manifest_path,
+            model: "text-embedding-ada-002".to_string(),
+            dimensions: Some(1536),
+            allow_nonstandard_dimensions: false,
+            out: output_path.clone(),
+            reuse_store: None,
+            api_key_env: "CMEM_EVAL_TEST_MISSING_OPENAI_KEY".to_string(),
+        })
+        .await
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("text-embedding-ada-002"), "{error}");
+        assert!(error.contains("fixed width 1536"), "{error}");
+        assert!(error.contains("omit --dimensions"), "{error}");
+        assert!(!output_path.exists());
+    }
+
+    #[test]
+    fn ada_default_reuse_request_serializes_without_dimensions() {
+        let inputs = vec!["exact input".to_string()];
+        let reuse = FrozenEmbeddingStore::new(
+            "text-embedding-ada-002",
+            FrozenEmbeddingSource::OpenAiApi,
+            [("cached input".to_string(), vec![0.0; 1536])],
+        )
+        .unwrap();
+        let request = OpenAiEmbeddingRequest {
+            model: "text-embedding-ada-002",
+            input: &inputs,
+            encoding_format: "float",
+            dimensions: openai_request_dimensions("text-embedding-ada-002", None, Some(&reuse))
+                .unwrap(),
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(value["model"], "text-embedding-ada-002");
+        assert!(!value.as_object().unwrap().contains_key("dimensions"));
     }
 
     #[tokio::test]
