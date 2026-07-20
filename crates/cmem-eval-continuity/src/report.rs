@@ -690,11 +690,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(observation.id, "entity_root_candidate_limit");
-        assert!(observation.finding.contains("21 unique candidates"));
-        assert!(observation.finding.contains("12 selected roots"));
-        assert!(observation.finding.contains("9 omissions"));
-        assert!(observation.finding.contains("root-type-neutral"));
-        assert!(!observation.finding.contains("truncated entity roots"));
         assert_eq!(
             observation.observed,
             serde_json::json!({

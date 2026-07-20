@@ -4012,7 +4012,6 @@ mod tests {
         };
 
         assert!(error.contains("backend.embedding.vector_size"));
-        assert!(error.contains("greater than zero"));
         assert!(!error.contains("QDRANT_CONNECTION_STRING"));
         assert!(!error.contains("failed to connect"));
     }

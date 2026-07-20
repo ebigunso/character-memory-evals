@@ -1022,3 +1022,30 @@ Prevention:
 
 Evidence:
 - PR #13 round-7 regressions reject `[backend.character_memroy]` with the unknown key named and independently reject a unique sentinel at every remaining run-config container boundary; all checked-in TOML configs parse under the strict schema, both mock smokes pass, and the pinned workspace gate is complete under the narrow teardown waiver above.
+
+## 2026-07-20 — Normalize Boundary Values Once And Reuse The Canonical Form  [tags: review, admission, embeddings, artifacts, licensing, validation]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: PR #13 Copilot round 8
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- The embeddings CLI validated a trimmed model name but used the original padded value for requests and persisted metadata, only one of two committed frozen fixture/store pairs proved exact runtime-input coverage, and attribution linked to the upstream MIT license without redistributing its required copyright and permission notice.
+
+Root cause:
+- Admission normalization, paired-artifact parity, and license-redistribution obligations were each checked at only one nearby surface instead of being traced across every downstream consumer or sibling artifact.
+
+Fix applied:
+- Normalize the model once at CLI admission and use that borrowed canonical value for validation, reuse comparisons, request serialization, response comparison, store metadata, provider construction, and output; add runtime-input/manifest/store exactness for the canonical frozen scenarios; and include the complete upstream LongMemEval MIT notice in the attribution document.
+
+Prevention:
+- When accepting a normalized boundary value, bind the canonical form once and prohibit downstream use of the raw input.
+- When two committed artifact pairs claim the same guarantee, enumerate both in the regression matrix and require symmetric exact-set evidence.
+- For redistributed MIT-licensed material, verify the local tree includes the upstream copyright and permission notice rather than relying only on a link.
+- Repo rule candidate: add normalized-input downstream-use tracing, symmetric committed-artifact regressions, and third-party notice presence to PR review hotspots.
+- Harness migration candidate: none; existing admission, parity, and compliance review guidance covers these classes when applied end to end.
+- Residual risk / waiver: none.
+
+Evidence:
+- The round-8 regressions admit a padded model only after canonicalization and assert trimmed serialized metadata, compare canonical frozen runtime inputs exactly with both manifest texts and store keys, and the attribution now carries the upstream LongMemEval MIT notice.

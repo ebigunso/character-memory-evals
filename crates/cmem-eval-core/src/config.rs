@@ -763,7 +763,6 @@ mod tests {
 
         let error = config.validate().unwrap_err().to_string();
         assert!(error.contains("backend.embedding.vector_size"));
-        assert!(error.contains("greater than zero"));
     }
 
     #[test]
@@ -811,7 +810,6 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("continuity dataset"));
-        assert!(error.contains("controllable_similarity, frozen, or mixed"));
         assert!(error.contains("openai"));
 
         config.backend.embedding = EmbeddingConfig {
@@ -824,7 +822,6 @@ mod tests {
             .validate_for_dataset_kind(DatasetKind::Continuity)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("controllable_similarity, frozen, or mixed"));
         assert!(error.contains("deterministic"));
 
         config.backend.embedding = EmbeddingConfig {

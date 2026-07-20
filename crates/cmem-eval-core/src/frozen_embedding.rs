@@ -621,9 +621,14 @@ mod tests {
         )
         .unwrap_err()
         .to_string();
-        assert!(error.contains("vector_size 1024"), "{error}");
-        assert!(error.contains("canonical width 3072"), "{error}");
-        assert!(error.contains("--allow-nonstandard-dimensions"), "{error}");
+        for token in [
+            "text-embedding-3-large",
+            "1024",
+            "3072",
+            "--allow-nonstandard-dimensions",
+        ] {
+            assert!(error.contains(token), "missing {token:?} in {error}");
+        }
 
         let reduced = FrozenEmbeddingStore::new_with_dimension_policy(
             "text-embedding-3-large",

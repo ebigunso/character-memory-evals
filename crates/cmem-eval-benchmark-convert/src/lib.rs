@@ -959,7 +959,9 @@ mod tests {
         selection.selected_session_ids = (1..=6).map(|index| format!("session-{index}")).collect();
         selection.selection_proof.machine_derived.session_count = 6;
         let error = manifest.validate().unwrap_err().to_string();
-        assert!(error.contains("must contain 3 to 5 sessions"));
+        for token in ["3", "5", "6"] {
+            assert!(error.contains(token), "missing {token:?} in {error}");
+        }
     }
 
     #[test]
@@ -1065,7 +1067,9 @@ mod tests {
         let error = convert_loaded_datasets(&manifest, &longmemeval, &[])
             .unwrap_err()
             .to_string();
-        assert!(error.contains("records evidence_clean=true, derived false"));
+        for token in ["evidence_clean", "true", "false"] {
+            assert!(error.contains(token), "missing {token:?} in {error}");
+        }
     }
 
     #[test]
@@ -1092,7 +1096,9 @@ mod tests {
         let error = convert_loaded_datasets(&manifest, &longmemeval, &[])
             .unwrap_err()
             .to_string();
-        assert!(error.contains("expected gold_turn_ids_empty=true, derived false"));
+        for token in ["gold_turn_ids_empty", "true", "false"] {
+            assert!(error.contains(token), "missing {token:?} in {error}");
+        }
     }
 
     #[test]

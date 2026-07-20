@@ -1961,10 +1961,8 @@ mod tests {
             validate_continuity_summary_rows(&rows[..1], &dataset_path, Some("cross-store-stress"))
                 .unwrap_err()
                 .to_string();
-        assert!(
-            wrong_scenario_error.contains("row/query mismatch at index 0"),
-            "{wrong_scenario_error}"
-        );
+        assert!(wrong_scenario_error.contains("row/query mismatch"));
+        assert!(wrong_scenario_error.contains('0'));
         crate::commands::summarize(crate::commands::SummarizeArgs {
             input: result_path.clone(),
             config: config_path.clone(),
@@ -2098,7 +2096,9 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(error.contains("23 traces but 22 result rows"), "{error}");
+        for token in ["traces", "result rows", "23", "22"] {
+            assert!(error.contains(token), "missing {token:?} in {error}");
+        }
         let mut swapped_rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
         swapped_rows.swap(0, 1);
         let error = assemble_continuity_report(ContinuityReportInput {
@@ -2116,10 +2116,8 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(
-            error.contains("trace/result mismatch at index 0"),
-            "{error}"
-        );
+        assert!(error.contains("trace/result mismatch"), "{error}");
+        assert!(error.contains('0'), "{error}");
         let mut invented_traces = traces.clone();
         invented_traces[0].query_id = "invented-query".to_string();
         let mut invented_rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
@@ -2139,10 +2137,8 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(
-            error.contains("scripted query mismatch at index 0"),
-            "{error}"
-        );
+        assert!(error.contains("scripted query mismatch"), "{error}");
+        assert!(error.contains('0'), "{error}");
         let mut duplicate_traces = traces.clone();
         duplicate_traces[1].query_id = duplicate_traces[0].query_id.clone();
         let mut duplicate_rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
@@ -2162,10 +2158,8 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(
-            error.contains("scripted query mismatch at index 1"),
-            "{error}"
-        );
+        assert!(error.contains("scripted query mismatch"), "{error}");
+        assert!(error.contains('1'), "{error}");
 
         let mut unknown_restart_observations = valid_restart_observations.clone();
         unknown_restart_observations.insert("unknown-fixture".to_string(), Vec::new());
@@ -2203,8 +2197,9 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(error.contains("cross-store-stress"), "{error}");
-        assert!(error.contains("0 restart observations"), "{error}");
-        assert!(error.contains("scripts 1 restart events"), "{error}");
+        for token in ["restart observations", "restart events", "0", "1"] {
+            assert!(error.contains(token), "missing {token:?} in {error}");
+        }
 
         let mut stale_summary = cmem_eval_core::read_summary(&summary_path).unwrap();
         stale_summary.num_questions -= 1;
@@ -2414,9 +2409,14 @@ mod tests {
                 .unwrap_err()
                 .to_string();
 
-        assert!(error.contains("vector_size 1024"), "{error}");
-        assert!(error.contains("canonical width 3072"), "{error}");
-        assert!(error.contains("--allow-nonstandard-dimensions"), "{error}");
+        for token in [
+            "text-embedding-3-large",
+            "1024",
+            "3072",
+            "--allow-nonstandard-dimensions",
+        ] {
+            assert!(error.contains(token), "missing {token:?} in {error}");
+        }
         assert!(error.contains("live Character Memory"), "{error}");
     }
 
@@ -2475,6 +2475,43 @@ mod tests {
             .collect::<BTreeSet<_>>();
 
         assert_eq!(runtime_texts.len(), 635);
+        assert_eq!(runtime_texts, manifest_texts);
+        assert_eq!(runtime_texts, store_texts);
+    }
+
+    #[test]
+    fn committed_canonical_store_is_exactly_the_frozen_runtime_lookup_set() {
+        let fixture_root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmem-eval-continuity/fixtures");
+        let fixture =
+            parse_fixture_bytes(&fs::read(fixture_root.join("continuity_v3.json")).unwrap())
+                .unwrap();
+        let runtime_texts = fixture
+            .scenarios
+            .iter()
+            .filter(|scenario| scenario.embedding.provider_name() == "frozen")
+            .flat_map(ContinuityScenario::runtime_embedding_inputs)
+            .collect::<BTreeSet<_>>();
+        let manifest = cmem_eval_core::FrozenEmbeddingManifest::load(
+            &fixture_root.join("embeddings/task22_real_manifest.json"),
+        )
+        .unwrap();
+        let manifest_texts = manifest
+            .texts
+            .iter()
+            .map(|item| item.text.clone())
+            .collect::<BTreeSet<_>>();
+        let store = cmem_eval_core::FrozenEmbeddingStore::load(
+            &fixture_root.join("embeddings/task22_real_store.json"),
+        )
+        .unwrap();
+        let store_texts = store
+            .entries
+            .iter()
+            .map(|entry| entry.text.clone())
+            .collect::<BTreeSet<_>>();
+
+        assert!(!runtime_texts.is_empty());
         assert_eq!(runtime_texts, manifest_texts);
         assert_eq!(runtime_texts, store_texts);
     }

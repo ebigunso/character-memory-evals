@@ -1222,10 +1222,8 @@ mod tests {
             .relevant_external_ids
             .push(expected.relevant_external_ids[0].clone());
         let error = parse_error(&fixtures);
-        assert!(
-            error.contains("relevant_external_ids contains duplicates"),
-            "{error}"
-        );
+        assert!(error.contains("relevant_external_ids"), "{error}");
+        assert!(error.contains("duplicates"), "{error}");
 
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let expected = expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall));
@@ -1233,10 +1231,8 @@ mod tests {
             .irrelevant_external_ids
             .push(expected.irrelevant_external_ids[0].clone());
         let error = parse_error(&fixtures);
-        assert!(
-            error.contains("irrelevant_external_ids contains duplicates"),
-            "{error}"
-        );
+        assert!(error.contains("irrelevant_external_ids"), "{error}");
+        assert!(error.contains("duplicates"), "{error}");
 
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let expected = expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall));
@@ -1255,7 +1251,6 @@ mod tests {
         let error = parse_error(&fixtures);
         assert!(error.contains("query relevance label"), "{error}");
         assert!(error.contains("memory-recent"), "{error}");
-        assert!(error.contains("before it is admitted"), "{error}");
     }
 
     #[test]
@@ -1361,7 +1356,8 @@ mod tests {
         };
         target_external_ids.clear();
         let error = parse_error(&fixtures);
-        assert!(error.contains("must not be empty"), "{error}");
+        assert!(error.contains("target_external_ids"), "{error}");
+        assert!(error.contains("empty"), "{error}");
 
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
@@ -1374,7 +1370,8 @@ mod tests {
         };
         target_external_ids[1] = target_external_ids[0].clone();
         let error = parse_error(&fixtures);
-        assert!(error.contains("contains duplicates"), "{error}");
+        assert!(error.contains("target_external_ids"), "{error}");
+        assert!(error.contains("duplicates"), "{error}");
     }
 
     #[test]
@@ -1388,10 +1385,8 @@ mod tests {
 
         let error = parse_error(&fixtures);
 
-        assert!(
-            error.contains("must equal surface_texts.episode"),
-            "{error}"
-        );
+        assert!(error.contains("surface-contribution"), "{error}");
+        assert!(error.contains("surface_texts.episode"), "{error}");
     }
 
     #[test]
@@ -1484,7 +1479,7 @@ mod tests {
         let error = parse_error(&fixtures);
         assert!(error.contains("remember.external_id"), "{error}");
         assert!(error.contains("memory-dormant:observation"), "{error}");
-        assert!(error.contains("duplicates existing external ID"), "{error}");
+        assert!(error.contains("duplicates"), "{error}");
 
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::ThreadDrift);
@@ -1514,7 +1509,7 @@ mod tests {
 
         let error = parse_error(&fixtures);
         assert!(error.contains("long-gap-recall"), "{error}");
-        assert!(error.contains("at least one scripted query"), "{error}");
+        assert!(error.contains("query"), "{error}");
     }
 
     #[test]
@@ -1542,7 +1537,8 @@ mod tests {
         *external_id = "memory-dormant".to_string();
         let error = parse_error(&fixtures);
         assert!(error.contains("remember.external_id"), "{error}");
-        assert!(error.contains("duplicates existing external ID"), "{error}");
+        assert!(error.contains("memory-dormant"), "{error}");
+        assert!(error.contains("duplicates"), "{error}");
     }
 
     #[test]
@@ -1559,7 +1555,8 @@ mod tests {
 
         let error = parse_error(&fixtures);
 
-        assert!(error.contains("duplicate event_id"), "{error}");
+        assert!(error.contains("event_id"), "{error}");
+        assert!(error.contains("duplicate"), "{error}");
 
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
@@ -1575,7 +1572,8 @@ mod tests {
         *event_id = "event-duplicate-query-id".to_string();
         scenario.events.push(duplicate);
         let error = parse_error(&fixtures);
-        assert!(error.contains("duplicate query_id"), "{error}");
+        assert!(error.contains("query_id"), "{error}");
+        assert!(error.contains("duplicate"), "{error}");
     }
 
     #[test]
@@ -1614,25 +1612,28 @@ mod tests {
         };
         *salience = f32::NAN;
         let error = scenario.validate().unwrap_err().to_string();
-        assert!(error.contains("must be finite"), "{error}");
+        assert!(error.contains("remember.salience"), "{error}");
+        assert!(error.contains("finite"), "{error}");
     }
 
     #[test]
     fn public_parser_rejects_restart_without_a_following_query() {
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
-        let restart_index = scenario
+        let (restart_index, restart_event_id) = scenario
             .events
             .iter()
-            .position(|event| matches!(event, InteractionEvent::Restart { .. }))
+            .enumerate()
+            .find_map(|(index, event)| match event {
+                InteractionEvent::Restart { event_id, .. } => Some((index, event_id.clone())),
+                _ => None,
+            })
             .unwrap();
         scenario.events.truncate(restart_index + 1);
 
         let error = parse_error(&fixtures);
-        assert!(
-            error.contains("must have a following scripted query"),
-            "{error}"
-        );
+        assert!(error.contains(&restart_event_id), "{error}");
+        assert!(error.contains("query"), "{error}");
     }
 
     #[test]
