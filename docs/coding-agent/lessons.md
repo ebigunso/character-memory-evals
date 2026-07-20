@@ -996,3 +996,29 @@ Prevention:
 
 Evidence:
 - PR #13 round-6 runner regressions prove explicit Ada dimensions fail before credential lookup or request construction and default Ada generation with a native-width reuse store omits the dimensions member from request JSON.
+
+## 2026-07-20 — Close Unknown-Field Admission Across The Entire Config Tree  [tags: review, configuration, serde, admission, validation]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: PR #13 Copilot round 7
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Nested Character Memory override tables rejected unknown fields, but a misspelled containing table such as `[backend.character_memroy]` was ignored by `BackendConfig`, silently selecting default behavior.
+
+Root cause:
+- Unknown-field rejection was added only to the newly introduced nested DTOs instead of being audited as one recursive admission contract from each leaf through the run-config root.
+
+Fix applied:
+- Apply `deny_unknown_fields` to every remaining run-config container, add a production TOML-reader regression for the misspelled backend table, and add a table-driven regression covering the root, backend, cleanup, embedding, retrieval, ingest, and metrics boundaries.
+
+Prevention:
+- When a configuration subtree must fail closed, inventory every deserialized container from the edited leaf through the authoritative root and enforce the policy at each boundary in the same change.
+- Pair the concrete production-entrypoint typo regression with a container-boundary census so later DTO additions cannot silently reopen a parent or sibling layer.
+- Repo rule candidate: require whole-tree unknown-field admission audits for configuration schema changes that introduce or tighten nested overrides.
+- Harness migration candidate: none; existing admission-boundary and validation-risk guidance covers the class when applied recursively.
+- Residual risk / waiver: the standing PR #13 environmental teardown waiver was applied to `tests::live_adapter_reattaches_with_external_ids` after two aggregate runs reproduced the known post-success cleanup timeout; the exact test passed standalone and the workspace rerun with exactly that test filtered passed all remaining tests.
+
+Evidence:
+- PR #13 round-7 regressions reject `[backend.character_memroy]` with the unknown key named and independently reject a unique sentinel at every remaining run-config container boundary; all checked-in TOML configs parse under the strict schema, both mock smokes pass, and the pinned workspace gate is complete under the narrow teardown waiver above.

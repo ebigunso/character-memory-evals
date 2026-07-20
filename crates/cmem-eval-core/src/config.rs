@@ -27,6 +27,7 @@ pub enum RetrievalMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BenchmarkRunConfig {
     pub run_id: String,
     pub dataset: String,
@@ -79,6 +80,7 @@ impl BenchmarkRunConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct BackendConfig {
     #[serde(default)]
     pub namespace_prefix: Option<String>,
@@ -403,6 +405,7 @@ fn validate_optional_positive_f64(field: &str, value: Option<f64>) -> Result<()>
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CleanupConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -432,6 +435,7 @@ impl CleanupConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct EmbeddingConfig {
     #[serde(default = "default_embedding_provider")]
     pub provider: String,
@@ -461,6 +465,7 @@ impl EmbeddingConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RetrievalConfig {
     #[serde(default)]
     pub mode: RetrievalMode,
@@ -525,6 +530,7 @@ impl RetrievalConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct IngestConfig {
     #[serde(default)]
     pub index_observations: bool,
@@ -582,6 +588,7 @@ impl IngestConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct MetricsConfig {
     #[serde(default = "default_ks_session")]
     pub ks_session: Vec<usize>,
@@ -689,6 +696,59 @@ mod tests {
 
         assert_eq!(config.backend.embedding.provider, "openai");
         assert_eq!(config.backend.embedding.model, "text-embedding-3-large");
+    }
+
+    #[test]
+    fn run_config_rejects_unknown_keys_at_every_container_boundary() {
+        let cases = [
+            (serde_json::json!({"run_typo": true}), "run_typo"),
+            (
+                serde_json::json!({"backend": {"backend_typo": true}}),
+                "backend_typo",
+            ),
+            (
+                serde_json::json!({"backend": {"cleanup": {"cleanup_typo": true}}}),
+                "cleanup_typo",
+            ),
+            (
+                serde_json::json!({"backend": {"embedding": {"embedding_typo": true}}}),
+                "embedding_typo",
+            ),
+            (
+                serde_json::json!({"retrieval": {"retrieval_typo": true}}),
+                "retrieval_typo",
+            ),
+            (
+                serde_json::json!({"ingest": {"ingest_typo": true}}),
+                "ingest_typo",
+            ),
+            (
+                serde_json::json!({"metrics": {"metrics_typo": true}}),
+                "metrics_typo",
+            ),
+        ];
+
+        for (extra, unknown_key) in cases {
+            let mut value = serde_json::json!({
+                "run_id": "r",
+                "dataset": "synthetic"
+            });
+            merge_json_object(&mut value, extra);
+            let error = serde_json::from_value::<BenchmarkRunConfig>(value)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("unknown field `{unknown_key}`")),
+                "{error}"
+            );
+        }
+    }
+
+    fn merge_json_object(target: &mut serde_json::Value, source: serde_json::Value) {
+        let target = target.as_object_mut().unwrap();
+        for (key, value) in source.as_object().unwrap() {
+            target.insert(key.clone(), value.clone());
+        }
     }
 
     #[test]
