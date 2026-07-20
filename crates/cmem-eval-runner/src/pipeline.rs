@@ -2474,7 +2474,7 @@ mod tests {
             .map(|entry| entry.text.clone())
             .collect::<BTreeSet<_>>();
 
-        assert_eq!(runtime_texts.len(), 635);
+        assert_eq!(runtime_texts.len(), 646);
         assert_eq!(runtime_texts, manifest_texts);
         assert_eq!(runtime_texts, store_texts);
     }

@@ -5,9 +5,9 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use cmem_eval_continuity::{
-    CONTINUITY_FIXTURE_SCHEMA_VERSION, ContinuityFixtureSet, ContinuityScenario,
-    ContinuityScenarioEmbedding, ExpectedRelevance, InteractionEvent, ScenarioPattern,
-    canonical_fixture_bytes, runtime_memory_embedding_text,
+    CONTINUITY_FIXTURE_SCHEMA_VERSION, ContinuityEntityKind, ContinuityFixtureSet,
+    ContinuityScenario, ContinuityScenarioEmbedding, EntityDeclaration, ExpectedRelevance,
+    InteractionEvent, ScenarioPattern, canonical_fixture_bytes, runtime_memory_embedding_text,
 };
 use cmem_eval_core::{
     FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION, FrozenEmbeddingManifest, FrozenEmbeddingText,
@@ -107,6 +107,7 @@ pub struct ConversionArtifacts {
 struct SourceTurn {
     external_id: String,
     timestamp: DateTime<Utc>,
+    speaker: String,
     text: String,
 }
 
@@ -411,9 +412,16 @@ fn convert_longmemeval(
         )?;
         for turn in &session.turns {
             require_source_text(&selection.fixture_id, &session.session_id, &turn.text)?;
+            let external_id = format!("{}:turn:{}", session.session_id, turn.index);
+            let speaker = require_source_speaker(
+                &selection.fixture_id,
+                &external_id,
+                turn.speaker.as_deref(),
+            )?;
             turns.push(SourceTurn {
-                external_id: format!("{}:turn:{}", session.session_id, turn.index),
+                external_id,
                 timestamp: base + Duration::seconds(turn.index as i64),
+                speaker,
                 text: turn.text.clone(),
             });
         }
@@ -568,9 +576,15 @@ fn convert_locomo(
         )?;
         for (index, turn) in session.turns.iter().enumerate() {
             require_source_text(&selection.fixture_id, &session.session_id, &turn.text)?;
+            let speaker = require_source_speaker(
+                &selection.fixture_id,
+                &turn.dialog_id,
+                turn.speaker.as_deref(),
+            )?;
             turns.push(SourceTurn {
                 external_id: turn.dialog_id.clone(),
                 timestamp: base + Duration::seconds(index as i64 + 1),
+                speaker,
                 text: turn.text.clone(),
             });
         }
@@ -657,6 +671,28 @@ fn assemble_scenario(
         );
     }
     turns.sort_by_key(|turn| (turn.timestamp, turn.external_id.clone()));
+    let entity_external_id_by_speaker = turns
+        .iter()
+        .map(|turn| turn.speaker.as_str())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .enumerate()
+        .map(|(index, speaker)| {
+            (
+                speaker,
+                format!("{}:speaker:{:04}", selection.fixture_id, index + 1),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let entities = entity_external_id_by_speaker
+        .iter()
+        .map(|(speaker, external_id)| EntityDeclaration {
+            external_id: external_id.clone(),
+            entity_type: ContinuityEntityKind::Person,
+            label: (*speaker).to_string(),
+            is_hub: false,
+        })
+        .collect::<Vec<_>>();
     let replacement_id = correction
         .as_ref()
         .map(|(_, replacement_id, _, _)| replacement_id.as_str());
@@ -674,7 +710,7 @@ fn assemble_scenario(
             timestamp: turn.timestamp,
             text: turn.text.clone(),
             surface_texts: None,
-            entity_external_ids: Vec::new(),
+            entity_external_ids: vec![entity_external_id_by_speaker[turn.speaker.as_str()].clone()],
             thread: None,
             salience: 0.5,
         });
@@ -716,7 +752,7 @@ fn assemble_scenario(
         fixture_id: selection.fixture_id.clone(),
         namespace: format!("continuity-benchmark:{}", selection.fixture_id),
         pattern: selection.scenario_kind.pattern(),
-        entities: Vec::new(),
+        entities,
         embedding: ContinuityScenarioEmbedding::frozen(),
         events,
     };
@@ -734,6 +770,16 @@ fn build_embedding_manifest(
     let mut texts = Vec::new();
     let mut orderings = Vec::new();
     for (selection, converted) in manifest.instances.iter().zip(converted) {
+        texts.extend(
+            converted
+                .scenario
+                .entities
+                .iter()
+                .map(|entity| FrozenEmbeddingText {
+                    id: format!("{}:embedding", entity.external_id),
+                    text: runtime_memory_embedding_text(&entity.label),
+                }),
+        );
         for event in &converted.scenario.events {
             match event {
                 InteractionEvent::Remember {
@@ -906,6 +952,20 @@ fn require_source_text(fixture_id: &str, source_id: &str, text: &str) -> Result<
     Ok(())
 }
 
+fn require_source_speaker(
+    fixture_id: &str,
+    source_id: &str,
+    speaker: Option<&str>,
+) -> Result<String> {
+    let speaker = speaker.with_context(|| {
+        format!("selection {fixture_id:?} source turn {source_id:?} speaker is missing")
+    })?;
+    if speaker.trim().is_empty() {
+        bail!("selection {fixture_id:?} source turn {source_id:?} speaker is empty");
+    }
+    Ok(speaker.to_string())
+}
+
 fn require_negatives_present(selection: &InstanceSelection, turns: &[SourceTurn]) -> Result<()> {
     let admitted = turns
         .iter()
@@ -988,10 +1048,25 @@ mod tests {
         .unwrap();
         let artifacts = convert_loaded_datasets(&manifest, &longmemeval, &[]).unwrap();
         let scenario = &artifacts.fixtures.scenarios[0];
+        assert_eq!(
+            scenario.entities,
+            [EntityDeclaration {
+                external_id: "fixture:speaker:0001".to_string(),
+                entity_type: ContinuityEntityKind::Person,
+                label: "user".to_string(),
+                is_hub: false,
+            }]
+        );
         assert!(scenario.events.iter().any(|event| matches!(
             event,
-            InteractionEvent::Remember { external_id, text, .. }
-                if external_id == "old:turn:1" && text.as_bytes() == "old\n  café".as_bytes()
+            InteractionEvent::Remember {
+                external_id,
+                text,
+                entity_external_ids,
+                ..
+            } if external_id == "old:turn:1"
+                && text.as_bytes() == "old\n  café".as_bytes()
+                && entity_external_ids == &["fixture:speaker:0001"]
         )));
         assert!(scenario.events.iter().any(|event| matches!(
             event,
@@ -1030,6 +1105,7 @@ mod tests {
             manifest_texts["fixture:query:embedding"].as_bytes(),
             "What is current?\nExactly.".as_bytes()
         );
+        assert_eq!(manifest_texts["fixture:speaker:0001:embedding"], "user");
         assert_eq!(
             scenario.runtime_embedding_inputs(),
             artifacts
@@ -1039,6 +1115,117 @@ mod tests {
                 .map(|item| item.text.clone())
                 .collect()
         );
+    }
+
+    #[test]
+    fn locomo_conversion_models_speakers_as_entities_without_rewriting_turn_text() {
+        let manifest = SelectionManifest {
+            schema_version: SELECTION_MANIFEST_SCHEMA_VERSION,
+            instances: vec![InstanceSelection {
+                fixture_id: "locomo-speakers".to_string(),
+                source: BenchmarkSource::Locomo,
+                source_instance_id: "conv".to_string(),
+                source_qa_index: Some(1),
+                scenario_kind: ScenarioKind::Temporal,
+                expected_question_type: "3".to_string(),
+                selected_session_ids: vec![
+                    "session_1".to_string(),
+                    "session_2".to_string(),
+                    "session_3".to_string(),
+                ],
+                sampled_negative_turn_ids: vec!["D2:1".to_string(), "D3:1".to_string()],
+                similarity_nearer_external_id: "D1:1".to_string(),
+                similarity_farther_external_id: "D3:1".to_string(),
+                selection_proof: SelectionProof {
+                    machine_derived: MachineDerivedPredicates {
+                        session_count: 3,
+                        evidence_clean: true,
+                        no_img_url_in_evidence: Some(true),
+                        gold_turn_ids_empty: None,
+                    },
+                    curator_asserted: CuratorAssertions {
+                        self_contained: true,
+                    },
+                },
+            }],
+        };
+        let locomo = cmem_eval_locomo::load_value(json!([{
+            "sample_id": "conv",
+            "conversation": {
+                "speaker_a": "Caroline",
+                "speaker_b": "Melanie",
+                "session_1_date_time": "1:00 pm on 1 May, 2023",
+                "session_1": [{"dia_id":"D1:1","speaker":"Caroline","text":"  café\nmemory  "}],
+                "session_2_date_time": "1:00 pm on 2 May, 2023",
+                "session_2": [{"dia_id":"D2:1","speaker":"Melanie","text":"near miss"}],
+                "session_3_date_time": "1:00 pm on 3 May, 2023",
+                "session_3": [{"dia_id":"D3:1","speaker":"Caroline","text":"background"}]
+            },
+            "qa": [{"question":"Who remembers?","category":3,"evidence":["D1:1"]}]
+        }]))
+        .unwrap();
+
+        let artifacts = convert_loaded_datasets(&manifest, &[], &locomo).unwrap();
+        let scenario = &artifacts.fixtures.scenarios[0];
+        assert_eq!(
+            scenario
+                .entities
+                .iter()
+                .map(|entity| (entity.external_id.as_str(), entity.label.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("locomo-speakers:speaker:0001", "Caroline"),
+                ("locomo-speakers:speaker:0002", "Melanie"),
+            ]
+        );
+        assert!(scenario.events.iter().any(|event| matches!(
+            event,
+            InteractionEvent::Remember {
+                external_id,
+                text,
+                entity_external_ids,
+                ..
+            } if external_id == "D1:1"
+                && text.as_bytes() == "  café\nmemory  ".as_bytes()
+                && entity_external_ids == &["locomo-speakers:speaker:0001"]
+        )));
+        let manifest_texts = artifacts
+            .embedding_manifest
+            .texts
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(manifest_texts.contains("Caroline"));
+        assert!(manifest_texts.contains("Melanie"));
+    }
+
+    #[test]
+    fn conversion_rejects_selected_turn_without_speaker_attribution() {
+        let manifest = test_manifest(ScenarioKind::Update, false);
+        let longmemeval = cmem_eval_longmemeval::load_value(json!([{
+            "question_id": "lme",
+            "question_type": "knowledge-update",
+            "question": "What is current?",
+            "haystack_session_ids": ["old", "new", "background"],
+            "haystack_dates": [
+                "2024/01/01 (Mon) 00:00",
+                "2024/01/02 (Tue) 00:00",
+                "2024/01/03 (Wed) 00:00"
+            ],
+            "haystack_sessions": [
+                [{"role":"user","content":"old","has_answer":true}],
+                [{"role":"assistant","content":"new","has_answer":true}],
+                [{"content":"background"}]
+            ]
+        }]))
+        .unwrap();
+
+        let error = convert_loaded_datasets(&manifest, &longmemeval, &[])
+            .unwrap_err()
+            .to_string();
+        for token in ["fixture", "background:turn:1", "speaker", "missing"] {
+            assert!(error.contains(token), "missing {token:?} in {error}");
+        }
     }
 
     #[test]

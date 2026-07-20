@@ -443,11 +443,12 @@ impl ContinuityScenario {
                     surface_texts,
                     ..
                 } => {
-                    inputs.insert(runtime_memory_embedding_text(text));
                     if let Some(surface_texts) = surface_texts {
                         inputs.insert(runtime_memory_embedding_text(&surface_texts.episode));
                         inputs.insert(runtime_memory_embedding_text(&surface_texts.observation));
                         inputs.insert(runtime_memory_embedding_text(&surface_texts.derived));
+                    } else {
+                        inputs.insert(runtime_memory_embedding_text(text));
                     }
                 }
                 InteractionEvent::Correct {
@@ -1053,6 +1054,52 @@ mod tests {
                 "  target\nquery  ".to_string(),
                 "remembered target".to_string(),
             ])
+        );
+    }
+
+    #[test]
+    fn runtime_embedding_inputs_ignore_unused_top_level_surface_text() {
+        let fixture = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let mut scenario = fixture
+            .scenarios
+            .into_iter()
+            .find(|scenario| scenario.pattern == ScenarioPattern::SurfaceContribution)
+            .unwrap();
+        let mut remember = scenario
+            .events
+            .into_iter()
+            .find(|event| {
+                matches!(
+                    event,
+                    InteractionEvent::Remember {
+                        surface_texts: Some(_),
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let InteractionEvent::Remember {
+            text,
+            surface_texts: Some(surface_texts),
+            ..
+        } = &mut remember
+        else {
+            unreachable!()
+        };
+        *text = "unused top-level alias".to_string();
+        let expected = BTreeSet::from([
+            runtime_memory_embedding_text(&surface_texts.episode),
+            runtime_memory_embedding_text(&surface_texts.observation),
+            runtime_memory_embedding_text(&surface_texts.derived),
+        ]);
+        scenario.entities.clear();
+        scenario.events = vec![remember];
+
+        assert_eq!(scenario.runtime_embedding_inputs(), expected);
+        assert!(
+            !scenario
+                .runtime_embedding_inputs()
+                .contains("unused top-level alias")
         );
     }
 

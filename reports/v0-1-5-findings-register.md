@@ -466,16 +466,16 @@ Each scenario selects three to five sessions. The machine-readable selection man
 
 ### Conversion and scoring guards
 
-- Source questions and conversation-turn text are copied byte-for-byte. Speaker metadata, answers, provenance notes, and licenses are not inserted into the behavioral text.
+- Source questions and conversation-turn text are copied byte-for-byte. Each distinct source speaker or LongMemEval role is declared as a `Person` entity, and every `Remember` event references its speaker entity; speaker labels, answers, provenance notes, and licenses are not prefixed or inserted into the behavioral text.
 - Every selected non-replacement turn becomes one `Remember` event. In update rows, the chronologically older gold turn remains a `Remember`; the newer gold turn becomes `Correct`, targets the old external ID, uses the new source turn ID as the replacement ID, and is the only relevant ID. The old ID is sampled negative.
 - LongMemEval-S abstention rows must end in `_abs` in the curated roster and must derive an empty `gold_turn_ids()` result. Their cat/Japan near-miss turns are sampled negative only.
 - LoCoMo evidence IDs must resolve uniquely into selected sessions, contain nonempty text, and have no `img_url`. Category-5 cited evidence is never labeled relevant.
-- `conv-26` QA 153 is an intentional speaker-swapped abstention trap: query subject Caroline does not match cited turn `D2:3`, where Melanie describes realizing that self-care matters. `D2:3` is sampled negative only.
+- `conv-26` QA 153 is an intentional speaker-swapped abstention trap: query subject Caroline does not match cited turn `D2:3`, where Melanie describes realizing that self-care matters. Caroline and Melanie are distinct graph entities, `D2:3` references Melanie, and the turn remains sampled negative only.
 - Abstention metric insertion returns after pollution metrics, so relevance, gap, hub, rationale-coverage, correction, and fanout metrics cannot become abstention scores.
 
 ### Frozen embedding evidence
 
-The ranked-cosine manifest covers every unique runtime lookup input and declares one evidence-or-trap-versus-background ordering per scenario. Write-event inputs use CharacterMemory's whitespace-normalized content after adapter prefix removal; query inputs retain exact fixture bytes. The committed store is a strict bijection with those 635 inputs, contains 3072-dimensional vectors from `text-embedding-3-large`, records `source=open_ai_api`, and passes all 18 ordering checks. The first generated candidate set correctly failed its intent gate because a `conv-50` background turn was more similar to the query than the evidence; Task_23 replaced that ordering candidate with an already-selected semantically unrelated turn and regenerated the committed store. This was generation-time validation only, not an evaluation run.
+The ranked-cosine manifest covers every unique runtime lookup input and declares one evidence-or-trap-versus-background ordering per scenario. Write-event and entity-label inputs use CharacterMemory's whitespace normalization after adapter prefix removal where applicable; query inputs retain exact fixture bytes. Task_23's original strict-bijection store covered 635 inputs. The round-9 speaker-attribution revision reused all 635 vectors, generated 11 unique speaker-label vectors, and now covers exactly 646 inputs with 3072-dimensional `text-embedding-3-large` vectors and `source=open_ai_api`; all 18 pre-existing ordering checks still pass. The first generated candidate set correctly failed its intent gate because a `conv-50` background turn was more similar to the query than the evidence; Task_23 replaced that ordering candidate with an already-selected semantically unrelated turn and regenerated the committed store. That initial correction and the round-9 label generation were generation-time validation, not evaluation runs.
 
 ### F-HARNESS-3: Frozen store omitted normalized runtime write text
 
@@ -503,9 +503,9 @@ Before/after artifact references: fixture SHA-256 remains `46B9981225D2395EACA30
 ### Artifacts
 
 - Converter and selection: `crates/cmem-eval-benchmark-convert/`.
-- Fixture: `crates/cmem-eval-continuity/fixtures/continuity_benchmarks_v1.json`, SHA-256 `46B9981225D2395EACA30078D9B19BE4CFA25F9698ADEA3CD84CBD503E0014A6`.
-- Ranked-cosine manifest: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_manifest.json`, SHA-256 `D71AACE9109AD3509CA0D4AB54863E5E9ACAE3C7CB8BD3CEC27F2B4007622761`.
-- Frozen store: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_store.json`, SHA-256 `D6D586FB19C2F117B8FEC5DD474754794DE3A1ADA8838F0E54432D3DB1C45886`.
+- Fixture: `crates/cmem-eval-continuity/fixtures/continuity_benchmarks_v1.json`, SHA-256 `16C0EEF36FA0BCDE05A70B3A18B5C02D39D8169076BD3E60CF6DC4D47F7D9B49`.
+- Ranked-cosine manifest: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_manifest.json`, SHA-256 `A63B35F0BA2EF4DEAC06DCF8805822765A0BB5FDCED8F43F91D0570A6D151714`.
+- Frozen store: `crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_store.json`, SHA-256 `C1F1EEAA45C1872E2284EC069FBD205ED3C1B1656EE89007ACCB3DD44657352B`.
 - Attribution and adaptation record: `crates/cmem-eval-continuity/fixtures/CONTINUITY_BENCHMARKS_ATTRIBUTION.md`.
 
 ## Task_9b expanded confirmation
@@ -527,7 +527,9 @@ Config hashes cover tracked LF bytes. Raw results, summaries, and full reports r
 | `canonical-a` | `043FC4B2567F22776E3617BAA8D9F416BC8BBCC3403EEF0F3D704E9A0AE26930` | `BA3B11FDB0F98A97E3A51974C827875416DC43B08BC235B9A950E2BA5D0D97DC` | `47F2298BDC6998DDA62789CF86A9EB2C89666128EFEA985884484D18C0885F3F` | `1CACDC3BDB7E578EFFADFE6C2ED4C74815E588D6A3EDE64AA9E7C4AAE6F09055` | `B91F3149878DF2896F416A4593C2E387D0041F0958501ADFE2EE3A3FB47D5BC9` | `170A1BAAAC90A4E7DE6953149221D323D48CD27ABFFD9AEBA30148F6CE078352` | `D9CDE4BB4FCDB8EB725DF75EB3CCF19CE965B90C7C990FD81BB1894772D5636E` |
 | `canonical-b` | `4EE299032EE0D9836C707CBA83F9C8F43782234FA9C113428ECEDFD0E83594DB` | `B9A224D6C0A8D5A26A4D6E929C7D48E9E8D03087630A8A68A8C90B9BB8957F7F` | `9758C7B8DCAE021E2AC1BAD3941FD9C440723C204039ABF9329A50E6455F0F06` | `1CACDC3BDB7E578EFFADFE6C2ED4C74815E588D6A3EDE64AA9E7C4AAE6F09055` | `17BE908132A11BAA841142877C9103DA6904FA025918DE6CDEF4FA8F9710FA25` | `170A1BAAAC90A4E7DE6953149221D323D48CD27ABFFD9AEBA30148F6CE078352` | `D9CDE4BB4FCDB8EB725DF75EB3CCF19CE965B90C7C990FD81BB1894772D5636E` |
 
-### Benchmark-adapted schema-v3 repeated-run result
+### Sealed Task_9b benchmark-adapted repeated-run result (superseded)
+
+This subsection is the sealed Task_9b capture and remains unchanged as historical evidence for the pre-attribution fixture. The round-9 speaker-entity revision changes fixture graph semantics and artifact hashes, so the refreshed current reference in the next subsection supersedes these measurements for present comparisons without rewriting the original baseline.
 
 The benchmark pair covers all 18 scenarios and 18 queries in `continuity_benchmarks_v1.json` at SHA-256 `46B9981225D2395EACA30078D9B19BE4CFA25F9698ADEA3CD84CBD503E0014A6`. The runtime-surface manifest is `D71AACE9109AD3509CA0D4AB54863E5E9ACAE3C7CB8BD3CEC27F2B4007622761`, and its strict-bijection frozen store is `D6D586FB19C2F117B8FEC5DD474754794DE3A1ADA8838F0E54432D3DB1C45886`. Character Memory source provenance is fixed at `e7499df460a38a50d75b93427ed29b0579daac5c`; the sibling checkout was at docs-only descendant `fc97a3cfd61a1b748d5265343905959ea5102460`, whose `src` tree is byte-identical to the fixed source. Runner elapsed times were 311.180 seconds for A and 413.485 seconds for B.
 
@@ -541,6 +543,27 @@ The benchmark traces are byte-identical at `E19036EEA841C3BB4FF7C425F44673661681
 |---|---|---|---|---|---|---|---|
 | `benchmark-a` | `67E8F8572F0A95372F2DBE77F4BBA40BB27905DF486273F805D147F83E6EFF7E` | `38BA990499600801E907BB2E8BFC62183459B57EDAC7EB8788EE191F61216849` | `FE535A731CEBB555FC56F87F095A34BFD23B131A29702EC7F57464FE9DE1EE67` | `E19036EEA841C3BB4FF7C425F4467366168169375D18C3D276131800EC99B71C` | `DE3B82542652CB233E7B08D989EED190A810232D71817799C50026938505DC85` | `1388BEC4C57C5463314E27BBD3704C5416166ED562FCE696D6BBC2150D9CC51C` | `D09E949A3CE36C65E928F193F6912AF0409BCE2545ADA14AFA51C53044B4ACA5` |
 | `benchmark-b` | `63EC32C072794A4073E7F765A3A7E713578040648DD5E36C41242ECFA7E032D8` | `46ABB4B72A5C38F396BD6F7701ED614D5614F2B5DCDBC6784A9843CF8F68CDDA` | `A6390D9B002AF6BF7A8E5949FB3CF5B26C6F9D06F2148A1E8165B538470B342D` | `E19036EEA841C3BB4FF7C425F4467366168169375D18C3D276131800EC99B71C` | `4869D19026EF97224220C7143C4674FD00470059E770C78CA6D0000D32D7644D` | `1388BEC4C57C5463314E27BBD3704C5416166ED562FCE696D6BBC2150D9CC51C` | `D09E949A3CE36C65E928F193F6912AF0409BCE2545ADA14AFA51C53044B4ACA5` |
+
+### Current speaker-attributed benchmark reference
+
+The round-9 pair covers all 18 scenarios and 18 queries in the speaker-attributed `continuity_benchmarks_v1.json` at SHA-256 `16C0EEF36FA0BCDE05A70B3A18B5C02D39D8169076BD3E60CF6DC4D47F7D9B49`. The fixture declares 36 scenario-local speaker entities and attaches exactly one entity reference to each of 684 `Remember` events while preserving all 706 source-derived turn, replacement, and query text values byte-for-byte relative to the sealed fixture. The runtime manifest at `A63B35F0BA2EF4DEAC06DCF8805822765A0BB5FDCED8F43F91D0570A6D151714` and frozen store at `C1F1EEAA45C1872E2284EC069FBD205ED3C1B1656EE89007ACCB3DD44657352B` are strict bijections over 646 unique inputs; generation reused 635 vectors, generated 11 unique speaker labels, and revalidated all 18 ranked-cosine orderings.
+
+Both runs use the shipped-default retrieval regime from the Task_9b benchmark configs: vector candidates `48`, graph roots `12`, selectivity alpha and gamma `1.0`, and fanout budgets `0/20`, `0/5`, and `0/15`. Their ignored evidence configs are `runs/continuity/pr13-round9/benchmark-a.toml` and `benchmark-b.toml`, with distinct run IDs, namespace prefixes, Oxigraph paths, retrieval-stat databases, and identity-registry directories. The scoped live evidence used Qdrant gRPC `http://127.0.0.1:6334` and Character Memory branch `feature/v0-1-5-embedded-default` at commit `e309de9da9c73c3a0628c2373ec2f33a8669fc18`. Runner elapsed times were 1,053.923 seconds for A and 1,107.409 seconds for B.
+
+The refreshed current-reference measurements are mean recall at 5/10 of `0.5208333333333334/0.71875` for short gaps over 8 numeric rows, `0.3333333333333333/0.3333333333333333` for medium gaps over 3 numeric rows, and `0.125/0.375` for long gaps over 4 numeric rows. Mean sampled context pollution is `0.495798319327731`, mean sampled event pollution is `0.4117647058823529`, and mean context reduction is `0.7212694508215346`, with pollution measured on 17 rows and context reduction on all 18. These are post-attribution measurements, not pass/fail thresholds.
+
+Both aggregate sections and all 36 run-scenario sections have empty `missing_required_metrics` lists. Every numeric-present fanout-over-budget, orphan-vector leakage, superseded-current leakage and return, suppressed-memory leakage and return, unsafe-lifecycle return, graph-object-missing return, missing-external-ID, and derived-memory-provenance-failure value is zero. Fanout-over-budget is numeric zero for 15 rows and explicitly unsupported for the three abstention rows in each run.
+
+The round-9 benchmark traces are byte-identical at `62B2FCC253028C46343A81EAAED765D71FCA463FD95032399D7E0D449D0F6D68`; README-normalized rows are byte-identical at `4262058DFB0EC698BA66D772E84E052564BF1A942825AE31DDEDAB91478DA4FA`; and metadata-free report content is byte-identical at `41535684AA2A20A7D26F852FB03221C3C2EC51E6B4B52C54259C4DB6EDB0274E`.
+
+| Run | Config SHA-256 | Results | Summary | Traces | Report | Normalized rows | Report content |
+|---|---|---|---|---|---|---|---|
+| `round9-benchmark-a` | `BE9B036C0C7927BF29264B30F979B73B62AA202A89BF67E5681507CDA2925A1C` | `B5674298CFC9F02BE7EDC4B9860CBF6594D5959407C5F88F2691FEC914A2C9F8` | `3605F96DA2E5959ADF5A8C70BBC76FCF41F76179ED9DF82A5921CB4CB71672C6` | `62B2FCC253028C46343A81EAAED765D71FCA463FD95032399D7E0D449D0F6D68` | `E3732AB6274BD9AD4FFFAE47DE0076060C242038B4DF6B1D3A6D07128612D886` | `4262058DFB0EC698BA66D772E84E052564BF1A942825AE31DDEDAB91478DA4FA` | `41535684AA2A20A7D26F852FB03221C3C2EC51E6B4B52C54259C4DB6EDB0274E` |
+| `round9-benchmark-b` | `5DE97BF9AAFD8ACDD02D490DC90CEEB04A56714321C3B0829C7408A0771CF731` | `86281F8998EF4AC371EFCCD344D607BBBCB7577215FF588FB31C4B65801B5C98` | `DAD37D7633B276A84E303081AB009736F7D8EEDBB6DE714B0C16E615411E2D6D` | `62B2FCC253028C46343A81EAAED765D71FCA463FD95032399D7E0D449D0F6D68` | `E2DF5FD64D0356A40F593A738015854B2EBCE6FA2200E14EB948570F58A69E55` | `4262058DFB0EC698BA66D772E84E052564BF1A942825AE31DDEDAB91478DA4FA` | `41535684AA2A20A7D26F852FB03221C3C2EC51E6B4B52C54259C4DB6EDB0274E` |
+
+The canonical fixture, manifest, and store remain byte-identical at `BF5E392EB3F0EB79F2F48FCA6EAD38A2E69109A7BEBD257A47AEA62F091F8EB3`, `DDA314592900088234132503404ED6C4D3885F7E1C36EDF4396473CB608CC38C`, and `A2C5AFAA96CE5E02D28058BD4C0951356D06695A975F4183DE65281807A35130`; both explicit `surface_texts` events already satisfy the validated `text == surface_texts.episode` invariant. The runtime-input implementation now ignores the unused top-level alias when `surface_texts` is present, but the canonical key set and store did not change, so the conditional canonical live rerun was not triggered. The committed canonical strict-bijection test passed against the unchanged artifacts.
+
+Pinned validation passed for formatting, strict workspace Clippy, deterministic converter regeneration, both affected-package suites, both frozen-store bijections, both service-free mock smokes, and the workspace suite with the standing environmental teardown waiver applied only to `live_adapter_reattaches_with_external_ids`. The aggregate and standalone invocations both executed that test's successful live reattach assertions before reproducing the known final Qdrant collection-deletion timeout; the workspace rerun with exactly that test filtered passed every remaining test, including the other live adapter gates.
 
 ### Mock smoke confirmation
 

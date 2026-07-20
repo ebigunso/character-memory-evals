@@ -2,6 +2,14 @@
   "schema_version": 1,
   "texts": [
     {
+      "id": "benchmark-lme-update-01493427:speaker:0001:embedding",
+      "text": "assistant"
+    },
+    {
+      "id": "benchmark-lme-update-01493427:speaker:0002:embedding",
+      "text": "user"
+    },
+    {
       "id": "benchmark-lme-update-01493427:remember:0001:embedding",
       "text": "I'm looking for some ideas on how to display my vintage camera equipment and postcards. Do you have any suggestions for space-saving display cases or shelves that could work well for a small collection?"
     },
@@ -108,6 +116,14 @@
     {
       "id": "benchmark-lme-update-01493427:query:embedding",
       "text": "How many new postcards have I added to my collection since I started collecting again?"
+    },
+    {
+      "id": "benchmark-lme-update-06db6396:speaker:0001:embedding",
+      "text": "assistant"
+    },
+    {
+      "id": "benchmark-lme-update-06db6396:speaker:0002:embedding",
+      "text": "user"
     },
     {
       "id": "benchmark-lme-update-06db6396:remember:0001:embedding",
@@ -218,6 +234,14 @@
       "text": "How many projects have I completed since starting painting classes?"
     },
     {
+      "id": "benchmark-lme-update-18bc8abd:speaker:0001:embedding",
+      "text": "assistant"
+    },
+    {
+      "id": "benchmark-lme-update-18bc8abd:speaker:0002:embedding",
+      "text": "user"
+    },
+    {
       "id": "benchmark-lme-update-18bc8abd:remember:0001:embedding",
       "text": "I'm planning to host another backyard BBQ soon and I need some help with menu planning. Can you suggest some side dishes that go well with ribs and brisket?"
     },
@@ -324,6 +348,14 @@
     {
       "id": "benchmark-lme-update-18bc8abd:query:embedding",
       "text": "What brand of BBQ sauce am I currently obsessed with?"
+    },
+    {
+      "id": "benchmark-lme-update-2698e78f:speaker:0001:embedding",
+      "text": "assistant"
+    },
+    {
+      "id": "benchmark-lme-update-2698e78f:speaker:0002:embedding",
+      "text": "user"
     },
     {
       "id": "benchmark-lme-update-2698e78f:remember:0001:embedding",
@@ -434,6 +466,14 @@
       "text": "How often do I see my therapist, Dr. Smith?"
     },
     {
+      "id": "benchmark-lme-temporal-08f4fc43:speaker:0001:embedding",
+      "text": "assistant"
+    },
+    {
+      "id": "benchmark-lme-temporal-08f4fc43:speaker:0002:embedding",
+      "text": "user"
+    },
+    {
       "id": "benchmark-lme-temporal-08f4fc43:remember:0001:embedding",
       "text": "I'm planning to volunteer at a local soup kitchen this weekend and I was wondering if you could give me some tips on how to make a positive impact during my time there. By the way, I just came from the Ash Wednesday service at the cathedral on February 1st, and it really made me reflect on the importance of giving back to the community."
     },
@@ -532,6 +572,14 @@
     {
       "id": "benchmark-lme-temporal-08f4fc43:query:embedding",
       "text": "How many days had passed between the Sunday mass at St. Mary's Church and the Ash Wednesday service at the cathedral?"
+    },
+    {
+      "id": "benchmark-lme-temporal-0bb5a684:speaker:0001:embedding",
+      "text": "assistant"
+    },
+    {
+      "id": "benchmark-lme-temporal-0bb5a684:speaker:0002:embedding",
+      "text": "user"
     },
     {
       "id": "benchmark-lme-temporal-0bb5a684:remember:0001:embedding",
@@ -640,6 +688,14 @@
     {
       "id": "benchmark-lme-temporal-0bb5a684:query:embedding",
       "text": "How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?"
+    },
+    {
+      "id": "benchmark-lme-multi-129d1232:speaker:0001:embedding",
+      "text": "assistant"
+    },
+    {
+      "id": "benchmark-lme-multi-129d1232:speaker:0002:embedding",
+      "text": "user"
     },
     {
       "id": "benchmark-lme-multi-129d1232:remember:0001:embedding",
@@ -788,6 +844,14 @@
     {
       "id": "benchmark-lme-multi-129d1232:query:embedding",
       "text": "How much money did I raise in total through all the charity events I participated in?"
+    },
+    {
+      "id": "benchmark-lme-multi-2ce6a0f2:speaker:0001:embedding",
+      "text": "assistant"
+    },
+    {
+      "id": "benchmark-lme-multi-2ce6a0f2:speaker:0002:embedding",
+      "text": "user"
     },
     {
       "id": "benchmark-lme-multi-2ce6a0f2:remember:0001:embedding",
@@ -986,6 +1050,14 @@
       "text": "How many different art-related events did I attend in the past month?"
     },
     {
+      "id": "benchmark-lme-multi-81507db6:speaker:0001:embedding",
+      "text": "assistant"
+    },
+    {
+      "id": "benchmark-lme-multi-81507db6:speaker:0002:embedding",
+      "text": "user"
+    },
+    {
       "id": "benchmark-lme-multi-81507db6:remember:0001:embedding",
       "text": "HOW TO MAKE CURRENCY FORMAT STANDAR WITHE ALL LEN OF CURRENCY : TEXTE(RECHERCHEV(A2;'2023'!A:AR;5;0);\"#.###.###,00\")&\" \"&\"DA\""
     },
@@ -1142,6 +1214,14 @@
       "text": "How many graduation ceremonies have I attended in the past three months?"
     },
     {
+      "id": "benchmark-lme-abstention-0862e8bf-abs:speaker:0001:embedding",
+      "text": "assistant"
+    },
+    {
+      "id": "benchmark-lme-abstention-0862e8bf-abs:speaker:0002:embedding",
+      "text": "user"
+    },
+    {
       "id": "benchmark-lme-abstention-0862e8bf-abs:remember:0001:embedding",
       "text": "Please give me detailed instructions for how to make a camp fire."
     },
@@ -1210,6 +1290,14 @@
       "text": "What is the name of my hamster?"
     },
     {
+      "id": "benchmark-lme-abstention-19b5f2b3-abs:speaker:0001:embedding",
+      "text": "assistant"
+    },
+    {
+      "id": "benchmark-lme-abstention-19b5f2b3-abs:speaker:0002:embedding",
+      "text": "user"
+    },
+    {
       "id": "benchmark-lme-abstention-19b5f2b3-abs:remember:0001:embedding",
       "text": "Describe foreign rights licensing in book publishing in simple words using bullet points."
     },
@@ -1276,6 +1364,14 @@
     {
       "id": "benchmark-lme-abstention-19b5f2b3-abs:query:embedding",
       "text": "How long was I in Korea for?"
+    },
+    {
+      "id": "benchmark-locomo-temporal-conv-30-qa1:speaker:0001:embedding",
+      "text": "Gina"
+    },
+    {
+      "id": "benchmark-locomo-temporal-conv-30-qa1:speaker:0002:embedding",
+      "text": "Jon"
     },
     {
       "id": "benchmark-locomo-temporal-conv-30-qa1:remember:0001:embedding",
@@ -1506,6 +1602,14 @@
       "text": "When Jon has lost his job as a banker?"
     },
     {
+      "id": "benchmark-locomo-temporal-conv-50-qa1:speaker:0001:embedding",
+      "text": "Calvin"
+    },
+    {
+      "id": "benchmark-locomo-temporal-conv-50-qa1:speaker:0002:embedding",
+      "text": "Dave"
+    },
+    {
       "id": "benchmark-locomo-temporal-conv-50-qa1:remember:0001:embedding",
       "text": "Hey Dave! Long time no see. I just went to an awesome music thingy in Tokyo - so cool!"
     },
@@ -1668,6 +1772,14 @@
     {
       "id": "benchmark-locomo-temporal-conv-50-qa1:query:embedding",
       "text": "When did Calvin first travel to Tokyo?"
+    },
+    {
+      "id": "benchmark-locomo-multi-conv-26-qa12:speaker:0001:embedding",
+      "text": "Caroline"
+    },
+    {
+      "id": "benchmark-locomo-multi-conv-26-qa12:speaker:0002:embedding",
+      "text": "Melanie"
     },
     {
       "id": "benchmark-locomo-multi-conv-26-qa12:remember:0001:embedding",
@@ -1896,6 +2008,14 @@
     {
       "id": "benchmark-locomo-multi-conv-26-qa12:query:embedding",
       "text": "Where did Caroline move from 4 years ago?"
+    },
+    {
+      "id": "benchmark-locomo-multi-conv-41-qa4:speaker:0001:embedding",
+      "text": "John"
+    },
+    {
+      "id": "benchmark-locomo-multi-conv-41-qa4:speaker:0002:embedding",
+      "text": "Maria"
     },
     {
       "id": "benchmark-locomo-multi-conv-41-qa4:remember:0001:embedding",
@@ -2138,6 +2258,14 @@
       "text": "What type of volunteering have John and Maria both done?"
     },
     {
+      "id": "benchmark-locomo-control-conv-30-qa40:speaker:0001:embedding",
+      "text": "Gina"
+    },
+    {
+      "id": "benchmark-locomo-control-conv-30-qa40:speaker:0002:embedding",
+      "text": "Jon"
+    },
+    {
       "id": "benchmark-locomo-control-conv-30-qa40:remember:0001:embedding",
       "text": "Hey Jon! Good to see you. What's up? Anything new?"
     },
@@ -2364,6 +2492,14 @@
     {
       "id": "benchmark-locomo-control-conv-30-qa40:query:embedding",
       "text": "What is Gina's favorite style of dance?"
+    },
+    {
+      "id": "benchmark-locomo-control-conv-47-qa69:speaker:0001:embedding",
+      "text": "James"
+    },
+    {
+      "id": "benchmark-locomo-control-conv-47-qa69:speaker:0002:embedding",
+      "text": "John"
     },
     {
       "id": "benchmark-locomo-control-conv-47-qa69:remember:0001:embedding",
@@ -2628,6 +2764,14 @@
     {
       "id": "benchmark-locomo-control-conv-47-qa69:query:embedding",
       "text": "What type of mobile application does James plan to build with John?"
+    },
+    {
+      "id": "benchmark-locomo-abstention-conv-26-qa153:speaker:0001:embedding",
+      "text": "Caroline"
+    },
+    {
+      "id": "benchmark-locomo-abstention-conv-26-qa153:speaker:0002:embedding",
+      "text": "Melanie"
     },
     {
       "id": "benchmark-locomo-abstention-conv-26-qa153:remember:0001:embedding",

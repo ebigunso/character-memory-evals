@@ -1049,3 +1049,53 @@ Prevention:
 
 Evidence:
 - The round-8 regressions admit a padded model only after canonicalization and assert trimmed serialized metadata, compare canonical frozen runtime inputs exactly with both manifest texts and store keys, and the attribution now carries the upstream LongMemEval MIT notice.
+
+## 2026-07-20 — Preserve Conversation Bytes And Model Attribution Structurally  [tags: review, fixtures, attribution, graph, datasets]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: PR #13 Copilot round 9
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- The benchmark converter copied conversation text exactly but discarded each turn's speaker or role, so speaker-dependent queries and the LoCoMo speaker-swap abstention trap had no graph-level way to distinguish who said what.
+
+Root cause:
+- Source-byte preservation was treated as if it prohibited carrying speaker identity, instead of separating immutable behavioral text from structural attribution metadata.
+
+Fix applied:
+- Declare every distinct selected speaker or role as a scenario-local entity, attach that entity to each speaker's `Remember` event, add entity labels to the frozen manifest/store, and verify all source-derived turn, replacement, and query text values remain byte-identical.
+
+Prevention:
+- When an eval depends on authorship, speaker, participant, or actor identity, preserve source text bytes and encode attribution through the fixture's native structural references; require a regression that proves both the graph association and unchanged behavioral text.
+- Repo rule candidate: add structural attribution and unchanged behavioral-text evidence to benchmark-converter review hotspots when source turns carry speaker metadata.
+- Harness migration candidate: none; this is repository-specific fixture semantics.
+- Residual risk / waiver: none.
+
+Evidence:
+- The regenerated benchmark fixture declares 36 scenario-local speaker entities, all 684 `Remember` events carry exactly one speaker reference, and all 706 source-derived turn, replacement, and query text values compare exactly with the pre-change fixture.
+
+## 2026-07-20 — Enumerate Only Embedding Calls The Runtime Actually Makes  [tags: review, embeddings, fixtures, preflight, validation]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: PR #13 Copilot round 9
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- `runtime_embedding_inputs` inserted a `Remember` event's top-level `text` even when explicit Episode, Observation, and DerivedMemory surfaces replaced that alias in the driver.
+
+Root cause:
+- The lookup-set helper mirrored serialized fixture fields instead of branching on the runtime driver's mutually exclusive embedding-call path.
+
+Fix applied:
+- Enumerate the three explicit surfaces when `surface_texts` is present and enumerate top-level `text` only on the default-surface path; add a regression whose intentionally divergent alias proves it is excluded.
+
+Prevention:
+- Frozen-store manifests and bijection preflight must be derived from actual provider call branches, not every serialized text-shaped field; tests should make aliases deliberately distinct whenever schema validation would otherwise hide a redundant lookup.
+- Repo rule candidate: require runtime-call-path enumeration tests for changes to frozen embedding preflight or fixture text aliases.
+- Harness migration candidate: none; the guard is specific to this harness's frozen-store contract.
+- Residual risk / waiver: the canonical artifact key set was unchanged because both committed explicit-surface events already satisfy `text == surface_texts.episode`; the conditional canonical live rerun was therefore not triggered.
+
+Evidence:
+- The dedicated unit regression excludes a deliberately divergent top-level alias, while the committed canonical runtime/manifest/store strict-bijection test passes against unchanged artifact hashes.
