@@ -167,6 +167,14 @@ pub struct RetrievalTelemetry {
     pub trace_available: bool,
     #[serde(default)]
     pub vector_candidate_count: Option<usize>,
+    // Compatibility Policy sealed-artifact exemption: register-cited evidence predates
+    // these counters and must remain readable.
+    #[serde(default)]
+    pub unique_graph_root_candidate_count: Option<usize>,
+    #[serde(default)]
+    pub selected_graph_root_count: Option<usize>,
+    #[serde(default)]
+    pub graph_root_omission_count: Option<usize>,
     #[serde(default)]
     pub graph_relation_count: Option<usize>,
     #[serde(default)]
@@ -1341,6 +1349,30 @@ fn score_text(query: &str, text: &str) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graph_root_counters_default_to_none_for_legacy_telemetry() {
+        let telemetry: RetrievalTelemetry =
+            serde_json::from_value(serde_json::json!({ "trace_available": true })).unwrap();
+
+        assert_eq!(telemetry.unique_graph_root_candidate_count, None);
+        assert_eq!(telemetry.selected_graph_root_count, None);
+        assert_eq!(telemetry.graph_root_omission_count, None);
+
+        let encoded = serde_json::to_value(telemetry).unwrap();
+        assert_eq!(
+            encoded["unique_graph_root_candidate_count"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            encoded["selected_graph_root_count"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            encoded["graph_root_omission_count"],
+            serde_json::Value::Null
+        );
+    }
 
     #[tokio::test]
     async fn mock_namespace_lifecycle_distinguishes_open_from_reattach() {

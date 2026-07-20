@@ -27,6 +27,7 @@ pub enum RetrievalMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BenchmarkRunConfig {
     pub run_id: String,
     pub dataset: String,
@@ -52,10 +53,13 @@ impl BenchmarkRunConfig {
     pub fn validate_for_dataset_kind(&self, dataset_kind: DatasetKind) -> Result<()> {
         self.validate()?;
         if dataset_kind == DatasetKind::Continuity
-            && self.backend.embedding.provider != "controllable_similarity"
+            && !matches!(
+                self.backend.embedding.provider.as_str(),
+                "controllable_similarity" | "frozen" | "mixed"
+            )
         {
             bail!(
-                "continuity dataset requires backend.embedding.provider=controllable_similarity; got {:?}",
+                "continuity dataset requires backend.embedding.provider to be controllable_similarity, frozen, or mixed; got {:?}",
                 self.backend.embedding.provider
             );
         }
@@ -75,14 +79,15 @@ impl BenchmarkRunConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct BackendConfig {
     #[serde(default)]
     pub namespace_prefix: Option<String>,
     #[serde(default)]
     pub qdrant_connection_string: Option<String>,
     #[serde(default)]
-    pub oxigraph_connection_string: Option<String>,
+    pub oxigraph_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oxigraph_persistence_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -99,6 +104,8 @@ pub struct BackendConfig {
     pub cleanup: CleanupConfig,
     #[serde(default)]
     pub embedding: EmbeddingConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub character_memory: Option<CharacterMemoryConfig>,
 }
 
 impl Default for BackendConfig {
@@ -106,7 +113,7 @@ impl Default for BackendConfig {
         Self {
             namespace_prefix: None,
             qdrant_connection_string: None,
-            oxigraph_connection_string: None,
+            oxigraph_path: None,
             oxigraph_persistence_path: None,
             retrieval_stats_path: None,
             identity_registry_dir: None,
@@ -115,6 +122,7 @@ impl Default for BackendConfig {
             reset_namespace_before_each_sample: false,
             cleanup: CleanupConfig::default(),
             embedding: EmbeddingConfig::default(),
+            character_memory: None,
         }
     }
 }
@@ -135,6 +143,20 @@ impl BackendConfig {
                 );
             }
         }
+        if self.embedding.uses_frozen_store() {
+            if self.embedding.vector_size.is_none() {
+                bail!(
+                    "backend.embedding.provider={} requires backend.embedding.vector_size",
+                    self.embedding.provider
+                );
+            }
+            if self.embedding.store_path.is_none() {
+                bail!(
+                    "backend.embedding.provider={} requires backend.embedding.store_path",
+                    self.embedding.provider
+                );
+            }
+        }
         for (field, value) in [
             (
                 "backend.oxigraph_persistence_path",
@@ -147,6 +169,10 @@ impl BackendConfig {
             (
                 "backend.identity_registry_dir",
                 self.identity_registry_dir.as_deref(),
+            ),
+            (
+                "backend.embedding.store_path",
+                self.embedding.store_path.as_deref(),
             ),
         ] {
             if value.is_some_and(|value| value.trim().is_empty()) {
@@ -175,11 +201,211 @@ impl BackendConfig {
                 );
             }
         }
+        if let Some(character_memory) = &self.character_memory {
+            character_memory.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct CharacterMemoryConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selectivity_smoothing_alpha: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selectivity_gamma: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval: Option<CharacterMemoryRetrievalConfig>,
+}
+
+impl CharacterMemoryConfig {
+    fn validate(&self) -> Result<()> {
+        validate_optional_positive_f64(
+            "backend.character_memory.selectivity_smoothing_alpha",
+            self.selectivity_smoothing_alpha,
+        )?;
+        validate_optional_positive_f64(
+            "backend.character_memory.selectivity_gamma",
+            self.selectivity_gamma,
+        )?;
+        if let Some(retrieval) = &self.retrieval {
+            retrieval.validate()?;
+        }
         Ok(())
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct CharacterMemoryRetrievalConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fanout: Option<CharacterMemoryFanoutConfig>,
+}
+
+impl CharacterMemoryRetrievalConfig {
+    fn validate(&self) -> Result<()> {
+        if let Some(fanout) = &self.fanout {
+            fanout.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct CharacterMemoryFanoutConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub about_entity: Option<CharacterMemoryAboutEntityFanoutConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub participant_entity: Option<CharacterMemoryParticipantEntityFanoutConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part_of_thread: Option<CharacterMemoryPartOfThreadFanoutConfig>,
+}
+
+impl CharacterMemoryFanoutConfig {
+    fn validate(&self) -> Result<()> {
+        if let Some(budget) = self
+            .about_entity
+            .as_ref()
+            .and_then(|fanout| fanout.derived_memory.as_ref())
+        {
+            budget.validate(
+                "backend.character_memory.retrieval.fanout.about_entity.derived_memory",
+            )?;
+        }
+        if let Some(budget) = self
+            .participant_entity
+            .as_ref()
+            .and_then(|fanout| fanout.episode.as_ref())
+        {
+            budget
+                .validate("backend.character_memory.retrieval.fanout.participant_entity.episode")?;
+        }
+        if let Some(budget) = self
+            .part_of_thread
+            .as_ref()
+            .and_then(|fanout| fanout.derived_memory.as_ref())
+        {
+            budget.validate(
+                "backend.character_memory.retrieval.fanout.part_of_thread.derived_memory",
+            )?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct CharacterMemoryAboutEntityFanoutConfig {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_about_entity_derived_memory_budget"
+    )]
+    pub derived_memory: Option<FanoutBudgetConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct CharacterMemoryParticipantEntityFanoutConfig {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_participant_entity_episode_budget"
+    )]
+    pub episode: Option<FanoutBudgetConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct CharacterMemoryPartOfThreadFanoutConfig {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_part_of_thread_derived_memory_budget"
+    )]
+    pub derived_memory: Option<FanoutBudgetConfig>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FanoutBudgetConfig {
+    pub min: usize,
+    pub max: usize,
+}
+
+fn deserialize_fanout_budget_at_path<'de, D>(
+    deserializer: D,
+    path: &str,
+) -> std::result::Result<Option<FanoutBudgetConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<FanoutBudgetConfig>::deserialize(deserializer)
+        .map_err(|error| serde::de::Error::custom(format!("{path}: {error}")))
+}
+
+fn deserialize_about_entity_derived_memory_budget<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<FanoutBudgetConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_fanout_budget_at_path(
+        deserializer,
+        "backend.character_memory.retrieval.fanout.about_entity.derived_memory",
+    )
+}
+
+fn deserialize_participant_entity_episode_budget<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<FanoutBudgetConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_fanout_budget_at_path(
+        deserializer,
+        "backend.character_memory.retrieval.fanout.participant_entity.episode",
+    )
+}
+
+fn deserialize_part_of_thread_derived_memory_budget<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<FanoutBudgetConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_fanout_budget_at_path(
+        deserializer,
+        "backend.character_memory.retrieval.fanout.part_of_thread.derived_memory",
+    )
+}
+
+impl FanoutBudgetConfig {
+    fn validate(self, field: &str) -> Result<()> {
+        if self.min > self.max {
+            bail!(
+                "{field}.min must be less than or equal to {field}.max, got min={} max={}",
+                self.min,
+                self.max
+            );
+        }
+        Ok(())
+    }
+}
+
+fn validate_optional_positive_f64(field: &str, value: Option<f64>) -> Result<()> {
+    if let Some(value) = value
+        && (!value.is_finite() || value <= 0.0)
+    {
+        bail!("{field} must be a finite positive number, got {value}");
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CleanupConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -209,6 +435,7 @@ impl CleanupConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct EmbeddingConfig {
     #[serde(default = "default_embedding_provider")]
     pub provider: String,
@@ -216,6 +443,8 @@ pub struct EmbeddingConfig {
     pub model: String,
     #[serde(default)]
     pub vector_size: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store_path: Option<String>,
 }
 
 impl Default for EmbeddingConfig {
@@ -224,11 +453,19 @@ impl Default for EmbeddingConfig {
             provider: default_embedding_provider(),
             model: default_embedding_model(),
             vector_size: None,
+            store_path: None,
         }
     }
 }
 
+impl EmbeddingConfig {
+    pub fn uses_frozen_store(&self) -> bool {
+        matches!(self.provider.as_str(), "frozen" | "mixed")
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RetrievalConfig {
     #[serde(default)]
     pub mode: RetrievalMode,
@@ -293,6 +530,7 @@ impl RetrievalConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct IngestConfig {
     #[serde(default)]
     pub index_observations: bool,
@@ -350,6 +588,7 @@ impl IngestConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct MetricsConfig {
     #[serde(default = "default_ks_session")]
     pub ks_session: Vec<usize>,
@@ -395,13 +634,7 @@ fn default_embedding_model() -> String {
 }
 
 fn embedding_model_vector_size(model: &str) -> Result<usize> {
-    match model.trim() {
-        "text-embedding-3-small" | "text-embedding-ada-002" => Ok(1536),
-        "text-embedding-3-large" => Ok(3072),
-        _ => bail!(
-            "backend.embedding.model {model:?} is unsupported for deterministic provider; expected text-embedding-3-small, text-embedding-3-large, or text-embedding-ada-002"
-        ),
-    }
+    crate::frozen_embedding::model_native_embedding_vector_size(model)
 }
 
 fn default_openai_api_key_env() -> String {
@@ -466,6 +699,59 @@ mod tests {
     }
 
     #[test]
+    fn run_config_rejects_unknown_keys_at_every_container_boundary() {
+        let cases = [
+            (serde_json::json!({"run_typo": true}), "run_typo"),
+            (
+                serde_json::json!({"backend": {"backend_typo": true}}),
+                "backend_typo",
+            ),
+            (
+                serde_json::json!({"backend": {"cleanup": {"cleanup_typo": true}}}),
+                "cleanup_typo",
+            ),
+            (
+                serde_json::json!({"backend": {"embedding": {"embedding_typo": true}}}),
+                "embedding_typo",
+            ),
+            (
+                serde_json::json!({"retrieval": {"retrieval_typo": true}}),
+                "retrieval_typo",
+            ),
+            (
+                serde_json::json!({"ingest": {"ingest_typo": true}}),
+                "ingest_typo",
+            ),
+            (
+                serde_json::json!({"metrics": {"metrics_typo": true}}),
+                "metrics_typo",
+            ),
+        ];
+
+        for (extra, unknown_key) in cases {
+            let mut value = serde_json::json!({
+                "run_id": "r",
+                "dataset": "synthetic"
+            });
+            merge_json_object(&mut value, extra);
+            let error = serde_json::from_value::<BenchmarkRunConfig>(value)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("unknown field `{unknown_key}`")),
+                "{error}"
+            );
+        }
+    }
+
+    fn merge_json_object(target: &mut serde_json::Value, source: serde_json::Value) {
+        let target = target.as_object_mut().unwrap();
+        for (key, value) in source.as_object().unwrap() {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+
+    #[test]
     fn rejects_zero_embedding_vector_size() {
         let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
@@ -477,7 +763,6 @@ mod tests {
 
         let error = config.validate().unwrap_err().to_string();
         assert!(error.contains("backend.embedding.vector_size"));
-        assert!(error.contains("greater than zero"));
     }
 
     #[test]
@@ -525,29 +810,69 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("continuity dataset"));
-        assert!(error.contains("backend.embedding.provider=controllable_similarity"));
         assert!(error.contains("openai"));
 
         config.backend.embedding = EmbeddingConfig {
             provider: "deterministic".into(),
             model: "text-embedding-3-large".into(),
             vector_size: Some(3072),
+            store_path: None,
         };
         let error = config
             .validate_for_dataset_kind(DatasetKind::Continuity)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("backend.embedding.provider=controllable_similarity"));
         assert!(error.contains("deterministic"));
 
         config.backend.embedding = EmbeddingConfig {
             provider: "controllable_similarity".into(),
             model: "fixture-declared".into(),
             vector_size: Some(8),
+            store_path: None,
         };
         config
             .validate_for_dataset_kind(DatasetKind::Continuity)
             .unwrap();
+
+        config.backend.embedding = EmbeddingConfig {
+            provider: "frozen".into(),
+            model: "text-embedding-3-large".into(),
+            vector_size: Some(3072),
+            store_path: Some("fixtures/embeddings/continuity.json".into()),
+        };
+        config
+            .validate_for_dataset_kind(DatasetKind::Continuity)
+            .unwrap();
+    }
+
+    #[test]
+    fn frozen_embedding_config_requires_store_path_and_vector_size() {
+        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "continuity-run",
+            "dataset": "continuity",
+            "backend": {
+                "embedding": {
+                    "provider": "frozen",
+                    "model": "text-embedding-3-large"
+                },
+                "oxigraph_persistence_path": "runs/continuity/oxigraph",
+                "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
+            },
+            "ingest": {"index_observations": true, "index_episode_summaries": true}
+        }))
+        .unwrap();
+
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("backend.embedding.vector_size"), "{error}");
+
+        config.backend.embedding.vector_size = Some(256);
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("backend.embedding.store_path"), "{error}");
+
+        config.backend.embedding.store_path = Some("  ".to_string());
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("backend.embedding.store_path"), "{error}");
+        assert!(error.contains("must not be empty"), "{error}");
     }
 
     #[test]
@@ -618,6 +943,198 @@ mod tests {
                 .to_string()
                 .contains("backend.retrieval_stats_path")
         );
+    }
+
+    #[test]
+    fn character_memory_overrides_parse_validate_and_survive_config_snapshot() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "continuity",
+            "backend": {
+                "character_memory": {
+                    "selectivity_smoothing_alpha": 2.0,
+                    "selectivity_gamma": 0.5,
+                    "retrieval": {
+                        "fanout": {
+                            "about_entity": {"derived_memory": {"min": 2, "max": 8}},
+                            "participant_entity": {"episode": {"min": 1, "max": 3}},
+                            "part_of_thread": {"derived_memory": {"min": 4, "max": 9}}
+                        }
+                    }
+                }
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        config.validate().unwrap();
+        let snapshot = serde_json::to_value(&config).unwrap();
+        assert_eq!(
+            snapshot["backend"]["character_memory"]["selectivity_smoothing_alpha"],
+            2.0
+        );
+        assert_eq!(
+            snapshot["backend"]["character_memory"]["selectivity_gamma"],
+            0.5
+        );
+        assert_eq!(
+            snapshot["backend"]["character_memory"]["retrieval"]["fanout"]["about_entity"]["derived_memory"]
+                ["min"],
+            2
+        );
+        assert_eq!(
+            snapshot["backend"]["character_memory"]["retrieval"]["fanout"]["participant_entity"]["episode"]
+                ["max"],
+            3
+        );
+        assert_eq!(
+            snapshot["backend"]["character_memory"]["retrieval"]["fanout"]["part_of_thread"]["derived_memory"]
+                ["max"],
+            9
+        );
+    }
+
+    #[test]
+    fn character_memory_overrides_are_absent_from_legacy_config_snapshots() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        config.validate().unwrap();
+        let snapshot = serde_json::to_value(&config).unwrap();
+        assert!(snapshot["backend"].get("character_memory").is_none());
+    }
+
+    #[test]
+    fn character_memory_overrides_reject_invalid_selectivity_and_fanout() {
+        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "synthetic",
+            "backend": {
+                "character_memory": {
+                    "selectivity_smoothing_alpha": -1.0
+                }
+            },
+            "ingest": {
+                "index_observations": true,
+                "index_episode_summaries": true
+            }
+        }))
+        .unwrap();
+
+        let error = config.validate().unwrap_err().to_string();
+        assert!(
+            error.contains("backend.character_memory.selectivity_smoothing_alpha"),
+            "{error}"
+        );
+        assert!(error.contains("finite positive number"), "{error}");
+
+        config.backend.character_memory = Some(
+            serde_json::from_value(serde_json::json!({
+                "retrieval": {
+                    "fanout": {
+                        "about_entity": {"derived_memory": {"min": 9, "max": 8}}
+                    }
+                }
+            }))
+            .unwrap(),
+        );
+        let error = config.validate().unwrap_err().to_string();
+        assert!(
+            error.contains("backend.character_memory.retrieval.fanout.about_entity.derived_memory"),
+            "{error}"
+        );
+        assert!(error.contains("min=9 max=8"), "{error}");
+    }
+
+    #[test]
+    fn character_memory_fanout_budget_tables_require_min_and_max() {
+        for (value, missing_key, table_path) in [
+            (
+                serde_json::json!({
+                    "retrieval": {
+                        "fanout": {
+                            "about_entity": {"derived_memory": {"min": 2}}
+                        }
+                    }
+                }),
+                "max",
+                "backend.character_memory.retrieval.fanout.about_entity.derived_memory",
+            ),
+            (
+                serde_json::json!({
+                    "retrieval": {
+                        "fanout": {
+                            "participant_entity": {"episode": {"max": 3}}
+                        }
+                    }
+                }),
+                "min",
+                "backend.character_memory.retrieval.fanout.participant_entity.episode",
+            ),
+        ] {
+            let error = serde_json::from_value::<CharacterMemoryConfig>(value)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("missing field `{missing_key}`")),
+                "{error}"
+            );
+            assert!(error.contains(table_path), "{error}");
+        }
+    }
+
+    #[test]
+    fn character_memory_overrides_reject_unknown_keys_and_fanout_targets() {
+        let error = serde_json::from_value::<CharacterMemoryConfig>(serde_json::json!({
+            "selectivity_gamme": 0.5
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("unknown field `selectivity_gamme`"),
+            "{error}"
+        );
+
+        for (value, unknown_key) in [
+            (
+                serde_json::json!({
+                    "retrieval": {
+                        "fanout": {
+                            "unsupported_relation": {"derived_memory": {"min": 0, "max": 1}}
+                        }
+                    }
+                }),
+                "unsupported_relation",
+            ),
+            (
+                serde_json::json!({
+                    "retrieval": {
+                        "fanout": {
+                            "about_entity": {"episode": {"min": 0, "max": 1}}
+                        }
+                    }
+                }),
+                "episode",
+            ),
+        ] {
+            let error = serde_json::from_value::<CharacterMemoryConfig>(value)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("unknown field `{unknown_key}`")),
+                "{error}"
+            );
+        }
     }
 
     #[test]

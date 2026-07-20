@@ -15,7 +15,7 @@ cmem-eval-core = { path = "../cmem-eval-core" }
 character-memory.workspace = true
 config = "0.15"
 qdrant-client = "1.17.0"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest.workspace = true
 tempfile = "3"
 
 [dev-dependencies]

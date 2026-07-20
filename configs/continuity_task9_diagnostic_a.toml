@@ -1,0 +1,48 @@
+run_id = "t9diaga"
+dataset = "continuity"
+
+[backend]
+namespace_prefix = "cmem_eval_t9diaga"
+oxigraph_persistence_path = "runs/continuity/v0-1-5-task9/diagnostic-a/stores/oxigraph"
+retrieval_stats_path = "runs/continuity/v0-1-5-task9/diagnostic-a/stores/retrieval.sqlite"
+identity_registry_dir = "runs/continuity/v0-1-5-task9/diagnostic-a/stores/identities"
+
+[backend.character_memory]
+selectivity_smoothing_alpha = 1.0
+selectivity_gamma = 1.0
+
+[backend.character_memory.retrieval.fanout.about_entity.derived_memory]
+min = 0
+max = 20
+
+[backend.character_memory.retrieval.fanout.participant_entity.episode]
+min = 0
+max = 5
+
+[backend.character_memory.retrieval.fanout.part_of_thread.derived_memory]
+min = 0
+max = 15
+
+[backend.cleanup]
+enabled = false
+require_collection_prefix = "cmem_eval_t9diaga"
+
+[backend.embedding]
+provider = "controllable_similarity"
+model = "text-embedding-3-small"
+vector_size = 8
+
+[retrieval]
+mode = "hybrid"
+top_k_episodes = 64
+top_k_observations = 8
+include_derived_memories = true
+include_threads = true
+include_entities = true
+include_debug_rationale = true
+max_vector_candidates = 48
+max_graph_roots = 48
+
+[ingest]
+index_observations = true
+index_episode_summaries = true

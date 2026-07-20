@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::{
-    CONTINUITY_FIXTURE_SCHEMA_VERSION, CONTINUITY_TRACE_SCHEMA_VERSION, ContinuityQueryTrace,
-    ContinuityScenario, InteractionEvent, RestartObservation, ScenarioPattern,
+    CONTINUITY_TRACE_SCHEMA_VERSION, ContinuityQueryTrace, ContinuityScenario, InteractionEvent,
+    RestartObservation, ScenarioPattern,
 };
 
 pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "1.0.0";
@@ -120,6 +120,7 @@ pub struct TuningObservation {
 
 pub struct ContinuityReportInput<'a> {
     pub generated_at: DateTime<Utc>,
+    pub fixture_schema_version: u32,
     pub fixture_seed: u64,
     pub config: Value,
     pub adapter: RunAdapterMetadata,
@@ -141,12 +142,17 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
     let embedding_seeds = input
         .scenarios
         .iter()
-        .map(|scenario| (scenario.fixture_id.clone(), scenario.embedding.seed))
+        .filter_map(|scenario| {
+            scenario
+                .embedding
+                .controllable_similarity()
+                .map(|embedding| (scenario.fixture_id.clone(), embedding.seed))
+        })
         .collect::<BTreeMap<_, _>>();
     let mut schema_versions = BTreeMap::new();
     schema_versions.insert(
         "continuity_fixture".to_string(),
-        CONTINUITY_FIXTURE_SCHEMA_VERSION.to_string(),
+        input.fixture_schema_version.to_string(),
     );
     schema_versions.insert(
         "continuity_report".to_string(),
@@ -391,7 +397,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             run_id: input.summary.run_id.clone(),
             dataset: input.summary.dataset.clone(),
             adapter: input.adapter,
-            fixture_schema_version: CONTINUITY_FIXTURE_SCHEMA_VERSION,
+            fixture_schema_version: input.fixture_schema_version,
             fixture_seed: input.fixture_seed,
             embedding_seeds,
             fixture_ids,
@@ -562,15 +568,41 @@ fn tuning_observation(
     if adapter.is_mock {
         return None;
     }
-    let decisions = traces
+    let hub_traces = traces
         .iter()
         .filter(|trace| trace.pattern == ScenarioPattern::RecurringHubEntity)
+        .collect::<Vec<_>>();
+    let root_counter_samples = hub_traces
+        .iter()
+        .filter_map(|trace| {
+            let telemetry = &trace.retrieval.telemetry;
+            Some((
+                telemetry.unique_graph_root_candidate_count?,
+                telemetry.selected_graph_root_count?,
+                telemetry.graph_root_omission_count?,
+            ))
+        })
+        .collect::<Vec<_>>();
+    if root_counter_samples.is_empty() {
+        return None;
+    }
+    let unique_graph_root_candidate_count = root_counter_samples
+        .iter()
+        .map(|(unique, _, _)| unique)
+        .sum::<usize>();
+    let selected_graph_root_count = root_counter_samples
+        .iter()
+        .map(|(_, selected, _)| selected)
+        .sum::<usize>();
+    let graph_root_omission_count = root_counter_samples
+        .iter()
+        .map(|(_, _, omitted)| omitted)
+        .sum::<usize>();
+    let decisions = hub_traces
+        .iter()
         .filter_map(|trace| trace.retrieval.telemetry.selectivity_decisions.as_ref())
         .flatten()
         .collect::<Vec<_>>();
-    if decisions.is_empty() {
-        return None;
-    }
     let scored_count = decisions
         .iter()
         .filter(|decision| decision.score.is_some())
@@ -581,15 +613,106 @@ fn tuning_observation(
         .count();
     Some(TuningObservation {
         id: "entity_root_candidate_limit".to_string(),
-        finding: "Character Memory's default max_graph_roots=12 plus equal-score object-type ordering truncated entity roots in the hub fixture; this evaluation uses the caller-supplied candidate-limit regime recorded here without changing Character Memory defaults.".to_string(),
+        finding: format!(
+            "Measured graph-root selection across {} recurring-hub query trace(s): {} unique candidates, {} selected roots, and {} omissions under the recorded candidate-limit regime. These root-type-neutral counters do not identify omitted object types.",
+            root_counter_samples.len(),
+            unique_graph_root_candidate_count,
+            selected_graph_root_count,
+            graph_root_omission_count,
+        ),
         measurement_regime: serde_json::json!({
             "max_vector_candidates": config.pointer("/retrieval/max_vector_candidates"),
             "max_graph_roots": config.pointer("/retrieval/max_graph_roots"),
         }),
         observed: serde_json::json!({
+            "root_counter_query_count": root_counter_samples.len(),
+            "unique_graph_root_candidate_count": unique_graph_root_candidate_count,
+            "selected_graph_root_count": selected_graph_root_count,
+            "graph_root_omission_count": graph_root_omission_count,
             "selectivity_decision_count": decisions.len(),
             "scored_selectivity_count": scored_count,
             "fallback_selectivity_count": fallback_count,
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+    use cmem_eval_core::{RetrievalTelemetry, RetrievedContextPack};
+
+    use super::*;
+
+    fn hub_trace(counters: Option<(usize, usize, usize)>) -> ContinuityQueryTrace {
+        let mut telemetry = RetrievalTelemetry {
+            trace_available: true,
+            selectivity_decisions: Some(Vec::new()),
+            ..RetrievalTelemetry::default()
+        };
+        if let Some((unique, selected, omitted)) = counters {
+            telemetry.unique_graph_root_candidate_count = Some(unique);
+            telemetry.selected_graph_root_count = Some(selected);
+            telemetry.graph_root_omission_count = Some(omitted);
+        }
+        ContinuityQueryTrace {
+            schema_version: CONTINUITY_TRACE_SCHEMA_VERSION.to_string(),
+            fixture_id: "recurring-hub-entity".to_string(),
+            namespace: "continuity:hub".to_string(),
+            pattern: ScenarioPattern::RecurringHubEntity,
+            event_id: "query-hub".to_string(),
+            query_id: "query-hub".to_string(),
+            timestamp: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
+            query: "What context is connected to the hub?".to_string(),
+            expected: crate::ExpectedRelevance {
+                relevant_external_ids: vec!["relevant".to_string()],
+                irrelevant_external_ids: vec!["negative".to_string()],
+            },
+            history_text: String::new(),
+            retrieval: RetrievedContextPack {
+                telemetry,
+                ..RetrievedContextPack::default()
+            },
+        }
+    }
+
+    #[test]
+    fn tuning_observation_uses_measured_root_counters() {
+        let observation = tuning_observation(
+            &serde_json::json!({
+                "retrieval": {
+                    "max_vector_candidates": 48,
+                    "max_graph_roots": 12
+                }
+            }),
+            &RunAdapterMetadata::live(),
+            &[hub_trace(Some((21, 12, 9)))],
+        )
+        .unwrap();
+
+        assert_eq!(observation.id, "entity_root_candidate_limit");
+        assert_eq!(
+            observation.observed,
+            serde_json::json!({
+                "root_counter_query_count": 1,
+                "unique_graph_root_candidate_count": 21,
+                "selected_graph_root_count": 12,
+                "graph_root_omission_count": 9,
+                "selectivity_decision_count": 0,
+                "scored_selectivity_count": 0,
+                "fallback_selectivity_count": 0,
+            })
+        );
+    }
+
+    #[test]
+    fn tuning_observation_requires_measured_root_counters() {
+        assert!(
+            tuning_observation(
+                &serde_json::json!({ "retrieval": {} }),
+                &RunAdapterMetadata::live(),
+                &[hub_trace(None)],
+            )
+            .is_none()
+        );
+    }
 }

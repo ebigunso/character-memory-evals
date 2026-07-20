@@ -86,6 +86,49 @@ fn checked_in_vector_configs_use_raw_candidate_ingestion_only() {
     }
 }
 
+#[test]
+fn config_reader_rejects_misspelled_backend_table() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"
+run_id = "typo"
+dataset = "synthetic"
+
+[backend.character_memroy]
+selectivity_gamma = 0.5
+"#,
+    )
+    .unwrap();
+
+    let error = read_config(&path).unwrap_err().to_string();
+    assert!(
+        error.contains("unknown field `character_memroy`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn all_checked_in_configs_parse_under_the_strict_schema() {
+    let mut paths = fs::read_dir("../../configs")
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "toml")
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    assert!(!paths.is_empty());
+
+    for path in paths {
+        read_config(&path).unwrap_or_else(|error| {
+            panic!("checked-in config {} failed: {error:#}", path.display())
+        });
+    }
+}
+
 fn synthetic_config() -> BenchmarkRunConfig {
     synthetic_config_with_mode(RetrievalMode::Hybrid)
 }

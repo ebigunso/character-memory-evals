@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "texts": [
+    {
+      "id": "query",
+      "text": "Where is the cobalt notebook?"
+    },
+    {
+      "id": "target",
+      "text": "The cobalt notebook is in the east cabinet."
+    },
+    {
+      "id": "near-miss",
+      "text": "The amber notebook is in the west cabinet."
+    },
+    {
+      "id": "background",
+      "text": "A heron crossed the lake at dawn."
+    }
+  ],
+  "similarity_orderings": [
+    {
+      "description": "target then same-domain near miss then background",
+      "anchor_id": "query",
+      "descending_ids": [
+        "target",
+        "near-miss",
+        "background"
+      ],
+      "min_margin": 0.01
+    }
+  ]
+}

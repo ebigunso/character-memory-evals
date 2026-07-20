@@ -19,7 +19,7 @@ const RATIONALE_CATEGORIES: [RetrievalRationaleCategory; 8] = [
     RetrievalRationaleCategory::Lifecycle,
     RetrievalRationaleCategory::GraphBound,
 ];
-const CONTINUITY_METRICS: [&str; 13] = [
+const CONTINUITY_METRICS: [&str; 14] = [
     "continuity_gap_days",
     "hub_context_share",
     "hub_expansion_relevant_hit_rate",
@@ -28,6 +28,7 @@ const CONTINUITY_METRICS: [&str; 13] = [
     "supersession_replacement_recall",
     "typed_rationale_coverage",
     "sampled_context_pollution_rate",
+    "sampled_event_pollution_rate",
     "fanout_over_budget_count",
     "conservative_fallback_activation_count",
     "fanout_selected_cap_utilization_mean",
@@ -79,6 +80,11 @@ pub fn insert_continuity_metrics(
     trace: &ContinuityQueryTrace,
     config: &MetricsConfig,
 ) {
+    if trace.pattern == ScenarioPattern::Abstention {
+        insert_pollution_metrics(out, trace);
+        return;
+    }
+
     let retrieved_ids = ranked_ids_for_gold(
         &trace.retrieval.items,
         &trace.expected.relevant_external_ids,
@@ -99,7 +105,10 @@ pub fn insert_continuity_metrics(
     }
 
     insert_hub_metrics(out, scenario, trace);
-    if trace.pattern == ScenarioPattern::TemporalStructure {
+    if matches!(
+        trace.pattern,
+        ScenarioPattern::TemporalStructure | ScenarioPattern::TemporalPatterns
+    ) {
         for k in &config.ks_session {
             if let Some(summary) =
                 retrieval_metrics(&retrieved_ids, &trace.expected.relevant_external_ids, *k)
@@ -226,7 +235,10 @@ fn insert_correction_metrics(
     trace: &ContinuityQueryTrace,
     retrieved_ids: &[String],
 ) {
-    if scenario.pattern != ScenarioPattern::CorrectionChains {
+    if !matches!(
+        scenario.pattern,
+        ScenarioPattern::CorrectionChains | ScenarioPattern::EntrenchedCorrection
+    ) {
         return;
     }
     let telemetry = &trace.retrieval.telemetry;
@@ -334,11 +346,41 @@ fn insert_pollution_metrics(out: &mut Map<String, Value>, trace: &ContinuityQuer
         .collect::<Vec<_>>();
     let pollution = labeled
         .iter()
-        .filter(|item| item_matches_any(item, &sampled_irrelevant))
+        .filter(|item| {
+            !item_matches_any(item, &relevant) && item_matches_any(item, &sampled_irrelevant)
+        })
         .collect::<Vec<_>>();
     out.insert(
         "sampled_context_pollution_rate".to_string(),
         rate(pollution.len(), labeled.len()),
+    );
+    let mut labeled_event_roots = BTreeMap::new();
+    for item in &labeled {
+        let is_relevant = item_matches_any(item, &relevant);
+        let is_pollution = item_matches_any(item, &sampled_irrelevant);
+        let Some(root_external_id) = item
+            .episode_external_id
+            .as_deref()
+            .or(item.external_id.as_deref())
+        else {
+            continue;
+        };
+        let root_is_pollution = labeled_event_roots
+            .entry(root_external_id)
+            .or_insert(is_pollution);
+        if is_relevant {
+            *root_is_pollution = false;
+        }
+    }
+    out.insert(
+        "sampled_event_pollution_rate".to_string(),
+        rate(
+            labeled_event_roots
+                .values()
+                .filter(|is_pollution| **is_pollution)
+                .count(),
+            labeled_event_roots.len(),
+        ),
     );
     if let Some(categories) = &trace
         .retrieval
@@ -587,7 +629,9 @@ fn metric_slug(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ContinuityEntityKind, EntityDeclaration, ExpectedRelevance};
+    use crate::{
+        ContinuityEntityKind, ContinuityScenarioEmbedding, EntityDeclaration, ExpectedRelevance,
+    };
     use chrono::{TimeZone, Utc};
     use cmem_eval_core::{
         RetrievalFanoutUtilization, RetrievalSelectivityDecision, RetrievalTelemetry,
@@ -618,19 +662,22 @@ mod tests {
                 label: "Hub".to_string(),
                 is_hub: true,
             }],
-            embedding: cmem_eval_core::ControllableSimilarityFixture {
-                seed: 1,
-                vector_size: 2,
-                noise_magnitude: 0.0,
-                clusters: BTreeMap::new(),
-                concepts: BTreeMap::new(),
-            },
+            embedding: ContinuityScenarioEmbedding::controllable_similarity_provider(
+                cmem_eval_core::ControllableSimilarityFixture {
+                    seed: 1,
+                    vector_size: 2,
+                    noise_magnitude: 0.0,
+                    clusters: BTreeMap::new(),
+                    concepts: BTreeMap::new(),
+                },
+            ),
             events: vec![
                 InteractionEvent::Remember {
                     event_id: "remember".to_string(),
                     external_id: "relevant".to_string(),
                     timestamp: Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap(),
                     text: "relevant".to_string(),
+                    surface_texts: None,
                     entity_external_ids: vec!["hub-person".to_string()],
                     thread: None,
                     salience: 1.0,
@@ -640,6 +687,7 @@ mod tests {
                     external_id: "sampled-negative".to_string(),
                     timestamp: Utc.with_ymd_and_hms(2025, 6, 1, 0, 0, 0).unwrap(),
                     text: "negative".to_string(),
+                    surface_texts: None,
                     entity_external_ids: vec!["hub-person".to_string()],
                     thread: None,
                     salience: 0.5,
@@ -769,9 +817,38 @@ mod tests {
     }
 
     #[test]
+    fn temporal_patterns_route_to_temporal_recall_with_hand_computed_expectation() {
+        let scenario = scenario(ScenarioPattern::TemporalPatterns);
+        let mut trace = trace(ScenarioPattern::TemporalPatterns);
+        trace
+            .expected
+            .relevant_external_ids
+            .push("relevant-not-returned".to_string());
+        let mut out = Map::new();
+
+        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+
+        assert_eq!(out["temporal_recall_fraction@5"], 0.5);
+    }
+
+    #[test]
     fn correction_safety_combines_lifecycle_telemetry_and_replacement_labels() {
         let out = metrics(ScenarioPattern::CorrectionChains);
         assert_eq!(out["correction_lifecycle_safe_admission_rate"], 1.0);
+        assert_eq!(out["supersession_replacement_recall"], 1.0);
+    }
+
+    #[test]
+    fn entrenched_correction_routes_to_correction_metrics_with_hand_computed_expectations() {
+        let scenario = scenario(ScenarioPattern::EntrenchedCorrection);
+        let mut trace = trace(ScenarioPattern::EntrenchedCorrection);
+        trace.retrieval.telemetry.unsafe_lifecycle_returned_count = Some(1);
+        let mut out = Map::new();
+
+        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+
+        assert_eq!(trace.retrieval.items.len(), 2);
+        assert_eq!(out["correction_lifecycle_safe_admission_rate"], 0.5);
         assert_eq!(out["supersession_replacement_recall"], 1.0);
     }
 
@@ -835,7 +912,99 @@ mod tests {
         let mut out = Map::new();
         insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
         assert_eq!(out["sampled_context_pollution_rate"], 0.5);
+        assert_eq!(out["sampled_event_pollution_rate"], 0.5);
         assert_eq!(out["sampled_pollution_rationale_share_semantic"], 1.0);
+    }
+
+    #[test]
+    fn abstention_is_scored_with_pollution_metrics_only() {
+        let scenario = scenario(ScenarioPattern::Abstention);
+        let mut trace = trace(ScenarioPattern::Abstention);
+        trace.expected.relevant_external_ids.clear();
+        let mut out = Map::new();
+
+        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+
+        assert_eq!(out["sampled_context_pollution_rate"], 1.0);
+        assert_eq!(out["sampled_event_pollution_rate"], 1.0);
+        assert!(out.get("continuity_gap_days").is_none());
+        assert!(out.get("hub_context_share").is_none());
+        assert!(out.get("typed_rationale_coverage").is_none());
+        assert!(out.get("fanout_over_budget_count").is_none());
+    }
+
+    #[test]
+    fn event_pollution_deduplicates_surfaces_by_episode_root() {
+        let scenario = scenario(ScenarioPattern::SurfaceContribution);
+        let mut trace = trace(ScenarioPattern::SurfaceContribution);
+        trace.retrieval.items = vec![
+            RetrievedItem {
+                kind: "episode".to_string(),
+                internal_id: "relevant-episode".to_string(),
+                external_id: Some("relevant".to_string()),
+                episode_external_id: None,
+                score: None,
+                rank: 1,
+                rationale: Vec::new(),
+                text: None,
+            },
+            RetrievedItem {
+                kind: "observation".to_string(),
+                internal_id: "relevant-observation".to_string(),
+                external_id: Some("relevant:observation".to_string()),
+                episode_external_id: Some("relevant".to_string()),
+                score: None,
+                rank: 2,
+                rationale: Vec::new(),
+                text: None,
+            },
+            RetrievedItem {
+                kind: "episode".to_string(),
+                internal_id: "negative-episode".to_string(),
+                external_id: Some("sampled-negative".to_string()),
+                episode_external_id: None,
+                score: None,
+                rank: 3,
+                rationale: Vec::new(),
+                text: None,
+            },
+        ];
+        trace
+            .retrieval
+            .telemetry
+            .rationale_categories_by_internal_id = None;
+        let mut out = Map::new();
+
+        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+
+        assert_eq!(out["sampled_context_pollution_rate"], 1.0 / 3.0);
+        assert_eq!(out["sampled_event_pollution_rate"], 0.5);
+    }
+
+    #[test]
+    fn relevant_surface_identity_wins_over_a_sampled_negative_provenance_root() {
+        let scenario = scenario(ScenarioPattern::CorrectionChains);
+        let mut trace = trace(ScenarioPattern::CorrectionChains);
+        trace.retrieval.items = vec![RetrievedItem {
+            kind: "derived_memory".to_string(),
+            internal_id: "replacement".to_string(),
+            external_id: Some("relevant".to_string()),
+            episode_external_id: Some("sampled-negative".to_string()),
+            score: None,
+            rank: 1,
+            rationale: Vec::new(),
+            text: None,
+        }];
+        trace
+            .retrieval
+            .telemetry
+            .rationale_categories_by_internal_id = None;
+        let mut out = Map::new();
+
+        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+
+        assert_eq!(out["sampled_context_pollution_rate"], 0.0);
+        assert_eq!(out["sampled_event_pollution_rate"], 0.0);
     }
 
     #[test]

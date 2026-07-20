@@ -9,10 +9,11 @@ use async_trait::async_trait;
 use chrono::{SecondsFormat, Utc};
 use cmem_eval_core::{
     CommitWriteOptions, CorrectMemoryInput, CorrectionTargetInput, DerivedMemoryInput, EntityInput,
-    ForgetMemoryInput, GraphEnrichmentInput, LinkMemoryInput, MemoryAdapter, MemoryEndpointInput,
-    MemoryLinkInput, MemoryThreadInput, NamespaceLifecycleResult, PrepareWriteInput,
-    ReplacementDerivedMemoryInput, RetrievalConfig, RetrieveInput, RetrievedContextPack,
-    SourceProvenanceInput,
+    EpisodeInput, ForgetCascadePolicyInput, ForgetMemoryInput, GraphEnrichmentInput,
+    LinkMemoryInput, MemoryAdapter, MemoryEndpointInput, MemoryLinkInput, MemoryThreadInput,
+    NamespaceLifecycleResult, ObservationInput, PrepareWriteInput, ReplacementDerivedMemoryInput,
+    RetrievalConfig, RetrieveInput, RetrievedContextPack, SourceProvenanceInput,
+    SuppressionPolicyInput,
 };
 use serde::{Deserialize, Serialize};
 
@@ -208,6 +209,7 @@ pub async fn run_continuity_scenario(
                 external_id,
                 timestamp,
                 text,
+                surface_texts,
                 entity_external_ids,
                 thread,
                 salience,
@@ -218,61 +220,106 @@ pub async fn run_continuity_scenario(
                     "continuity://{}/{event_id}?at={}",
                     scenario.fixture_id, scripted_timestamp
                 );
-                let mut plan = runtime
-                    .adapter()
-                    .prepare(PrepareWriteInput {
-                        namespace: scenario.namespace.clone(),
-                        content: text.clone(),
-                        episode_external_id: external_id.clone(),
-                        observation_external_id: observation_external_id.clone(),
-                        episode_started_at: Some(scripted_timestamp.clone()),
-                        observation_observed_at: Some(scripted_timestamp.clone()),
-                        raw_refs: vec![original_raw_ref.clone()],
-                        idempotency_key: Some(format!(
-                            "continuity:{}:{event_id}:{external_id}",
-                            scenario.fixture_id
-                        )),
-                        include_vector_index_candidates: true,
-                        include_stats_update_candidates: true,
+                let (episode_text, observation_text, derived_text) = surface_texts
+                    .as_ref()
+                    .map(|surface_texts| {
+                        (
+                            surface_texts.episode.as_str(),
+                            surface_texts.observation.as_str(),
+                            surface_texts.derived.as_str(),
+                        )
                     })
-                    .await?;
-                increment(&mut run.operation_counts, "prepare");
-                let validations = runtime.adapter().validate_plan(&plan).await?;
-                increment(&mut run.operation_counts, "validate_plan");
-                if validations
-                    .iter()
-                    .any(|validation| validation.status == "invalid")
-                {
-                    bail!(
-                        "scenario {:?} event {event_id:?} produced an invalid write plan: {validations:?}",
-                        scenario.fixture_id
-                    );
-                }
-                plan.validations = validations;
-                let commit = runtime
-                    .adapter()
-                    .commit(plan, CommitWriteOptions::default())
-                    .await?;
-                increment(&mut run.operation_counts, "commit");
-                if !commit.repair_needed.is_empty() {
-                    bail!(
-                        "scenario {:?} event {event_id:?} committed with repair-needed markers: {:?}",
-                        scenario.fixture_id,
-                        commit.repair_needed
-                    );
-                }
-                if commit.vector_indexed_object_refs.is_empty() {
-                    bail!(
-                        "scenario {:?} event {event_id:?} committed without vector-indexed objects",
-                        scenario.fixture_id
-                    );
+                    .unwrap_or((text.as_str(), text.as_str(), text.as_str()));
+                if surface_texts.is_some() {
+                    runtime
+                        .adapter()
+                        .remember_episode(EpisodeInput {
+                            external_id: external_id.clone(),
+                            namespace: scenario.namespace.clone(),
+                            summary: episode_text.to_string(),
+                            started_at: Some(scripted_timestamp.clone()),
+                            ended_at: None,
+                            participants: Vec::new(),
+                            metadata: serde_json::json!({
+                                "continuity_event_id": event_id,
+                                "timestamp": timestamp,
+                            }),
+                        })
+                        .await?;
+                    increment(&mut run.operation_counts, "remember_episode");
+                    runtime
+                        .adapter()
+                        .remember_observation(ObservationInput {
+                            external_id: observation_external_id.clone(),
+                            episode_external_id: external_id.clone(),
+                            namespace: scenario.namespace.clone(),
+                            speaker: None,
+                            text: observation_text.to_string(),
+                            observed_at: Some(scripted_timestamp.clone()),
+                            metadata: serde_json::json!({
+                                "continuity_event_id": event_id,
+                                "timestamp": timestamp,
+                            }),
+                        })
+                        .await?;
+                    increment(&mut run.operation_counts, "remember_observation");
+                } else {
+                    let mut plan = runtime
+                        .adapter()
+                        .prepare(PrepareWriteInput {
+                            namespace: scenario.namespace.clone(),
+                            content: text.clone(),
+                            episode_external_id: external_id.clone(),
+                            observation_external_id: observation_external_id.clone(),
+                            episode_started_at: Some(scripted_timestamp.clone()),
+                            observation_observed_at: Some(scripted_timestamp.clone()),
+                            raw_refs: vec![original_raw_ref.clone()],
+                            idempotency_key: Some(format!(
+                                "continuity:{}:{event_id}:{external_id}",
+                                scenario.fixture_id
+                            )),
+                            include_vector_index_candidates: true,
+                            include_stats_update_candidates: true,
+                        })
+                        .await?;
+                    increment(&mut run.operation_counts, "prepare");
+                    let validations = runtime.adapter().validate_plan(&plan).await?;
+                    increment(&mut run.operation_counts, "validate_plan");
+                    if validations
+                        .iter()
+                        .any(|validation| validation.status == "invalid")
+                    {
+                        bail!(
+                            "scenario {:?} event {event_id:?} produced an invalid write plan: {validations:?}",
+                            scenario.fixture_id
+                        );
+                    }
+                    plan.validations = validations;
+                    let commit = runtime
+                        .adapter()
+                        .commit(plan, CommitWriteOptions::default())
+                        .await?;
+                    increment(&mut run.operation_counts, "commit");
+                    if !commit.repair_needed.is_empty() {
+                        bail!(
+                            "scenario {:?} event {event_id:?} committed with repair-needed markers: {:?}",
+                            scenario.fixture_id,
+                            commit.repair_needed
+                        );
+                    }
+                    if commit.vector_indexed_object_refs.is_empty() {
+                        bail!(
+                            "scenario {:?} event {event_id:?} committed without vector-indexed objects",
+                            scenario.fixture_id
+                        );
+                    }
                 }
                 admitted.insert(
                     external_id.clone(),
                     AdmittedObject {
                         object_type: "episode".to_string(),
                         source_episode_external_id: Some(external_id.clone()),
-                        original_raw_ref: Some(original_raw_ref.clone()),
+                        original_raw_ref: surface_texts.is_none().then(|| original_raw_ref.clone()),
                         original_source_ref: Some(external_id.clone()),
                     },
                 );
@@ -281,7 +328,7 @@ pub async fn run_continuity_scenario(
                     AdmittedObject {
                         object_type: "observation".to_string(),
                         source_episode_external_id: Some(external_id.clone()),
-                        original_raw_ref: Some(original_raw_ref),
+                        original_raw_ref: surface_texts.is_none().then_some(original_raw_ref),
                         original_source_ref: Some(external_id.clone()),
                     },
                 );
@@ -331,7 +378,7 @@ pub async fn run_continuity_scenario(
                     if !admitted.contains_key(&thread.thread_external_id) {
                         threads.push(MemoryThreadInput {
                             external_id: thread.thread_external_id.clone(),
-                            title: text.clone(),
+                            title: episode_text.to_string(),
                             summary: String::new(),
                             status: "active".to_string(),
                             last_touched_at: Some(scripted_timestamp.clone()),
@@ -378,7 +425,7 @@ pub async fn run_continuity_scenario(
                         derived_memories: vec![DerivedMemoryInput {
                             external_id: derived_external_id.clone(),
                             derived_type: "reflection".to_string(),
-                            text: text.clone(),
+                            text: derived_text.to_string(),
                             source_episode_external_ids: vec![external_id.clone()],
                             source_observation_external_ids: vec![observation_external_id.clone()],
                             thread_external_ids,
@@ -409,8 +456,15 @@ pub async fn run_continuity_scenario(
                         original_source_ref: None,
                     },
                 );
+                let history_text = if surface_texts.is_some() {
+                    format!(
+                        "episode={episode_text}|observation={observation_text}|derived={derived_text}"
+                    )
+                } else {
+                    text.clone()
+                };
                 history.push(format!(
-                    "{}|remember|{external_id}|{text}",
+                    "{}|remember|{external_id}|{history_text}",
                     timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)
                 ));
             }
@@ -491,37 +545,51 @@ pub async fn run_continuity_scenario(
             }
             InteractionEvent::Forget {
                 event_id,
-                target_external_id,
+                target_external_ids,
                 timestamp,
+                suppress_derived_from_target,
+                apply_to_derived_from_target,
             } => {
-                let target = admitted.get(target_external_id).with_context(|| {
-                    format!(
-                        "scenario {:?} forget target was not admitted: {target_external_id}",
-                        scenario.fixture_id
-                    )
-                })?;
-                if !matches!(
-                    target.object_type.as_str(),
-                    "episode" | "observation" | "derived_memory" | "memory_thread"
-                ) {
-                    bail!(
-                        "scenario {:?} cannot forget object type {:?}",
-                        scenario.fixture_id,
-                        target.object_type
-                    );
-                }
+                let targets = target_external_ids
+                    .iter()
+                    .map(|target_external_id| {
+                        let target = admitted.get(target_external_id).with_context(|| {
+                            format!(
+                                "scenario {:?} forget target was not admitted: {target_external_id}",
+                                scenario.fixture_id
+                            )
+                        })?;
+                        if !matches!(
+                            target.object_type.as_str(),
+                            "episode" | "observation" | "derived_memory" | "memory_thread"
+                        ) {
+                            bail!(
+                                "scenario {:?} cannot forget object type {:?}",
+                                scenario.fixture_id,
+                                target.object_type
+                            );
+                        }
+                        Ok(MemoryEndpointInput {
+                            object_type: target.object_type.clone(),
+                            external_id: target_external_id.clone(),
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
                 runtime
                     .adapter()
                     .forget(ForgetMemoryInput {
                         namespace: scenario.namespace.clone(),
-                        targets: vec![MemoryEndpointInput {
-                            object_type: target.object_type.clone(),
-                            external_id: target_external_id.clone(),
-                        }],
+                        targets,
                         rationale: format!("fixture-scripted forget {event_id}"),
-                        suppression_policy: Default::default(),
+                        suppression_policy: SuppressionPolicyInput {
+                            suppress_derived_from_target: *suppress_derived_from_target,
+                            ..SuppressionPolicyInput::default()
+                        },
                         archive_policy: Default::default(),
-                        cascade_policy: Default::default(),
+                        cascade_policy: ForgetCascadePolicyInput {
+                            apply_to_derived_from_target: *apply_to_derived_from_target,
+                            ..ForgetCascadePolicyInput::default()
+                        },
                         target_retention_state: "suppressed".to_string(),
                         target_thread_status: None,
                         include_trace: true,
@@ -529,8 +597,9 @@ pub async fn run_continuity_scenario(
                     .await?;
                 increment(&mut run.operation_counts, "forget");
                 history.push(format!(
-                    "{}|forget|{target_external_id}",
-                    timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)
+                    "{}|forget|{}",
+                    timestamp.to_rfc3339_opts(SecondsFormat::Secs, true),
+                    target_external_ids.join(",")
                 ));
             }
             InteractionEvent::Link {
@@ -880,7 +949,10 @@ mod tests {
     struct RecordingAdapter {
         inner: MockMemoryAdapter,
         prepared: Arc<Mutex<Vec<PrepareWriteInput>>>,
+        episodes: Arc<Mutex<Vec<EpisodeInput>>>,
+        observations: Arc<Mutex<Vec<ObservationInput>>>,
         enrichments: Arc<Mutex<Vec<GraphEnrichmentInput>>>,
+        forgets: Arc<Mutex<Vec<ForgetMemoryInput>>>,
     }
 
     #[async_trait]
@@ -898,10 +970,12 @@ mod tests {
         }
 
         async fn remember_episode(&self, input: EpisodeInput) -> Result<String> {
+            self.episodes.lock().unwrap().push(input.clone());
             self.inner.remember_episode(input).await
         }
 
         async fn remember_observation(&self, input: ObservationInput) -> Result<String> {
+            self.observations.lock().unwrap().push(input.clone());
             self.inner.remember_observation(input).await
         }
 
@@ -919,6 +993,7 @@ mod tests {
         }
 
         async fn forget(&self, input: ForgetMemoryInput) -> Result<LifecycleMutationResult> {
+            self.forgets.lock().unwrap().push(input.clone());
             self.inner.forget(input).await
         }
 
@@ -1041,12 +1116,14 @@ mod tests {
                 _ => 0,
             })
             .sum::<usize>();
-        assert_eq!(traces.len(), 8);
+        assert_eq!(traces.len(), 23);
         for operation in [
             "remember",
             "prepare",
             "validate_plan",
             "commit",
+            "remember_episode",
+            "remember_observation",
             "retrieve",
             "correct",
             "forget",
@@ -1126,8 +1203,10 @@ mod tests {
             query_index + 1,
             InteractionEvent::Forget {
                 event_id: "event-test-thread-forget".to_string(),
-                target_external_id: thread_external_id,
+                target_external_ids: vec![thread_external_id],
                 timestamp: timestamp + chrono::Duration::seconds(1),
+                suppress_derived_from_target: false,
+                apply_to_derived_from_target: false,
             },
         );
         thread.validate().unwrap();
@@ -1247,6 +1326,63 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![0.1, 0.5, 0.95]
         );
+    }
+
+    #[tokio::test]
+    async fn distinct_surface_scenario_persists_each_surface_text_and_correction_forget_is_explicit()
+     {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let surface_scenario = fixtures
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.pattern == ScenarioPattern::SurfaceContribution)
+            .unwrap();
+        let mut surface_runtime = RecordingRuntime::default();
+        run_continuity_scenario(&mut surface_runtime, surface_scenario, &retrieval())
+            .await
+            .unwrap();
+        {
+            let episodes = surface_runtime.adapter.episodes.lock().unwrap();
+            let observations = surface_runtime.adapter.observations.lock().unwrap();
+            let enrichments = surface_runtime.adapter.enrichments.lock().unwrap();
+            let derived = enrichments
+                .iter()
+                .flat_map(|input| &input.derived_memories)
+                .collect::<Vec<_>>();
+            assert_eq!(episodes.len(), 2);
+            assert_eq!(observations.len(), 2);
+            assert_eq!(derived.len(), 2);
+            for index in 0..2 {
+                assert_ne!(episodes[index].summary, observations[index].text);
+                assert_ne!(episodes[index].summary, derived[index].text);
+                assert_ne!(observations[index].text, derived[index].text);
+            }
+        }
+
+        let correction_scenario = fixtures
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.pattern == ScenarioPattern::CorrectionChains)
+            .unwrap();
+        let mut correction_runtime = RecordingRuntime::default();
+        run_continuity_scenario(&mut correction_runtime, correction_scenario, &retrieval())
+            .await
+            .unwrap();
+        let forgets = correction_runtime.adapter.forgets.lock().unwrap();
+        assert_eq!(forgets.len(), 1);
+        assert_eq!(
+            forgets[0]
+                .targets
+                .iter()
+                .map(|target| (target.object_type.as_str(), target.external_id.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("episode", "delivery-v1"),
+                ("observation", "delivery-v1:observation"),
+            ]
+        );
+        assert!(!forgets[0].suppression_policy.suppress_derived_from_target);
+        assert!(!forgets[0].cascade_policy.apply_to_derived_from_target);
     }
 
     #[test]

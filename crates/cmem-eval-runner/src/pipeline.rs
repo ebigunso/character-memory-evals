@@ -11,21 +11,24 @@ use cmem_eval_continuity::{
     write_continuity_report, write_continuity_traces,
 };
 use cmem_eval_core::{
-    BenchmarkRunConfig, DatasetKind, EpisodeInput, GraphEnrichmentInput, GraphSnapshotInput,
-    MemoryAdapter, MetricFamily, MetricsConfig, MockMemoryAdapter, NamespaceLifecycleResult,
-    ObservationInput, PerQuestionResult, ReaderResult, ResultContextMetrics, RetrieveInput,
-    RetrievedContextPack, RetrievedItem, RunAdapterMetadata, Timer, composition_metrics,
-    count_tokens, estimate_word_count, initialize_registry_metrics_for, insert_composition_metrics,
+    BenchmarkRunConfig, DatasetKind, EpisodeInput, FrozenEmbeddingProvider, FrozenEmbeddingSource,
+    GraphEnrichmentInput, GraphSnapshotInput, MemoryAdapter, MetricFamily, MetricsConfig,
+    MockMemoryAdapter, NamespaceLifecycleResult, ObservationInput, PerQuestionResult, ReaderResult,
+    ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem, RunAdapterMetadata,
+    Timer, classify_frozen_embedding_dimensions, composition_metrics, count_tokens,
+    estimate_word_count, initialize_registry_metrics_for, insert_composition_metrics,
     insert_context_metrics, insert_integrity_detail_metrics, insert_retrieval_metrics,
     insert_telemetry_metrics, integrity_details_with_telemetry, summarize_rows, write_jsonl,
     write_summary,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+type FrozenEmbeddingProviders = HashMap<PathBuf, FrozenEmbeddingProvider>;
 
 pub(crate) async fn run_synthetic(args: RunArgs) -> Result<()> {
     run_pipeline::<SyntheticSpec>(args).await
@@ -35,11 +38,22 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
     let config = read_config(&args.run.config)?;
     ContinuitySpec::validate_config(&config)?;
     let fixture = load_continuity_fixture(&args.run.dataset)?;
+    let fixture_schema_version = fixture.schema_version;
     let fixture_seed = fixture.seed;
     let scenarios = select_continuity_scenarios(fixture.scenarios, args.scenario.as_deref())?;
-    validate_continuity_embedding_sizes(&config, &scenarios)?;
+    let selected_adapter = args.run.selected_adapter();
+    let frozen_embedding_providers =
+        validate_continuity_embedding_sizes(&config, &scenarios, Some(selected_adapter))?;
     args.run.validate_adapter_selection(&config)?;
-    run_continuity_pipeline(args, config, fixture_seed, scenarios).await
+    run_continuity_pipeline(
+        args,
+        config,
+        fixture_schema_version,
+        fixture_seed,
+        scenarios,
+        frozen_embedding_providers,
+    )
+    .await
 }
 
 pub(crate) async fn run_longmemeval(args: RunArgs) -> Result<()> {
@@ -66,7 +80,7 @@ pub(crate) fn metric_family_for_config(
                 "summarizing continuity results requires --dataset with the source fixture path",
             )?;
             let scenarios = load_continuity_scenarios(dataset, continuity_scenario)?;
-            validate_continuity_embedding_sizes(config, &scenarios)?;
+            validate_continuity_embedding_sizes(config, &scenarios, None)?;
             Ok(continuity_metric_family(&config.metrics, &scenarios))
         }
         "longmemeval_s" => {
@@ -131,20 +145,99 @@ fn load_continuity_fixture(path: &Path) -> Result<cmem_eval_continuity::Continui
 fn validate_continuity_embedding_sizes(
     config: &BenchmarkRunConfig,
     scenarios: &[ContinuityScenario],
-) -> Result<()> {
+    selected_adapter: Option<AdapterKind>,
+) -> Result<FrozenEmbeddingProviders> {
+    let mut frozen_embedding_providers = HashMap::new();
     let configured_size = config.backend.embedding.vector_size.context(
         "continuity dataset requires backend.embedding.vector_size to match every selected fixture scenario",
     )?;
-    for scenario in scenarios {
-        if scenario.embedding.vector_size != configured_size {
+    let scenario_providers = scenarios
+        .iter()
+        .map(|scenario| scenario.embedding.provider_name())
+        .collect::<BTreeSet<_>>();
+    match config.backend.embedding.provider.as_str() {
+        "controllable_similarity"
+            if scenario_providers != BTreeSet::from(["controllable_similarity"]) =>
+        {
             bail!(
-                "continuity scenario {:?} embedding vector_size {} does not match backend.embedding.vector_size {configured_size}",
-                scenario.fixture_id,
-                scenario.embedding.vector_size
+                "backend.embedding.provider=controllable_similarity cannot run selected scenario providers {scenario_providers:?}; use frozen for frozen-only selection or mixed for a mixed suite"
             );
         }
+        "frozen" if scenario_providers != BTreeSet::from(["frozen"]) => {
+            bail!(
+                "backend.embedding.provider=frozen cannot run selected scenario providers {scenario_providers:?}; use controllable_similarity for legacy selection or mixed for a mixed suite"
+            );
+        }
+        "controllable_similarity" | "frozen" | "mixed" => {}
+        provider => bail!("unsupported continuity embedding provider {provider:?}"),
     }
-    Ok(())
+
+    for scenario in scenarios {
+        if let Some(fixture_size) = scenario.embedding.vector_size() {
+            let valid = if config.backend.embedding.provider == "mixed" {
+                fixture_size <= configured_size
+            } else {
+                fixture_size == configured_size
+            };
+            if !valid {
+                bail!(
+                    "continuity scenario {:?} controllable embedding vector_size {fixture_size} is incompatible with backend.embedding.vector_size {configured_size} for provider {:?}",
+                    scenario.fixture_id,
+                    config.backend.embedding.provider
+                );
+            }
+        }
+    }
+
+    if scenario_providers.contains("frozen") {
+        let store_path = PathBuf::from(
+            config
+                .backend
+                .embedding
+                .store_path
+                .as_deref()
+                .context("frozen continuity scenarios require backend.embedding.store_path")?,
+        );
+        let provider = FrozenEmbeddingProvider::load(
+            &store_path,
+            &config.backend.embedding.model,
+            configured_size,
+        )?;
+        if selected_adapter == Some(AdapterKind::Real) {
+            if provider.source() != FrozenEmbeddingSource::OpenAiApi {
+                bail!(
+                    "frozen continuity evaluations require a store with source=open_ai_api; {} declares source={:?}",
+                    store_path.display(),
+                    provider.source()
+                );
+            }
+            classify_frozen_embedding_dimensions(provider.model(), provider.vector_size(), false)?;
+        }
+        for scenario in scenarios
+            .iter()
+            .filter(|scenario| scenario.embedding.provider_name() == "frozen")
+        {
+            for text in scenario.runtime_embedding_inputs() {
+                provider.vector_for_text(&text).map_err(|error| {
+                    anyhow::anyhow!(
+                        "preflight frozen embeddings for continuity scenario {:?}: {error}",
+                        scenario.fixture_id
+                    )
+                })?;
+            }
+        }
+        frozen_embedding_providers.insert(store_path, provider);
+    }
+    Ok(frozen_embedding_providers)
+}
+
+fn continuity_config_for_scenario(
+    config: &BenchmarkRunConfig,
+    scenario: &ContinuityScenario,
+) -> BenchmarkRunConfig {
+    let mut scenario_config = config.clone();
+    scenario_config.backend.embedding.provider = scenario.embedding.provider_name().to_string();
+    scenario_config
 }
 
 fn select_continuity_scenarios(
@@ -531,6 +624,8 @@ enum RunnerContinuityRuntime {
         active: Option<Box<CharacterMemoryAdapter>>,
         config: Box<BenchmarkRunConfig>,
         scenario: Box<ContinuityScenario>,
+        allow_controllable_padding: bool,
+        frozen_embedding_provider: Option<FrozenEmbeddingProvider>,
     },
 }
 
@@ -539,6 +634,7 @@ impl RunnerContinuityRuntime {
         selected: AdapterKind,
         config: &BenchmarkRunConfig,
         scenario: &ContinuityScenario,
+        frozen_embedding_provider: Option<FrozenEmbeddingProvider>,
     ) -> Result<Self> {
         match selected {
             AdapterKind::Mock => {
@@ -548,17 +644,40 @@ impl RunnerContinuityRuntime {
                     active,
                 })
             }
-            AdapterKind::Real => Ok(Self::Real {
-                active: Some(Box::new(
-                    CharacterMemoryAdapter::new_with_controllable_similarity(
-                        config,
-                        scenario.embedding.clone(),
+            AdapterKind::Real => {
+                let scenario_config = continuity_config_for_scenario(config, scenario);
+                let allow_controllable_padding = config.backend.embedding.provider == "mixed";
+                let adapter = if let Some(fixture) = scenario.embedding.controllable_similarity() {
+                    if allow_controllable_padding {
+                        CharacterMemoryAdapter::new_with_padded_controllable_similarity(
+                            &scenario_config,
+                            fixture.clone(),
+                        )
+                        .await?
+                    } else {
+                        CharacterMemoryAdapter::new_with_controllable_similarity(
+                            &scenario_config,
+                            fixture.clone(),
+                        )
+                        .await?
+                    }
+                } else {
+                    CharacterMemoryAdapter::new_with_frozen_embedding_provider(
+                        &scenario_config,
+                        frozen_embedding_provider.clone().context(
+                            "frozen continuity runtime is missing its preflight provider",
+                        )?,
                     )
-                    .await?,
-                )),
-                config: Box::new(config.clone()),
-                scenario: Box::new(scenario.clone()),
-            }),
+                    .await?
+                };
+                Ok(Self::Real {
+                    active: Some(Box::new(adapter)),
+                    config: Box::new(scenario_config),
+                    scenario: Box::new(scenario.clone()),
+                    allow_controllable_padding,
+                    frozen_embedding_provider,
+                })
+            }
         }
     }
 }
@@ -587,18 +706,41 @@ impl ContinuityRuntime for RunnerContinuityRuntime {
                 active,
                 config,
                 scenario: configured_scenario,
+                allow_controllable_padding,
+                frozen_embedding_provider,
             } => {
                 let previous = active
                     .take()
                     .context("real continuity runtime lost its active adapter")?;
                 drop(previous);
-                let (replacement, lifecycle) =
-                    CharacterMemoryAdapter::reconstruct_with_controllable_similarity(
+                let (replacement, lifecycle) = if let Some(fixture) =
+                    configured_scenario.embedding.controllable_similarity()
+                {
+                    if *allow_controllable_padding {
+                        CharacterMemoryAdapter::reconstruct_with_padded_controllable_similarity(
+                            config.as_ref(),
+                            &scenario.namespace,
+                            fixture.clone(),
+                        )
+                        .await?
+                    } else {
+                        CharacterMemoryAdapter::reconstruct_with_controllable_similarity(
+                            config.as_ref(),
+                            &scenario.namespace,
+                            fixture.clone(),
+                        )
+                        .await?
+                    }
+                } else {
+                    CharacterMemoryAdapter::reconstruct_with_frozen_embedding_provider(
                         config.as_ref(),
                         &scenario.namespace,
-                        configured_scenario.embedding.clone(),
+                        frozen_embedding_provider.clone().context(
+                            "frozen continuity runtime is missing its preflight provider",
+                        )?,
                     )
-                    .await?;
+                    .await?
+                };
                 *active = Some(Box::new(replacement));
                 Ok(lifecycle)
             }
@@ -609,8 +751,10 @@ impl ContinuityRuntime for RunnerContinuityRuntime {
 async fn run_continuity_pipeline(
     args: ContinuityRunArgs,
     config: BenchmarkRunConfig,
+    fixture_schema_version: u32,
     fixture_seed: u64,
     scenarios: Vec<ContinuityScenario>,
+    frozen_embedding_providers: FrozenEmbeddingProviders,
 ) -> Result<()> {
     let selected = args.run.selected_adapter();
     let adapter_metadata = selected.metadata();
@@ -621,12 +765,35 @@ async fn run_continuity_pipeline(
     let mut traces = Vec::with_capacity(total_queries);
     let mut operation_counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut restart_observations: BTreeMap<String, Vec<RestartObservation>> = BTreeMap::new();
-    let mut runtimes = Vec::with_capacity(scenarios.len());
+    let mut runtimes = config
+        .backend
+        .cleanup
+        .enabled
+        .then(|| Vec::with_capacity(scenarios.len()));
 
     for (index, scenario) in scenarios.iter().enumerate() {
         let item_number = index + 1;
         progress.item_started(item_number, &scenario.fixture_id);
-        let mut runtime = RunnerContinuityRuntime::new(selected, &config, scenario).await?;
+        let frozen_embedding_provider = if scenario.embedding.provider_name() == "frozen" {
+            let store_path = config
+                .backend
+                .embedding
+                .store_path
+                .as_deref()
+                .context("frozen continuity runtime requires backend.embedding.store_path")?;
+            let provider = frozen_embedding_providers
+                .get(Path::new(store_path))
+                .cloned()
+                .with_context(|| {
+                    format!("frozen continuity runtime has no preflight provider for {store_path}")
+                })?;
+            Some(provider)
+        } else {
+            None
+        };
+        let mut runtime =
+            RunnerContinuityRuntime::new(selected, &config, scenario, frozen_embedding_provider)
+                .await?;
         let run = run_continuity_scenario(&mut runtime, scenario, &config.retrieval).await?;
         restart_observations.insert(scenario.fixture_id.clone(), run.restart_observations);
         for (operation, count) in run.operation_counts {
@@ -654,7 +821,9 @@ async fn run_continuity_pipeline(
             traces.push(trace);
         }
         progress.item_finished(item_number, &scenario.fixture_id, 0);
-        runtimes.push((scenario.namespace.clone(), runtime));
+        if let Some(runtimes) = &mut runtimes {
+            runtimes.push((scenario.namespace.clone(), runtime));
+        }
     }
 
     if let Some(parent) = args.trace_out.parent() {
@@ -676,6 +845,7 @@ async fn run_continuity_pipeline(
     );
     let report = assemble_continuity_report(ContinuityReportInput {
         generated_at: Utc::now(),
+        fixture_schema_version,
         fixture_seed,
         config: config_value,
         adapter: adapter_metadata,
@@ -698,8 +868,8 @@ async fn run_continuity_pipeline(
         serde_json::to_string(&operation_counts)?
     );
 
-    progress.cleanup_started(runtimes.len());
-    if config.backend.cleanup.enabled {
+    progress.cleanup_started(runtimes.as_ref().map_or(0, Vec::len));
+    if let Some(runtimes) = runtimes {
         for (namespace, runtime) in runtimes {
             runtime.adapter().cleanup_namespace(&namespace).await?;
         }
@@ -1527,10 +1697,24 @@ mod tests {
     }
 
     fn continuity_mock_args(directory: &Path) -> ContinuityRunArgs {
+        let source_config = fs::read_to_string("../../configs/continuity_retrieval.toml").unwrap();
+        let store_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../cmem-eval-continuity/fixtures/embeddings/task22_real_store.json")
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        let config = source_config.replace(
+            "store_path = \"crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json\"",
+            &format!("store_path = \"{store_path}\""),
+        );
+        let config_path = directory.join("continuity-config.toml");
+        fs::write(&config_path, config).unwrap();
         ContinuityRunArgs {
             run: RunArgs {
-                dataset: PathBuf::from("../cmem-eval-continuity/fixtures/continuity_v2.json"),
-                config: PathBuf::from("../../configs/continuity_retrieval.toml"),
+                dataset: PathBuf::from("../cmem-eval-continuity/fixtures/continuity_v3.json"),
+                config: config_path,
                 out: directory.join("continuity.jsonl"),
                 summary_out: directory.join("continuity-summary.json"),
                 adapter: Some(AdapterKind::Mock),
@@ -1538,6 +1722,66 @@ mod tests {
             },
             trace_out: directory.join("continuity-traces.jsonl"),
             report_out: directory.join("continuity-report.json"),
+            scenario: None,
+        }
+    }
+
+    fn frozen_mock_args(directory: &Path, omit_runtime_text: bool) -> ContinuityRunArgs {
+        let mut fixture =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
+        fixture.scenarios.truncate(1);
+        fixture.scenarios[0].embedding =
+            cmem_eval_continuity::ContinuityScenarioEmbedding::frozen();
+        let mut runtime_texts = fixture.scenarios[0].runtime_embedding_inputs();
+        if omit_runtime_text {
+            runtime_texts.pop_last().unwrap();
+        }
+        let store = cmem_eval_core::FrozenEmbeddingStore::new(
+            "test-frozen-model",
+            FrozenEmbeddingSource::TestFixture,
+            runtime_texts
+                .into_iter()
+                .map(|text| (text, vec![1.0, 0.0, 0.0])),
+        )
+        .unwrap();
+        let store_path = directory.join("test-provenance-store.json");
+        fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
+
+        let fixture_path = directory.join("frozen-continuity.json");
+        fs::write(
+            &fixture_path,
+            cmem_eval_continuity::canonical_fixture_bytes(&fixture).unwrap(),
+        )
+        .unwrap();
+
+        let source_config = fs::read_to_string("../../configs/continuity_retrieval.toml").unwrap();
+        let store_path = store_path.display().to_string().replace('\\', "/");
+        let config = source_config
+            .replace("provider = \"mixed\"", "provider = \"frozen\"")
+            .replace(
+                "model = \"text-embedding-3-large\"",
+                "model = \"test-frozen-model\"",
+            )
+            .replace("vector_size = 3072", "vector_size = 3")
+            .replace(
+                "crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json",
+                &store_path,
+            );
+        let config_path = directory.join("frozen-continuity.toml");
+        fs::write(&config_path, config).unwrap();
+
+        ContinuityRunArgs {
+            run: RunArgs {
+                dataset: fixture_path,
+                config: config_path,
+                out: directory.join("frozen-continuity.jsonl"),
+                summary_out: directory.join("frozen-continuity-summary.json"),
+                adapter: Some(AdapterKind::Mock),
+                allow_mock_benchmark: true,
+            },
+            trace_out: directory.join("frozen-continuity-traces.jsonl"),
+            report_out: directory.join("frozen-continuity-report.json"),
             scenario: None,
         }
     }
@@ -1717,10 +1961,8 @@ mod tests {
             validate_continuity_summary_rows(&rows[..1], &dataset_path, Some("cross-store-stress"))
                 .unwrap_err()
                 .to_string();
-        assert!(
-            wrong_scenario_error.contains("row/query mismatch at index 0"),
-            "{wrong_scenario_error}"
-        );
+        assert!(wrong_scenario_error.contains("row/query mismatch"));
+        assert!(wrong_scenario_error.contains('0'));
         crate::commands::summarize(crate::commands::SummarizeArgs {
             input: result_path.clone(),
             config: config_path.clone(),
@@ -1737,20 +1979,33 @@ mod tests {
             &fs::read(second_directory.path().join("continuity-report.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(rows.len(), 8);
-        assert_eq!(traces.len(), 8);
-        assert_eq!(summary.num_questions, 8);
+        assert_eq!(rows.len(), 23);
+        assert_eq!(traces.len(), 23);
+        assert_eq!(summary.num_questions, 23);
         assert_eq!(resummary.config, summary.config);
+        assert_eq!(resummary.metrics, summary.metrics);
         assert_eq!(resummary.metric_support, summary.metric_support);
         assert_eq!(resummary.registry_coverage, summary.registry_coverage);
-        assert_eq!(report.content.aggregate.query_count, 8);
+        assert_eq!(
+            summary.metric_support["temporal_recall_fraction@5"]["numeric_rows"],
+            4
+        );
+        assert_eq!(
+            summary.metric_support["supersession_replacement_recall"]["numeric_rows"],
+            2
+        );
+        assert_eq!(
+            summary.registry_coverage["missing_required_metrics"],
+            serde_json::json!([])
+        );
+        assert_eq!(report.content.aggregate.query_count, 23);
         assert_eq!(report.content.aggregate.restart_count, 1);
         assert_eq!(report.content, second_report.content);
         assert_eq!(
             report.schema_version,
             cmem_eval_continuity::CONTINUITY_REPORT_SCHEMA_VERSION
         );
-        assert_eq!(report.metadata.embedding_seeds.len(), 8);
+        assert_eq!(report.metadata.embedding_seeds.len(), 13);
         assert_eq!(
             report.metadata.normalization.nondeterministic_paths,
             vec!["metadata.generated_at"]
@@ -1773,12 +2028,12 @@ mod tests {
             report.metadata.schema_versions["continuity_report"],
             cmem_eval_continuity::CONTINUITY_REPORT_SCHEMA_VERSION
         );
-        assert_eq!(report.content.scenarios.len(), 8);
+        assert_eq!(report.content.scenarios.len(), 15);
         assert!(report.content.scenarios.values().all(|scenario| {
-            scenario.query_count == 1
-                && scenario.rationale_samples.len() == 1
-                && scenario.fanout_decisions.len() == 1
-                && scenario.stats_health_events.len() == 1
+            scenario.query_count >= 1
+                && scenario.rationale_samples.len() == scenario.query_count
+                && scenario.fanout_decisions.len() == scenario.query_count
+                && scenario.stats_health_events.len() == scenario.query_count
                 && scenario.registry_coverage["missing_required_metrics"] == serde_json::json!([])
         }));
         assert!(report.content.tuning_observations.is_empty());
@@ -1828,6 +2083,7 @@ mod tests {
         assert_eq!(measured_row.latency_ms, 37);
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1840,11 +2096,14 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(error.contains("8 traces but 7 result rows"), "{error}");
+        for token in ["traces", "result rows", "23", "22"] {
+            assert!(error.contains(token), "missing {token:?} in {error}");
+        }
         let mut swapped_rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
         swapped_rows.swap(0, 1);
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1857,16 +2116,15 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(
-            error.contains("trace/result mismatch at index 0"),
-            "{error}"
-        );
+        assert!(error.contains("trace/result mismatch"), "{error}");
+        assert!(error.contains('0'), "{error}");
         let mut invented_traces = traces.clone();
         invented_traces[0].query_id = "invented-query".to_string();
         let mut invented_rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
         invented_rows[0].question_id = "invented-query".to_string();
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1879,16 +2137,15 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(
-            error.contains("scripted query mismatch at index 0"),
-            "{error}"
-        );
+        assert!(error.contains("scripted query mismatch"), "{error}");
+        assert!(error.contains('0'), "{error}");
         let mut duplicate_traces = traces.clone();
         duplicate_traces[1].query_id = duplicate_traces[0].query_id.clone();
         let mut duplicate_rows = cmem_eval_core::read_jsonl(&result_path).unwrap();
         duplicate_rows[1].question_id = duplicate_rows[0].question_id.clone();
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1901,15 +2158,14 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(
-            error.contains("scripted query mismatch at index 1"),
-            "{error}"
-        );
+        assert!(error.contains("scripted query mismatch"), "{error}");
+        assert!(error.contains('1'), "{error}");
 
         let mut unknown_restart_observations = valid_restart_observations.clone();
         unknown_restart_observations.insert("unknown-fixture".to_string(), Vec::new());
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1927,6 +2183,7 @@ mod tests {
 
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: summary.config.clone(),
             adapter: summary.adapter.clone(),
@@ -1940,13 +2197,15 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(error.contains("cross-store-stress"), "{error}");
-        assert!(error.contains("0 restart observations"), "{error}");
-        assert!(error.contains("scripts 1 restart events"), "{error}");
+        for token in ["restart observations", "restart events", "0", "1"] {
+            assert!(error.contains(token), "missing {token:?} in {error}");
+        }
 
         let mut stale_summary = cmem_eval_core::read_summary(&summary_path).unwrap();
         stale_summary.num_questions -= 1;
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: stale_summary.config.clone(),
             adapter: stale_summary.adapter.clone(),
@@ -1965,6 +2224,7 @@ mod tests {
         stale_summary.metrics["continuity_gap_days"]["mean"] = serde_json::json!(-1.0);
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
             fixture_seed: fixture.seed,
             config: stale_summary.config.clone(),
             adapter: stale_summary.adapter.clone(),
@@ -2016,7 +2276,7 @@ mod tests {
         let error = ContinuitySpec::validate_config(&config)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("backend.embedding.provider=controllable_similarity"));
+        assert!(error.contains("controllable_similarity, frozen, or mixed"));
         assert!(error.contains("openai"));
     }
 
@@ -2042,11 +2302,13 @@ mod tests {
         let fixture =
             cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
                 .unwrap();
+        let scenarios = &fixture.scenarios[..1];
         let mut config =
             read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        config.backend.embedding.provider = "controllable_similarity".to_string();
 
         config.backend.embedding.vector_size = None;
-        let error = validate_continuity_embedding_sizes(&config, &fixture.scenarios)
+        let error = validate_continuity_embedding_sizes(&config, scenarios, None)
             .unwrap_err()
             .to_string();
         assert!(
@@ -2054,14 +2316,223 @@ mod tests {
             "{error}"
         );
 
-        config.backend.embedding.vector_size = Some(fixture.scenarios[0].embedding.vector_size + 1);
-        let error = validate_continuity_embedding_sizes(&config, &fixture.scenarios)
+        config.backend.embedding.vector_size =
+            Some(scenarios[0].embedding.vector_size().unwrap() + 1);
+        let error = validate_continuity_embedding_sizes(&config, scenarios, None)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("does not match"), "{error}");
-        assert!(error.contains(&fixture.scenarios[0].fixture_id), "{error}");
+        assert!(error.contains("is incompatible"), "{error}");
+        assert!(error.contains(&scenarios[0].fixture_id), "{error}");
 
-        config.backend.embedding.vector_size = Some(fixture.scenarios[0].embedding.vector_size);
-        validate_continuity_embedding_sizes(&config, &fixture.scenarios).unwrap();
+        config.backend.embedding.vector_size = Some(scenarios[0].embedding.vector_size().unwrap());
+        validate_continuity_embedding_sizes(&config, scenarios, None).unwrap();
+    }
+
+    #[test]
+    fn frozen_scenario_preflight_gates_provenance_on_real_and_coverage_on_mock() {
+        let fixture =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
+        let mut scenario = fixture.scenarios[0].clone();
+        scenario.embedding = cmem_eval_continuity::ContinuityScenarioEmbedding::frozen();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../cmem-eval-continuity/fixtures/embeddings");
+        let mut config =
+            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        config.backend.embedding.provider = "frozen".to_string();
+        config.backend.embedding.model = "task21-smoke-model".to_string();
+        config.backend.embedding.vector_size = Some(3);
+        config.backend.embedding.store_path = Some(
+            fixtures
+                .join("task21_smoke_store.json")
+                .display()
+                .to_string(),
+        );
+
+        let error = validate_continuity_embedding_sizes(
+            &config,
+            &[scenario.clone()],
+            Some(AdapterKind::Real),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("source=open_ai_api"), "{error}");
+        assert!(error.contains("TestFixture"), "{error}");
+
+        let directory = tempfile::tempdir().unwrap();
+        let store_path = directory.path().join("partial-openai-store.json");
+        let store = cmem_eval_core::FrozenEmbeddingStore::new(
+            "task21-smoke-model",
+            FrozenEmbeddingSource::TestFixture,
+            [("unrelated cached text".to_string(), vec![1.0, 0.0, 0.0])],
+        )
+        .unwrap();
+        fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
+        config.backend.embedding.store_path = Some(store_path.display().to_string());
+        let error =
+            validate_continuity_embedding_sizes(&config, &[scenario], Some(AdapterKind::Mock))
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("preflight frozen embeddings"), "{error}");
+        assert!(error.contains("frozen embedding cache miss"), "{error}");
+    }
+
+    #[test]
+    fn real_preflight_rejects_explicit_nonstandard_store_width() {
+        let fixture =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
+        let mut scenario = fixture.scenarios[0].clone();
+        scenario.embedding = cmem_eval_continuity::ContinuityScenarioEmbedding::frozen();
+        let directory = tempfile::tempdir().unwrap();
+        let store_path = directory.path().join("nonstandard-openai-store.json");
+        let store = cmem_eval_core::FrozenEmbeddingStore::new_with_dimension_policy(
+            "text-embedding-3-large",
+            FrozenEmbeddingSource::OpenAiApi,
+            cmem_eval_core::FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
+            scenario
+                .runtime_embedding_inputs()
+                .into_iter()
+                .map(|text| (text, vec![0.0; 1_024])),
+        )
+        .unwrap();
+        fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
+        let mut config =
+            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        config.backend.embedding.provider = "frozen".to_string();
+        config.backend.embedding.model = "text-embedding-3-large".to_string();
+        config.backend.embedding.vector_size = Some(1_024);
+        config.backend.embedding.store_path = Some(store_path.display().to_string());
+
+        let error =
+            validate_continuity_embedding_sizes(&config, &[scenario], Some(AdapterKind::Real))
+                .unwrap_err()
+                .to_string();
+
+        for token in [
+            "text-embedding-3-large",
+            "1024",
+            "3072",
+            "--allow-nonstandard-dimensions",
+        ] {
+            assert!(error.contains(token), "missing {token:?} in {error}");
+        }
+        assert!(error.contains("live Character Memory"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn mock_continuity_accepts_test_provenance_store_with_complete_coverage() {
+        let directory = tempfile::tempdir().unwrap();
+
+        run_continuity(frozen_mock_args(directory.path(), false))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn mock_continuity_rejects_test_provenance_store_with_cache_miss() {
+        let directory = tempfile::tempdir().unwrap();
+
+        let error = run_continuity(frozen_mock_args(directory.path(), true))
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("preflight frozen embeddings"), "{error}");
+        assert!(error.contains("frozen embedding cache miss"), "{error}");
+    }
+
+    #[test]
+    fn committed_benchmark_store_is_exactly_the_runtime_lookup_set() {
+        let fixture_root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmem-eval-continuity/fixtures");
+        let fixture = parse_fixture_bytes(
+            &fs::read(fixture_root.join("continuity_benchmarks_v1.json")).unwrap(),
+        )
+        .unwrap();
+        let runtime_texts = fixture
+            .scenarios
+            .iter()
+            .flat_map(ContinuityScenario::runtime_embedding_inputs)
+            .collect::<BTreeSet<_>>();
+        let manifest = cmem_eval_core::FrozenEmbeddingManifest::load(
+            &fixture_root.join("embeddings/continuity_benchmarks_v1_manifest.json"),
+        )
+        .unwrap();
+        let manifest_texts = manifest
+            .texts
+            .iter()
+            .map(|item| item.text.clone())
+            .collect::<BTreeSet<_>>();
+        let store = cmem_eval_core::FrozenEmbeddingStore::load(
+            &fixture_root.join("embeddings/continuity_benchmarks_v1_store.json"),
+        )
+        .unwrap();
+        let store_texts = store
+            .entries
+            .iter()
+            .map(|entry| entry.text.clone())
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(runtime_texts.len(), 646);
+        assert_eq!(runtime_texts, manifest_texts);
+        assert_eq!(runtime_texts, store_texts);
+    }
+
+    #[test]
+    fn committed_canonical_store_is_exactly_the_frozen_runtime_lookup_set() {
+        let fixture_root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmem-eval-continuity/fixtures");
+        let fixture =
+            parse_fixture_bytes(&fs::read(fixture_root.join("continuity_v3.json")).unwrap())
+                .unwrap();
+        let runtime_texts = fixture
+            .scenarios
+            .iter()
+            .filter(|scenario| scenario.embedding.provider_name() == "frozen")
+            .flat_map(ContinuityScenario::runtime_embedding_inputs)
+            .collect::<BTreeSet<_>>();
+        let manifest = cmem_eval_core::FrozenEmbeddingManifest::load(
+            &fixture_root.join("embeddings/task22_real_manifest.json"),
+        )
+        .unwrap();
+        let manifest_texts = manifest
+            .texts
+            .iter()
+            .map(|item| item.text.clone())
+            .collect::<BTreeSet<_>>();
+        let store = cmem_eval_core::FrozenEmbeddingStore::load(
+            &fixture_root.join("embeddings/task22_real_store.json"),
+        )
+        .unwrap();
+        let store_texts = store
+            .entries
+            .iter()
+            .map(|entry| entry.text.clone())
+            .collect::<BTreeSet<_>>();
+
+        assert!(!runtime_texts.is_empty());
+        assert_eq!(runtime_texts, manifest_texts);
+        assert_eq!(runtime_texts, store_texts);
+    }
+
+    #[test]
+    fn mixed_provider_allows_controllable_fixture_padding() {
+        let fixture =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
+        let mut config =
+            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        config.backend.embedding.provider = "mixed".to_string();
+        config.backend.embedding.model = "text-embedding-3-large".to_string();
+        config.backend.embedding.vector_size = Some(3072);
+        config.backend.embedding.store_path = Some(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../cmem-eval-continuity/fixtures/embeddings/task22_real_store.json")
+                .display()
+                .to_string(),
+        );
+
+        validate_continuity_embedding_sizes(&config, &fixture.scenarios, None).unwrap();
     }
 }

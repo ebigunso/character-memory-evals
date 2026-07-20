@@ -23,6 +23,7 @@ impl Cli {
     pub async fn run(self) -> Result<()> {
         match self.command {
             Command::Run(run) => run.run().await,
+            Command::Embeddings(args) => args.run().await,
             Command::ExportOfficial(args) => export_official(args),
             Command::Summarize(args) => summarize(args),
         }
@@ -32,6 +33,7 @@ impl Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Run(RunCommand),
+    Embeddings(crate::frozen_embeddings::EmbeddingsCommand),
     ExportOfficial(ExportOfficialCommand),
     Summarize(SummarizeArgs),
 }

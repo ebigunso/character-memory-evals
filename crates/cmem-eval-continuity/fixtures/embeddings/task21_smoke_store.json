@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "model": "task21-smoke-model",
+  "vector_size": 3,
+  "dimension_policy": "test_fixture",
+  "source": "test_fixture",
+  "entries": [
+    {
+      "text_sha256": "04a92d241f73890f36c405aa207156a054a05f727439916924354575227c71c1",
+      "text": "Where is the cobalt notebook?",
+      "embedding": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "text_sha256": "5819f5deb283b4af2bb935280104877e73a06aded9b05fa32759288c096650a6",
+      "text": "A heron crossed the lake at dawn.",
+      "embedding": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "text_sha256": "d9ba990c38d462d6eb8da3ce5ea9a3fbd149e7d324247d5b51f149badec04d16",
+      "text": "The amber notebook is in the west cabinet.",
+      "embedding": [
+        0.75,
+        0.65,
+        0.0
+      ]
+    },
+    {
+      "text_sha256": "ee62962d2425a32c57d1139f9560f2d39e06b61f86d1ce67e168e516bcb83d2e",
+      "text": "The cobalt notebook is in the east cabinet.",
+      "embedding": [
+        0.99,
+        0.1,
+        0.0
+      ]
+    }
+  ]
+}

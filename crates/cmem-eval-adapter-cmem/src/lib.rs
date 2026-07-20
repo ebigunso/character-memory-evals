@@ -3,25 +3,27 @@ use async_trait::async_trait;
 use character_memory::{
     ArchivePolicy, CandidateProvenance, CandidateValidation, CandidateValidationStatus,
     CharacterMemory, CommitOptions, ContinuitySectionLimits, CorrectMemoryDraft,
-    CorrectionCascadePolicy, CorrectionLifecyclePolicy, CorrectionTarget, DerivedMemoryDraft,
-    DerivedType, EmbeddingProvider, EntityDraft, EntityType, EpisodeDraft, ExternalSourceReference,
+    CorrectionCascadePolicy, CorrectionLifecyclePolicy, CorrectionTarget, DEFAULT_SCHEMA_VERSION,
+    DerivedMemoryCandidate, DerivedMemoryDraft, DerivedType, EmbeddingProvider, EntityCandidate,
+    EntityDraft, EntityType, EpisodeCandidate, EpisodeDraft, ExternalSourceReference,
     ForgetCascadePolicy, ForgetLifecyclePolicy, ForgetMemoryDraft, LifecycleFilterAction,
     LifecycleFilterReason, LifecycleMutationOutcome, LifecycleTargetRef, MemoryCandidate, MemoryId,
-    MemoryLinkDraft, MemoryObjectDraft, MemoryThreadDraft, ObjectType, ObservationDraft,
-    PrepareOptions, RelationType, RememberDraft, RememberInput, RememberWritePlan,
+    MemoryLinkCandidate, MemoryLinkDraft, MemoryObjectDraft, MemoryObjectRef,
+    MemoryThreadCandidate, MemoryThreadDraft, ObjectType, ObservationCandidate, ObservationDraft,
+    PrepareOptions, RelationType, RememberInput, RememberOutcome, RememberWritePlan,
     ReplacementDerivedMemoryDraft, RetentionState, RetrievalContext, Settings,
     SourceObjectCorrectionTarget, SourceProvenance, SourceProvenanceReference, Stability,
-    SuppressionPolicy, ThreadStatus,
+    SuppressionPolicy, ThreadStatus, VectorIndexCandidate,
 };
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{
     BenchmarkRunConfig, CandidateValidationResult, CommitWriteOptions, CommitWriteResult,
     ControllableSimilarityEmbeddingProvider, ControllableSimilarityFixture, CorrectMemoryInput,
     CorrectionTargetInput, DeterministicEmbeddingProvider, EpisodeInput, ExternalSourceRefInput,
-    ForgetMemoryInput, GraphEnrichmentInput, LifecycleMutationResult, LinkMemoryInput,
-    LinkMemoryResult, MemoryAdapter, MemoryEndpointInput, NamespaceLifecycleResult,
-    ObservationInput, PrepareWriteInput, PreparedCandidate, PreparedWritePlan,
-    ReplacementDerivedMemoryInput, RetrievalFanoutUtilization, RetrievalMode,
+    ForgetMemoryInput, FrozenEmbeddingProvider, FrozenEmbeddingSource, GraphEnrichmentInput,
+    LifecycleMutationResult, LinkMemoryInput, LinkMemoryResult, MemoryAdapter, MemoryEndpointInput,
+    NamespaceLifecycleResult, ObservationInput, PrepareWriteInput, PreparedCandidate,
+    PreparedWritePlan, ReplacementDerivedMemoryInput, RetrievalFanoutUtilization, RetrievalMode,
     RetrievalRationaleCategory, RetrievalSelectivityDecision, RetrievalTelemetry, RetrieveInput,
     RetrievedContextPack, RetrievedItem, SourceProvenanceInput, SupersessionResult,
 };
@@ -47,6 +49,7 @@ const IDENTITY_REGISTRY_PERSIST_BACKOFF_MS: u64 = 25;
 pub struct CharacterMemoryAdapter {
     config: BenchmarkRunConfig,
     controllable_similarity_fixture: Option<ControllableSimilarityFixture>,
+    frozen_embedding_provider: Option<FrozenEmbeddingProvider>,
     qdrant: Qdrant,
     openai_http: reqwest::Client,
     namespaces: Arc<Mutex<HashMap<String, NamespaceState>>>,
@@ -223,17 +226,33 @@ struct VectorHit {
 
 impl CharacterMemoryAdapter {
     pub async fn new(config: &BenchmarkRunConfig) -> Result<Self> {
-        if config.backend.embedding.provider == "controllable_similarity" {
-            bail!(
-                "controllable_similarity requires a scenario fixture; use CharacterMemoryAdapter::new_with_controllable_similarity"
-            );
+        if matches!(
+            config.backend.embedding.provider.as_str(),
+            "controllable_similarity" | "frozen" | "mixed"
+        ) {
+            bail!("continuity embedding providers require an explicit scenario constructor");
         }
-        Self::new_internal(config, None).await
+        Self::new_internal(config, None, None).await
     }
 
     pub async fn new_with_controllable_similarity(
         config: &BenchmarkRunConfig,
         fixture: ControllableSimilarityFixture,
+    ) -> Result<Self> {
+        Self::new_with_controllable_similarity_internal(config, fixture, false).await
+    }
+
+    pub async fn new_with_padded_controllable_similarity(
+        config: &BenchmarkRunConfig,
+        fixture: ControllableSimilarityFixture,
+    ) -> Result<Self> {
+        Self::new_with_controllable_similarity_internal(config, fixture, true).await
+    }
+
+    async fn new_with_controllable_similarity_internal(
+        config: &BenchmarkRunConfig,
+        fixture: ControllableSimilarityFixture,
+        allow_storage_padding: bool,
     ) -> Result<Self> {
         config.validate()?;
         if config.backend.embedding.provider != "controllable_similarity" {
@@ -242,19 +261,125 @@ impl CharacterMemoryAdapter {
             );
         }
         let provider = ControllableSimilarityEmbeddingProvider::new(fixture.clone())?;
-        if config.backend.embedding.vector_size != Some(provider.vector_size()) {
+        let configured_size = config.backend.embedding.vector_size;
+        let valid_size = if allow_storage_padding {
+            configured_size.is_some_and(|size| size >= provider.vector_size())
+        } else {
+            configured_size == Some(provider.vector_size())
+        };
+        if !valid_size {
+            let requirement = if allow_storage_padding {
+                "at least"
+            } else {
+                "exactly"
+            };
             bail!(
-                "backend.embedding.vector_size must equal the controllable similarity fixture vector_size {}; got {:?}",
+                "backend.embedding.vector_size must be {requirement} the controllable similarity fixture vector_size {}; got {:?}",
                 provider.vector_size(),
-                config.backend.embedding.vector_size
+                configured_size
             );
         }
-        Self::new_internal(config, Some(fixture)).await
+        Self::new_internal(config, Some(fixture), None).await
+    }
+
+    pub async fn new_with_frozen_embeddings(config: &BenchmarkRunConfig) -> Result<Self> {
+        Self::new_with_frozen_embeddings_internal(config, false).await
+    }
+
+    pub async fn new_with_frozen_embedding_provider(
+        config: &BenchmarkRunConfig,
+        provider: FrozenEmbeddingProvider,
+    ) -> Result<Self> {
+        Self::new_with_frozen_embedding_provider_internal(config, provider, false).await
+    }
+
+    #[cfg(test)]
+    async fn new_with_test_frozen_embeddings(config: &BenchmarkRunConfig) -> Result<Self> {
+        Self::new_with_frozen_embeddings_internal(config, true).await
+    }
+
+    #[cfg(test)]
+    async fn new_with_test_frozen_embedding_provider(
+        config: &BenchmarkRunConfig,
+        provider: FrozenEmbeddingProvider,
+    ) -> Result<Self> {
+        Self::new_with_frozen_embedding_provider_internal(config, provider, true).await
+    }
+
+    async fn new_with_frozen_embeddings_internal(
+        config: &BenchmarkRunConfig,
+        allow_test_fixture: bool,
+    ) -> Result<Self> {
+        config.validate()?;
+        if config.backend.embedding.provider != "frozen" {
+            bail!("new_with_frozen_embeddings requires backend.embedding.provider=frozen");
+        }
+        let store_path = config
+            .backend
+            .embedding
+            .store_path
+            .as_deref()
+            .context("frozen embedding provider requires backend.embedding.store_path")?;
+        let vector_size = config
+            .backend
+            .embedding
+            .vector_size
+            .context("frozen embedding provider requires backend.embedding.vector_size")?;
+        let provider = FrozenEmbeddingProvider::load(
+            Path::new(store_path),
+            &config.backend.embedding.model,
+            vector_size,
+        )?;
+        Self::new_with_frozen_embedding_provider_internal(config, provider, allow_test_fixture)
+            .await
+    }
+
+    async fn new_with_frozen_embedding_provider_internal(
+        config: &BenchmarkRunConfig,
+        provider: FrozenEmbeddingProvider,
+        allow_test_fixture: bool,
+    ) -> Result<Self> {
+        config.validate()?;
+        if config.backend.embedding.provider != "frozen" {
+            bail!("new_with_frozen_embedding_provider requires backend.embedding.provider=frozen");
+        }
+        let store_path = config
+            .backend
+            .embedding
+            .store_path
+            .as_deref()
+            .context("frozen embedding provider requires backend.embedding.store_path")?;
+        let vector_size = config
+            .backend
+            .embedding
+            .vector_size
+            .context("frozen embedding provider requires backend.embedding.vector_size")?;
+        if provider.model() != config.backend.embedding.model {
+            bail!(
+                "frozen embedding provider model {:?} does not match configured model {:?}",
+                provider.model(),
+                config.backend.embedding.model
+            );
+        }
+        if provider.vector_size() != vector_size {
+            bail!(
+                "frozen embedding provider vector_size {} does not match configured vector_size {vector_size}",
+                provider.vector_size()
+            );
+        }
+        if !allow_test_fixture && provider.source() != FrozenEmbeddingSource::OpenAiApi {
+            bail!(
+                "live frozen embedding adapter requires source=open_ai_api; store {store_path} declares source={:?}",
+                provider.source()
+            );
+        }
+        Self::new_internal(config, None, Some(provider)).await
     }
 
     async fn new_internal(
         config: &BenchmarkRunConfig,
         controllable_similarity_fixture: Option<ControllableSimilarityFixture>,
+        frozen_embedding_provider: Option<FrozenEmbeddingProvider>,
     ) -> Result<Self> {
         let qdrant = Qdrant::from_url(
             &config
@@ -268,6 +393,7 @@ impl CharacterMemoryAdapter {
         Ok(Self {
             config: config.clone(),
             controllable_similarity_fixture,
+            frozen_embedding_provider,
             qdrant,
             openai_http: reqwest::Client::new(),
             namespaces: Arc::new(Mutex::new(HashMap::new())),
@@ -291,6 +417,38 @@ impl CharacterMemoryAdapter {
     ) -> Result<(Self, NamespaceLifecycleResult)> {
         config.validate()?;
         let adapter = Self::new_with_controllable_similarity(config, fixture).await?;
+        let lifecycle = adapter.reattach_namespace(namespace).await?;
+        Ok((adapter, lifecycle))
+    }
+
+    pub async fn reconstruct_with_padded_controllable_similarity(
+        config: &BenchmarkRunConfig,
+        namespace: &str,
+        fixture: ControllableSimilarityFixture,
+    ) -> Result<(Self, NamespaceLifecycleResult)> {
+        config.validate()?;
+        let adapter = Self::new_with_padded_controllable_similarity(config, fixture).await?;
+        let lifecycle = adapter.reattach_namespace(namespace).await?;
+        Ok((adapter, lifecycle))
+    }
+
+    pub async fn reconstruct_with_frozen_embeddings(
+        config: &BenchmarkRunConfig,
+        namespace: &str,
+    ) -> Result<(Self, NamespaceLifecycleResult)> {
+        config.validate()?;
+        let adapter = Self::new_with_frozen_embeddings(config).await?;
+        let lifecycle = adapter.reattach_namespace(namespace).await?;
+        Ok((adapter, lifecycle))
+    }
+
+    pub async fn reconstruct_with_frozen_embedding_provider(
+        config: &BenchmarkRunConfig,
+        namespace: &str,
+        provider: FrozenEmbeddingProvider,
+    ) -> Result<(Self, NamespaceLifecycleResult)> {
+        config.validate()?;
+        let adapter = Self::new_with_frozen_embedding_provider(config, provider).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
     }
@@ -329,6 +487,18 @@ impl CharacterMemoryAdapter {
                 )
                 .await?
             }
+            "frozen" => {
+                let provider = self
+                    .frozen_embedding_provider
+                    .clone()
+                    .context("frozen embedding adapter is missing its loaded store")?;
+                CharacterMemory::new_with_embedding_provider(
+                    settings,
+                    collection_name.clone(),
+                    Box::new(CharacterMemoryFrozenEmbeddingProvider { inner: provider }),
+                )
+                .await?
+            }
             _ => CharacterMemory::new(settings, collection_name.clone()).await?,
         };
 
@@ -342,19 +512,18 @@ impl CharacterMemoryAdapter {
 
     fn settings(&self, namespace: &str) -> Result<Settings> {
         let qdrant = self.qdrant_connection_string()?;
-        let oxigraph = self
+        let oxigraph_path = self
             .config
             .backend
-            .oxigraph_connection_string
+            .oxigraph_path
             .clone()
-            .or_else(|| env::var("OXIGRAPH_CONNECTION_STRING").ok())
-            .unwrap_or_else(|| "memory://in-memory".to_string());
+            .or_else(|| env::var("OXIGRAPH_PATH").ok());
         let openai_api_key = env::var(&self.config.backend.openai_api_key_env)
             .or_else(|_| env::var("OPENAI_API_KEY"))
             .unwrap_or_else(|_| {
                 if matches!(
                     self.config.backend.embedding.provider.as_str(),
-                    "deterministic" | "controllable_similarity"
+                    "deterministic" | "controllable_similarity" | "frozen"
                 ) {
                     "deterministic-unused".to_string()
                 } else {
@@ -370,7 +539,12 @@ impl CharacterMemoryAdapter {
 
         let mut builder = config::Config::builder()
             .set_override("qdrant_connection_string", qdrant)?
-            .set_override("oxigraph_connection_string", oxigraph)?
+            .set_override(
+                "oxigraph_path",
+                oxigraph_path
+                    .clone()
+                    .unwrap_or_else(|| "unused-in-memory".to_string()),
+            )?
             .set_override("openai_api_key", openai_api_key)?
             .set_override(
                 "embedding_model",
@@ -379,15 +553,75 @@ impl CharacterMemoryAdapter {
         if let Some(path) = self.oxigraph_persistence_path(namespace) {
             builder = builder
                 .set_override("graph_store_mode", "persistent")?
-                .set_override(
-                    "oxigraph_connection_string",
-                    path.to_string_lossy().into_owned(),
-                )?;
+                .set_override("oxigraph_path", path.to_string_lossy().into_owned())?;
+        } else if oxigraph_path.is_some() {
+            builder = builder.set_override("graph_store_mode", "persistent")?;
+        } else {
+            builder = builder.set_override("graph_store_mode", "in_memory")?;
         }
         if let Some(path) = self.retrieval_stats_path(namespace) {
             builder = builder
                 .set_override("retrieval_stats_store_mode", "sqlite")?
                 .set_override("retrieval_stats_path", path.to_string_lossy().into_owned())?;
+        }
+        if let Some(overrides) = &self.config.backend.character_memory {
+            if let Some(alpha) = overrides.selectivity_smoothing_alpha {
+                builder = builder.set_override("selectivity_smoothing_alpha", alpha)?;
+            }
+            if let Some(gamma) = overrides.selectivity_gamma {
+                builder = builder.set_override("selectivity_gamma", gamma)?;
+            }
+            if let Some(fanout) = overrides
+                .retrieval
+                .as_ref()
+                .and_then(|retrieval| retrieval.fanout.as_ref())
+            {
+                if let Some(budget) = fanout
+                    .about_entity
+                    .as_ref()
+                    .and_then(|target| target.derived_memory.as_ref())
+                {
+                    builder = builder
+                        .set_override(
+                            "retrieval.fanout.about_entity.derived_memory.min",
+                            u64::try_from(budget.min)?,
+                        )?
+                        .set_override(
+                            "retrieval.fanout.about_entity.derived_memory.max",
+                            u64::try_from(budget.max)?,
+                        )?;
+                }
+                if let Some(budget) = fanout
+                    .participant_entity
+                    .as_ref()
+                    .and_then(|target| target.episode.as_ref())
+                {
+                    builder = builder
+                        .set_override(
+                            "retrieval.fanout.participant_entity.episode.min",
+                            u64::try_from(budget.min)?,
+                        )?
+                        .set_override(
+                            "retrieval.fanout.participant_entity.episode.max",
+                            u64::try_from(budget.max)?,
+                        )?;
+                }
+                if let Some(budget) = fanout
+                    .part_of_thread
+                    .as_ref()
+                    .and_then(|target| target.derived_memory.as_ref())
+                {
+                    builder = builder
+                        .set_override(
+                            "retrieval.fanout.part_of_thread.derived_memory.min",
+                            u64::try_from(budget.min)?,
+                        )?
+                        .set_override(
+                            "retrieval.fanout.part_of_thread.derived_memory.max",
+                            u64::try_from(budget.max)?,
+                        )?;
+                }
+            }
         }
         let external_config = builder.build()?;
 
@@ -866,7 +1100,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             ids.push((input.external_id, id));
         }
 
-        state.memory.remember(RememberDraft::new(objects)).await?;
+        commit_typed_drafts(&state.memory, &namespace, objects, Vec::new()).await?;
         for (external_id, id) in &ids {
             state.episode_ids.insert(external_id.clone(), *id);
             state.reverse_episode_ids.insert(*id, external_id.clone());
@@ -923,7 +1157,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             ids.push((input.external_id, input.episode_external_id, id));
         }
 
-        state.memory.remember(RememberDraft::new(objects)).await?;
+        commit_typed_drafts(&state.memory, &namespace, objects, Vec::new()).await?;
         for (external_id, episode_external_id, id) in &ids {
             state.observation_ids.insert(external_id.clone(), *id);
             state
@@ -1064,10 +1298,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             return Ok(());
         }
 
-        state
-            .memory
-            .remember(RememberDraft::new(objects).with_links(links))
-            .await?;
+        commit_typed_drafts(&state.memory, &input.namespace, objects, links).await?;
         for (external_id, id) in pending_entities {
             state.entity_ids.insert(external_id.clone(), id);
             state.reverse_entity_ids.insert(id, external_id);
@@ -1671,6 +1902,9 @@ fn vector_hits_to_context_pack(
         telemetry: RetrievalTelemetry {
             trace_available: false,
             vector_candidate_count: Some(vector_candidate_count),
+            unique_graph_root_candidate_count: None,
+            selected_graph_root_count: None,
+            graph_root_omission_count: None,
             graph_relation_count: None,
             graph_verified_count: None,
             stale_candidate_omission_count: None,
@@ -1803,6 +2037,16 @@ fn telemetry_from_outcome(
     RetrievalTelemetry {
         trace_available: trace.is_some(),
         vector_candidate_count: Some(outcome.rationale.vector_candidate_count),
+        unique_graph_root_candidate_count: trace.map(|_| {
+            outcome
+                .rationale
+                .telemetry
+                .unique_graph_root_candidate_count
+        }),
+        selected_graph_root_count: trace
+            .map(|_| outcome.rationale.telemetry.selected_graph_root_count),
+        graph_root_omission_count: trace
+            .map(|_| outcome.rationale.telemetry.graph_root_omission_count),
         graph_relation_count: trace.map(|trace| trace.graph_relations.len()),
         graph_verified_count: Some(outcome.rationale.graph_verified_count),
         stale_candidate_omission_count: Some(outcome.rationale.stale_candidate_omission_count),
@@ -2074,6 +2318,328 @@ fn render_context_text(items: &[RetrievedItem]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct RememberTopology {
+    object_ids: Vec<MemoryId>,
+    link_ids: Vec<MemoryId>,
+    vector_ids: Vec<MemoryId>,
+}
+
+async fn commit_typed_drafts(
+    memory: &CharacterMemory,
+    namespace: &str,
+    object_drafts: Vec<MemoryObjectDraft>,
+    link_drafts: Vec<MemoryLinkDraft>,
+) -> Result<()> {
+    let (plan, expected) =
+        typed_remember_plan_at(namespace, object_drafts, link_drafts, Utc::now())?;
+    let validations = memory.validate_plan(&plan).await?;
+    let invalid = validations
+        .iter()
+        .filter(|validation| validation.status == CandidateValidationStatus::Invalid)
+        .map(|validation| {
+            format!(
+                "candidate {} ({:?}): {}",
+                validation.candidate_index,
+                validation.candidate_kind,
+                validation.errors.join("; ")
+            )
+        })
+        .collect::<Vec<_>>();
+    if !invalid.is_empty() {
+        bail!(
+            "typed remember plan validation failed: {}",
+            invalid.join(" | ")
+        );
+    }
+
+    let outcome = memory.commit(plan, CommitOptions::default()).await?;
+    validate_remember_topology(&outcome, &expected)
+}
+
+fn typed_remember_plan_at(
+    namespace: &str,
+    object_drafts: Vec<MemoryObjectDraft>,
+    link_drafts: Vec<MemoryLinkDraft>,
+    committed_at: DateTime<Utc>,
+) -> Result<(RememberWritePlan, RememberTopology)> {
+    let provenance = CandidateProvenance::caller("CharacterMemoryEvals typed ingest");
+    let mut object_candidates = Vec::new();
+    let mut link_candidates = Vec::new();
+    let mut vector_candidates = Vec::new();
+    let mut object_ids = Vec::new();
+    let mut link_ids = Vec::new();
+    let mut vector_ids = Vec::new();
+
+    for draft in object_drafts {
+        let draft = complete_typed_draft(draft, committed_at)?;
+        match draft {
+            MemoryObjectDraft::Episode(draft) => {
+                let id = required_draft_id(draft.id, "episode")?;
+                object_ids.push(id);
+                vector_ids.push(id);
+                vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
+                    MemoryObjectRef::new(ObjectType::Episode, id),
+                    prefixed_embedding_text("Episode summary", &draft.summary),
+                    provenance.clone(),
+                )));
+                object_candidates.push(MemoryCandidate::Episode(EpisodeCandidate::new(
+                    draft,
+                    provenance.clone(),
+                )));
+            }
+            MemoryObjectDraft::Observation(draft) => {
+                let id = required_draft_id(draft.id, "observation")?;
+                object_ids.push(id);
+                vector_ids.push(id);
+                vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
+                    MemoryObjectRef::new(ObjectType::Observation, id),
+                    prefixed_embedding_text("Observation excerpt", &draft.text),
+                    provenance.clone(),
+                )));
+                object_candidates.push(MemoryCandidate::Observation(ObservationCandidate::new(
+                    draft,
+                    provenance.clone(),
+                )));
+            }
+            MemoryObjectDraft::Entity(draft) => {
+                let id = required_draft_id(draft.id, "entity")?;
+                let aliases = if draft.aliases.is_empty() {
+                    String::new()
+                } else {
+                    format!("Aliases: {}", draft.aliases.join(", "))
+                };
+                let content = join_embedding_text([
+                    draft.name.as_str(),
+                    aliases.as_str(),
+                    draft.summary.as_deref().unwrap_or_default(),
+                ]);
+                object_ids.push(id);
+                vector_ids.push(id);
+                vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
+                    MemoryObjectRef::new(ObjectType::Entity, id),
+                    prefixed_embedding_text("Entity", &content),
+                    provenance.clone(),
+                )));
+                object_candidates.push(MemoryCandidate::Entity(EntityCandidate::new(
+                    draft,
+                    provenance.clone(),
+                )));
+            }
+            MemoryObjectDraft::MemoryThread(draft) => {
+                let id = required_draft_id(draft.id, "memory thread")?;
+                let content = join_embedding_text([draft.title.as_str(), draft.summary.as_str()]);
+                object_ids.push(id);
+                vector_ids.push(id);
+                vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
+                    MemoryObjectRef::new(ObjectType::MemoryThread, id),
+                    prefixed_embedding_text("Thread summary", &content),
+                    provenance.clone(),
+                )));
+                object_candidates.push(MemoryCandidate::MemoryThread(MemoryThreadCandidate::new(
+                    draft,
+                    provenance.clone(),
+                )));
+            }
+            MemoryObjectDraft::DerivedMemory(draft) => {
+                let id = required_draft_id(draft.id, "derived memory")?;
+                object_ids.push(id);
+                vector_ids.push(id);
+                vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
+                    MemoryObjectRef::new(ObjectType::DerivedMemory, id),
+                    prefixed_embedding_text(
+                        derived_embedding_label(draft.derived_type),
+                        &draft.text,
+                    ),
+                    provenance.clone(),
+                )));
+                object_candidates.push(MemoryCandidate::DerivedMemory(
+                    DerivedMemoryCandidate::new(draft, provenance.clone()),
+                ));
+            }
+            MemoryObjectDraft::MemoryLink(draft) => {
+                let id = required_draft_id(draft.id, "memory link")?;
+                link_ids.push(id);
+                link_candidates.push(MemoryCandidate::MemoryLink(MemoryLinkCandidate::new(
+                    draft,
+                    provenance.clone(),
+                )));
+            }
+        }
+    }
+
+    for draft in link_drafts {
+        let MemoryObjectDraft::MemoryLink(draft) =
+            complete_typed_draft(MemoryObjectDraft::MemoryLink(draft), committed_at)?
+        else {
+            unreachable!("memory link draft remains a memory link")
+        };
+        let id = required_draft_id(draft.id, "memory link")?;
+        link_ids.push(id);
+        link_candidates.push(MemoryCandidate::MemoryLink(MemoryLinkCandidate::new(
+            draft,
+            provenance.clone(),
+        )));
+    }
+
+    let topology_key = object_ids
+        .iter()
+        .chain(&link_ids)
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\0");
+    let operation_id = deterministic_id(namespace, "remember_plan", &topology_key);
+    let mut plan = RememberWritePlan::new(operation_id, format!("cmem-eval:{operation_id}"));
+    for candidate in object_candidates
+        .into_iter()
+        .chain(link_candidates)
+        .chain(vector_candidates)
+    {
+        plan = plan.with_candidate(candidate);
+    }
+
+    Ok((
+        plan,
+        RememberTopology {
+            object_ids,
+            link_ids,
+            vector_ids,
+        },
+    ))
+}
+
+fn complete_typed_draft(
+    mut draft: MemoryObjectDraft,
+    committed_at: DateTime<Utc>,
+) -> Result<MemoryObjectDraft> {
+    match &mut draft {
+        MemoryObjectDraft::Episode(draft) => {
+            required_draft_id(draft.id, "episode")?;
+            draft.created_at.get_or_insert(committed_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+        MemoryObjectDraft::Observation(draft) => {
+            required_draft_id(draft.id, "observation")?;
+            draft.created_at.get_or_insert(committed_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+        MemoryObjectDraft::Entity(draft) => {
+            required_draft_id(draft.id, "entity")?;
+            let created_at = *draft.created_at.get_or_insert(committed_at);
+            draft.updated_at.get_or_insert(created_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+        MemoryObjectDraft::MemoryThread(draft) => {
+            required_draft_id(draft.id, "memory thread")?;
+            let created_at = *draft.created_at.get_or_insert(committed_at);
+            let updated_at = *draft.updated_at.get_or_insert(created_at);
+            draft.last_touched_at.get_or_insert(updated_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+        MemoryObjectDraft::DerivedMemory(draft) => {
+            required_draft_id(draft.id, "derived memory")?;
+            let created_at = *draft.created_at.get_or_insert(committed_at);
+            draft.updated_at.get_or_insert(created_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+        MemoryObjectDraft::MemoryLink(draft) => {
+            required_draft_id(draft.id, "memory link")?;
+            draft.created_at.get_or_insert(committed_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+    }
+    Ok(draft)
+}
+
+fn required_draft_id(id: Option<MemoryId>, kind: &str) -> Result<MemoryId> {
+    id.with_context(|| format!("CharacterMemoryEvals {kind} draft must have a deterministic ID"))
+}
+
+fn validate_remember_topology(
+    outcome: &RememberOutcome,
+    expected: &RememberTopology,
+) -> Result<()> {
+    if outcome.persisted_object_ids != expected.object_ids {
+        bail!(
+            "typed remember persisted object topology changed: expected {:?}, got {:?}",
+            expected.object_ids,
+            outcome.persisted_object_ids
+        );
+    }
+    if outcome.persisted_link_ids != expected.link_ids {
+        bail!(
+            "typed remember persisted link topology changed: expected {:?}, got {:?}",
+            expected.link_ids,
+            outcome.persisted_link_ids
+        );
+    }
+    if let Some(failure) = &outcome.vector_indexing_failure {
+        if failure.unindexed_object_ids != expected.vector_ids {
+            bail!(
+                "typed remember failed vector topology changed: expected {:?}, got {:?}",
+                expected.vector_ids,
+                failure.unindexed_object_ids
+            );
+        }
+    } else if outcome.vector_indexed_object_ids != expected.vector_ids {
+        bail!(
+            "typed remember vector topology changed: expected {:?}, got {:?}",
+            expected.vector_ids,
+            outcome.vector_indexed_object_ids
+        );
+    }
+    Ok(())
+}
+
+fn prefixed_embedding_text(label: &str, text: &str) -> String {
+    let text = clean_embedding_text(text);
+    if text.is_empty() {
+        label.to_owned()
+    } else {
+        format!("{label}: {text}")
+    }
+}
+
+fn join_embedding_text<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
+    parts
+        .into_iter()
+        .map(clean_embedding_text)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn clean_embedding_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+const fn derived_embedding_label(derived_type: DerivedType) -> &'static str {
+    match derived_type {
+        DerivedType::Reflection => "Reflection",
+        DerivedType::UserPreference => "User preference",
+        DerivedType::AssistantPreference => "Assistant preference",
+        DerivedType::Commitment => "Commitment",
+        DerivedType::OpenLoop => "Open loop",
+        DerivedType::CharacterSignal => "Character signal",
+        DerivedType::RelationshipNote => "Relationship note",
+        DerivedType::ProjectNote => "Project note",
+        DerivedType::Claim => "Claim",
+        DerivedType::Correction => "Correction",
+    }
 }
 
 fn deterministic_id(namespace: &str, kind: &str, external_id: &str) -> MemoryId {
@@ -2718,6 +3284,10 @@ struct CharacterMemoryControllableSimilarityEmbeddingProvider {
     storage_vector_size: usize,
 }
 
+struct CharacterMemoryFrozenEmbeddingProvider {
+    inner: FrozenEmbeddingProvider,
+}
+
 fn parse_retention_state(value: &str) -> Result<RetentionState> {
     parse_snake_enum(value, "forget.target_retention_state")
 }
@@ -2763,6 +3333,28 @@ impl CharacterMemoryControllableSimilarityEmbeddingProvider {
         vector.resize(self.storage_vector_size, 0.0);
         Ok(vector)
     }
+}
+
+impl CharacterMemoryFrozenEmbeddingProvider {
+    fn vector_for_text(&self, text: &str) -> Result<Vec<f32>> {
+        self.inner.vector_for_text(text).or_else(|original_error| {
+            runtime_fixture_text(text)
+                .map(|fixture_text| self.inner.vector_for_text(fixture_text))
+                .unwrap_or(Err(original_error))
+        })
+    }
+}
+
+fn runtime_fixture_text(text: &str) -> Option<&str> {
+    [
+        "Episode summary: ",
+        "Observation excerpt: ",
+        "Reflection: ",
+        "Entity: ",
+        "Thread summary: ",
+    ]
+    .into_iter()
+    .find_map(|prefix| text.strip_prefix(prefix))
 }
 
 #[async_trait]
@@ -2819,6 +3411,36 @@ impl EmbeddingProvider for CharacterMemoryControllableSimilarityEmbeddingProvide
     }
 }
 
+#[async_trait]
+impl EmbeddingProvider for CharacterMemoryFrozenEmbeddingProvider {
+    fn vector_size(&self) -> usize {
+        self.inner.vector_size()
+    }
+
+    async fn generate_embedding<'a>(
+        &self,
+        text: &'a str,
+    ) -> std::result::Result<Vec<f32>, character_memory::CustomError> {
+        self.vector_for_text(text).map_err(|error| {
+            character_memory::CustomError::EmbeddingGenerationError(error.to_string())
+        })
+    }
+
+    async fn bulk_generate_embeddings<'a>(
+        &self,
+        texts: &'a [&'a str],
+    ) -> std::result::Result<Vec<Vec<f32>>, character_memory::CustomError> {
+        texts
+            .iter()
+            .map(|text| {
+                self.vector_for_text(text).map_err(|error| {
+                    character_memory::CustomError::EmbeddingGenerationError(error.to_string())
+                })
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2829,7 +3451,8 @@ mod tests {
         SelectivityCountScope, SelectivityDecision, SelectivityTrace, VectorDatabaseError,
     };
     use cmem_eval_core::{
-        CleanupConfig, DerivedMemoryInput, EmbeddingConfig, EntityInput, MemoryLinkInput,
+        CleanupConfig, DerivedMemoryInput, EmbeddingConfig, EntityInput, FrozenEmbeddingStore,
+        MemoryLinkInput,
     };
     use tempfile::tempdir;
 
@@ -2862,6 +3485,124 @@ mod tests {
             ingest: Default::default(),
             metrics: Default::default(),
         }
+    }
+
+    #[tokio::test]
+    async fn frozen_provider_uses_exact_fixture_text_after_runtime_prefixes() {
+        let store = FrozenEmbeddingStore::new(
+            "task21-smoke-model",
+            FrozenEmbeddingSource::TestFixture,
+            [(
+                "The cobalt notebook is in the east cabinet.".to_string(),
+                vec![1.0, 0.0, 0.0],
+            )],
+        )
+        .unwrap();
+        let provider = CharacterMemoryFrozenEmbeddingProvider {
+            inner: FrozenEmbeddingProvider::from_store(
+                store,
+                "fixtures/smoke.json",
+                "task21-smoke-model",
+                3,
+            )
+            .unwrap(),
+        };
+
+        assert_eq!(
+            provider
+                .generate_embedding("Episode summary: The cobalt notebook is in the east cabinet.",)
+                .await
+                .unwrap(),
+            vec![1.0, 0.0, 0.0]
+        );
+        let error = provider
+            .generate_embedding("Episode summary: This text is absent.")
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("frozen embedding cache miss"), "{error}");
+        assert!(error.contains("cmem-eval embeddings generate"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn live_frozen_construction_and_reconstruction_reject_test_fixture_provenance() {
+        let directory = tempdir().unwrap();
+        let store_path = directory.path().join("test-fixture-store.json");
+        let store = FrozenEmbeddingStore::new(
+            "task21-smoke-model",
+            FrozenEmbeddingSource::TestFixture,
+            [("fixture text".to_string(), vec![1.0, 0.0, 0.0])],
+        )
+        .unwrap();
+        fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
+        let mut config = adapter_config(
+            "frozen-provenance".to_string(),
+            "cmem_eval_frozen_provenance".to_string(),
+        );
+        config.backend.embedding.provider = "frozen".to_string();
+        config.backend.embedding.model = "task21-smoke-model".to_string();
+        config.backend.embedding.vector_size = Some(3);
+        config.backend.embedding.store_path = Some(store_path.display().to_string());
+        config.ingest.index_observations = true;
+        config.ingest.index_episode_summaries = true;
+        let provider = FrozenEmbeddingProvider::load(&store_path, "task21-smoke-model", 3).unwrap();
+
+        let error = match CharacterMemoryAdapter::new_with_frozen_embeddings(&config).await {
+            Ok(_) => panic!("live construction admitted test-fixture provenance"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("source=open_ai_api"), "{error}");
+        assert!(error.contains("TestFixture"), "{error}");
+        assert!(error.contains(&store_path.display().to_string()), "{error}");
+
+        let error = match CharacterMemoryAdapter::reconstruct_with_frozen_embeddings(
+            &config,
+            "continuity-frozen-provenance",
+        )
+        .await
+        {
+            Ok(_) => panic!("live reconstruction admitted test-fixture provenance"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("source=open_ai_api"), "{error}");
+        assert!(error.contains("TestFixture"), "{error}");
+        assert!(error.contains(&store_path.display().to_string()), "{error}");
+
+        let error = match CharacterMemoryAdapter::new_with_frozen_embedding_provider(
+            &config,
+            provider.clone(),
+        )
+        .await
+        {
+            Ok(_) => panic!("provider construction admitted test-fixture provenance"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("source=open_ai_api"), "{error}");
+        assert!(error.contains("TestFixture"), "{error}");
+        assert!(error.contains(&store_path.display().to_string()), "{error}");
+
+        let error = match CharacterMemoryAdapter::reconstruct_with_frozen_embedding_provider(
+            &config,
+            "continuity-frozen-provider-provenance",
+            provider.clone(),
+        )
+        .await
+        {
+            Ok(_) => panic!("provider reconstruction admitted test-fixture provenance"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("source=open_ai_api"), "{error}");
+        assert!(error.contains("TestFixture"), "{error}");
+        assert!(error.contains(&store_path.display().to_string()), "{error}");
+
+        CharacterMemoryAdapter::new_with_test_frozen_embeddings(&config)
+            .await
+            .expect("the cfg(test)-only constructor should admit explicit test provenance");
+        CharacterMemoryAdapter::new_with_test_frozen_embedding_provider(&config, provider)
+            .await
+            .expect(
+                "the cfg(test)-only provider constructor should admit explicit test provenance",
+            );
     }
 
     fn file_contains(path: &Path, needle: &[u8]) -> bool {
@@ -3119,6 +3860,208 @@ mod tests {
         assert_ne!(first, deterministic_id("n1", "observation", "s1"));
     }
 
+    #[test]
+    fn typed_plan_preserves_batch_enrichment_commit_topology_and_surfaces() {
+        let namespace = "typed-plan-equivalence";
+        let committed_at = DateTime::parse_from_rfc3339("2026-07-21T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let episode_a_id = deterministic_id(namespace, "episode", "episode-a");
+        let episode_b_id = deterministic_id(namespace, "episode", "episode-b");
+        let observation_a_id = deterministic_id(namespace, "observation", "observation-a");
+        let observation_b_id = deterministic_id(namespace, "observation", "observation-b");
+        let entity_id = deterministic_id(namespace, "entity", "entity");
+        let thread_id = deterministic_id(namespace, "memory_thread", "thread");
+        let derived_id = deterministic_id(namespace, "derived_memory", "derived");
+        let link_id = deterministic_id(namespace, "memory_link", "link");
+
+        let mut episode_a = EpisodeDraft::new("Episode   one");
+        episode_a.id = Some(episode_a_id);
+        let mut episode_b = EpisodeDraft::new("Episode two");
+        episode_b.id = Some(episode_b_id);
+        let mut observation_a = ObservationDraft::new(episode_a_id, "Observation   one");
+        observation_a.id = Some(observation_a_id);
+        let mut observation_b = ObservationDraft::new(episode_b_id, "Observation two");
+        observation_b.id = Some(observation_b_id);
+        let mut entity = EntityDraft::new(EntityType::User, "Kohta");
+        entity.id = Some(entity_id);
+        entity.aliases = vec!["K".to_string(), "Ko".to_string()];
+        entity.summary = Some("Fixture   owner".to_string());
+        let mut thread = MemoryThreadDraft::new("Continuity", "Thread   summary");
+        thread.id = Some(thread_id);
+        let mut derived = DerivedMemoryDraft::new(DerivedType::Reflection, "Stable   insight");
+        derived.id = Some(derived_id);
+        derived.derived_from_episode_ids = vec![episode_a_id];
+        derived.derived_from_observation_ids = vec![observation_a_id];
+        derived.thread_ids = vec![thread_id];
+        derived.entity_ids = vec![entity_id];
+        let mut link = MemoryLinkDraft::new(
+            ObjectType::DerivedMemory,
+            derived_id,
+            RelationType::About,
+            ObjectType::Entity,
+            entity_id,
+        );
+        link.id = Some(link_id);
+
+        let mut expected_episode_a = episode_a.clone();
+        expected_episode_a.created_at = Some(committed_at);
+        expected_episode_a.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_episode_b = episode_b.clone();
+        expected_episode_b.created_at = Some(committed_at);
+        expected_episode_b.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_observation_a = observation_a.clone();
+        expected_observation_a.created_at = Some(committed_at);
+        expected_observation_a.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_observation_b = observation_b.clone();
+        expected_observation_b.created_at = Some(committed_at);
+        expected_observation_b.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_entity = entity.clone();
+        expected_entity.created_at = Some(committed_at);
+        expected_entity.updated_at = Some(committed_at);
+        expected_entity.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_thread = thread.clone();
+        expected_thread.created_at = Some(committed_at);
+        expected_thread.updated_at = Some(committed_at);
+        expected_thread.last_touched_at = Some(committed_at);
+        expected_thread.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_derived = derived.clone();
+        expected_derived.created_at = Some(committed_at);
+        expected_derived.updated_at = Some(committed_at);
+        expected_derived.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_link = link.clone();
+        expected_link.created_at = Some(committed_at);
+        expected_link.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+
+        let (plan, topology) = typed_remember_plan_at(
+            namespace,
+            vec![
+                MemoryObjectDraft::Episode(episode_a),
+                MemoryObjectDraft::Episode(episode_b),
+                MemoryObjectDraft::Observation(observation_a),
+                MemoryObjectDraft::Observation(observation_b),
+                MemoryObjectDraft::Entity(entity),
+                MemoryObjectDraft::MemoryThread(thread),
+                MemoryObjectDraft::DerivedMemory(derived),
+            ],
+            vec![link],
+            committed_at,
+        )
+        .unwrap();
+
+        assert_eq!(
+            topology,
+            RememberTopology {
+                object_ids: vec![
+                    episode_a_id,
+                    episode_b_id,
+                    observation_a_id,
+                    observation_b_id,
+                    entity_id,
+                    thread_id,
+                    derived_id,
+                ],
+                link_ids: vec![link_id],
+                vector_ids: vec![
+                    episode_a_id,
+                    episode_b_id,
+                    observation_a_id,
+                    observation_b_id,
+                    entity_id,
+                    thread_id,
+                    derived_id,
+                ],
+            }
+        );
+
+        let provenance = CandidateProvenance::caller("CharacterMemoryEvals typed ingest");
+        let expected_object_and_link_candidates = vec![
+            MemoryCandidate::Episode(EpisodeCandidate::new(
+                expected_episode_a,
+                provenance.clone(),
+            )),
+            MemoryCandidate::Episode(EpisodeCandidate::new(
+                expected_episode_b,
+                provenance.clone(),
+            )),
+            MemoryCandidate::Observation(ObservationCandidate::new(
+                expected_observation_a,
+                provenance.clone(),
+            )),
+            MemoryCandidate::Observation(ObservationCandidate::new(
+                expected_observation_b,
+                provenance.clone(),
+            )),
+            MemoryCandidate::Entity(EntityCandidate::new(expected_entity, provenance.clone())),
+            MemoryCandidate::MemoryThread(MemoryThreadCandidate::new(
+                expected_thread,
+                provenance.clone(),
+            )),
+            MemoryCandidate::DerivedMemory(DerivedMemoryCandidate::new(
+                expected_derived,
+                provenance.clone(),
+            )),
+            MemoryCandidate::MemoryLink(MemoryLinkCandidate::new(expected_link, provenance)),
+        ];
+        assert_eq!(
+            &plan.candidates[..expected_object_and_link_candidates.len()],
+            expected_object_and_link_candidates.as_slice()
+        );
+
+        let vector_candidates = plan
+            .candidates
+            .iter()
+            .filter_map(|candidate| match candidate {
+                MemoryCandidate::VectorIndex(candidate) => Some((
+                    candidate.target.object_type,
+                    candidate.target.id,
+                    candidate.embedding_text.as_str(),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            vector_candidates,
+            vec![
+                (
+                    ObjectType::Episode,
+                    episode_a_id,
+                    "Episode summary: Episode one"
+                ),
+                (
+                    ObjectType::Episode,
+                    episode_b_id,
+                    "Episode summary: Episode two"
+                ),
+                (
+                    ObjectType::Observation,
+                    observation_a_id,
+                    "Observation excerpt: Observation one"
+                ),
+                (
+                    ObjectType::Observation,
+                    observation_b_id,
+                    "Observation excerpt: Observation two"
+                ),
+                (
+                    ObjectType::Entity,
+                    entity_id,
+                    "Entity: Kohta Aliases: K, Ko Fixture owner"
+                ),
+                (
+                    ObjectType::MemoryThread,
+                    thread_id,
+                    "Thread summary: Continuity Thread summary"
+                ),
+                (
+                    ObjectType::DerivedMemory,
+                    derived_id,
+                    "Reflection: Stable insight"
+                ),
+            ]
+        );
+    }
+
     #[tokio::test]
     async fn collection_names_are_deterministic_and_run_scoped() {
         let first = CharacterMemoryAdapter::new(&adapter_config(
@@ -3239,6 +4182,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn character_memory_run_overrides_reach_settings_and_absence_preserves_defaults() {
+        let default_config = adapter_config(
+            "settings-defaults".to_string(),
+            "cmem_eval_settings_defaults".to_string(),
+        );
+        let default_adapter = CharacterMemoryAdapter::new(&default_config).await.unwrap();
+        let default_settings = default_adapter.settings("namespace").unwrap();
+        assert_eq!(default_settings.get_selectivity_smoothing_alpha(), 1.0);
+        assert_eq!(default_settings.get_selectivity_gamma(), 1.0);
+
+        let mut overridden_config = adapter_config(
+            "settings-overrides".to_string(),
+            "cmem_eval_settings_overrides".to_string(),
+        );
+        overridden_config.backend.character_memory = Some(
+            serde_json::from_value(serde_json::json!({
+                "selectivity_smoothing_alpha": 2.0,
+                "selectivity_gamma": 0.5,
+                "retrieval": {
+                    "fanout": {
+                        "about_entity": {"derived_memory": {"min": 2, "max": 8}},
+                        "participant_entity": {"episode": {"min": 1, "max": 3}},
+                        "part_of_thread": {"derived_memory": {"min": 4, "max": 9}}
+                    }
+                }
+            }))
+            .unwrap(),
+        );
+        overridden_config.ingest.index_observations = true;
+        overridden_config.ingest.index_episode_summaries = true;
+        overridden_config.validate().unwrap();
+        let overridden_adapter = CharacterMemoryAdapter::new(&overridden_config)
+            .await
+            .unwrap();
+        let overridden_settings = overridden_adapter.settings("namespace").unwrap();
+        assert_eq!(overridden_settings.get_selectivity_smoothing_alpha(), 2.0);
+        assert_eq!(overridden_settings.get_selectivity_gamma(), 0.5);
+
+        for (field, overrides) in [
+            (
+                "retrieval.fanout.about_entity.derived_memory",
+                serde_json::json!({
+                    "retrieval": {"fanout": {
+                        "about_entity": {"derived_memory": {"min": 9, "max": 8}}
+                    }}
+                }),
+            ),
+            (
+                "retrieval.fanout.participant_entity.episode",
+                serde_json::json!({
+                    "retrieval": {"fanout": {
+                        "participant_entity": {"episode": {"min": 9, "max": 8}}
+                    }}
+                }),
+            ),
+            (
+                "retrieval.fanout.part_of_thread.derived_memory",
+                serde_json::json!({
+                    "retrieval": {"fanout": {
+                        "part_of_thread": {"derived_memory": {"min": 9, "max": 8}}
+                    }}
+                }),
+            ),
+        ] {
+            let mut invalid_config = adapter_config(
+                "settings-invalid".to_string(),
+                "cmem_eval_settings_invalid".to_string(),
+            );
+            invalid_config.backend.character_memory =
+                Some(serde_json::from_value(overrides).unwrap());
+            let invalid_adapter = CharacterMemoryAdapter::new(&invalid_config).await.unwrap();
+            let error = invalid_adapter
+                .settings("namespace")
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(field), "{field}: {error}");
+        }
+    }
+
+    #[tokio::test]
     async fn controllable_similarity_provider_preserves_fixture_prefix_at_storage_width() {
         let fixture = ControllableSimilarityFixture {
             seed: 7,
@@ -3304,14 +4327,21 @@ mod tests {
             )]),
         };
 
-        let error = match CharacterMemoryAdapter::new_with_controllable_similarity(&config, fixture)
-            .await
+        let error = match CharacterMemoryAdapter::new_with_controllable_similarity(
+            &config,
+            fixture.clone(),
+        )
+        .await
         {
             Ok(_) => panic!("mismatched fixture dimension was accepted"),
             Err(error) => error.to_string(),
         };
         assert!(error.contains("fixture vector_size 2"));
         assert!(error.contains("Some(3)"));
+
+        CharacterMemoryAdapter::new_with_padded_controllable_similarity(&config, fixture)
+            .await
+            .expect("mixed-provider storage padding should be accepted explicitly");
     }
 
     #[test]
@@ -3510,9 +4540,102 @@ mod tests {
         };
 
         assert!(error.contains("backend.embedding.vector_size"));
-        assert!(error.contains("greater than zero"));
         assert!(!error.contains("QDRANT_CONNECTION_STRING"));
         assert!(!error.contains("failed to connect"));
+    }
+
+    #[tokio::test]
+    async fn live_frozen_write_surface_matches_continuity_runtime_normalization() {
+        let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
+        let directory = tempdir().unwrap();
+        let token = unique_test_token();
+        let prefix = format!("cmem_eval_frozen_drift_{token}");
+        let namespace = "frozen-runtime-normalization";
+        let content = "  The  cobalt\tnotebook\nis in   the east cabinet.  ";
+        let runtime_lookup_text = cmem_eval_continuity::runtime_memory_embedding_text(content);
+        let store_path = directory.path().join("strict-runtime-store.json");
+        let store = FrozenEmbeddingStore::new(
+            "text-embedding-3-small",
+            FrozenEmbeddingSource::TestFixture,
+            [(runtime_lookup_text, vec![1.0; 1_536])],
+        )
+        .unwrap();
+        fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
+
+        let mut config = adapter_config(format!("frozen-drift-{token}"), prefix.clone());
+        config.backend.embedding.provider = "frozen".to_string();
+        config.backend.embedding.model = "text-embedding-3-small".to_string();
+        config.backend.embedding.vector_size = Some(1_536);
+        config.backend.embedding.store_path = Some(store_path.display().to_string());
+        config.backend.identity_registry_dir = Some(
+            directory
+                .path()
+                .join("identities")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        config.backend.oxigraph_persistence_path = Some(
+            directory
+                .path()
+                .join("oxigraph")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        config.backend.retrieval_stats_path = Some(
+            directory
+                .path()
+                .join("retrieval-stats.sqlite")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        config.ingest.index_observations = true;
+        config.ingest.index_episode_summaries = true;
+
+        let mut qdrant_was_available = false;
+        let adapter = live_call_or_skip!(
+            qdrant_was_available,
+            "frozen drift-guard adapter construction",
+            false,
+            CharacterMemoryAdapter::new_with_test_frozen_embeddings(&config).await
+        );
+        live_call_or_skip!(
+            qdrant_was_available,
+            "frozen drift-guard namespace open",
+            true,
+            adapter.open_namespace(namespace).await
+        );
+        let plan = live_call_or_skip!(
+            qdrant_was_available,
+            "frozen drift-guard write preparation",
+            true,
+            adapter
+                .prepare(PrepareWriteInput {
+                    namespace: namespace.to_string(),
+                    content: content.to_string(),
+                    episode_external_id: "whitespace-episode".to_string(),
+                    observation_external_id: "whitespace-observation".to_string(),
+                    episode_started_at: None,
+                    observation_observed_at: None,
+                    raw_refs: Vec::new(),
+                    idempotency_key: Some("whitespace-drift-guard".to_string()),
+                    include_vector_index_candidates: true,
+                    include_stats_update_candidates: true,
+                })
+                .await
+        );
+        let outcome = live_call_or_skip!(
+            qdrant_was_available,
+            "frozen drift-guard write commit",
+            true,
+            adapter.commit(plan, CommitWriteOptions::default()).await
+        );
+        assert_eq!(outcome.vector_indexed_object_refs.len(), 2);
+        live_teardown_with_one_retry!(
+            qdrant_was_available,
+            "frozen drift-guard namespace cleanup",
+            adapter.reset_namespace(namespace).await,
+            adapter.reset_namespace(namespace).await
+        );
     }
 
     #[tokio::test]
@@ -4386,6 +5509,9 @@ mod tests {
         assert_eq!(pack.items[1].rank, 2);
         assert_eq!(pack.telemetry.vector_candidate_count, Some(3));
         assert!(!pack.telemetry.trace_available);
+        assert_eq!(pack.telemetry.unique_graph_root_candidate_count, None);
+        assert_eq!(pack.telemetry.selected_graph_root_count, None);
+        assert_eq!(pack.telemetry.graph_root_omission_count, None);
         assert_eq!(pack.telemetry.graph_relation_count, None);
         assert_eq!(pack.telemetry.graph_verified_count, None);
         assert!(pack.context_text.contains("turn text"));
@@ -4540,13 +5666,20 @@ mod tests {
             reason: Some("entity expansion".to_string()),
             rationale_categories: vec![RationaleCategory::Entity, RationaleCategory::Semantic],
         }];
+        let mut rationale = RetrievalRationale::new("test");
+        rationale.telemetry.unique_graph_root_candidate_count = 9;
+        rationale.telemetry.selected_graph_root_count = 4;
+        rationale.telemetry.graph_root_omission_count = 5;
         let outcome = RetrieveOutcome {
             pack: ContinuityContextPack::empty(),
-            rationale: RetrievalRationale::new("test"),
+            rationale,
             trace: Some(trace),
         };
 
         let telemetry = telemetry_from_outcome(&registry, &outcome);
+        assert_eq!(telemetry.unique_graph_root_candidate_count, Some(9));
+        assert_eq!(telemetry.selected_graph_root_count, Some(4));
+        assert_eq!(telemetry.graph_root_omission_count, Some(5));
         let fanout = &telemetry.fanout_utilization.as_ref().unwrap()[0];
         assert_eq!(fanout.root_external_id.as_deref(), Some("entity-hub"));
         assert_eq!((fanout.configured_cap, fanout.selected_cap), (8, 4));

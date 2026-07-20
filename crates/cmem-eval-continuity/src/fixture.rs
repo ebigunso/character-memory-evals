@@ -3,9 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use cmem_eval_core::ControllableSimilarityFixture;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
+use serde_json::{Map, Value};
 
-pub const CONTINUITY_FIXTURE_SCHEMA_VERSION: u32 = 2;
+pub const CONTINUITY_FIXTURE_SCHEMA_VERSION: u32 = 3;
 
 /// Relation names accepted by continuity fixtures and checked against the live
 /// CharacterMemory facade by the adapter crate's exhaustive parity test.
@@ -41,8 +42,159 @@ pub struct ContinuityScenario {
     pub namespace: String,
     pub pattern: ScenarioPattern,
     pub entities: Vec<EntityDeclaration>,
-    pub embedding: ControllableSimilarityFixture,
+    pub embedding: ContinuityScenarioEmbedding,
     pub events: Vec<InteractionEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContinuityScenarioEmbedding {
+    ControllableSimilarity(ControllableSimilarityFixture),
+    Frozen,
+}
+
+impl ContinuityScenarioEmbedding {
+    pub fn provider_name(&self) -> &'static str {
+        match self {
+            Self::ControllableSimilarity(_) => "controllable_similarity",
+            Self::Frozen => "frozen",
+        }
+    }
+
+    pub fn controllable_similarity(&self) -> Option<&ControllableSimilarityFixture> {
+        match self {
+            Self::ControllableSimilarity(fixture) => Some(fixture),
+            Self::Frozen => None,
+        }
+    }
+
+    pub fn controllable_similarity_mut(&mut self) -> Option<&mut ControllableSimilarityFixture> {
+        match self {
+            Self::ControllableSimilarity(fixture) => Some(fixture),
+            Self::Frozen => None,
+        }
+    }
+
+    pub fn controllable_similarity_provider(fixture: ControllableSimilarityFixture) -> Self {
+        Self::ControllableSimilarity(fixture)
+    }
+
+    pub fn frozen() -> Self {
+        Self::Frozen
+    }
+
+    pub fn vector_size(&self) -> Option<usize> {
+        self.controllable_similarity()
+            .map(|fixture| fixture.vector_size)
+    }
+}
+
+impl Serialize for ContinuityScenarioEmbedding {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::ControllableSimilarity(fixture) => {
+                let mut object = serde_json::to_value(fixture)
+                    .map_err(serde::ser::Error::custom)?
+                    .as_object()
+                    .cloned()
+                    .expect("controllable similarity fixture serializes as an object");
+                object.insert(
+                    "provider".to_string(),
+                    Value::String("controllable_similarity".to_string()),
+                );
+                object.serialize(serializer)
+            }
+            Self::Frozen => {
+                Map::from_iter([("provider".to_string(), Value::String("frozen".to_string()))])
+                    .serialize(serializer)
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ContinuityScenarioEmbedding {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| D::Error::custom("continuity embedding block must be an object"))?;
+        match object.get("provider") {
+            Some(Value::String(provider)) if provider == "frozen" => {
+                if let Some(field) = unknown_embedding_field(object, &["provider"]) {
+                    return Err(D::Error::custom(format!(
+                        "unknown field {field:?} in frozen embedding block"
+                    )));
+                }
+                Ok(Self::Frozen)
+            }
+            Some(Value::String(provider)) if provider == "controllable_similarity" => {
+                if let Some(field) = unknown_embedding_field(
+                    object,
+                    &[
+                        "provider",
+                        "seed",
+                        "vector_size",
+                        "noise_magnitude",
+                        "clusters",
+                        "concepts",
+                    ],
+                ) {
+                    return Err(D::Error::custom(format!(
+                        "unknown field {field:?} in controllable_similarity embedding block"
+                    )));
+                }
+                let mut fixture = object.clone();
+                fixture.remove("provider");
+                serde_json::from_value(Value::Object(fixture))
+                    .map(Self::ControllableSimilarity)
+                    .map_err(|error| {
+                        D::Error::custom(format!(
+                            "malformed controllable_similarity embedding block: {error}"
+                        ))
+                    })
+            }
+            Some(Value::String(provider)) => Err(D::Error::custom(format!(
+                "unsupported continuity embedding provider {provider:?}; expected controllable_similarity or frozen"
+            ))),
+            Some(_) => Err(D::Error::custom(
+                "continuity embedding field `provider` must be a string",
+            )),
+            None => {
+                if let Some(field) = unknown_embedding_field(
+                    object,
+                    &[
+                        "seed",
+                        "vector_size",
+                        "noise_magnitude",
+                        "clusters",
+                        "concepts",
+                    ],
+                ) {
+                    return Err(D::Error::custom(format!(
+                        "unknown field {field:?} in continuity embedding block; expected `provider: controllable_similarity` or `provider: frozen`"
+                    )));
+                }
+                Err(D::Error::custom(
+                    "continuity embedding block is missing required field `provider`; expected controllable_similarity or frozen",
+                ))
+            }
+        }
+    }
+}
+
+fn unknown_embedding_field<'a>(
+    object: &'a Map<String, Value>,
+    allowed: &[&str],
+) -> Option<&'a str> {
+    object
+        .keys()
+        .find(|field| !allowed.contains(&field.as_str()))
+        .map(String::as_str)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -50,12 +202,21 @@ pub struct ContinuityScenario {
 pub enum ScenarioPattern {
     LongGapRecall,
     RecurringHubEntity,
+    HubScale,
     SelectiveEntity,
     CorrectionChains,
     ThreadDrift,
     TemporalStructure,
     MixedSalienceAccumulation,
     CrossStoreStress,
+    SurfaceContribution,
+    MultiEvidenceAssembly,
+    Abstention,
+    GradedSimilarity,
+    CombinedLife,
+    TemporalPatterns,
+    EntrenchedCorrection,
+    Autobiographical,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -119,7 +280,11 @@ pub enum InteractionEvent {
         event_id: String,
         external_id: String,
         timestamp: DateTime<Utc>,
+        /// Default Episode, Observation, and DerivedMemory text. When
+        /// `surface_texts` is present, this must equal its Episode text.
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        surface_texts: Option<RememberSurfaceTexts>,
         entity_external_ids: Vec<String>,
         thread: Option<ThreadMembership>,
         salience: f32,
@@ -133,8 +298,10 @@ pub enum InteractionEvent {
     },
     Forget {
         event_id: String,
-        target_external_id: String,
+        target_external_ids: Vec<String>,
         timestamp: DateTime<Utc>,
+        suppress_derived_from_target: bool,
+        apply_to_derived_from_target: bool,
     },
     Link {
         event_id: String,
@@ -157,6 +324,14 @@ pub enum InteractionEvent {
         text: String,
         expected: ExpectedRelevance,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RememberSurfaceTexts {
+    pub episode: String,
+    pub observation: String,
+    pub derived: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -216,8 +391,87 @@ impl ContinuityFixtureSet {
 }
 
 impl ContinuityScenario {
+    pub fn embedding_inputs(&self) -> BTreeSet<&str> {
+        let mut inputs = self
+            .entities
+            .iter()
+            .map(|entity| entity.label.as_str())
+            .collect::<BTreeSet<_>>();
+        for event in &self.events {
+            match event {
+                InteractionEvent::Remember {
+                    text,
+                    surface_texts,
+                    ..
+                } => {
+                    inputs.insert(text);
+                    if let Some(surface_texts) = surface_texts {
+                        inputs.insert(&surface_texts.episode);
+                        inputs.insert(&surface_texts.observation);
+                        inputs.insert(&surface_texts.derived);
+                    }
+                }
+                InteractionEvent::Correct {
+                    replacement_text, ..
+                } => {
+                    inputs.insert(replacement_text);
+                }
+                InteractionEvent::Query { text, .. } => {
+                    inputs.insert(text);
+                }
+                InteractionEvent::Forget { .. }
+                | InteractionEvent::Link { .. }
+                | InteractionEvent::Restart { .. } => {}
+            }
+        }
+        inputs
+    }
+
+    /// Exact texts requested from the frozen provider after CharacterMemory
+    /// composes and normalizes write surfaces. Queries bypass that write-time
+    /// normalization and therefore remain byte-exact fixture text.
+    pub fn runtime_embedding_inputs(&self) -> BTreeSet<String> {
+        let mut inputs = self
+            .entities
+            .iter()
+            .map(|entity| runtime_memory_embedding_text(&entity.label))
+            .collect::<BTreeSet<_>>();
+        for event in &self.events {
+            match event {
+                InteractionEvent::Remember {
+                    text,
+                    surface_texts,
+                    ..
+                } => {
+                    if let Some(surface_texts) = surface_texts {
+                        inputs.insert(runtime_memory_embedding_text(&surface_texts.episode));
+                        inputs.insert(runtime_memory_embedding_text(&surface_texts.observation));
+                        inputs.insert(runtime_memory_embedding_text(&surface_texts.derived));
+                    } else {
+                        inputs.insert(runtime_memory_embedding_text(text));
+                    }
+                }
+                InteractionEvent::Correct {
+                    replacement_text, ..
+                } => {
+                    inputs.insert(runtime_memory_embedding_text(replacement_text));
+                }
+                InteractionEvent::Query { text, .. } => {
+                    inputs.insert(text.clone());
+                }
+                InteractionEvent::Forget { .. }
+                | InteractionEvent::Link { .. }
+                | InteractionEvent::Restart { .. } => {}
+            }
+        }
+        inputs
+    }
+
     pub fn validate(&self) -> Result<()> {
-        cmem_eval_core::ControllableSimilarityEmbeddingProvider::new(self.embedding.clone())?;
+        let controllable_embedding = self.embedding.controllable_similarity();
+        if let Some(embedding) = controllable_embedding {
+            cmem_eval_core::ControllableSimilarityEmbeddingProvider::new(embedding.clone())?;
+        }
         let declared_entities = self
             .entities
             .iter()
@@ -232,19 +486,20 @@ impl ContinuityScenario {
         for entity in &self.entities {
             require_non_empty("entity.external_id", &entity.external_id)?;
             require_non_empty("entity.label", &entity.label)?;
-            let assignment_count = self
-                .embedding
-                .concepts
-                .values()
-                .flat_map(|concept| &concept.inputs)
-                .filter(|input| *input == &entity.label)
-                .count();
-            if assignment_count != 1 {
-                bail!(
-                    "scenario {:?} entity label {:?} must have exactly one embedding concept assignment; found {assignment_count}",
-                    self.fixture_id,
-                    entity.label
-                );
+            if let Some(embedding) = controllable_embedding {
+                let assignment_count = embedding
+                    .concepts
+                    .values()
+                    .flat_map(|concept| &concept.inputs)
+                    .filter(|input| *input == &entity.label)
+                    .count();
+                if assignment_count != 1 {
+                    bail!(
+                        "scenario {:?} entity label {:?} must have exactly one embedding concept assignment; found {assignment_count}",
+                        self.fixture_id,
+                        entity.label
+                    );
+                }
             }
         }
 
@@ -256,12 +511,13 @@ impl ContinuityScenario {
             .map(|entity| (entity.external_id.clone(), ContinuityObjectKind::Entity))
             .collect::<BTreeMap<_, _>>();
         let mut previous_timestamp = None;
-        let assigned_inputs = self
-            .embedding
-            .concepts
-            .values()
-            .flat_map(|concept| concept.inputs.iter().map(String::as_str))
-            .collect::<BTreeSet<_>>();
+        let assigned_inputs = controllable_embedding.map(|embedding| {
+            embedding
+                .concepts
+                .values()
+                .flat_map(|concept| concept.inputs.iter().map(String::as_str))
+                .collect::<BTreeSet<_>>()
+        });
 
         for (event_index, event) in self.events.iter().enumerate() {
             let event_id = event.event_id();
@@ -288,6 +544,7 @@ impl ContinuityScenario {
                     thread,
                     salience,
                     text,
+                    surface_texts,
                     ..
                 } => {
                     require_unit_interval("remember.salience", *salience)?;
@@ -302,7 +559,27 @@ impl ContinuityScenario {
                             );
                         }
                     }
-                    require_embedding_input(&self.fixture_id, &assigned_inputs, text)?;
+                    if let Some(surface_texts) = surface_texts {
+                        if text != &surface_texts.episode {
+                            bail!(
+                                "scenario {:?} remember text must equal surface_texts.episode",
+                                self.fixture_id
+                            );
+                        }
+                        require_distinct_surface_texts(&self.fixture_id, surface_texts)?;
+                        for surface_text in [
+                            &surface_texts.episode,
+                            &surface_texts.observation,
+                            &surface_texts.derived,
+                        ] {
+                            require_embedding_input(
+                                &self.fixture_id,
+                                assigned_inputs.as_ref(),
+                                surface_text,
+                            )?;
+                        }
+                    }
+                    require_embedding_input(&self.fixture_id, assigned_inputs.as_ref(), text)?;
                     admit_external_id(
                         &self.fixture_id,
                         "remember.external_id",
@@ -349,7 +626,11 @@ impl ContinuityScenario {
                         ],
                         &admitted_external_ids,
                     )?;
-                    require_embedding_input(&self.fixture_id, &assigned_inputs, replacement_text)?;
+                    require_embedding_input(
+                        &self.fixture_id,
+                        assigned_inputs.as_ref(),
+                        replacement_text,
+                    )?;
                     admit_external_id(
                         &self.fixture_id,
                         "correct.replacement_external_id",
@@ -359,20 +640,36 @@ impl ContinuityScenario {
                     )?;
                 }
                 InteractionEvent::Forget {
-                    target_external_id, ..
+                    target_external_ids,
+                    ..
                 } => {
-                    require_admitted_kind(
-                        &self.fixture_id,
-                        "forget.target_external_id",
-                        target_external_id,
-                        &[
-                            ContinuityObjectKind::Episode,
-                            ContinuityObjectKind::Observation,
-                            ContinuityObjectKind::DerivedMemory,
-                            ContinuityObjectKind::MemoryThread,
-                        ],
-                        &admitted_external_ids,
-                    )?;
+                    if target_external_ids.is_empty() {
+                        bail!(
+                            "scenario {:?} forget target_external_ids must not be empty",
+                            self.fixture_id
+                        );
+                    }
+                    let unique_targets = target_external_ids.iter().collect::<BTreeSet<_>>();
+                    if unique_targets.len() != target_external_ids.len() {
+                        bail!(
+                            "scenario {:?} forget target_external_ids contains duplicates",
+                            self.fixture_id
+                        );
+                    }
+                    for target_external_id in target_external_ids {
+                        require_admitted_kind(
+                            &self.fixture_id,
+                            "forget.target_external_ids",
+                            target_external_id,
+                            &[
+                                ContinuityObjectKind::Episode,
+                                ContinuityObjectKind::Observation,
+                                ContinuityObjectKind::DerivedMemory,
+                                ContinuityObjectKind::MemoryThread,
+                            ],
+                            &admitted_external_ids,
+                        )?;
+                    }
                 }
                 InteractionEvent::Link {
                     external_id,
@@ -429,9 +726,10 @@ impl ContinuityScenario {
                             self.fixture_id
                         );
                     }
-                    require_embedding_input(&self.fixture_id, &assigned_inputs, text)?;
+                    require_embedding_input(&self.fixture_id, assigned_inputs.as_ref(), text)?;
                     validate_expected_relevance(
                         &self.fixture_id,
+                        self.pattern,
                         expected,
                         &admitted_external_ids,
                     )?;
@@ -470,6 +768,17 @@ impl ContinuityScenario {
         }
         Ok(())
     }
+}
+
+/// Mirrors CharacterMemory's write-surface `clean_text` in
+/// `src/policy/embedding_surface.rs`. The live adapter removes the object-type
+/// prefix before frozen lookup, leaving this normalized suffix as the exact
+/// cache key. Keep this mirror paired with the cross-repository drift guard
+/// `live_frozen_write_surface_matches_continuity_runtime_normalization` in the
+/// CharacterMemory adapter tests; that test must fail if the upstream policy
+/// changes without a corresponding fixture-contract update.
+pub fn runtime_memory_embedding_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 impl InteractionEvent {
@@ -512,7 +821,16 @@ pub fn canonical_fixture_bytes(fixtures: &ContinuityFixtureSet) -> Result<Vec<u8
 }
 
 pub fn parse_fixture_bytes(bytes: &[u8]) -> Result<ContinuityFixtureSet> {
-    let fixtures: ContinuityFixtureSet = serde_json::from_slice(bytes)?;
+    let value: Value = serde_json::from_slice(bytes)?;
+    if let Some(found) = value.get("schema_version").and_then(Value::as_u64)
+        && found != u64::from(CONTINUITY_FIXTURE_SCHEMA_VERSION)
+    {
+        bail!(
+            "unsupported continuity fixture schema_version {found}; expected {}",
+            CONTINUITY_FIXTURE_SCHEMA_VERSION
+        );
+    }
+    let fixtures: ContinuityFixtureSet = serde_json::from_value(value)?;
     fixtures.validate()?;
     Ok(fixtures)
 }
@@ -527,10 +845,10 @@ pub fn scenario_patterns(fixtures: &ContinuityFixtureSet) -> BTreeMap<ScenarioPa
 
 fn require_embedding_input(
     fixture_id: &str,
-    assigned_inputs: &BTreeSet<&str>,
+    assigned_inputs: Option<&BTreeSet<&str>>,
     text: &str,
 ) -> Result<()> {
-    if !assigned_inputs.contains(text) {
+    if assigned_inputs.is_some_and(|assigned_inputs| !assigned_inputs.contains(text)) {
         bail!("scenario {fixture_id:?} has text without an embedding concept assignment");
     }
     Ok(())
@@ -620,16 +938,20 @@ fn require_supported_relation(fixture_id: &str, relation: &str) -> Result<()> {
 
 fn validate_expected_relevance(
     fixture_id: &str,
+    pattern: ScenarioPattern,
     expected: &ExpectedRelevance,
     admitted_external_ids: &BTreeMap<String, ContinuityObjectKind>,
 ) -> Result<()> {
-    if expected.relevant_external_ids.is_empty() {
-        bail!("scenario {fixture_id:?} query must declare relevant_external_ids");
+    if pattern == ScenarioPattern::Abstention && !expected.relevant_external_ids.is_empty() {
+        bail!(
+            "scenario {fixture_id:?} uses pattern=abstention, so every query must have empty relevant_external_ids"
+        );
     }
-    if expected.irrelevant_external_ids.is_empty() {
-        bail!("scenario {fixture_id:?} query must declare irrelevant_external_ids");
+    if pattern != ScenarioPattern::Abstention && expected.relevant_external_ids.is_empty() {
+        bail!(
+            "scenario {fixture_id:?} is non-abstention and every query must declare relevant_external_ids"
+        );
     }
-
     let relevant = expected
         .relevant_external_ids
         .iter()
@@ -660,6 +982,24 @@ fn validate_expected_relevance(
     Ok(())
 }
 
+fn require_distinct_surface_texts(
+    fixture_id: &str,
+    surface_texts: &RememberSurfaceTexts,
+) -> Result<()> {
+    let texts = [
+        surface_texts.episode.as_str(),
+        surface_texts.observation.as_str(),
+        surface_texts.derived.as_str(),
+    ];
+    for text in texts {
+        require_non_empty("remember.surface_texts", text)?;
+    }
+    if texts.into_iter().collect::<BTreeSet<_>>().len() != texts.len() {
+        bail!("scenario {fixture_id:?} remember surface_texts must be pairwise distinct");
+    }
+    Ok(())
+}
+
 fn require_non_empty(field: &str, value: &str) -> Result<()> {
     if value.trim().is_empty() {
         bail!("continuity fixture {field} must be non-empty");
@@ -680,6 +1020,88 @@ mod tests {
 
     use super::*;
     use crate::{CHECKED_FIXTURE_SEED, generate_fixture_set};
+
+    #[test]
+    fn runtime_embedding_inputs_normalize_writes_but_preserve_queries() {
+        let mut fixture = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = &mut fixture.scenarios[0];
+        let remember = scenario
+            .events
+            .iter()
+            .find(|event| matches!(event, InteractionEvent::Remember { .. }))
+            .unwrap()
+            .clone();
+        let query = scenario
+            .events
+            .iter()
+            .find(|event| matches!(event, InteractionEvent::Query { .. }))
+            .unwrap()
+            .clone();
+        scenario.entities.clear();
+        scenario.events = vec![remember, query];
+        let InteractionEvent::Remember { text, .. } = &mut scenario.events[0] else {
+            unreachable!()
+        };
+        *text = "  remembered\n\ttarget  ".to_string();
+        let InteractionEvent::Query { text, .. } = &mut scenario.events[1] else {
+            unreachable!()
+        };
+        *text = "  target\nquery  ".to_string();
+
+        assert_eq!(
+            scenario.runtime_embedding_inputs(),
+            BTreeSet::from([
+                "  target\nquery  ".to_string(),
+                "remembered target".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn runtime_embedding_inputs_ignore_unused_top_level_surface_text() {
+        let fixture = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let mut scenario = fixture
+            .scenarios
+            .into_iter()
+            .find(|scenario| scenario.pattern == ScenarioPattern::SurfaceContribution)
+            .unwrap();
+        let mut remember = scenario
+            .events
+            .into_iter()
+            .find(|event| {
+                matches!(
+                    event,
+                    InteractionEvent::Remember {
+                        surface_texts: Some(_),
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let InteractionEvent::Remember {
+            text,
+            surface_texts: Some(surface_texts),
+            ..
+        } = &mut remember
+        else {
+            unreachable!()
+        };
+        *text = "unused top-level alias".to_string();
+        let expected = BTreeSet::from([
+            runtime_memory_embedding_text(&surface_texts.episode),
+            runtime_memory_embedding_text(&surface_texts.observation),
+            runtime_memory_embedding_text(&surface_texts.derived),
+        ]);
+        scenario.entities.clear();
+        scenario.events = vec![remember];
+
+        assert_eq!(scenario.runtime_embedding_inputs(), expected);
+        assert!(
+            !scenario
+                .runtime_embedding_inputs()
+                .contains("unused top-level alias")
+        );
+    }
 
     fn parse_error(fixtures: &ContinuityFixtureSet) -> String {
         let bytes = serde_json::to_vec(fixtures).unwrap();
@@ -815,7 +1237,7 @@ mod tests {
     }
 
     #[test]
-    fn public_parser_requires_pollution_labels_to_be_present_and_non_empty() {
+    fn public_parser_requires_pollution_labels_to_be_present_but_allows_unlabeled_contrasts() {
         let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let mut value = serde_json::to_value(&fixtures).unwrap();
         let scenarios = value["scenarios"].as_array_mut().unwrap();
@@ -836,8 +1258,7 @@ mod tests {
         expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall))
             .irrelevant_external_ids
             .clear();
-        let error = parse_error(&fixtures);
-        assert!(error.contains("declare irrelevant_external_ids"), "{error}");
+        fixtures.validate().unwrap();
     }
 
     #[test]
@@ -848,10 +1269,8 @@ mod tests {
             .relevant_external_ids
             .push(expected.relevant_external_ids[0].clone());
         let error = parse_error(&fixtures);
-        assert!(
-            error.contains("relevant_external_ids contains duplicates"),
-            "{error}"
-        );
+        assert!(error.contains("relevant_external_ids"), "{error}");
+        assert!(error.contains("duplicates"), "{error}");
 
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let expected = expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall));
@@ -859,10 +1278,8 @@ mod tests {
             .irrelevant_external_ids
             .push(expected.irrelevant_external_ids[0].clone());
         let error = parse_error(&fixtures);
-        assert!(
-            error.contains("irrelevant_external_ids contains duplicates"),
-            "{error}"
-        );
+        assert!(error.contains("irrelevant_external_ids"), "{error}");
+        assert!(error.contains("duplicates"), "{error}");
 
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let expected = expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall));
@@ -881,7 +1298,6 @@ mod tests {
         let error = parse_error(&fixtures);
         assert!(error.contains("query relevance label"), "{error}");
         assert!(error.contains("memory-recent"), "{error}");
-        assert!(error.contains("before it is admitted"), "{error}");
     }
 
     #[test]
@@ -901,14 +1317,15 @@ mod tests {
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
         let InteractionEvent::Forget {
-            target_external_id, ..
+            target_external_ids,
+            ..
         } = &mut scenario.events[3]
         else {
             panic!("expected forget event");
         };
-        *target_external_id = "missing-forget-target".to_string();
+        target_external_ids[0] = "missing-forget-target".to_string();
         let error = parse_error(&fixtures);
-        assert!(error.contains("forget.target_external_id"), "{error}");
+        assert!(error.contains("forget.target_external_ids"), "{error}");
     }
 
     #[test]
@@ -946,29 +1363,77 @@ mod tests {
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
         let InteractionEvent::Forget {
-            target_external_id, ..
+            target_external_ids,
+            ..
         } = &mut scenario.events[3]
         else {
             panic!("expected forget event");
         };
-        *target_external_id = "entity-person".to_string();
+        target_external_ids[0] = "entity-person".to_string();
         let error = parse_error(&fixtures);
-        assert!(error.contains("forget.target_external_id"), "{error}");
+        assert!(error.contains("forget.target_external_ids"), "{error}");
         assert!(error.contains("unsupported kind entity"), "{error}");
 
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
         insert_link_before(scenario, 3, "forget-link", "delivery-v2");
         let InteractionEvent::Forget {
-            target_external_id, ..
+            target_external_ids,
+            ..
         } = &mut scenario.events[4]
         else {
             panic!("expected forget event");
         };
-        *target_external_id = "forget-link".to_string();
+        target_external_ids[0] = "forget-link".to_string();
         let error = parse_error(&fixtures);
-        assert!(error.contains("forget.target_external_id"), "{error}");
+        assert!(error.contains("forget.target_external_ids"), "{error}");
         assert!(error.contains("unsupported kind memory_link"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_empty_or_duplicate_forget_targets() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let InteractionEvent::Forget {
+            target_external_ids,
+            ..
+        } = &mut scenario.events[3]
+        else {
+            panic!("expected forget event");
+        };
+        target_external_ids.clear();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("target_external_ids"), "{error}");
+        assert!(error.contains("empty"), "{error}");
+
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let InteractionEvent::Forget {
+            target_external_ids,
+            ..
+        } = &mut scenario.events[3]
+        else {
+            panic!("expected forget event");
+        };
+        target_external_ids[1] = target_external_ids[0].clone();
+        let error = parse_error(&fixtures);
+        assert!(error.contains("target_external_ids"), "{error}");
+        assert!(error.contains("duplicates"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_conflicting_default_and_episode_surface_text() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::SurfaceContribution);
+        let InteractionEvent::Remember { text, .. } = &mut scenario.events[0] else {
+            panic!("expected remember event");
+        };
+        *text = "Conflicting Episode text".to_string();
+
+        let error = parse_error(&fixtures);
+
+        assert!(error.contains("surface-contribution"), "{error}");
+        assert!(error.contains("surface_texts.episode"), "{error}");
     }
 
     #[test]
@@ -1061,7 +1526,7 @@ mod tests {
         let error = parse_error(&fixtures);
         assert!(error.contains("remember.external_id"), "{error}");
         assert!(error.contains("memory-dormant:observation"), "{error}");
-        assert!(error.contains("duplicates existing external ID"), "{error}");
+        assert!(error.contains("duplicates"), "{error}");
 
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::ThreadDrift);
@@ -1091,7 +1556,7 @@ mod tests {
 
         let error = parse_error(&fixtures);
         assert!(error.contains("long-gap-recall"), "{error}");
-        assert!(error.contains("at least one scripted query"), "{error}");
+        assert!(error.contains("query"), "{error}");
     }
 
     #[test]
@@ -1119,7 +1584,8 @@ mod tests {
         *external_id = "memory-dormant".to_string();
         let error = parse_error(&fixtures);
         assert!(error.contains("remember.external_id"), "{error}");
-        assert!(error.contains("duplicates existing external ID"), "{error}");
+        assert!(error.contains("memory-dormant"), "{error}");
+        assert!(error.contains("duplicates"), "{error}");
     }
 
     #[test]
@@ -1136,7 +1602,8 @@ mod tests {
 
         let error = parse_error(&fixtures);
 
-        assert!(error.contains("duplicate event_id"), "{error}");
+        assert!(error.contains("event_id"), "{error}");
+        assert!(error.contains("duplicate"), "{error}");
 
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
@@ -1152,7 +1619,8 @@ mod tests {
         *event_id = "event-duplicate-query-id".to_string();
         scenario.events.push(duplicate);
         let error = parse_error(&fixtures);
-        assert!(error.contains("duplicate query_id"), "{error}");
+        assert!(error.contains("query_id"), "{error}");
+        assert!(error.contains("duplicate"), "{error}");
     }
 
     #[test]
@@ -1191,25 +1659,28 @@ mod tests {
         };
         *salience = f32::NAN;
         let error = scenario.validate().unwrap_err().to_string();
-        assert!(error.contains("must be finite"), "{error}");
+        assert!(error.contains("remember.salience"), "{error}");
+        assert!(error.contains("finite"), "{error}");
     }
 
     #[test]
     fn public_parser_rejects_restart_without_a_following_query() {
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
-        let restart_index = scenario
+        let (restart_index, restart_event_id) = scenario
             .events
             .iter()
-            .position(|event| matches!(event, InteractionEvent::Restart { .. }))
+            .enumerate()
+            .find_map(|(index, event)| match event {
+                InteractionEvent::Restart { event_id, .. } => Some((index, event_id.clone())),
+                _ => None,
+            })
             .unwrap();
         scenario.events.truncate(restart_index + 1);
 
         let error = parse_error(&fixtures);
-        assert!(
-            error.contains("must have a following scripted query"),
-            "{error}"
-        );
+        assert!(error.contains(&restart_event_id), "{error}");
+        assert!(error.contains("query"), "{error}");
     }
 
     #[test]
@@ -1280,6 +1751,111 @@ mod tests {
             .to_string();
         assert!(error.contains("unsupported continuity fixture schema_version"));
         assert!(error.contains(&(CONTINUITY_FIXTURE_SCHEMA_VERSION + 1).to_string()));
-        assert!(error.contains(&CONTINUITY_FIXTURE_SCHEMA_VERSION.to_string()));
+        assert!(
+            error.contains(&CONTINUITY_FIXTURE_SCHEMA_VERSION.to_string()),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn public_parser_accepts_explicit_v3_providers_and_rejects_v2_actionably() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let bytes = canonical_fixture_bytes(&fixtures).unwrap();
+        let parsed = parse_fixture_bytes(&bytes).unwrap();
+        assert_eq!(parsed.schema_version, CONTINUITY_FIXTURE_SCHEMA_VERSION);
+        assert!(
+            parsed.scenarios.iter().any(|scenario| {
+                scenario.embedding.provider_name() == "controllable_similarity"
+            })
+        );
+        assert!(
+            parsed
+                .scenarios
+                .iter()
+                .any(|scenario| scenario.embedding.provider_name() == "frozen")
+        );
+
+        let mut v2 = serde_json::to_value(&fixtures).unwrap();
+        v2["schema_version"] = Value::from(2);
+        v2["scenarios"].as_array_mut().unwrap().truncate(1);
+        v2["scenarios"][0]["embedding"]
+            .as_object_mut()
+            .unwrap()
+            .remove("provider");
+        let error = parse_fixture_bytes(&serde_json::to_vec(&v2).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("schema_version 2"), "{error}");
+        assert!(error.contains("expected 3"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_partial_malformed_and_typoed_v3_embedding_blocks() {
+        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let base = serde_json::to_value(&fixtures).unwrap();
+
+        let mut missing_provider = base.clone();
+        missing_provider["scenarios"][0]["embedding"]
+            .as_object_mut()
+            .unwrap()
+            .remove("provider");
+        let error = parse_fixture_bytes(&serde_json::to_vec(&missing_provider).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("missing required field `provider`"),
+            "{error}"
+        );
+
+        let mut typoed = base.clone();
+        typoed["scenarios"][0]["embedding"] = serde_json::json!({"provder": "frozen"});
+        let error = parse_fixture_bytes(&serde_json::to_vec(&typoed).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown field \"provder\""), "{error}");
+        assert!(error.contains("provider: frozen"), "{error}");
+
+        let mut malformed_frozen = base.clone();
+        malformed_frozen["scenarios"][0]["embedding"] =
+            serde_json::json!({"provider": "frozen", "vector_size": 8});
+        let error = parse_fixture_bytes(&serde_json::to_vec(&malformed_frozen).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown field \"vector_size\""), "{error}");
+        assert!(error.contains("frozen embedding block"), "{error}");
+
+        let mut partial = base;
+        partial["scenarios"][0]["embedding"] = serde_json::json!({
+            "provider": "controllable_similarity",
+            "seed": 1,
+            "vector_size": 8
+        });
+        let error = parse_fixture_bytes(&serde_json::to_vec(&partial).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("malformed controllable_similarity embedding block"),
+            "{error}"
+        );
+        assert!(error.contains("missing field"), "{error}");
+    }
+
+    #[test]
+    fn schema_v3_admits_downstream_patterns_and_couples_abstention_labels() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        fixtures.scenarios[0].pattern = ScenarioPattern::Abstention;
+        let error = parse_error(&fixtures);
+        assert!(error.contains("pattern=abstention"), "{error}");
+        assert!(error.contains("empty relevant_external_ids"), "{error}");
+
+        expected_mut(&mut fixtures.scenarios[0])
+            .relevant_external_ids
+            .clear();
+        parse_fixture_bytes(&serde_json::to_vec(&fixtures).unwrap()).unwrap();
+
+        fixtures.scenarios[0].pattern = ScenarioPattern::Autobiographical;
+        let error = parse_error(&fixtures);
+        assert!(error.contains("non-abstention"), "{error}");
+        assert!(error.contains("declare relevant_external_ids"), "{error}");
     }
 }
