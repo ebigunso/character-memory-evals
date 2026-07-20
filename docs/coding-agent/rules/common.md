@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "common"
-last_updated: "2026-07-14"
+last_updated: "2026-07-21"
 ---
 
 # Common Repository Rules
@@ -26,6 +26,11 @@ last_updated: "2026-07-14"
 - Gold evidence labels must be used only for scoring and must not be copied into `EpisodeInput`, `ObservationInput`, or adapter metadata.
 - Default validation must remain deterministic and service-free unless the user explicitly asks for real backend integration.
 - Benchmark CLI runs default to the live Character Memory adapter; mock benchmark runs must require explicit opt-in and visibly mark outputs as mock/smoke.
+
+## Compatibility Policy
+
+- The `character_memory` library has no external consumers, so backwards compatibility is not a goal here either: track the library's latest surface directly and remove superseded shims, serde old-name tolerance, legacy config keys, and dual code paths in the same change that replaces them (user-directed 2026-07-21).
+- This policy does not apply to frozen embedding stores, their hashes, or committed evidence artifacts — those are sealed and must not be regenerated or edited to chase a surface change; flag conflicts to the Orchestrator instead.
 
 ## Repo Naming / Structure
 
