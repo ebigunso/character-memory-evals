@@ -3904,6 +3904,35 @@ mod tests {
         );
         link.id = Some(link_id);
 
+        let mut expected_episode_a = episode_a.clone();
+        expected_episode_a.created_at = Some(committed_at);
+        expected_episode_a.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_episode_b = episode_b.clone();
+        expected_episode_b.created_at = Some(committed_at);
+        expected_episode_b.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_observation_a = observation_a.clone();
+        expected_observation_a.created_at = Some(committed_at);
+        expected_observation_a.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_observation_b = observation_b.clone();
+        expected_observation_b.created_at = Some(committed_at);
+        expected_observation_b.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_entity = entity.clone();
+        expected_entity.created_at = Some(committed_at);
+        expected_entity.updated_at = Some(committed_at);
+        expected_entity.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_thread = thread.clone();
+        expected_thread.created_at = Some(committed_at);
+        expected_thread.updated_at = Some(committed_at);
+        expected_thread.last_touched_at = Some(committed_at);
+        expected_thread.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_derived = derived.clone();
+        expected_derived.created_at = Some(committed_at);
+        expected_derived.updated_at = Some(committed_at);
+        expected_derived.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+        let mut expected_link = link.clone();
+        expected_link.created_at = Some(committed_at);
+        expected_link.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
+
         let (plan, topology) = typed_remember_plan_at(
             namespace,
             vec![
@@ -3945,56 +3974,92 @@ mod tests {
             }
         );
 
+        let provenance = CandidateProvenance::caller("CharacterMemoryEvals typed ingest");
+        let expected_object_and_link_candidates = vec![
+            MemoryCandidate::Episode(EpisodeCandidate::new(
+                expected_episode_a,
+                provenance.clone(),
+            )),
+            MemoryCandidate::Episode(EpisodeCandidate::new(
+                expected_episode_b,
+                provenance.clone(),
+            )),
+            MemoryCandidate::Observation(ObservationCandidate::new(
+                expected_observation_a,
+                provenance.clone(),
+            )),
+            MemoryCandidate::Observation(ObservationCandidate::new(
+                expected_observation_b,
+                provenance.clone(),
+            )),
+            MemoryCandidate::Entity(EntityCandidate::new(expected_entity, provenance.clone())),
+            MemoryCandidate::MemoryThread(MemoryThreadCandidate::new(
+                expected_thread,
+                provenance.clone(),
+            )),
+            MemoryCandidate::DerivedMemory(DerivedMemoryCandidate::new(
+                expected_derived,
+                provenance.clone(),
+            )),
+            MemoryCandidate::MemoryLink(MemoryLinkCandidate::new(expected_link, provenance)),
+        ];
+        assert_eq!(
+            &plan.candidates[..expected_object_and_link_candidates.len()],
+            expected_object_and_link_candidates.as_slice()
+        );
+
         let vector_candidates = plan
             .candidates
             .iter()
             .filter_map(|candidate| match candidate {
-                MemoryCandidate::VectorIndex(candidate) => {
-                    Some((candidate.target.id, candidate.embedding_text.as_str()))
-                }
+                MemoryCandidate::VectorIndex(candidate) => Some((
+                    candidate.target.object_type,
+                    candidate.target.id,
+                    candidate.embedding_text.as_str(),
+                )),
                 _ => None,
             })
             .collect::<Vec<_>>();
         assert_eq!(
             vector_candidates,
             vec![
-                (episode_a_id, "Episode summary: Episode one"),
-                (episode_b_id, "Episode summary: Episode two"),
-                (observation_a_id, "Observation excerpt: Observation one"),
-                (observation_b_id, "Observation excerpt: Observation two"),
-                (entity_id, "Entity: Kohta Aliases: K, Ko Fixture owner"),
-                (thread_id, "Thread summary: Continuity Thread summary"),
-                (derived_id, "Reflection: Stable insight"),
+                (
+                    ObjectType::Episode,
+                    episode_a_id,
+                    "Episode summary: Episode one"
+                ),
+                (
+                    ObjectType::Episode,
+                    episode_b_id,
+                    "Episode summary: Episode two"
+                ),
+                (
+                    ObjectType::Observation,
+                    observation_a_id,
+                    "Observation excerpt: Observation one"
+                ),
+                (
+                    ObjectType::Observation,
+                    observation_b_id,
+                    "Observation excerpt: Observation two"
+                ),
+                (
+                    ObjectType::Entity,
+                    entity_id,
+                    "Entity: Kohta Aliases: K, Ko Fixture owner"
+                ),
+                (
+                    ObjectType::MemoryThread,
+                    thread_id,
+                    "Thread summary: Continuity Thread summary"
+                ),
+                (
+                    ObjectType::DerivedMemory,
+                    derived_id,
+                    "Reflection: Stable insight"
+                ),
             ]
         );
-
-        for candidate in &plan.candidates {
-            match candidate {
-                MemoryCandidate::Episode(candidate) => {
-                    assert_eq!(candidate.draft.created_at, Some(committed_at));
-                }
-                MemoryCandidate::Observation(candidate) => {
-                    assert_eq!(candidate.draft.created_at, Some(committed_at));
-                }
-                MemoryCandidate::Entity(candidate) => {
-                    assert_eq!(candidate.draft.created_at, Some(committed_at));
-                    assert_eq!(candidate.draft.updated_at, Some(committed_at));
-                }
-                MemoryCandidate::MemoryThread(candidate) => {
-                    assert_eq!(candidate.draft.created_at, Some(committed_at));
-                    assert_eq!(candidate.draft.updated_at, Some(committed_at));
-                    assert_eq!(candidate.draft.last_touched_at, Some(committed_at));
-                }
-                MemoryCandidate::DerivedMemory(candidate) => {
-                    assert_eq!(candidate.draft.created_at, Some(committed_at));
-                    assert_eq!(candidate.draft.updated_at, Some(committed_at));
-                }
-                MemoryCandidate::MemoryLink(candidate) => {
-                    assert_eq!(candidate.draft.created_at, Some(committed_at));
-                }
-                MemoryCandidate::VectorIndex(_) | MemoryCandidate::StatsUpdate(_) => {}
-            }
-        }
     }
 
     #[tokio::test]
