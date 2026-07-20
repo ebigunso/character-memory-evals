@@ -3,7 +3,6 @@ dataset = "locomo"
 
 [backend]
 namespace_prefix = "bench:locomo"
-reset_namespace_before_each_sample = true
 
 [backend.cleanup]
 enabled = false
