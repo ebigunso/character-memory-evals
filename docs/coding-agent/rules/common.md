@@ -27,6 +27,13 @@ last_updated: "2026-07-21"
 - Default validation must remain deterministic and service-free unless the user explicitly asks for real backend integration.
 - Benchmark CLI runs default to the live Character Memory adapter; mock benchmark runs must require explicit opt-in and visibly mark outputs as mock/smoke.
 
+## Workaround Tripwire (design-debt escalation)
+
+- The tripwire condition is the failure mode itself, not any specific shape of it: noticing that the work is going *around* something — a type, signature, schema, channel, module boundary, existing abstraction, or a dispatch constraint — when changing that thing itself would be the cleaner design (user-directed 2026-07-21).
+- Recognizable symptoms include, non-exhaustively: structured data flattened into prose; a parallel channel or path duplicating an existing one; tests that parse message strings or pin incidental values to verify behavior; call sites compensating for what the callee should own; logic duplicated to avoid a refactor; shims or adapters absorbing a design mismatch instead of the design being aligned; special-case branches accumulating around an abstraction that no longer fits; "for now"/"workaround" markers.
+- On hitting the tripwire: stop the affected chunk and escalate the design alternative with its cost delta to the role that owns the decision; do not implement through it. Sealed artifacts are the one standing exception: working around them is correct, changing them is not.
+- An alert is an obligation to surface, not a license to redesign: the alerting agent waits for a ruling rather than unilaterally expanding scope.
+
 ## Compatibility Policy
 
 - The `character_memory` library has no external consumers, so backwards compatibility is not a goal here either: track the library's latest surface directly and remove superseded shims, serde old-name tolerance, legacy config keys, and dual code paths in the same change that replaces them (user-directed 2026-07-21).

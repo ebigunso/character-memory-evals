@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "worker"
-last_updated: "2026-07-14"
+last_updated: "2026-07-21"
 ---
 
 # Worker Repository Rules
@@ -19,6 +19,7 @@ last_updated: "2026-07-14"
 - Every new public `Result`-returning artifact reader must ship corrupt or invalid-encoding, partial-input, and schema-version-rejection tests before completion.
 - For every changed benchmark field, Workers must trace the value from fixture input through the live adapter DTO, persisted object, retrieval telemetry, metric, and report claim before accepting evidence.
 - Every live-evidence claim must state scenario scope, config identity, and the Character Memory sibling commit/branch provenance inline; label scoped evidence as scoped when first reported.
+- Workaround Tripwire (see common.md): when implementation is going around a type, signature, schema, boundary, or dispatch constraint where changing that thing would be the cleaner design, stop that chunk and escalate to the Orchestrator with the alternative and cost delta before implementing through it. Dispatch constraints such as "minimal diff", "no new public types", or "keep the signature" are instrumental, not terminal — when one forces a workaround, escalation outranks compliance. Sealed artifacts stay the standing exception (user-directed 2026-07-21).
 
 ## Repo CI / Checks Mapping
 
