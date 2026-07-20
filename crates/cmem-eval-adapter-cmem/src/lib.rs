@@ -3,15 +3,17 @@ use async_trait::async_trait;
 use character_memory::{
     ArchivePolicy, CandidateProvenance, CandidateValidation, CandidateValidationStatus,
     CharacterMemory, CommitOptions, ContinuitySectionLimits, CorrectMemoryDraft,
-    CorrectionCascadePolicy, CorrectionLifecyclePolicy, CorrectionTarget, DerivedMemoryDraft,
-    DerivedType, EmbeddingProvider, EntityDraft, EntityType, EpisodeDraft, ExternalSourceReference,
+    CorrectionCascadePolicy, CorrectionLifecyclePolicy, CorrectionTarget, DEFAULT_SCHEMA_VERSION,
+    DerivedMemoryCandidate, DerivedMemoryDraft, DerivedType, EmbeddingProvider, EntityCandidate,
+    EntityDraft, EntityType, EpisodeCandidate, EpisodeDraft, ExternalSourceReference,
     ForgetCascadePolicy, ForgetLifecyclePolicy, ForgetMemoryDraft, LifecycleFilterAction,
     LifecycleFilterReason, LifecycleMutationOutcome, LifecycleTargetRef, MemoryCandidate, MemoryId,
-    MemoryLinkDraft, MemoryObjectDraft, MemoryThreadDraft, ObjectType, ObservationDraft,
-    PrepareOptions, RelationType, RememberDraft, RememberInput, RememberWritePlan,
+    MemoryLinkCandidate, MemoryLinkDraft, MemoryObjectDraft, MemoryObjectRef,
+    MemoryThreadCandidate, MemoryThreadDraft, ObjectType, ObservationCandidate, ObservationDraft,
+    PrepareOptions, RelationType, RememberInput, RememberOutcome, RememberWritePlan,
     ReplacementDerivedMemoryDraft, RetentionState, RetrievalContext, Settings,
     SourceObjectCorrectionTarget, SourceProvenance, SourceProvenanceReference, Stability,
-    SuppressionPolicy, ThreadStatus,
+    SuppressionPolicy, ThreadStatus, VectorIndexCandidate,
 };
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{
@@ -510,13 +512,12 @@ impl CharacterMemoryAdapter {
 
     fn settings(&self, namespace: &str) -> Result<Settings> {
         let qdrant = self.qdrant_connection_string()?;
-        let oxigraph = self
+        let oxigraph_path = self
             .config
             .backend
-            .oxigraph_connection_string
+            .oxigraph_path
             .clone()
-            .or_else(|| env::var("OXIGRAPH_CONNECTION_STRING").ok())
-            .unwrap_or_else(|| "memory://in-memory".to_string());
+            .or_else(|| env::var("OXIGRAPH_PATH").ok());
         let openai_api_key = env::var(&self.config.backend.openai_api_key_env)
             .or_else(|_| env::var("OPENAI_API_KEY"))
             .unwrap_or_else(|_| {
@@ -538,7 +539,12 @@ impl CharacterMemoryAdapter {
 
         let mut builder = config::Config::builder()
             .set_override("qdrant_connection_string", qdrant)?
-            .set_override("oxigraph_connection_string", oxigraph)?
+            .set_override(
+                "oxigraph_path",
+                oxigraph_path
+                    .clone()
+                    .unwrap_or_else(|| "unused-in-memory".to_string()),
+            )?
             .set_override("openai_api_key", openai_api_key)?
             .set_override(
                 "embedding_model",
@@ -547,10 +553,11 @@ impl CharacterMemoryAdapter {
         if let Some(path) = self.oxigraph_persistence_path(namespace) {
             builder = builder
                 .set_override("graph_store_mode", "persistent")?
-                .set_override(
-                    "oxigraph_connection_string",
-                    path.to_string_lossy().into_owned(),
-                )?;
+                .set_override("oxigraph_path", path.to_string_lossy().into_owned())?;
+        } else if oxigraph_path.is_some() {
+            builder = builder.set_override("graph_store_mode", "persistent")?;
+        } else {
+            builder = builder.set_override("graph_store_mode", "in_memory")?;
         }
         if let Some(path) = self.retrieval_stats_path(namespace) {
             builder = builder
@@ -1093,7 +1100,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             ids.push((input.external_id, id));
         }
 
-        state.memory.remember(RememberDraft::new(objects)).await?;
+        commit_typed_drafts(&state.memory, &namespace, objects, Vec::new()).await?;
         for (external_id, id) in &ids {
             state.episode_ids.insert(external_id.clone(), *id);
             state.reverse_episode_ids.insert(*id, external_id.clone());
@@ -1150,7 +1157,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             ids.push((input.external_id, input.episode_external_id, id));
         }
 
-        state.memory.remember(RememberDraft::new(objects)).await?;
+        commit_typed_drafts(&state.memory, &namespace, objects, Vec::new()).await?;
         for (external_id, episode_external_id, id) in &ids {
             state.observation_ids.insert(external_id.clone(), *id);
             state
@@ -1291,10 +1298,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             return Ok(());
         }
 
-        state
-            .memory
-            .remember(RememberDraft::new(objects).with_links(links))
-            .await?;
+        commit_typed_drafts(&state.memory, &input.namespace, objects, links).await?;
         for (external_id, id) in pending_entities {
             state.entity_ids.insert(external_id.clone(), id);
             state.reverse_entity_ids.insert(id, external_id);
@@ -2314,6 +2318,328 @@ fn render_context_text(items: &[RetrievedItem]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct RememberTopology {
+    object_ids: Vec<MemoryId>,
+    link_ids: Vec<MemoryId>,
+    vector_ids: Vec<MemoryId>,
+}
+
+async fn commit_typed_drafts(
+    memory: &CharacterMemory,
+    namespace: &str,
+    object_drafts: Vec<MemoryObjectDraft>,
+    link_drafts: Vec<MemoryLinkDraft>,
+) -> Result<()> {
+    let (plan, expected) =
+        typed_remember_plan_at(namespace, object_drafts, link_drafts, Utc::now())?;
+    let validations = memory.validate_plan(&plan).await?;
+    let invalid = validations
+        .iter()
+        .filter(|validation| validation.status == CandidateValidationStatus::Invalid)
+        .map(|validation| {
+            format!(
+                "candidate {} ({:?}): {}",
+                validation.candidate_index,
+                validation.candidate_kind,
+                validation.errors.join("; ")
+            )
+        })
+        .collect::<Vec<_>>();
+    if !invalid.is_empty() {
+        bail!(
+            "typed remember plan validation failed: {}",
+            invalid.join(" | ")
+        );
+    }
+
+    let outcome = memory.commit(plan, CommitOptions::default()).await?;
+    validate_remember_topology(&outcome, &expected)
+}
+
+fn typed_remember_plan_at(
+    namespace: &str,
+    object_drafts: Vec<MemoryObjectDraft>,
+    link_drafts: Vec<MemoryLinkDraft>,
+    committed_at: DateTime<Utc>,
+) -> Result<(RememberWritePlan, RememberTopology)> {
+    let provenance = CandidateProvenance::caller("CharacterMemoryEvals typed ingest");
+    let mut object_candidates = Vec::new();
+    let mut link_candidates = Vec::new();
+    let mut vector_candidates = Vec::new();
+    let mut object_ids = Vec::new();
+    let mut link_ids = Vec::new();
+    let mut vector_ids = Vec::new();
+
+    for draft in object_drafts {
+        let draft = complete_typed_draft(draft, committed_at)?;
+        match draft {
+            MemoryObjectDraft::Episode(draft) => {
+                let id = required_draft_id(draft.id, "episode")?;
+                object_ids.push(id);
+                vector_ids.push(id);
+                vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
+                    MemoryObjectRef::new(ObjectType::Episode, id),
+                    prefixed_embedding_text("Episode summary", &draft.summary),
+                    provenance.clone(),
+                )));
+                object_candidates.push(MemoryCandidate::Episode(EpisodeCandidate::new(
+                    draft,
+                    provenance.clone(),
+                )));
+            }
+            MemoryObjectDraft::Observation(draft) => {
+                let id = required_draft_id(draft.id, "observation")?;
+                object_ids.push(id);
+                vector_ids.push(id);
+                vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
+                    MemoryObjectRef::new(ObjectType::Observation, id),
+                    prefixed_embedding_text("Observation excerpt", &draft.text),
+                    provenance.clone(),
+                )));
+                object_candidates.push(MemoryCandidate::Observation(ObservationCandidate::new(
+                    draft,
+                    provenance.clone(),
+                )));
+            }
+            MemoryObjectDraft::Entity(draft) => {
+                let id = required_draft_id(draft.id, "entity")?;
+                let aliases = if draft.aliases.is_empty() {
+                    String::new()
+                } else {
+                    format!("Aliases: {}", draft.aliases.join(", "))
+                };
+                let content = join_embedding_text([
+                    draft.name.as_str(),
+                    aliases.as_str(),
+                    draft.summary.as_deref().unwrap_or_default(),
+                ]);
+                object_ids.push(id);
+                vector_ids.push(id);
+                vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
+                    MemoryObjectRef::new(ObjectType::Entity, id),
+                    prefixed_embedding_text("Entity", &content),
+                    provenance.clone(),
+                )));
+                object_candidates.push(MemoryCandidate::Entity(EntityCandidate::new(
+                    draft,
+                    provenance.clone(),
+                )));
+            }
+            MemoryObjectDraft::MemoryThread(draft) => {
+                let id = required_draft_id(draft.id, "memory thread")?;
+                let content = join_embedding_text([draft.title.as_str(), draft.summary.as_str()]);
+                object_ids.push(id);
+                vector_ids.push(id);
+                vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
+                    MemoryObjectRef::new(ObjectType::MemoryThread, id),
+                    prefixed_embedding_text("Thread summary", &content),
+                    provenance.clone(),
+                )));
+                object_candidates.push(MemoryCandidate::MemoryThread(MemoryThreadCandidate::new(
+                    draft,
+                    provenance.clone(),
+                )));
+            }
+            MemoryObjectDraft::DerivedMemory(draft) => {
+                let id = required_draft_id(draft.id, "derived memory")?;
+                object_ids.push(id);
+                vector_ids.push(id);
+                vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
+                    MemoryObjectRef::new(ObjectType::DerivedMemory, id),
+                    prefixed_embedding_text(
+                        derived_embedding_label(draft.derived_type),
+                        &draft.text,
+                    ),
+                    provenance.clone(),
+                )));
+                object_candidates.push(MemoryCandidate::DerivedMemory(
+                    DerivedMemoryCandidate::new(draft, provenance.clone()),
+                ));
+            }
+            MemoryObjectDraft::MemoryLink(draft) => {
+                let id = required_draft_id(draft.id, "memory link")?;
+                link_ids.push(id);
+                link_candidates.push(MemoryCandidate::MemoryLink(MemoryLinkCandidate::new(
+                    draft,
+                    provenance.clone(),
+                )));
+            }
+        }
+    }
+
+    for draft in link_drafts {
+        let MemoryObjectDraft::MemoryLink(draft) =
+            complete_typed_draft(MemoryObjectDraft::MemoryLink(draft), committed_at)?
+        else {
+            unreachable!("memory link draft remains a memory link")
+        };
+        let id = required_draft_id(draft.id, "memory link")?;
+        link_ids.push(id);
+        link_candidates.push(MemoryCandidate::MemoryLink(MemoryLinkCandidate::new(
+            draft,
+            provenance.clone(),
+        )));
+    }
+
+    let topology_key = object_ids
+        .iter()
+        .chain(&link_ids)
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\0");
+    let operation_id = deterministic_id(namespace, "remember_plan", &topology_key);
+    let mut plan = RememberWritePlan::new(operation_id, format!("cmem-eval:{operation_id}"));
+    for candidate in object_candidates
+        .into_iter()
+        .chain(link_candidates)
+        .chain(vector_candidates)
+    {
+        plan = plan.with_candidate(candidate);
+    }
+
+    Ok((
+        plan,
+        RememberTopology {
+            object_ids,
+            link_ids,
+            vector_ids,
+        },
+    ))
+}
+
+fn complete_typed_draft(
+    mut draft: MemoryObjectDraft,
+    committed_at: DateTime<Utc>,
+) -> Result<MemoryObjectDraft> {
+    match &mut draft {
+        MemoryObjectDraft::Episode(draft) => {
+            required_draft_id(draft.id, "episode")?;
+            draft.created_at.get_or_insert(committed_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+        MemoryObjectDraft::Observation(draft) => {
+            required_draft_id(draft.id, "observation")?;
+            draft.created_at.get_or_insert(committed_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+        MemoryObjectDraft::Entity(draft) => {
+            required_draft_id(draft.id, "entity")?;
+            let created_at = *draft.created_at.get_or_insert(committed_at);
+            draft.updated_at.get_or_insert(created_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+        MemoryObjectDraft::MemoryThread(draft) => {
+            required_draft_id(draft.id, "memory thread")?;
+            let created_at = *draft.created_at.get_or_insert(committed_at);
+            let updated_at = *draft.updated_at.get_or_insert(created_at);
+            draft.last_touched_at.get_or_insert(updated_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+        MemoryObjectDraft::DerivedMemory(draft) => {
+            required_draft_id(draft.id, "derived memory")?;
+            let created_at = *draft.created_at.get_or_insert(committed_at);
+            draft.updated_at.get_or_insert(created_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+        MemoryObjectDraft::MemoryLink(draft) => {
+            required_draft_id(draft.id, "memory link")?;
+            draft.created_at.get_or_insert(committed_at);
+            draft
+                .schema_version
+                .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
+        }
+    }
+    Ok(draft)
+}
+
+fn required_draft_id(id: Option<MemoryId>, kind: &str) -> Result<MemoryId> {
+    id.with_context(|| format!("CharacterMemoryEvals {kind} draft must have a deterministic ID"))
+}
+
+fn validate_remember_topology(
+    outcome: &RememberOutcome,
+    expected: &RememberTopology,
+) -> Result<()> {
+    if outcome.persisted_object_ids != expected.object_ids {
+        bail!(
+            "typed remember persisted object topology changed: expected {:?}, got {:?}",
+            expected.object_ids,
+            outcome.persisted_object_ids
+        );
+    }
+    if outcome.persisted_link_ids != expected.link_ids {
+        bail!(
+            "typed remember persisted link topology changed: expected {:?}, got {:?}",
+            expected.link_ids,
+            outcome.persisted_link_ids
+        );
+    }
+    if let Some(failure) = &outcome.vector_indexing_failure {
+        if failure.unindexed_object_ids != expected.vector_ids {
+            bail!(
+                "typed remember failed vector topology changed: expected {:?}, got {:?}",
+                expected.vector_ids,
+                failure.unindexed_object_ids
+            );
+        }
+    } else if outcome.vector_indexed_object_ids != expected.vector_ids {
+        bail!(
+            "typed remember vector topology changed: expected {:?}, got {:?}",
+            expected.vector_ids,
+            outcome.vector_indexed_object_ids
+        );
+    }
+    Ok(())
+}
+
+fn prefixed_embedding_text(label: &str, text: &str) -> String {
+    let text = clean_embedding_text(text);
+    if text.is_empty() {
+        label.to_owned()
+    } else {
+        format!("{label}: {text}")
+    }
+}
+
+fn join_embedding_text<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
+    parts
+        .into_iter()
+        .map(clean_embedding_text)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn clean_embedding_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+const fn derived_embedding_label(derived_type: DerivedType) -> &'static str {
+    match derived_type {
+        DerivedType::Reflection => "Reflection",
+        DerivedType::UserPreference => "User preference",
+        DerivedType::AssistantPreference => "Assistant preference",
+        DerivedType::Commitment => "Commitment",
+        DerivedType::OpenLoop => "Open loop",
+        DerivedType::CharacterSignal => "Character signal",
+        DerivedType::RelationshipNote => "Relationship note",
+        DerivedType::ProjectNote => "Project note",
+        DerivedType::Claim => "Claim",
+        DerivedType::Correction => "Correction",
+    }
 }
 
 fn deterministic_id(namespace: &str, kind: &str, external_id: &str) -> MemoryId {
@@ -3532,6 +3858,143 @@ mod tests {
         assert_eq!(first, deterministic_id("n1", "episode", "s1"));
         assert_ne!(first, deterministic_id("n2", "episode", "s1"));
         assert_ne!(first, deterministic_id("n1", "observation", "s1"));
+    }
+
+    #[test]
+    fn typed_plan_preserves_batch_enrichment_commit_topology_and_surfaces() {
+        let namespace = "typed-plan-equivalence";
+        let committed_at = DateTime::parse_from_rfc3339("2026-07-21T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let episode_a_id = deterministic_id(namespace, "episode", "episode-a");
+        let episode_b_id = deterministic_id(namespace, "episode", "episode-b");
+        let observation_a_id = deterministic_id(namespace, "observation", "observation-a");
+        let observation_b_id = deterministic_id(namespace, "observation", "observation-b");
+        let entity_id = deterministic_id(namespace, "entity", "entity");
+        let thread_id = deterministic_id(namespace, "memory_thread", "thread");
+        let derived_id = deterministic_id(namespace, "derived_memory", "derived");
+        let link_id = deterministic_id(namespace, "memory_link", "link");
+
+        let mut episode_a = EpisodeDraft::new("Episode   one");
+        episode_a.id = Some(episode_a_id);
+        let mut episode_b = EpisodeDraft::new("Episode two");
+        episode_b.id = Some(episode_b_id);
+        let mut observation_a = ObservationDraft::new(episode_a_id, "Observation   one");
+        observation_a.id = Some(observation_a_id);
+        let mut observation_b = ObservationDraft::new(episode_b_id, "Observation two");
+        observation_b.id = Some(observation_b_id);
+        let mut entity = EntityDraft::new(EntityType::User, "Kohta");
+        entity.id = Some(entity_id);
+        entity.aliases = vec!["K".to_string(), "Ko".to_string()];
+        entity.summary = Some("Fixture   owner".to_string());
+        let mut thread = MemoryThreadDraft::new("Continuity", "Thread   summary");
+        thread.id = Some(thread_id);
+        let mut derived = DerivedMemoryDraft::new(DerivedType::Reflection, "Stable   insight");
+        derived.id = Some(derived_id);
+        derived.derived_from_episode_ids = vec![episode_a_id];
+        derived.derived_from_observation_ids = vec![observation_a_id];
+        derived.thread_ids = vec![thread_id];
+        derived.entity_ids = vec![entity_id];
+        let mut link = MemoryLinkDraft::new(
+            ObjectType::DerivedMemory,
+            derived_id,
+            RelationType::About,
+            ObjectType::Entity,
+            entity_id,
+        );
+        link.id = Some(link_id);
+
+        let (plan, topology) = typed_remember_plan_at(
+            namespace,
+            vec![
+                MemoryObjectDraft::Episode(episode_a),
+                MemoryObjectDraft::Episode(episode_b),
+                MemoryObjectDraft::Observation(observation_a),
+                MemoryObjectDraft::Observation(observation_b),
+                MemoryObjectDraft::Entity(entity),
+                MemoryObjectDraft::MemoryThread(thread),
+                MemoryObjectDraft::DerivedMemory(derived),
+            ],
+            vec![link],
+            committed_at,
+        )
+        .unwrap();
+
+        assert_eq!(
+            topology,
+            RememberTopology {
+                object_ids: vec![
+                    episode_a_id,
+                    episode_b_id,
+                    observation_a_id,
+                    observation_b_id,
+                    entity_id,
+                    thread_id,
+                    derived_id,
+                ],
+                link_ids: vec![link_id],
+                vector_ids: vec![
+                    episode_a_id,
+                    episode_b_id,
+                    observation_a_id,
+                    observation_b_id,
+                    entity_id,
+                    thread_id,
+                    derived_id,
+                ],
+            }
+        );
+
+        let vector_candidates = plan
+            .candidates
+            .iter()
+            .filter_map(|candidate| match candidate {
+                MemoryCandidate::VectorIndex(candidate) => {
+                    Some((candidate.target.id, candidate.embedding_text.as_str()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            vector_candidates,
+            vec![
+                (episode_a_id, "Episode summary: Episode one"),
+                (episode_b_id, "Episode summary: Episode two"),
+                (observation_a_id, "Observation excerpt: Observation one"),
+                (observation_b_id, "Observation excerpt: Observation two"),
+                (entity_id, "Entity: Kohta Aliases: K, Ko Fixture owner"),
+                (thread_id, "Thread summary: Continuity Thread summary"),
+                (derived_id, "Reflection: Stable insight"),
+            ]
+        );
+
+        for candidate in &plan.candidates {
+            match candidate {
+                MemoryCandidate::Episode(candidate) => {
+                    assert_eq!(candidate.draft.created_at, Some(committed_at));
+                }
+                MemoryCandidate::Observation(candidate) => {
+                    assert_eq!(candidate.draft.created_at, Some(committed_at));
+                }
+                MemoryCandidate::Entity(candidate) => {
+                    assert_eq!(candidate.draft.created_at, Some(committed_at));
+                    assert_eq!(candidate.draft.updated_at, Some(committed_at));
+                }
+                MemoryCandidate::MemoryThread(candidate) => {
+                    assert_eq!(candidate.draft.created_at, Some(committed_at));
+                    assert_eq!(candidate.draft.updated_at, Some(committed_at));
+                    assert_eq!(candidate.draft.last_touched_at, Some(committed_at));
+                }
+                MemoryCandidate::DerivedMemory(candidate) => {
+                    assert_eq!(candidate.draft.created_at, Some(committed_at));
+                    assert_eq!(candidate.draft.updated_at, Some(committed_at));
+                }
+                MemoryCandidate::MemoryLink(candidate) => {
+                    assert_eq!(candidate.draft.created_at, Some(committed_at));
+                }
+                MemoryCandidate::VectorIndex(_) | MemoryCandidate::StatsUpdate(_) => {}
+            }
+        }
     }
 
     #[tokio::test]

@@ -209,16 +209,7 @@ fn openai_request_dimensions(
     requested_dimensions: Option<usize>,
     reuse_store: Option<&FrozenEmbeddingStore>,
 ) -> Result<Option<usize>> {
-    let native_width = model_native_embedding_vector_size(model)?;
-    if model.trim() == "text-embedding-ada-002" {
-        if requested_dimensions.is_some() {
-            bail!(
-                "--dimensions is not supported for model {:?}; it uses fixed width {native_width}; omit --dimensions",
-                model.trim()
-            );
-        }
-        return Ok(None);
-    }
+    model_native_embedding_vector_size(model)?;
     Ok(requested_dimensions.or_else(|| reuse_store.map(|store| store.vector_size)))
 }
 
@@ -610,62 +601,6 @@ mod tests {
         for token in ["vector_size", "3", "2"] {
             assert!(error.contains(token), "missing {token:?} in {error}");
         }
-    }
-
-    #[tokio::test]
-    async fn ada_explicit_dimensions_fail_before_credentials_or_network() {
-        let directory = tempfile::tempdir().unwrap();
-        let manifest_path = directory.path().join("manifest.json");
-        let output_path = directory.path().join("output.json");
-        let manifest = FrozenEmbeddingManifest {
-            schema_version: cmem_eval_core::FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION,
-            texts: vec![cmem_eval_core::FrozenEmbeddingText {
-                id: "input".to_string(),
-                text: "exact input".to_string(),
-            }],
-            similarity_orderings: Vec::new(),
-        };
-        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
-
-        let error = generate(GenerateArgs {
-            manifest: manifest_path,
-            model: "text-embedding-ada-002".to_string(),
-            dimensions: Some(1536),
-            allow_nonstandard_dimensions: false,
-            out: output_path.clone(),
-            reuse_store: None,
-            api_key_env: "CMEM_EVAL_TEST_MISSING_OPENAI_KEY".to_string(),
-        })
-        .await
-        .unwrap_err()
-        .to_string();
-
-        assert!(error.contains("text-embedding-ada-002"), "{error}");
-        assert!(error.contains("1536"), "{error}");
-        assert!(error.contains("--dimensions"), "{error}");
-        assert!(!output_path.exists());
-    }
-
-    #[test]
-    fn ada_default_reuse_request_serializes_without_dimensions() {
-        let inputs = vec!["exact input".to_string()];
-        let reuse = FrozenEmbeddingStore::new(
-            "text-embedding-ada-002",
-            FrozenEmbeddingSource::OpenAiApi,
-            [("cached input".to_string(), vec![0.0; 1536])],
-        )
-        .unwrap();
-        let request = OpenAiEmbeddingRequest {
-            model: "text-embedding-ada-002",
-            input: &inputs,
-            encoding_format: "float",
-            dimensions: openai_request_dimensions("text-embedding-ada-002", None, Some(&reuse))
-                .unwrap(),
-        };
-
-        let value = serde_json::to_value(request).unwrap();
-        assert_eq!(value["model"], "text-embedding-ada-002");
-        assert!(!value.as_object().unwrap().contains_key("dimensions"));
     }
 
     #[tokio::test]

@@ -87,7 +87,7 @@ pub struct BackendConfig {
     #[serde(default)]
     pub qdrant_connection_string: Option<String>,
     #[serde(default)]
-    pub oxigraph_connection_string: Option<String>,
+    pub oxigraph_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oxigraph_persistence_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -113,7 +113,7 @@ impl Default for BackendConfig {
         Self {
             namespace_prefix: None,
             qdrant_connection_string: None,
-            oxigraph_connection_string: None,
+            oxigraph_path: None,
             oxigraph_persistence_path: None,
             retrieval_stats_path: None,
             identity_registry_dir: None,

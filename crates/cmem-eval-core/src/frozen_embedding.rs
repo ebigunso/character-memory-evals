@@ -198,10 +198,10 @@ impl FrozenEmbeddingStore {
 
 pub fn model_native_embedding_vector_size(model: &str) -> Result<usize> {
     match model.trim() {
-        "text-embedding-3-small" | "text-embedding-ada-002" => Ok(1536),
+        "text-embedding-3-small" => Ok(1536),
         "text-embedding-3-large" => Ok(3072),
         _ => bail!(
-            "embedding model {model:?} has no known canonical width; expected text-embedding-3-small, text-embedding-3-large, or text-embedding-ada-002"
+            "embedding model {model:?} has no known canonical width; expected text-embedding-3-small or text-embedding-3-large"
         ),
     }
 }

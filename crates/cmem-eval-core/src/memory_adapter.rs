@@ -167,6 +167,8 @@ pub struct RetrievalTelemetry {
     pub trace_available: bool,
     #[serde(default)]
     pub vector_candidate_count: Option<usize>,
+    // Compatibility Policy sealed-artifact exemption: register-cited evidence predates
+    // these counters and must remain readable.
     #[serde(default)]
     pub unique_graph_root_candidate_count: Option<usize>,
     #[serde(default)]
