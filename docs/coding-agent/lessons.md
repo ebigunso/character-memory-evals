@@ -1099,3 +1099,21 @@ Prevention:
 
 Evidence:
 - The dedicated unit regression excludes a deliberately divergent top-level alias, while the committed canonical runtime/manifest/store strict-bijection test passes against unchanged artifact hashes.
+
+## 2026-07-21 - Equivalence Tests Must Compare The Full Observable Contract  [tags: validation, review]
+
+Context:
+- Backcompat sweep (CM plan backcompat-sweep-plan); typed-plan migration test here, ADR-I-0012 equivalence test in CharacterMemory
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Both repos' workers independently wrote equivalence/migration tests comparing cardinalities or partial fields (ID vectors + timestamps here; vector counts + a stats flag in CM), so content or link-topology drift could pass; both Tier D reviewers caught the same class independently.
+
+Root cause:
+- Equivalence asserted on the easiest observable slice rather than the contract; no complete candidate/state comparison.
+
+Fix applied:
+- Here: complete object/link MemoryCandidate value equality plus exact vector target/text pins (4cbc1b0). CM: identical deterministic inputs through both paths with canonical graph-state comparison.
+
+Prevention:
+- Migration/equivalence regressions compare the full observable contract — complete candidate/outcome values and contract-relevant persisted state — normalizing only unavoidable generated metadata. Count/partial-field equivalence assertions are a standing Tier D check.
