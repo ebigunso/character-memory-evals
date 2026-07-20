@@ -97,10 +97,6 @@ pub struct BackendConfig {
     #[serde(default = "default_openai_api_key_env")]
     pub openai_api_key_env: String,
     #[serde(default)]
-    pub reset_namespace_before_each_question: bool,
-    #[serde(default)]
-    pub reset_namespace_before_each_sample: bool,
-    #[serde(default)]
     pub cleanup: CleanupConfig,
     #[serde(default)]
     pub embedding: EmbeddingConfig,
@@ -118,8 +114,6 @@ impl Default for BackendConfig {
             retrieval_stats_path: None,
             identity_registry_dir: None,
             openai_api_key_env: default_openai_api_key_env(),
-            reset_namespace_before_each_question: false,
-            reset_namespace_before_each_sample: false,
             cleanup: CleanupConfig::default(),
             embedding: EmbeddingConfig::default(),
             character_memory: None,

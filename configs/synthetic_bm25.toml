@@ -3,7 +3,6 @@ dataset = "synthetic"
 
 [backend]
 namespace_prefix = "bench:synthetic_bm25"
-reset_namespace_before_each_question = true
 
 [backend.cleanup]
 enabled = false

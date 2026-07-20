@@ -3,7 +3,6 @@ dataset = "longmemeval_s"
 
 [backend]
 namespace_prefix = "bench:lme_bm25"
-reset_namespace_before_each_question = true
 
 [backend.cleanup]
 enabled = false
