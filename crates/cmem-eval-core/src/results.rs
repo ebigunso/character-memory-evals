@@ -159,6 +159,29 @@ pub struct RunSummary {
     pub degradation: DegradationSummary,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SummaryInvariantError {
+    ConflictingWriteOutcome { operation_id: String },
+    ConflictingLifecycleOutcome { operation_id: String },
+}
+
+impl std::fmt::Display for SummaryInvariantError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ConflictingWriteOutcome { operation_id } => write!(
+                formatter,
+                "conflicting write outcomes share operation_id {operation_id:?}"
+            ),
+            Self::ConflictingLifecycleOutcome { operation_id } => write!(
+                formatter,
+                "conflicting lifecycle outcomes share operation_id {operation_id:?}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SummaryInvariantError {}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ResultContextMetrics {
     #[serde(default)]
@@ -359,17 +382,18 @@ pub fn summarize_rows(
     })
 }
 
-fn summarize_degradation(rows: &[PerQuestionResult]) -> Result<DegradationSummary> {
+fn summarize_degradation(
+    rows: &[PerQuestionResult],
+) -> std::result::Result<DegradationSummary, SummaryInvariantError> {
     let mut seen_writes = BTreeMap::new();
     let mut seen_lifecycle = BTreeMap::new();
     let mut summary = DegradationSummary::default();
     for outcome in rows.iter().flat_map(|row| &row.write_outcomes) {
         if let Some(previous) = seen_writes.get(outcome.operation_id.as_str()) {
             if *previous != outcome {
-                anyhow::bail!(
-                    "conflicting write outcomes share operation_id {:?}",
-                    outcome.operation_id
-                );
+                return Err(SummaryInvariantError::ConflictingWriteOutcome {
+                    operation_id: outcome.operation_id.clone(),
+                });
             }
             continue;
         }
@@ -394,10 +418,9 @@ fn summarize_degradation(rows: &[PerQuestionResult]) -> Result<DegradationSummar
     for outcome in rows.iter().flat_map(|row| &row.lifecycle_outcomes) {
         if let Some(previous) = seen_lifecycle.get(outcome.operation_id.as_str()) {
             if *previous != outcome {
-                anyhow::bail!(
-                    "conflicting lifecycle outcomes share operation_id {:?}",
-                    outcome.operation_id
-                );
+                return Err(SummaryInvariantError::ConflictingLifecycleOutcome {
+                    operation_id: outcome.operation_id.clone(),
+                });
             }
             continue;
         }
@@ -734,10 +757,11 @@ mod tests {
             &[],
         )
         .unwrap_err();
-        assert!(
-            write_error
-                .to_string()
-                .contains("conflicting write outcomes share operation_id")
+        assert_eq!(
+            write_error.downcast_ref::<SummaryInvariantError>(),
+            Some(&SummaryInvariantError::ConflictingWriteOutcome {
+                operation_id: "shared-write-operation".to_string(),
+            })
         );
 
         let lifecycle = LifecycleOutcomeRecord::clean(
@@ -763,10 +787,11 @@ mod tests {
             &[],
         )
         .unwrap_err();
-        assert!(
-            lifecycle_error
-                .to_string()
-                .contains("conflicting lifecycle outcomes share operation_id")
+        assert_eq!(
+            lifecycle_error.downcast_ref::<SummaryInvariantError>(),
+            Some(&SummaryInvariantError::ConflictingLifecycleOutcome {
+                operation_id: "shared-lifecycle-operation".to_string(),
+            })
         );
     }
 
