@@ -17,3 +17,6 @@
 .env
 .env.*
 __pycache__/
+
+# Agent task artifacts (repo-local scratch; disposition owned by the producing agent)
+.agent-work/
