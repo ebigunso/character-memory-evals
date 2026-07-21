@@ -745,6 +745,7 @@ pub struct LifecycleOutcomeRecord {
     pub graph_mutated_link_internal_ids: Vec<String>,
     pub vector_maintained_objects: Vec<ObjectRefRecord>,
     pub vector_maintenance_failures: Vec<VectorMaintenanceFailureItemRecord>,
+    pub stats_update_status: StatsUpdateStatusRecord,
     pub superseded: Vec<SupersessionRecord>,
     pub warnings: Vec<LifecycleWarningRecord>,
 }
@@ -759,6 +760,7 @@ impl LifecycleOutcomeRecord {
             graph_mutated_link_internal_ids: Vec::new(),
             vector_maintained_objects: Vec::new(),
             vector_maintenance_failures: Vec::new(),
+            stats_update_status: StatsUpdateStatusRecord::default(),
             superseded: Vec::new(),
             warnings: Vec::new(),
         }

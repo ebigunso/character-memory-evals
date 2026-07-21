@@ -6,10 +6,11 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{
-    DatasetId, DatasetKind, DegradationSummary, EmbeddingBindingRecord, PerQuestionResult,
-    RetrievalFanoutUtilization, RetrievalRationaleCategory, RetrievalSelectivityDecision,
-    RetrievedContextPack, RunAdapterMetadata, RunSummary, aggregate_numeric_metrics,
-    metric_support_summary, registry_coverage_summary_for, summarize_rows,
+    DatasetId, DatasetKind, DegradationSummary, EmbeddingBindingRecord, MetricSupportSummary,
+    NumericMetricSummary, PerQuestionResult, RegistryCoverageSummary, RetrievalFanoutUtilization,
+    RetrievalRationaleCategory, RetrievalSelectivityDecision, RetrievedContextPack,
+    RunAdapterMetadata, RunSummary, aggregate_numeric_metrics, metric_support_summary,
+    registry_coverage_summary_for, summarize_rows,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -43,6 +44,7 @@ pub struct ContinuityReportMetadata {
     pub fixture_seed: u64,
     pub embedding_seeds: BTreeMap<String, u64>,
     pub fixture_ids: Vec<String>,
+    /// Dynamic-by-design snapshot of the selected runner and backend configuration.
     pub config: Value,
     pub schema_versions: BTreeMap<String, String>,
     pub normalization: ReportNormalization,
@@ -68,9 +70,9 @@ pub struct ContinuityReportContent {
 pub struct AggregateContinuityReport {
     pub query_count: usize,
     pub restart_count: usize,
-    pub metrics: Value,
-    pub metric_support: Value,
-    pub registry_coverage: Value,
+    pub metrics: NumericMetricSummary,
+    pub metric_support: MetricSupportSummary,
+    pub registry_coverage: RegistryCoverageSummary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -78,9 +80,9 @@ pub struct AggregateContinuityReport {
 pub struct ScenarioContinuityReport {
     pub pattern: String,
     pub query_count: usize,
-    pub metrics: Value,
-    pub metric_support: Value,
-    pub registry_coverage: Value,
+    pub metrics: NumericMetricSummary,
+    pub metric_support: MetricSupportSummary,
+    pub registry_coverage: RegistryCoverageSummary,
     pub rationale_samples: Vec<QueryRationaleSample>,
     pub fanout_decisions: Vec<QueryFanoutDecisions>,
     pub stats_health_events: Vec<StatsHealthEvent>,
@@ -133,7 +135,9 @@ pub struct StatsHealthEvent {
 pub struct TuningObservation {
     pub id: String,
     pub finding: String,
+    /// Dynamic-by-design description of the experiment-specific controls.
     pub measurement_regime: Value,
+    /// Dynamic-by-design observation payload whose keys depend on the tuning finding.
     pub observed: Value,
 }
 
@@ -141,6 +145,7 @@ pub struct ContinuityReportInput<'a> {
     pub generated_at: DateTime<Utc>,
     pub fixture_schema_version: u32,
     pub fixture_seed: u64,
+    /// Dynamic-by-design runner/backend configuration snapshot copied into the report.
     pub config: Value,
     pub adapter: RunAdapterMetadata,
     pub scenarios: &'a [ContinuityScenario],
@@ -317,31 +322,17 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             recomputed_summary.num_questions
         );
     }
-    for (field, actual, expected) in [
-        (
-            "metrics",
-            &input.summary.metrics,
-            &recomputed_summary.metrics,
-        ),
-        (
-            "metric_support",
-            &input.summary.metric_support,
-            &recomputed_summary.metric_support,
-        ),
-        (
-            "registry_coverage",
-            &input.summary.registry_coverage,
-            &recomputed_summary.registry_coverage,
-        ),
-        (
-            "latency",
-            &input.summary.latency,
-            &recomputed_summary.latency,
-        ),
-    ] {
-        if actual != expected {
-            bail!("continuity report summary {field} does not match result-row aggregates");
-        }
+    if input.summary.metrics != recomputed_summary.metrics {
+        bail!("continuity report summary metrics does not match result-row aggregates");
+    }
+    if input.summary.metric_support != recomputed_summary.metric_support {
+        bail!("continuity report summary metric_support does not match result-row aggregates");
+    }
+    if input.summary.registry_coverage != recomputed_summary.registry_coverage {
+        bail!("continuity report summary registry_coverage does not match result-row aggregates");
+    }
+    if input.summary.latency != recomputed_summary.latency {
+        bail!("continuity report summary latency does not match result-row aggregates");
     }
 
     let mut scenario_reports = BTreeMap::new();
@@ -829,18 +820,18 @@ mod tests {
                 aggregate: AggregateContinuityReport {
                     query_count: 0,
                     restart_count: 0,
-                    metrics: serde_json::json!({}),
-                    metric_support: serde_json::json!({}),
-                    registry_coverage: serde_json::json!({}),
+                    metrics: BTreeMap::new(),
+                    metric_support: BTreeMap::new(),
+                    registry_coverage: RegistryCoverageSummary::default(),
                 },
                 scenarios: BTreeMap::from([(
                     "shape-drift".to_string(),
                     ScenarioContinuityReport {
                         pattern: "shape-drift".to_string(),
                         query_count: 0,
-                        metrics: serde_json::json!({}),
-                        metric_support: serde_json::json!({}),
-                        registry_coverage: serde_json::json!({}),
+                        metrics: BTreeMap::new(),
+                        metric_support: BTreeMap::new(),
+                        registry_coverage: RegistryCoverageSummary::default(),
                         rationale_samples: Vec::new(),
                         fanout_decisions: vec![QueryFanoutDecisions {
                             query_id: "q".to_string(),
@@ -861,9 +852,44 @@ mod tests {
         let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
         assert!(error.contains("unknown field"), "{error}");
 
+        let mut aggregate_metric_drift = serde_json::to_value(&report).unwrap();
+        aggregate_metric_drift["content"]["aggregate"]["metrics"]["probe"] = serde_json::json!({
+            "mean": null,
+            "median": null,
+            "p50": null,
+            "p95": null,
+            "unexpected_v2_field": true,
+        });
+        std::fs::write(&path, serde_json::to_vec(&aggregate_metric_drift).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
         let mut shared_nested_drift = serde_json::to_value(&report).unwrap();
         shared_nested_drift["metadata"]["degradation"]["unexpected_v2_field"] = Value::Bool(true);
         std::fs::write(&path, serde_json::to_vec(&shared_nested_drift).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut aggregate_coverage_drift = serde_json::to_value(&report).unwrap();
+        aggregate_coverage_drift["content"]["aggregate"]["registry_coverage"]["unexpected_v2_field"] =
+            Value::Bool(true);
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&aggregate_coverage_drift).unwrap(),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut scenario_support_drift = serde_json::to_value(&report).unwrap();
+        scenario_support_drift["content"]["scenarios"]["shape-drift"]["metric_support"]["probe"] = serde_json::json!({
+            "rows_present": 0,
+            "numeric_rows": 0,
+            "null_rows": 0,
+            "unsupported": false,
+            "unexpected_v2_field": true,
+        });
+        std::fs::write(&path, serde_json::to_vec(&scenario_support_drift).unwrap()).unwrap();
         let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
         assert!(error.contains("unknown field"), "{error}");
 

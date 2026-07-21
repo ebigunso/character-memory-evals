@@ -2079,16 +2079,18 @@ mod tests {
         assert_eq!(resummary.metric_support, summary.metric_support);
         assert_eq!(resummary.registry_coverage, summary.registry_coverage);
         assert_eq!(
-            summary.metric_support["temporal_recall_fraction@5"]["numeric_rows"],
+            summary.metric_support["temporal_recall_fraction@5"].numeric_rows,
             4
         );
         assert_eq!(
-            summary.metric_support["supersession_replacement_recall"]["numeric_rows"],
+            summary.metric_support["supersession_replacement_recall"].numeric_rows,
             2
         );
-        assert_eq!(
-            summary.registry_coverage["missing_required_metrics"],
-            serde_json::json!([])
+        assert!(
+            summary
+                .registry_coverage
+                .missing_required_metrics
+                .is_empty()
         );
         assert_eq!(report.content.aggregate.query_count, 23);
         assert_eq!(report.content.aggregate.restart_count, 1);
@@ -2126,7 +2128,10 @@ mod tests {
                 && scenario.rationale_samples.len() == scenario.query_count
                 && scenario.fanout_decisions.len() == scenario.query_count
                 && scenario.stats_health_events.len() == scenario.query_count
-                && scenario.registry_coverage["missing_required_metrics"] == serde_json::json!([])
+                && scenario
+                    .registry_coverage
+                    .missing_required_metrics
+                    .is_empty()
         }));
         assert!(report.content.tuning_observations.is_empty());
         assert!(
@@ -2387,7 +2392,11 @@ mod tests {
         assert!(error.contains("identity/count"), "{error}");
 
         let mut stale_summary = cmem_eval_core::read_summary(&summary_path).unwrap();
-        stale_summary.metrics["continuity_gap_days"]["mean"] = serde_json::json!(-1.0);
+        stale_summary
+            .metrics
+            .get_mut("continuity_gap_days")
+            .unwrap()
+            .mean = Some(-1.0);
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
             fixture_schema_version: fixture.schema_version,
@@ -2404,14 +2413,13 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(error.contains("summary metrics"), "{error}");
-        assert_eq!(
-            summary.registry_coverage["missing_required_metrics"],
-            serde_json::json!([])
+        assert!(
+            summary
+                .registry_coverage
+                .missing_required_metrics
+                .is_empty()
         );
-        assert_eq!(
-            summary.metric_support["fanout_over_budget_count"]["unsupported"],
-            true
-        );
+        assert!(summary.metric_support["fanout_over_budget_count"].unsupported);
         assert!(rows.iter().all(|row| {
             matches!(
                 row.metrics.get("typed_rationale_coverage"),

@@ -2,6 +2,57 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct NumericMetricAggregate {
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
+    pub mean: Option<f64>,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
+    pub median: Option<f64>,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
+    pub p50: Option<f64>,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
+    pub p95: Option<f64>,
+}
+
+impl NumericMetricAggregate {
+    pub fn from_values(values: &[f64]) -> Self {
+        Self {
+            mean: mean(values),
+            median: median(values),
+            p50: percentile(values, 50.0),
+            p95: percentile(values, 95.0),
+        }
+    }
+}
+
+/// Metric names are registry-defined and therefore dynamic, while every
+/// aggregate has the closed shape enforced by `NumericMetricAggregate`.
+pub type NumericMetricSummary = BTreeMap<String, NumericMetricAggregate>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MetricSupportEntry {
+    pub rows_present: usize,
+    pub numeric_rows: usize,
+    pub null_rows: usize,
+    pub unsupported: bool,
+}
+
+/// Metric names are registry-defined and therefore dynamic, while every
+/// support entry has the closed shape enforced by `MetricSupportEntry`.
+pub type MetricSupportSummary = BTreeMap<String, MetricSupportEntry>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RegistryCoverageSummary {
+    pub required_metrics_total: usize,
+    pub required_metrics_present: usize,
+    pub required_metrics_numeric: usize,
+    pub required_metrics_null_only: usize,
+    pub missing_required_metrics: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MetricValue {
     Number(serde_json::Number),
@@ -269,7 +320,7 @@ pub fn percentile(values: &[f64], p: f64) -> Option<f64> {
     sorted.get(rank).copied()
 }
 
-pub fn aggregate_numeric_metrics(rows: &[Map<String, Value>]) -> Value {
+pub fn aggregate_numeric_metrics(rows: &[Map<String, Value>]) -> NumericMetricSummary {
     let mut by_key: BTreeMap<String, Vec<f64>> = BTreeMap::new();
     for row in rows {
         for (key, value) in row {
@@ -279,22 +330,14 @@ pub fn aggregate_numeric_metrics(rows: &[Map<String, Value>]) -> Value {
         }
     }
 
-    let mut out = Map::new();
+    let mut out = BTreeMap::new();
     for (key, values) in by_key {
-        out.insert(
-            key,
-            serde_json::json!({
-                "mean": mean(&values),
-                "median": median(&values),
-                "p50": percentile(&values, 50.0),
-                "p95": percentile(&values, 95.0),
-            }),
-        );
+        out.insert(key, NumericMetricAggregate::from_values(&values));
     }
-    Value::Object(out)
+    out
 }
 
-pub fn metric_support_summary(rows: &[Map<String, Value>]) -> Value {
+pub fn metric_support_summary(rows: &[Map<String, Value>]) -> MetricSupportSummary {
     let mut by_key: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new();
     for row in rows {
         for (key, value) in row {
@@ -308,19 +351,19 @@ pub fn metric_support_summary(rows: &[Map<String, Value>]) -> Value {
         }
     }
 
-    let mut out = Map::new();
+    let mut out = BTreeMap::new();
     for (key, (rows_present, numeric_rows, null_rows)) in by_key {
         out.insert(
             key,
-            serde_json::json!({
-                "rows_present": rows_present,
-                "numeric_rows": numeric_rows,
-                "null_rows": null_rows,
-                "unsupported": rows_present > 0 && numeric_rows == 0 && null_rows == rows_present,
-            }),
+            MetricSupportEntry {
+                rows_present,
+                numeric_rows,
+                null_rows,
+                unsupported: rows_present > 0 && numeric_rows == 0 && null_rows == rows_present,
+            },
         );
     }
-    Value::Object(out)
+    out
 }
 
 pub fn initialize_registry_metrics(out: &mut Map<String, Value>) {
@@ -333,14 +376,14 @@ pub fn initialize_registry_metrics_for(out: &mut Map<String, Value>, families: &
     }
 }
 
-pub fn registry_coverage_summary(rows: &[Map<String, Value>]) -> Value {
+pub fn registry_coverage_summary(rows: &[Map<String, Value>]) -> RegistryCoverageSummary {
     registry_coverage_summary_for(rows, &[])
 }
 
 pub fn registry_coverage_summary_for(
     rows: &[Map<String, Value>],
     families: &[MetricFamily],
-) -> Value {
+) -> RegistryCoverageSummary {
     let required_metrics = required_metric_set(families);
     let mut present = 0usize;
     let mut numeric = 0usize;
@@ -370,13 +413,13 @@ pub fn registry_coverage_summary_for(
         }
     }
     let required_metrics_null_only = null;
-    serde_json::json!({
-        "required_metrics_total": required_metrics.len(),
-        "required_metrics_present": present,
-        "required_metrics_numeric": numeric,
-        "required_metrics_null_only": required_metrics_null_only,
-        "missing_required_metrics": missing,
-    })
+    RegistryCoverageSummary {
+        required_metrics_total: required_metrics.len(),
+        required_metrics_present: present,
+        required_metrics_numeric: numeric,
+        required_metrics_null_only,
+        missing_required_metrics: missing,
+    }
 }
 
 pub fn insert_context_metrics(out: &mut Map<String, Value>, context: &crate::ResultContextMetrics) {
@@ -924,10 +967,10 @@ mod tests {
         ];
 
         let support = metric_support_summary(&rows);
-        assert_eq!(support["unsupported_metric"]["rows_present"], 2);
-        assert_eq!(support["unsupported_metric"]["numeric_rows"], 0);
-        assert_eq!(support["unsupported_metric"]["null_rows"], 2);
-        assert_eq!(support["unsupported_metric"]["unsupported"], true);
+        assert_eq!(support["unsupported_metric"].rows_present, 2);
+        assert_eq!(support["unsupported_metric"].numeric_rows, 0);
+        assert_eq!(support["unsupported_metric"].null_rows, 2);
+        assert!(support["unsupported_metric"].unsupported);
     }
 
     #[test]
@@ -945,14 +988,14 @@ mod tests {
 
         let coverage = registry_coverage_summary_for(&[metrics], &[family]);
         assert_eq!(
-            coverage["required_metrics_total"],
+            coverage.required_metrics_total,
             CORE_BASE_METRICS.len() + RANKING_METRIC_NAMES.len()
         );
-        assert_eq!(coverage["required_metrics_numeric"], 1);
+        assert_eq!(coverage.required_metrics_numeric, 1);
         assert_eq!(
-            coverage["required_metrics_null_only"],
+            coverage.required_metrics_null_only,
             CORE_BASE_METRICS.len() + RANKING_METRIC_NAMES.len() - 1
         );
-        assert_eq!(coverage["missing_required_metrics"], serde_json::json!([]));
+        assert!(coverage.missing_required_metrics.is_empty());
     }
 }

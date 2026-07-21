@@ -1,7 +1,8 @@
 use crate::{
     DatasetId, DatasetKind, DegradationSummary, EmbeddingBindingRecord, LifecycleOutcomeRecord,
-    MetricFamily, MetricsRecord, RepairMarkerRecord, RetrievalTelemetry, RetrievedItem,
-    WriteOutcomeRecord, aggregate_numeric_metrics, metric_support_summary,
+    MetricFamily, MetricSupportSummary, MetricsRecord, NumericMetricAggregate,
+    NumericMetricSummary, RegistryCoverageSummary, RepairMarkerRecord, RetrievalTelemetry,
+    RetrievedItem, WriteOutcomeRecord, aggregate_numeric_metrics, metric_support_summary,
     registry_coverage_summary_for,
 };
 use anyhow::{Context, Result};
@@ -147,14 +148,22 @@ pub struct RunSummary {
     pub dataset: DatasetId,
     pub dataset_kind: DatasetKind,
     pub adapter: RunAdapterMetadata,
+    /// Dynamic-by-design snapshot whose shape is owned by the selected runner
+    /// and backend configuration rather than the result schema.
     pub config: Value,
     pub embedding_bindings: Vec<EmbeddingBindingRecord>,
     pub num_questions: usize,
-    pub metrics: Value,
-    pub metric_support: Value,
-    pub registry_coverage: Value,
-    pub latency: Value,
+    pub metrics: NumericMetricSummary,
+    pub metric_support: MetricSupportSummary,
+    pub registry_coverage: RegistryCoverageSummary,
+    pub latency: LatencySummary,
     pub degradation: DegradationSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct LatencySummary {
+    pub latency_ms: NumericMetricAggregate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -362,14 +371,9 @@ pub fn summarize_rows(
         metrics: aggregate_numeric_metrics(&metric_rows),
         metric_support: metric_support_summary(&metric_rows),
         registry_coverage: registry_coverage_summary_for(&metric_rows, metric_families),
-        latency: serde_json::json!({
-            "latency_ms": {
-                "mean": crate::mean(&latency_values),
-                "median": crate::median(&latency_values),
-                "p50": crate::percentile(&latency_values, 50.0),
-                "p95": crate::percentile(&latency_values, 95.0),
-            }
-        }),
+        latency: LatencySummary {
+            latency_ms: NumericMetricAggregate::from_values(&latency_values),
+        },
         degradation,
     })
 }
@@ -417,7 +421,9 @@ fn summarize_degradation(
             continue;
         }
         seen_lifecycle.insert(outcome.operation_id.as_str(), outcome);
-        if !outcome.vector_maintenance_failures.is_empty() {
+        if !outcome.vector_maintenance_failures.is_empty()
+            || outcome.stats_update_status.failure.is_some()
+        {
             summary.lifecycle_maintenance_failure_count += 1;
         }
     }
@@ -637,15 +643,13 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            summary.metric_support["suppressed_or_deleted_items_returned"]["unsupported"],
-            true
-        );
-        assert_eq!(summary.registry_coverage["required_metrics_present"], 0);
+        assert!(summary.metric_support["suppressed_or_deleted_items_returned"].unsupported);
+        assert_eq!(summary.registry_coverage.required_metrics_present, 0);
         assert!(
-            summary.registry_coverage["missing_required_metrics"]
-                .as_array()
-                .is_some_and(|missing| !missing.is_empty())
+            !summary
+                .registry_coverage
+                .missing_required_metrics
+                .is_empty()
         );
     }
 
@@ -668,9 +672,9 @@ mod tests {
 
         assert_eq!(summary.schema_version, RESULT_SCHEMA_VERSION);
         assert_eq!(summary.embedding_bindings, vec![embedding_binding()]);
-        assert_eq!(summary.latency["latency_ms"]["p95"], 7.0);
-        assert!(summary.metrics.get("retrieval_latency_ms").is_none());
-        assert_eq!(summary.registry_coverage["required_metrics_present"], 1);
+        assert_eq!(summary.latency.latency_ms.p95, Some(7.0));
+        assert!(!summary.metrics.contains_key("retrieval_latency_ms"));
+        assert_eq!(summary.registry_coverage.required_metrics_present, 1);
     }
 
     #[test]
@@ -706,6 +710,17 @@ mod tests {
                     actual: 0,
                 },
             });
+        lifecycle.stats_update_status = crate::StatsUpdateStatusRecord {
+            updated_object_internal_ids: Vec::new(),
+            failure: Some(crate::StatsUpdateFailureRecord {
+                failed_object_internal_ids: vec!["episode-1".into()],
+                causes: vec![crate::StatsUpdateCauseRecord::HealthCheck {
+                    error: crate::RetrievalStatsStoreErrorRecord::Sqlite {
+                        detail: "unavailable".into(),
+                    },
+                }],
+            }),
+        };
         let mut first = row(serde_json::json!({}));
         first.write_outcomes.push(write.clone());
         first.lifecycle_outcomes.push(lifecycle.clone());
@@ -731,6 +746,38 @@ mod tests {
             summary.degradation.repair_marker_counts_by_kind["stats_update"],
             1
         );
+    }
+
+    #[test]
+    fn summary_counts_lifecycle_stats_projection_failure_without_vector_failure() {
+        let mut lifecycle = LifecycleOutcomeRecord::clean(
+            "lifecycle-stats-operation",
+            crate::LifecycleOperationKind::Correct,
+        );
+        lifecycle.stats_update_status = crate::StatsUpdateStatusRecord {
+            updated_object_internal_ids: Vec::new(),
+            failure: Some(crate::StatsUpdateFailureRecord {
+                failed_object_internal_ids: vec!["episode-1".into()],
+                causes: vec![crate::StatsUpdateCauseRecord::HealthCheck {
+                    error: crate::RetrievalStatsStoreErrorRecord::LockPoisoned,
+                }],
+            }),
+        };
+        let mut result = row(serde_json::json!({}));
+        result.lifecycle_outcomes.push(lifecycle);
+
+        let summary = summarize_rows(
+            "r".into(),
+            dataset(),
+            DatasetKind::Synthetic,
+            RunAdapterMetadata::mock_smoke(),
+            serde_json::json!({}),
+            &[result],
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(summary.degradation.lifecycle_maintenance_failure_count, 1);
     }
 
     #[test]
@@ -969,7 +1016,7 @@ mod tests {
             DatasetKind::Synthetic,
             RunAdapterMetadata::mock_smoke(),
             serde_json::json!({}),
-            &[row(serde_json::json!({}))],
+            &[row(serde_json::json!({"fixed_metric": 1.0}))],
             &[],
         )
         .unwrap();
@@ -1013,6 +1060,40 @@ mod tests {
             error.contains("missing field `embedding_bindings`"),
             "{error}"
         );
+
+        let mut malformed_latency = serde_json::to_value(&summary).unwrap();
+        malformed_latency["latency"] = Value::Null;
+        std::fs::write(&path, serde_json::to_vec(&malformed_latency).unwrap()).unwrap();
+        let error = format!("{:#}", read_summary(&path).unwrap_err());
+        assert!(error.contains("invalid type"), "{error}");
+
+        let mut incomplete_latency = serde_json::to_value(&summary).unwrap();
+        incomplete_latency["latency"]["latency_ms"]
+            .as_object_mut()
+            .unwrap()
+            .remove("p95");
+        std::fs::write(&path, serde_json::to_vec(&incomplete_latency).unwrap()).unwrap();
+        let error = format!("{:#}", read_summary(&path).unwrap_err());
+        assert!(error.contains("missing field `p95`"), "{error}");
+
+        let mut malformed_coverage = serde_json::to_value(&summary).unwrap();
+        malformed_coverage["registry_coverage"] = Value::String("open".to_string());
+        std::fs::write(&path, serde_json::to_vec(&malformed_coverage).unwrap()).unwrap();
+        let error = format!("{:#}", read_summary(&path).unwrap_err());
+        assert!(error.contains("invalid type"), "{error}");
+
+        let mut drifted_support = serde_json::to_value(&summary).unwrap();
+        drifted_support["metric_support"]["fixed_metric"]["unexpected_v2_field"] =
+            Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&drifted_support).unwrap()).unwrap();
+        let error = format!("{:#}", read_summary(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut drifted_metric = serde_json::to_value(&summary).unwrap();
+        drifted_metric["metrics"]["fixed_metric"]["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&drifted_metric).unwrap()).unwrap();
+        let error = format!("{:#}", read_summary(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
 
         std::fs::remove_file(path).unwrap();
     }

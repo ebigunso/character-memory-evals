@@ -1463,16 +1463,17 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         draft.id = Some(id);
         draft.confidence = input.link.confidence;
         draft.rationale = input.link.rationale;
-        let link = state.memory.link(draft).await?;
+        let link_outcome = state.memory.link(draft).await?;
+        let link_id = link_outcome.link.id;
         state
             .link_ids
-            .insert(input.link.external_id.clone(), link.id);
+            .insert(input.link.external_id.clone(), link_id);
         state
             .reverse_link_ids
-            .insert(link.id, input.link.external_id.clone());
+            .insert(link_id, input.link.external_id.clone());
         state.persist_identities()?;
         let value = LinkMemoryResult {
-            internal_id: link.id.to_string(),
+            internal_id: link_id.to_string(),
             external_id: input.link.external_id,
         };
         let mut outcome = WriteOutcomeRecord::clean(
@@ -1482,6 +1483,8 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         outcome
             .persisted_link_internal_ids
             .push(value.internal_id.clone());
+        outcome.stats_update_status =
+            stats_update_status_from_live(&link_outcome.stats_update_status);
         Ok(WriteResult { value, outcome })
     }
 
@@ -3010,28 +3013,7 @@ fn write_outcome_from_live(
                 cause: vector_indexing_cause_from_live(&failure.cause),
             }
         }),
-        stats_update_status: StatsUpdateStatusRecord {
-            updated_object_internal_ids: outcome
-                .stats_update_status
-                .updated_object_ids
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
-            failure: outcome.stats_update_status.failure.as_ref().map(|failure| {
-                StatsUpdateFailureRecord {
-                    failed_object_internal_ids: failure
-                        .failed_object_ids
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect(),
-                    causes: failure
-                        .causes
-                        .iter()
-                        .map(stats_update_cause_from_live)
-                        .collect(),
-                }
-            }),
-        },
+        stats_update_status: stats_update_status_from_live(&outcome.stats_update_status),
         repair_needed: outcome
             .repair_needed
             .iter()
@@ -3311,6 +3293,33 @@ fn stats_update_cause_from_live(
                     .map(retrieval_stats_health_cause_from_live),
             }
         }
+    }
+}
+
+fn stats_update_status_from_live(
+    status: &character_memory::StatsUpdateStatus,
+) -> StatsUpdateStatusRecord {
+    StatsUpdateStatusRecord {
+        updated_object_internal_ids: status
+            .updated_object_ids
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        failure: status
+            .failure
+            .as_ref()
+            .map(|failure| StatsUpdateFailureRecord {
+                failed_object_internal_ids: failure
+                    .failed_object_ids
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+                causes: failure
+                    .causes
+                    .iter()
+                    .map(stats_update_cause_from_live)
+                    .collect(),
+            }),
     }
 }
 
@@ -4157,6 +4166,7 @@ fn lifecycle_result(
             .collect(),
         vector_maintained_objects,
         vector_maintenance_failures,
+        stats_update_status: stats_update_status_from_live(&outcome.stats_update_status),
         superseded: outcome
             .trace
             .iter()
@@ -5156,6 +5166,31 @@ mod tests {
             RepairMarkerRecord::StatsUpdate {
                 object_internal_ids: vec![Uuid::nil().to_string()],
                 causes: expected,
+            }
+        );
+    }
+
+    #[test]
+    fn stats_update_status_projection_preserves_failure_objects_and_causes() {
+        let failed_id = Uuid::nil();
+        let status = character_memory::StatsUpdateStatus::failed(
+            [],
+            [failed_id],
+            vec![character_memory::StatsUpdateCause::HealthCheck {
+                error: character_memory::RetrievalStatsStoreError::LockPoisoned,
+            }],
+        );
+
+        assert_eq!(
+            stats_update_status_from_live(&status),
+            StatsUpdateStatusRecord {
+                updated_object_internal_ids: Vec::new(),
+                failure: Some(StatsUpdateFailureRecord {
+                    failed_object_internal_ids: vec![failed_id.to_string()],
+                    causes: vec![StatsUpdateCauseRecord::HealthCheck {
+                        error: RetrievalStatsStoreErrorRecord::LockPoisoned,
+                    }],
+                }),
             }
         );
     }
@@ -6476,6 +6511,7 @@ mod tests {
                 .await
         );
         assert_eq!(link.value.external_id, "alice-episode-link");
+        assert!(link.outcome.stats_update_status.failure.is_none());
 
         let origin = SourceProvenanceInput {
             episode_external_ids: vec!["episode-external".to_string()],

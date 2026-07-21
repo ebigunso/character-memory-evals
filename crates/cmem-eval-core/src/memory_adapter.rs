@@ -2224,6 +2224,10 @@ mod tests {
 
         assert_eq!(outcome.value.external_id, "link-1");
         assert_eq!(outcome.value.internal_id, "mock:memory_link:link-1");
+        assert_eq!(
+            outcome.outcome.stats_update_status,
+            crate::StatsUpdateStatusRecord::default()
+        );
         assert_eq!(adapter.state.lock().unwrap()["n"].links.len(), 1);
     }
 

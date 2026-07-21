@@ -1236,6 +1236,13 @@ mod tests {
             assert!(counts.get(operation).is_some_and(|count| *count > 0));
         }
         assert_eq!(counts.get("link"), Some(&expected_link_count));
+        assert!(traces.iter().any(|trace| {
+            trace.write_outcomes.iter().any(|outcome| {
+                !outcome.persisted_link_internal_ids.is_empty()
+                    && outcome.stats_update_status
+                        == cmem_eval_core::StatsUpdateStatusRecord::default()
+            })
+        }));
         assert_eq!(restart_observations.len(), 1);
         let restart = &restart_observations[0];
         assert!(restart.reopen_graph);
