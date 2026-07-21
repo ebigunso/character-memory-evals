@@ -6,10 +6,10 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{
-    PerQuestionResult, RetrievalFanoutUtilization, RetrievalRationaleCategory,
-    RetrievalSelectivityDecision, RetrievedContextPack, RunAdapterMetadata, RunSummary,
-    aggregate_numeric_metrics, metric_support_summary, registry_coverage_summary_for,
-    summarize_rows,
+    DatasetId, DatasetKind, DegradationSummary, EmbeddingBindingRecord, PerQuestionResult,
+    RetrievalFanoutUtilization, RetrievalRationaleCategory, RetrievalSelectivityDecision,
+    RetrievedContextPack, RunAdapterMetadata, RunSummary, aggregate_numeric_metrics,
+    metric_support_summary, registry_coverage_summary_for, summarize_rows,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -19,7 +19,7 @@ use crate::{
     RestartObservation, ScenarioPattern,
 };
 
-pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "1.0.0";
+pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "2.0.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContinuityReport {
@@ -32,7 +32,10 @@ pub struct ContinuityReport {
 pub struct ContinuityReportMetadata {
     pub generated_at: DateTime<Utc>,
     pub run_id: String,
-    pub dataset: String,
+    pub dataset: DatasetId,
+    pub dataset_kind: DatasetKind,
+    pub embedding_bindings: Vec<EmbeddingBindingRecord>,
+    pub degradation: DegradationSummary,
     pub adapter: RunAdapterMetadata,
     pub fixture_schema_version: u32,
     pub fixture_seed: u64,
@@ -266,22 +269,25 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
     let recomputed_summary = summarize_rows(
         input.summary.run_id.clone(),
         input.summary.dataset.clone(),
+        input.summary.dataset_kind,
         input.summary.adapter.clone(),
         input.summary.config.clone(),
         input.rows,
         std::slice::from_ref(input.metric_family),
     );
     if input.summary.schema_version != recomputed_summary.schema_version
-        || input.summary.embedding_provider != recomputed_summary.embedding_provider
+        || input.summary.dataset_kind != recomputed_summary.dataset_kind
+        || input.summary.embedding_bindings != recomputed_summary.embedding_bindings
+        || input.summary.degradation != recomputed_summary.degradation
         || input.summary.num_questions != recomputed_summary.num_questions
     {
         bail!(
-            "continuity report summary identity/count does not match result rows: summary schema/provider/count ({:?}, {:?}, {}), recomputed ({:?}, {:?}, {})",
+            "continuity report summary identity/count does not match result rows: summary schema/bindings/count ({:?}, {:?}, {}), recomputed ({:?}, {:?}, {})",
             input.summary.schema_version,
-            input.summary.embedding_provider,
+            input.summary.embedding_bindings,
             input.summary.num_questions,
             recomputed_summary.schema_version,
-            recomputed_summary.embedding_provider,
+            recomputed_summary.embedding_bindings,
             recomputed_summary.num_questions
         );
     }
@@ -331,7 +337,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         assigned_row_count += scenario_rows.len();
         let metric_rows = scenario_rows
             .iter()
-            .filter_map(|row| row.metrics.as_object().cloned())
+            .map(|row| row.metrics.to_json_map())
             .collect::<Vec<Map<String, Value>>>();
         let rationale_samples = scenario_traces
             .iter()
@@ -341,8 +347,8 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             .iter()
             .map(|trace| QueryFanoutDecisions {
                 query_id: trace.query_id.clone(),
-                utilization: trace.retrieval.telemetry.fanout_utilization.clone(),
-                selectivity: trace.retrieval.telemetry.selectivity_decisions.clone(),
+                utilization: trace.retrieval.telemetry().fanout_utilization.clone(),
+                selectivity: trace.retrieval.telemetry().selectivity_decisions.clone(),
             })
             .collect();
         let stats_health_events = scenario_traces
@@ -396,6 +402,9 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             generated_at: input.generated_at,
             run_id: input.summary.run_id.clone(),
             dataset: input.summary.dataset.clone(),
+            dataset_kind: input.summary.dataset_kind,
+            embedding_bindings: input.summary.embedding_bindings.clone(),
+            degradation: input.summary.degradation.clone(),
             adapter: input.adapter,
             fixture_schema_version: input.fixture_schema_version,
             fixture_seed: input.fixture_seed,
@@ -503,10 +512,27 @@ pub fn write_continuity_report(path: &Path, report: &ContinuityReport) -> Result
     Ok(())
 }
 
+pub fn read_continuity_report(path: &Path) -> Result<ContinuityReport> {
+    let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let value: Value = serde_json::from_reader(file)
+        .with_context(|| format!("deserialize continuity report {}", path.display()))?;
+    match value.get("schema_version").and_then(Value::as_str) {
+        Some(CONTINUITY_REPORT_SCHEMA_VERSION) => {}
+        Some(version) => bail!(
+            "unsupported continuity report schema_version {version:?}; expected {CONTINUITY_REPORT_SCHEMA_VERSION:?}"
+        ),
+        None => bail!(
+            "missing continuity report schema_version; expected {CONTINUITY_REPORT_SCHEMA_VERSION:?}"
+        ),
+    }
+    serde_json::from_value(value)
+        .with_context(|| format!("decode continuity report {}", path.display()))
+}
+
 fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
     let categories = trace
         .retrieval
-        .telemetry
+        .telemetry()
         .rationale_categories_by_internal_id
         .as_ref();
     QueryRationaleSample {
@@ -515,7 +541,7 @@ fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
         context_pack: trace.retrieval.clone(),
         items: trace
             .retrieval
-            .items
+            .items()
             .iter()
             .map(|item| RationaleSampleItem {
                 rank: item.rank,
@@ -534,7 +560,7 @@ fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
 }
 
 fn stats_health_event(trace: &ContinuityQueryTrace) -> StatsHealthEvent {
-    let decisions = trace.retrieval.telemetry.selectivity_decisions.as_ref();
+    let decisions = trace.retrieval.telemetry().selectivity_decisions.as_ref();
     let decision_count = decisions.map(Vec::len);
     let scored_count = decisions.map(|values| {
         values
@@ -575,7 +601,7 @@ fn tuning_observation(
     let root_counter_samples = hub_traces
         .iter()
         .filter_map(|trace| {
-            let telemetry = &trace.retrieval.telemetry;
+            let telemetry = trace.retrieval.telemetry();
             Some((
                 telemetry.unique_graph_root_candidate_count?,
                 telemetry.selected_graph_root_count?,
@@ -600,7 +626,7 @@ fn tuning_observation(
         .sum::<usize>();
     let decisions = hub_traces
         .iter()
-        .filter_map(|trace| trace.retrieval.telemetry.selectivity_decisions.as_ref())
+        .filter_map(|trace| trace.retrieval.telemetry().selectivity_decisions.as_ref())
         .flatten()
         .collect::<Vec<_>>();
     let scored_count = decisions
@@ -621,8 +647,8 @@ fn tuning_observation(
             graph_root_omission_count,
         ),
         measurement_regime: serde_json::json!({
-            "max_vector_candidates": config.pointer("/retrieval/max_vector_candidates"),
-            "max_graph_roots": config.pointer("/retrieval/max_graph_roots"),
+            "max_vector_candidates": config.pointer("/retrieval/surface_policy/max_vector_candidates"),
+            "max_graph_roots": config.pointer("/retrieval/surface_policy/max_graph_roots"),
         }),
         observed: serde_json::json!({
             "root_counter_query_count": root_counter_samples.len(),
@@ -639,7 +665,8 @@ fn tuning_observation(
 #[cfg(test)]
 mod tests {
     use chrono::{TimeZone, Utc};
-    use cmem_eval_core::{RetrievalTelemetry, RetrievedContextPack};
+    use cmem_eval_core::{ContextRenderer, RetrievalTelemetry, RetrievedContextPack};
+    use uuid::Uuid;
 
     use super::*;
 
@@ -668,10 +695,13 @@ mod tests {
                 irrelevant_external_ids: vec!["negative".to_string()],
             },
             history_text: String::new(),
-            retrieval: RetrievedContextPack {
+            retrieval: RetrievedContextPack::from_ranked_items(
+                Vec::new(),
                 telemetry,
-                ..RetrievedContextPack::default()
-            },
+                ContextRenderer::PlainText,
+            ),
+            write_outcomes: Vec::new(),
+            lifecycle_outcomes: Vec::new(),
         }
     }
 
@@ -714,5 +744,31 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn report_reader_rejects_missing_and_legacy_schema_versions() {
+        let path = std::env::temp_dir().join(format!(
+            "cmem-continuity-report-schema-{}.json",
+            Uuid::new_v4()
+        ));
+
+        std::fs::write(&path, br#"{}"#).unwrap();
+        let missing = read_continuity_report(&path).unwrap_err();
+        assert!(
+            missing
+                .to_string()
+                .contains("missing continuity report schema_version")
+        );
+
+        std::fs::write(&path, br#"{"schema_version":"1.0.0"}"#).unwrap();
+        let legacy = read_continuity_report(&path).unwrap_err();
+        assert!(
+            legacy
+                .to_string()
+                .contains("unsupported continuity report schema_version")
+        );
+
+        let _ = std::fs::remove_file(path);
     }
 }

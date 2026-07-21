@@ -6,8 +6,7 @@ pub mod types;
 pub use loader::{load_path, load_value};
 pub use types::*;
 
-use anyhow::{Result, bail};
-use cmem_eval_core::{BenchmarkRunConfig, MetricFamily, MetricsConfig, retrieval_metric_family};
+use cmem_eval_core::{MetricFamily, MetricsConfig, retrieval_metric_family};
 
 pub fn metric_family(config: &MetricsConfig) -> MetricFamily {
     retrieval_metric_family(
@@ -17,16 +16,6 @@ pub fn metric_family(config: &MetricsConfig) -> MetricFamily {
             ("session", config.ks_session.as_slice()),
         ],
     )
-}
-
-pub fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
-    if config.dataset != "locomo" {
-        bail!(
-            "config dataset {:?} does not match selected locomo pipeline",
-            config.dataset
-        );
-    }
-    Ok(())
 }
 
 pub fn full_history_text(sample: &LoCoMoSample) -> String {
@@ -49,18 +38,6 @@ pub fn full_history_text(sample: &LoCoMoSample) -> String {
 #[cfg(test)]
 mod dataset_spec_tests {
     use super::*;
-
-    #[test]
-    fn config_validation_is_owned_by_the_dataset_crate() {
-        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
-            "run_id": "r",
-            "dataset": "locomo"
-        }))
-        .unwrap();
-        validate_config(&config).unwrap();
-        config.dataset = "longmemeval_s".to_string();
-        assert!(validate_config(&config).is_err());
-    }
 
     #[test]
     fn declares_configured_retrieval_metric_family() {

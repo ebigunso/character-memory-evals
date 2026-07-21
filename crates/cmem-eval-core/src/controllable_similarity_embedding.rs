@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -18,6 +19,14 @@ pub struct ControllableSimilarityFixture {
 pub struct SimilarityConceptFixture {
     pub cluster: String,
     pub inputs: Vec<String>,
+}
+
+impl ControllableSimilarityFixture {
+    pub fn canonical_sha256(&self) -> Result<String> {
+        validate_fixture(self)?;
+        let bytes = serde_json::to_vec(self)?;
+        Ok(format!("{:x}", Sha256::digest(bytes)))
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -1,5 +1,14 @@
 use crate::bm25::{Bm25Document, Bm25Index, Bm25Score};
 use crate::config::RetrievalMode;
+use crate::{
+    CandidateProducerKind, CandidateValidationIssueRecord, CandidateValidationStatus,
+    ContextPackSection, DerivedType, EntityType, GraphExpansionBoundedReason, GraphFailureMode,
+    LifecycleFilterReason, LifecycleOperationKind, LifecycleOutcomeRecord, MemoryCandidateKind,
+    ObjectRefRecord, ObjectType, RationaleOrigin, RelationType, RepairMarkerRecord, RetentionState,
+    RetrievalSectionBudgets, RetrievalSurfacePolicy, SelectivityCountScope, SelectivityDecision,
+    Stability, StaleCandidateReason, SupersessionRecord, ThreadStatus, WriteOperationKind,
+    WriteOutcomeRecord, WriteResult, deterministic_operation_id,
+};
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -60,7 +69,7 @@ pub struct SnapshotCutoff {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityInput {
     pub external_id: String,
-    pub entity_type: String,
+    pub entity_type: EntityType,
     pub name: String,
     #[serde(default)]
     pub aliases: Vec<String>,
@@ -74,7 +83,7 @@ pub struct MemoryThreadInput {
     pub title: String,
     pub summary: String,
     #[serde(default = "default_thread_status")]
-    pub status: String,
+    pub status: ThreadStatus,
     pub last_touched_at: Option<String>,
     #[serde(default = "default_salience_score")]
     pub salience_score: f32,
@@ -84,7 +93,7 @@ pub struct MemoryThreadInput {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DerivedMemoryInput {
     pub external_id: String,
-    pub derived_type: String,
+    pub derived_type: DerivedType,
     pub text: String,
     #[serde(default)]
     pub source_episode_external_ids: Vec<String>,
@@ -99,7 +108,7 @@ pub struct DerivedMemoryInput {
     #[serde(default = "default_salience_score")]
     pub salience_score: f32,
     #[serde(default = "default_stability")]
-    pub stability: String,
+    pub stability: Stability,
     #[serde(default = "default_true")]
     pub is_current: bool,
     #[serde(default)]
@@ -112,7 +121,7 @@ pub struct DerivedMemoryInput {
 pub struct MemoryLinkInput {
     pub external_id: String,
     pub from: MemoryEndpointInput,
-    pub relation: String,
+    pub relation: RelationType,
     pub to: MemoryEndpointInput,
     #[serde(default = "default_confidence")]
     pub confidence: f32,
@@ -121,7 +130,7 @@ pub struct MemoryLinkInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MemoryEndpointInput {
-    pub object_type: String,
+    pub object_type: ObjectType,
     pub external_id: String,
 }
 
@@ -131,17 +140,12 @@ pub struct RetrieveInput {
     pub namespace: String,
     pub query: String,
     pub query_date: Option<String>,
-    pub top_k_episodes: usize,
-    pub top_k_observations: usize,
-    pub include_derived_memories: bool,
-    pub include_threads: bool,
-    pub include_entities: bool,
-    pub include_debug_rationale: bool,
+    pub surface_policy: RetrievalSurfacePolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RetrievedItem {
-    pub kind: String,
+    pub kind: ObjectType,
     pub internal_id: String,
     pub external_id: Option<String>,
     pub episode_external_id: Option<String>,
@@ -153,12 +157,79 @@ pub struct RetrievedItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct RetrievedContextPack {
-    pub items: Vec<RetrievedItem>,
-    pub context_text: String,
-    pub context_char_count: usize,
-    pub context_word_count: usize,
+    items: Vec<RetrievedItem>,
+    context_text: String,
+    context_char_count: usize,
+    context_word_count: usize,
     #[serde(default)]
-    pub telemetry: RetrievalTelemetry,
+    telemetry: RetrievalTelemetry,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextRenderer {
+    PlainText,
+    WithIdentity,
+}
+
+impl RetrievedContextPack {
+    pub fn from_ranked_items(
+        items: Vec<RetrievedItem>,
+        telemetry: RetrievalTelemetry,
+        renderer: ContextRenderer,
+    ) -> Self {
+        let context_text = items
+            .iter()
+            .filter_map(|item| {
+                item.text.as_ref().map(|text| match renderer {
+                    ContextRenderer::PlainText => text.clone(),
+                    ContextRenderer::WithIdentity => format!(
+                        "[{}:{} rank={}] {}",
+                        item.kind,
+                        item.external_id.as_deref().unwrap_or("unknown"),
+                        item.rank,
+                        text
+                    ),
+                })
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Self {
+            context_char_count: context_text.chars().count(),
+            context_word_count: context_text.split_whitespace().count(),
+            items,
+            context_text,
+            telemetry,
+        }
+    }
+
+    pub fn items(&self) -> &[RetrievedItem] {
+        &self.items
+    }
+    pub fn items_mut(&mut self) -> &mut Vec<RetrievedItem> {
+        &mut self.items
+    }
+    pub fn context_text(&self) -> &str {
+        &self.context_text
+    }
+    pub fn context_char_count(&self) -> usize {
+        self.context_char_count
+    }
+    pub fn context_word_count(&self) -> usize {
+        self.context_word_count
+    }
+    pub fn telemetry(&self) -> &RetrievalTelemetry {
+        &self.telemetry
+    }
+
+    pub fn into_parts(self) -> (Vec<RetrievedItem>, String, usize, usize, RetrievalTelemetry) {
+        (
+            self.items,
+            self.context_text,
+            self.context_char_count,
+            self.context_word_count,
+            self.telemetry,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -167,6 +238,20 @@ pub struct RetrievalTelemetry {
     pub trace_available: bool,
     #[serde(default)]
     pub vector_candidate_count: Option<usize>,
+    #[serde(default)]
+    pub configured_candidate_limits: Option<ConfiguredCandidateLimits>,
+    #[serde(default)]
+    pub configured_graph_limits: Option<ConfiguredGraphLimits>,
+    #[serde(default)]
+    pub configured_section_limits: Option<RetrievalSectionBudgets>,
+    #[serde(default)]
+    pub configured_object_types: Option<Vec<ObjectType>>,
+    #[serde(default)]
+    pub configured_lifecycle_policy: Option<ConfiguredLifecyclePolicy>,
+    #[serde(default)]
+    pub query_embedding_dimension: Option<usize>,
+    #[serde(default)]
+    pub returned_vector_candidate_count: Option<usize>,
     // Compatibility Policy sealed-artifact exemption: register-cited evidence predates
     // these counters and must remain readable.
     #[serde(default)]
@@ -177,6 +262,12 @@ pub struct RetrievalTelemetry {
     pub graph_root_omission_count: Option<usize>,
     #[serde(default)]
     pub graph_relation_count: Option<usize>,
+    #[serde(default)]
+    pub graph_expansion: Option<GraphExpansionSummary>,
+    #[serde(default)]
+    pub selectivity_summary: Option<SelectivitySummary>,
+    #[serde(default)]
+    pub section_pressure: Option<Vec<SectionPressureSummary>>,
     #[serde(default)]
     pub graph_verified_count: Option<usize>,
     #[serde(default)]
@@ -198,11 +289,11 @@ pub struct RetrievalTelemetry {
     #[serde(default)]
     pub section_assignment_count: Option<usize>,
     #[serde(default)]
-    pub section_assignment_counts: BTreeMap<String, usize>,
+    pub section_assignment_counts: BTreeMap<ContextPackSection, usize>,
     #[serde(default)]
-    pub stale_candidate_omission_reasons: BTreeMap<String, usize>,
+    pub stale_candidate_omission_reasons: BTreeMap<StaleCandidateReason, usize>,
     #[serde(default)]
-    pub lifecycle_omission_reasons: BTreeMap<String, usize>,
+    pub lifecycle_omission_reasons: BTreeMap<LifecycleFilterReason, usize>,
     #[serde(default)]
     pub fanout_utilization: Option<Vec<RetrievalFanoutUtilization>>,
     #[serde(default)]
@@ -212,13 +303,68 @@ pub struct RetrievalTelemetry {
         Option<BTreeMap<String, Vec<RetrievalRationaleCategory>>>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConfiguredCandidateLimits {
+    pub max_vector_candidates: usize,
+    pub max_graph_roots: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConfiguredGraphLimits {
+    pub max_depth: u8,
+    pub max_nodes: usize,
+    pub max_fanout_per_node: usize,
+    pub max_hub_edges: usize,
+    pub timeout_ms: Option<u64>,
+    pub failure_mode: GraphFailureMode,
+    pub allowed_relation_types: Vec<RelationType>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ConfiguredLifecyclePolicy {
+    pub include_archived: bool,
+    pub include_suppressed: bool,
+    pub include_deleted: bool,
+    pub include_non_current: bool,
+    pub include_superseded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct GraphExpansionSummary {
+    pub attempted_root_count: usize,
+    pub expanded_root_count: usize,
+    pub missing_root_count: usize,
+    pub expanded_object_count: usize,
+    pub expanded_relation_count: usize,
+    pub filtered_node_count: usize,
+    pub bounded_failure_count: usize,
+    pub bounded_failure_reasons: BTreeMap<GraphExpansionBoundedReason, usize>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SelectivitySummary {
+    pub decision_count: usize,
+    pub high_selectivity_count: usize,
+    pub low_selectivity_supported_count: usize,
+    pub low_selectivity_rejected_count: usize,
+    pub fallback_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SectionPressureSummary {
+    pub section: ContextPackSection,
+    pub limit: usize,
+    pub included_count: usize,
+    pub omitted_by_limit_count: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RetrievalFanoutUtilization {
     pub root_internal_id: String,
-    pub root_object_type: String,
+    pub root_object_type: ObjectType,
     pub root_external_id: Option<String>,
-    pub relation: String,
-    pub object_type: String,
+    pub relation: RelationType,
+    pub object_type: ObjectType,
     pub configured_cap: usize,
     pub selected_cap: usize,
     pub retained_count: usize,
@@ -228,18 +374,18 @@ pub struct RetrievalFanoutUtilization {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RetrievalSelectivityDecision {
     pub root_internal_id: String,
-    pub root_object_type: String,
+    pub root_object_type: ObjectType,
     pub root_external_id: Option<String>,
-    pub relation: String,
-    pub object_type: String,
-    pub count_scope: String,
+    pub relation: RelationType,
+    pub object_type: ObjectType,
+    pub count_scope: SelectivityCountScope,
     pub score: Option<f64>,
     pub entity_count: Option<u64>,
     pub global_count: Option<u64>,
     pub support_factor: f64,
     pub chosen_fanout: usize,
     pub max_fanout: usize,
-    pub decision: String,
+    pub decision: SelectivityDecision,
     pub fallback: bool,
 }
 
@@ -264,7 +410,7 @@ pub struct IngestedObjectRefs {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RetrievedExternalRef {
-    pub kind: String,
+    pub kind: ObjectType,
     pub external_id: Option<String>,
     pub episode_external_id: Option<String>,
     pub rank: usize,
@@ -305,7 +451,7 @@ pub enum CorrectionTargetInput {
         external_id: String,
     },
     SourceObject {
-        object_type: String,
+        object_type: ObjectType,
         external_id: String,
         original_raw_ref: Option<String>,
         original_source_ref: Option<String>,
@@ -432,18 +578,31 @@ pub struct ForgetMemoryInput {
     #[serde(default)]
     pub cascade_policy: ForgetCascadePolicyInput,
     #[serde(default = "default_suppressed_retention_state")]
-    pub target_retention_state: String,
-    pub target_thread_status: Option<String>,
+    pub target_retention_state: RetentionState,
+    pub target_thread_status: Option<ThreadStatus>,
     #[serde(default)]
     pub include_trace: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LifecycleMutationResult {
     pub mutated_object_refs: Vec<MemoryEndpointInput>,
     pub mutated_link_external_ids: Vec<String>,
     pub vector_maintained_object_refs: Vec<MemoryEndpointInput>,
     pub superseded: Vec<SupersessionResult>,
+    pub outcome: LifecycleOutcomeRecord,
+}
+
+impl LifecycleMutationResult {
+    pub fn clean(operation_id: impl Into<String>, operation: LifecycleOperationKind) -> Self {
+        Self {
+            mutated_object_refs: Vec::new(),
+            mutated_link_external_ids: Vec::new(),
+            vector_maintained_object_refs: Vec::new(),
+            superseded: Vec::new(),
+            outcome: LifecycleOutcomeRecord::clean(operation_id, operation),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -473,24 +632,17 @@ pub struct PrepareWriteInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PreparedCandidate {
-    pub kind: String,
+    pub kind: MemoryCandidateKind,
     pub internal_id: String,
     pub external_id: Option<String>,
-    pub producer_kind: String,
-    pub rationale_origin: String,
+    pub producer_kind: CandidateProducerKind,
+    pub rationale_origin: RationaleOrigin,
     pub rationale: Option<String>,
     #[serde(default)]
     pub source: SourceProvenanceInput,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CandidateValidationResult {
-    pub candidate_index: usize,
-    pub candidate_kind: String,
-    pub status: String,
-    pub errors: Vec<String>,
-    pub warnings: Vec<String>,
-}
+pub type CandidateValidationResult = crate::CandidateValidationRecord;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PreparedWritePlan {
@@ -520,12 +672,25 @@ impl Default for CommitWriteOptions {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitWriteResult {
     pub persisted_object_refs: Vec<MemoryEndpointInput>,
     pub persisted_link_external_ids: Vec<String>,
     pub vector_indexed_object_refs: Vec<MemoryEndpointInput>,
-    pub repair_needed: Vec<String>,
+    pub repair_needed: Vec<RepairMarkerRecord>,
+    pub outcome: WriteOutcomeRecord,
+}
+
+impl CommitWriteResult {
+    pub fn clean(operation_id: impl Into<String>) -> Self {
+        Self {
+            persisted_object_refs: Vec::new(),
+            persisted_link_external_ids: Vec::new(),
+            vector_indexed_object_refs: Vec::new(),
+            repair_needed: Vec::new(),
+            outcome: WriteOutcomeRecord::clean(operation_id, WriteOperationKind::ExplicitCommit),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -549,24 +714,30 @@ pub trait MemoryAdapter: Send + Sync {
     async fn cleanup_namespace(&self, namespace: &str) -> Result<()> {
         self.reset_namespace(namespace).await
     }
-    async fn remember_episode(&self, input: EpisodeInput) -> Result<String>;
-    async fn remember_episodes(&self, inputs: Vec<EpisodeInput>) -> Result<Vec<String>> {
-        let mut ids = Vec::with_capacity(inputs.len());
+    async fn remember_episode(&self, input: EpisodeInput) -> Result<WriteResult<String>>;
+    async fn remember_episodes(
+        &self,
+        inputs: Vec<EpisodeInput>,
+    ) -> Result<Vec<WriteResult<String>>> {
+        let mut outcomes = Vec::with_capacity(inputs.len());
         for input in inputs {
-            ids.push(self.remember_episode(input).await?);
+            outcomes.push(self.remember_episode(input).await?);
         }
-        Ok(ids)
+        Ok(outcomes)
     }
-    async fn remember_observation(&self, input: ObservationInput) -> Result<String>;
-    async fn remember_observations(&self, inputs: Vec<ObservationInput>) -> Result<Vec<String>> {
-        let mut ids = Vec::with_capacity(inputs.len());
+    async fn remember_observation(&self, input: ObservationInput) -> Result<WriteResult<String>>;
+    async fn remember_observations(
+        &self,
+        inputs: Vec<ObservationInput>,
+    ) -> Result<Vec<WriteResult<String>>> {
+        let mut outcomes = Vec::with_capacity(inputs.len());
         for input in inputs {
-            ids.push(self.remember_observation(input).await?);
+            outcomes.push(self.remember_observation(input).await?);
         }
-        Ok(ids)
+        Ok(outcomes)
     }
-    async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<()>;
-    async fn link(&self, input: LinkMemoryInput) -> Result<LinkMemoryResult>;
+    async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<WriteOutcomeRecord>;
+    async fn link(&self, input: LinkMemoryInput) -> Result<WriteResult<LinkMemoryResult>>;
     async fn correct(&self, input: CorrectMemoryInput) -> Result<LifecycleMutationResult>;
     async fn forget(&self, input: ForgetMemoryInput) -> Result<LifecycleMutationResult>;
     async fn prepare(&self, input: PrepareWriteInput) -> Result<PreparedWritePlan>;
@@ -605,7 +776,7 @@ struct Bm25NamespaceIndex {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Bm25AdapterDocument {
-    kind: &'static str,
+    kind: ObjectType,
     internal_id: String,
     external_id: String,
     episode_external_id: Option<String>,
@@ -649,43 +820,123 @@ impl MemoryAdapter for MockMemoryAdapter {
         Ok(())
     }
 
-    async fn remember_episode(&self, input: EpisodeInput) -> Result<String> {
+    async fn remember_episode(&self, input: EpisodeInput) -> Result<WriteResult<String>> {
         let internal_id = format!("mock:episode:{}", input.external_id);
+        let operation_id = deterministic_operation_id(
+            &input.namespace,
+            "remember_episode",
+            [input.external_id.as_str()],
+        );
+        let external_id = input.external_id.clone();
         let mut state = self.state.lock().expect("mock memory mutex poisoned");
         let namespace = state.entry(input.namespace.clone()).or_default();
         namespace.bm25_index = None;
         namespace.episodes.push(input);
-        Ok(internal_id)
+        let object = ObjectRefRecord {
+            object_type: ObjectType::Episode,
+            internal_id: internal_id.clone(),
+            external_id: Some(external_id),
+        };
+        let mut outcome = WriteOutcomeRecord::clean(operation_id, WriteOperationKind::TypedIngest);
+        outcome.persisted_objects.push(object.clone());
+        outcome.vector_indexed_objects.push(object);
+        Ok(WriteResult {
+            value: internal_id,
+            outcome,
+        })
     }
 
-    async fn remember_observation(&self, input: ObservationInput) -> Result<String> {
+    async fn remember_observation(&self, input: ObservationInput) -> Result<WriteResult<String>> {
         let internal_id = format!("mock:observation:{}", input.external_id);
+        let operation_id = deterministic_operation_id(
+            &input.namespace,
+            "remember_observation",
+            [input.external_id.as_str()],
+        );
+        let external_id = input.external_id.clone();
         let mut state = self.state.lock().expect("mock memory mutex poisoned");
         let namespace = state.entry(input.namespace.clone()).or_default();
         namespace.bm25_index = None;
         namespace.observations.push(input);
-        Ok(internal_id)
+        let object = ObjectRefRecord {
+            object_type: ObjectType::Observation,
+            internal_id: internal_id.clone(),
+            external_id: Some(external_id),
+        };
+        let mut outcome = WriteOutcomeRecord::clean(operation_id, WriteOperationKind::TypedIngest);
+        outcome.persisted_objects.push(object.clone());
+        outcome.vector_indexed_objects.push(object);
+        Ok(WriteResult {
+            value: internal_id,
+            outcome,
+        })
     }
 
-    async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<()> {
+    async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<WriteOutcomeRecord> {
+        let identity = input
+            .entities
+            .iter()
+            .map(|item| item.external_id.as_str())
+            .chain(input.threads.iter().map(|item| item.external_id.as_str()))
+            .chain(
+                input
+                    .derived_memories
+                    .iter()
+                    .map(|item| item.external_id.as_str()),
+            )
+            .chain(input.links.iter().map(|item| item.external_id.as_str()))
+            .collect::<Vec<_>>();
+        let operation_id =
+            deterministic_operation_id(&input.namespace, "remember_enrichment", identity);
+        let persisted_objects = input
+            .entities
+            .iter()
+            .map(|item| mock_object_ref(ObjectType::Entity, &item.external_id))
+            .chain(
+                input
+                    .threads
+                    .iter()
+                    .map(|item| mock_object_ref(ObjectType::MemoryThread, &item.external_id)),
+            )
+            .chain(
+                input
+                    .derived_memories
+                    .iter()
+                    .map(|item| mock_object_ref(ObjectType::DerivedMemory, &item.external_id)),
+            )
+            .collect::<Vec<_>>();
+        let persisted_link_internal_ids = input
+            .links
+            .iter()
+            .map(|item| format!("mock:memory_link:{}", item.external_id))
+            .collect();
         let mut state = self.state.lock().expect("mock memory mutex poisoned");
         let namespace = state.entry(input.namespace).or_default();
         namespace.derived_memories.extend(input.derived_memories);
-        Ok(())
+        let mut outcome = WriteOutcomeRecord::clean(operation_id, WriteOperationKind::TypedIngest);
+        outcome.vector_indexed_objects = persisted_objects.clone();
+        outcome.persisted_objects = persisted_objects;
+        outcome.persisted_link_internal_ids = persisted_link_internal_ids;
+        Ok(outcome)
     }
 
-    async fn link(&self, input: LinkMemoryInput) -> Result<LinkMemoryResult> {
+    async fn link(&self, input: LinkMemoryInput) -> Result<WriteResult<LinkMemoryResult>> {
         let internal_id = format!("mock:memory_link:{}", input.link.external_id);
+        let operation_id =
+            deterministic_operation_id(&input.namespace, "link", [input.link.external_id.as_str()]);
         let mut state = self.state.lock().expect("mock memory mutex poisoned");
         state
             .entry(input.namespace)
             .or_default()
             .links
             .push(input.link.clone());
-        Ok(LinkMemoryResult {
-            internal_id,
+        let value = LinkMemoryResult {
+            internal_id: internal_id.clone(),
             external_id: input.link.external_id,
-        })
+        };
+        let mut outcome = WriteOutcomeRecord::clean(operation_id, WriteOperationKind::TypedIngest);
+        outcome.persisted_link_internal_ids.push(internal_id);
+        Ok(WriteResult { value, outcome })
     }
 
     async fn correct(&self, input: CorrectMemoryInput) -> Result<LifecycleMutationResult> {
@@ -700,7 +951,7 @@ impl MemoryAdapter for MockMemoryAdapter {
         }
         for target in &input.targets {
             if let CorrectionTargetInput::SourceObject { object_type, .. } = target
-                && !matches!(object_type.as_str(), "episode" | "observation")
+                && !matches!(object_type, ObjectType::Episode | ObjectType::Observation)
             {
                 bail!("unsupported correction source object type: {object_type}");
             }
@@ -722,6 +973,10 @@ impl MemoryAdapter for MockMemoryAdapter {
             }
         }
 
+        let operation_identity = serde_json::to_string(&input)?;
+        let operation_id =
+            deterministic_operation_id(&input.namespace, "correct", [operation_identity.as_str()]);
+
         let mut state = self.state.lock().expect("mock memory mutex poisoned");
         let namespace = state.entry(input.namespace.clone()).or_default();
         let mut mutated_object_refs = Vec::new();
@@ -731,7 +986,7 @@ impl MemoryAdapter for MockMemoryAdapter {
                 CorrectionTargetInput::DerivedMemory { external_id } => {
                     suppressed.insert(external_id.clone());
                     mutated_object_refs.push(MemoryEndpointInput {
-                        object_type: "derived_memory".to_string(),
+                        object_type: ObjectType::DerivedMemory,
                         external_id: external_id.clone(),
                     });
                 }
@@ -741,17 +996,17 @@ impl MemoryAdapter for MockMemoryAdapter {
                     ..
                 } => {
                     mutated_object_refs.push(MemoryEndpointInput {
-                        object_type: object_type.clone(),
+                        object_type: *object_type,
                         external_id: external_id.clone(),
                     });
                     if input.cascade_policy.apply_to_provenanced_derived_memories {
                         for memory in &namespace.derived_memories {
-                            let matches_source = match object_type.as_str() {
-                                "episode" => memory
+                            let matches_source = match object_type {
+                                ObjectType::Episode => memory
                                     .source_episode_external_ids
                                     .iter()
                                     .any(|id| id == external_id),
-                                "observation" => memory
+                                ObjectType::Observation => memory
                                     .source_observation_external_ids
                                     .iter()
                                     .any(|id| id == external_id),
@@ -784,17 +1039,51 @@ impl MemoryAdapter for MockMemoryAdapter {
                 .suppressed_derived_memory_ids
                 .remove(&replacement.memory.external_id);
             mutated_object_refs.push(MemoryEndpointInput {
-                object_type: "derived_memory".to_string(),
+                object_type: ObjectType::DerivedMemory,
                 external_id: replacement.memory.external_id.clone(),
             });
             namespace.derived_memories.push(replacement.memory);
         }
 
-        Ok(LifecycleMutationResult {
-            mutated_object_refs,
-            superseded,
-            ..LifecycleMutationResult::default()
-        })
+        let mut result =
+            LifecycleMutationResult::clean(operation_id, LifecycleOperationKind::Correct);
+        result.mutated_object_refs = mutated_object_refs;
+        result.superseded = superseded;
+        result.outcome.requested_targets = input
+            .targets
+            .iter()
+            .map(|target| match target {
+                CorrectionTargetInput::DerivedMemory { external_id } => {
+                    mock_object_ref(ObjectType::DerivedMemory, external_id)
+                }
+                CorrectionTargetInput::SourceObject {
+                    object_type,
+                    external_id,
+                    ..
+                } => mock_object_ref(*object_type, external_id),
+            })
+            .collect();
+        result.outcome.graph_mutated_objects = result
+            .mutated_object_refs
+            .iter()
+            .map(|reference| mock_object_ref(reference.object_type, &reference.external_id))
+            .collect();
+        result.outcome.vector_maintained_objects = result.outcome.graph_mutated_objects.clone();
+        result.outcome.superseded = result
+            .superseded
+            .iter()
+            .map(|record| SupersessionRecord {
+                superseded_internal_id: format!(
+                    "mock:derived_memory:{}",
+                    record.superseded_external_id
+                ),
+                superseded_by_internal_id: format!(
+                    "mock:derived_memory:{}",
+                    record.superseded_by_external_id
+                ),
+            })
+            .collect();
+        Ok(result)
     }
 
     async fn forget(&self, input: ForgetMemoryInput) -> Result<LifecycleMutationResult> {
@@ -806,8 +1095,11 @@ impl MemoryAdapter for MockMemoryAdapter {
         }
         for target in &input.targets {
             if !matches!(
-                target.object_type.as_str(),
-                "episode" | "observation" | "derived_memory" | "memory_thread"
+                target.object_type,
+                ObjectType::Episode
+                    | ObjectType::Observation
+                    | ObjectType::DerivedMemory
+                    | ObjectType::MemoryThread
             ) {
                 bail!(
                     "unsupported forget target object type: {}",
@@ -816,13 +1108,20 @@ impl MemoryAdapter for MockMemoryAdapter {
             }
         }
 
+        let operation_identity = serde_json::to_string(&input)?;
+        let operation_id =
+            deterministic_operation_id(&input.namespace, "forget", [operation_identity.as_str()]);
+
         let mut state = self.state.lock().expect("mock memory mutex poisoned");
         let Some(namespace) = state.get_mut(&input.namespace) else {
-            return Ok(LifecycleMutationResult::default());
+            return Ok(LifecycleMutationResult::clean(
+                operation_id,
+                LifecycleOperationKind::Forget,
+            ));
         };
         for target in &input.targets {
-            match target.object_type.as_str() {
-                "episode" => {
+            match target.object_type {
+                ObjectType::Episode => {
                     namespace
                         .episodes
                         .retain(|episode| episode.external_id != target.external_id);
@@ -834,7 +1133,7 @@ impl MemoryAdapter for MockMemoryAdapter {
                         });
                     }
                 }
-                "observation" => {
+                ObjectType::Observation => {
                     namespace
                         .observations
                         .retain(|observation| observation.external_id != target.external_id);
@@ -846,10 +1145,10 @@ impl MemoryAdapter for MockMemoryAdapter {
                         });
                     }
                 }
-                "derived_memory" => namespace
+                ObjectType::DerivedMemory => namespace
                     .derived_memories
                     .retain(|memory| memory.external_id != target.external_id),
-                "memory_thread" => {
+                ObjectType::MemoryThread => {
                     if input.cascade_policy.apply_to_thread_members {
                         namespace.derived_memories.retain(|memory| {
                             !memory.thread_external_ids.contains(&target.external_id)
@@ -861,10 +1160,18 @@ impl MemoryAdapter for MockMemoryAdapter {
         }
         namespace.bm25_index = None;
 
-        Ok(LifecycleMutationResult {
-            mutated_object_refs: input.targets,
-            ..LifecycleMutationResult::default()
-        })
+        let requested_targets = input
+            .targets
+            .iter()
+            .map(|target| mock_object_ref(target.object_type, &target.external_id))
+            .collect::<Vec<_>>();
+        let mut result =
+            LifecycleMutationResult::clean(operation_id, LifecycleOperationKind::Forget);
+        result.mutated_object_refs = input.targets;
+        result.outcome.requested_targets = requested_targets.clone();
+        result.outcome.graph_mutated_objects = requested_targets.clone();
+        result.outcome.vector_maintained_objects = requested_targets;
+        Ok(result)
     }
 
     async fn prepare(&self, input: PrepareWriteInput) -> Result<PreparedWritePlan> {
@@ -892,20 +1199,20 @@ impl MemoryAdapter for MockMemoryAdapter {
         let observation_id = format!("mock:observation:{}", input.observation_external_id);
         let mut candidates = vec![
             PreparedCandidate {
-                kind: "episode".to_string(),
+                kind: MemoryCandidateKind::Episode,
                 internal_id: episode_id.clone(),
                 external_id: Some(input.episode_external_id.clone()),
-                producer_kind: "deterministic_helper".to_string(),
-                rationale_origin: "unavailable".to_string(),
+                producer_kind: CandidateProducerKind::DeterministicHelper,
+                rationale_origin: RationaleOrigin::Unavailable,
                 rationale: None,
                 source: source.clone(),
             },
             PreparedCandidate {
-                kind: "observation".to_string(),
+                kind: MemoryCandidateKind::Observation,
                 internal_id: observation_id.clone(),
                 external_id: Some(input.observation_external_id.clone()),
-                producer_kind: "deterministic_helper".to_string(),
-                rationale_origin: "unavailable".to_string(),
+                producer_kind: CandidateProducerKind::DeterministicHelper,
+                rationale_origin: RationaleOrigin::Unavailable,
                 rationale: None,
                 source: SourceProvenanceInput {
                     episode_external_ids: vec![input.episode_external_id.clone()],
@@ -916,11 +1223,11 @@ impl MemoryAdapter for MockMemoryAdapter {
         if input.include_vector_index_candidates {
             for (kind, target) in [("episode", &episode_id), ("observation", &observation_id)] {
                 candidates.push(PreparedCandidate {
-                    kind: "vector_index".to_string(),
+                    kind: MemoryCandidateKind::VectorIndex,
                     internal_id: format!("mock:vector_index:{kind}:{target}"),
                     external_id: None,
-                    producer_kind: "deterministic_helper".to_string(),
-                    rationale_origin: "unavailable".to_string(),
+                    producer_kind: CandidateProducerKind::DeterministicHelper,
+                    rationale_origin: RationaleOrigin::Unavailable,
                     rationale: None,
                     source: SourceProvenanceInput::default(),
                 });
@@ -929,11 +1236,11 @@ impl MemoryAdapter for MockMemoryAdapter {
         if input.include_stats_update_candidates {
             for (kind, target) in [("episode", &episode_id), ("observation", &observation_id)] {
                 candidates.push(PreparedCandidate {
-                    kind: "stats_update".to_string(),
+                    kind: MemoryCandidateKind::StatsUpdate,
                     internal_id: format!("mock:stats_update:{kind}:{target}"),
                     external_id: None,
-                    producer_kind: "deterministic_helper".to_string(),
-                    rationale_origin: "unavailable".to_string(),
+                    producer_kind: CandidateProducerKind::DeterministicHelper,
+                    rationale_origin: RationaleOrigin::Unavailable,
                     rationale: None,
                     source: SourceProvenanceInput::default(),
                 });
@@ -966,7 +1273,7 @@ impl MemoryAdapter for MockMemoryAdapter {
         let validations = mock_plan_validations(&plan);
         if validations
             .iter()
-            .any(|validation| validation.status == "invalid")
+            .any(|validation| validation.status == CandidateValidationStatus::Invalid)
         {
             bail!("cannot commit invalid prepared write plan");
         }
@@ -995,23 +1302,33 @@ impl MemoryAdapter for MockMemoryAdapter {
         .await?;
         let persisted_object_refs = vec![
             MemoryEndpointInput {
-                object_type: "episode".to_string(),
+                object_type: ObjectType::Episode,
                 external_id: episode_external_id,
             },
             MemoryEndpointInput {
-                object_type: "observation".to_string(),
+                object_type: ObjectType::Observation,
                 external_id: observation_external_id,
             },
         ];
-        Ok(CommitWriteResult {
-            vector_indexed_object_refs: if options.update_vectors {
-                persisted_object_refs.clone()
-            } else {
-                Vec::new()
-            },
-            persisted_object_refs,
-            ..CommitWriteResult::default()
-        })
+        let mut result = CommitWriteResult::clean(plan.operation_internal_id);
+        result.vector_indexed_object_refs = if options.update_vectors {
+            persisted_object_refs.clone()
+        } else {
+            Vec::new()
+        };
+        result.persisted_object_refs = persisted_object_refs;
+        result.outcome.validations = validations;
+        result.outcome.persisted_objects = result
+            .persisted_object_refs
+            .iter()
+            .map(|reference| mock_object_ref(reference.object_type, &reference.external_id))
+            .collect();
+        result.outcome.vector_indexed_objects = result
+            .vector_indexed_object_refs
+            .iter()
+            .map(|reference| mock_object_ref(reference.object_type, &reference.external_id))
+            .collect();
+        Ok(result)
     }
 
     async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
@@ -1044,10 +1361,13 @@ impl MemoryAdapter for MockMemoryAdapter {
                 .partial_cmp(&score_text(&input.query, &a.summary))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        for episode in episodes.into_iter().take(input.top_k_episodes) {
+        for episode in episodes
+            .into_iter()
+            .take(input.surface_policy.sections.relevant_episodes)
+        {
             let score = score_text(&input.query, &episode.summary);
             items.push(RetrievedItem {
-                kind: "episode".to_string(),
+                kind: ObjectType::Episode,
                 internal_id: format!("mock:episode:{}", episode.external_id),
                 external_id: Some(episode.external_id),
                 episode_external_id: None,
@@ -1064,10 +1384,13 @@ impl MemoryAdapter for MockMemoryAdapter {
                 .partial_cmp(&score_text(&input.query, &a.text))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        for observation in observations.into_iter().take(input.top_k_observations) {
+        for observation in observations
+            .into_iter()
+            .take(input.surface_policy.sections.salient_observations)
+        {
             let score = score_text(&input.query, &observation.text);
             items.push(RetrievedItem {
-                kind: "observation".to_string(),
+                kind: ObjectType::Observation,
                 internal_id: format!("mock:observation:{}", observation.external_id),
                 external_id: Some(observation.external_id),
                 episode_external_id: Some(observation.episode_external_id),
@@ -1078,7 +1401,11 @@ impl MemoryAdapter for MockMemoryAdapter {
             });
         }
 
-        if input.include_derived_memories {
+        if input
+            .surface_policy
+            .object_types
+            .contains(&ObjectType::DerivedMemory)
+        {
             let mut derived_memories = ns
                 .derived_memories
                 .iter()
@@ -1093,10 +1420,13 @@ impl MemoryAdapter for MockMemoryAdapter {
                     .partial_cmp(&score_text(&input.query, &a.text))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
-            for memory in derived_memories.into_iter().take(input.top_k_observations) {
+            for memory in derived_memories
+                .into_iter()
+                .take(input.surface_policy.sections.derived_memories)
+            {
                 let score = score_text(&input.query, &memory.text);
                 items.push(RetrievedItem {
-                    kind: "derived_memory".to_string(),
+                    kind: ObjectType::DerivedMemory,
                     internal_id: format!("mock:derived_memory:{}", memory.external_id),
                     external_id: Some(memory.external_id),
                     episode_external_id: memory.source_episode_external_ids.first().cloned(),
@@ -1118,21 +1448,11 @@ impl MemoryAdapter for MockMemoryAdapter {
             item.rank = idx + 1;
         }
 
-        let context_text = items
-            .iter()
-            .filter_map(|item| item.text.as_deref())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let context_char_count = context_text.chars().count();
-        let context_word_count = context_text.split_whitespace().count();
-
-        Ok(RetrievedContextPack {
+        Ok(RetrievedContextPack::from_ranked_items(
             items,
-            context_text,
-            context_char_count,
-            context_word_count,
-            telemetry: RetrievalTelemetry::default(),
-        })
+            RetrievalTelemetry::default(),
+            ContextRenderer::PlainText,
+        ))
     }
 }
 
@@ -1143,7 +1463,7 @@ fn build_bm25_index(ns: &NamespaceState) -> Bm25NamespaceIndex {
         adapter_documents.insert(
             id,
             Bm25AdapterDocument {
-                kind: "episode",
+                kind: ObjectType::Episode,
                 internal_id: format!("mock:episode:{}", episode.external_id),
                 external_id: episode.external_id.clone(),
                 episode_external_id: None,
@@ -1156,7 +1476,7 @@ fn build_bm25_index(ns: &NamespaceState) -> Bm25NamespaceIndex {
         adapter_documents.insert(
             id,
             Bm25AdapterDocument {
-                kind: "observation",
+                kind: ObjectType::Observation,
                 internal_id: format!("mock:observation:{}", observation.external_id),
                 external_id: observation.external_id.clone(),
                 episode_external_id: Some(observation.episode_external_id.clone()),
@@ -1187,9 +1507,17 @@ fn retrieve_bm25(index: &Bm25NamespaceIndex, input: &RetrieveInput) -> Retrieved
             continue;
         };
         match document.kind {
-            "episode" => insert_top_bm25(&mut top_episodes, score, input.top_k_episodes),
-            "observation" => {
-                insert_top_bm25(&mut top_observations, score, input.top_k_observations);
+            ObjectType::Episode => insert_top_bm25(
+                &mut top_episodes,
+                score,
+                input.surface_policy.sections.relevant_episodes,
+            ),
+            ObjectType::Observation => {
+                insert_top_bm25(
+                    &mut top_observations,
+                    score,
+                    input.surface_policy.sections.salient_observations,
+                );
             }
             _ => {}
         }
@@ -1201,7 +1529,7 @@ fn retrieve_bm25(index: &Bm25NamespaceIndex, input: &RetrieveInput) -> Retrieved
             continue;
         };
         items.push(RetrievedItem {
-            kind: document.kind.to_string(),
+            kind: document.kind,
             internal_id: document.internal_id.clone(),
             external_id: Some(document.external_id.clone()),
             episode_external_id: document.episode_external_id.clone(),
@@ -1222,21 +1550,11 @@ fn retrieve_bm25(index: &Bm25NamespaceIndex, input: &RetrieveInput) -> Retrieved
         item.rank = idx + 1;
     }
 
-    let context_text = items
-        .iter()
-        .filter_map(|item| item.text.as_deref())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let context_char_count = context_text.chars().count();
-    let context_word_count = context_text.split_whitespace().count();
-
-    RetrievedContextPack {
+    RetrievedContextPack::from_ranked_items(
         items,
-        context_text,
-        context_char_count,
-        context_word_count,
-        telemetry: RetrievalTelemetry::default(),
-    }
+        RetrievalTelemetry::default(),
+        ContextRenderer::PlainText,
+    )
 }
 
 fn insert_top_bm25(top: &mut Vec<Bm25Score>, score: Bm25Score, limit: usize) {
@@ -1275,24 +1593,24 @@ fn mock_plan_validations(plan: &PreparedWritePlan) -> Vec<CandidateValidationRes
         .map(|(candidate_index, candidate)| {
             let mut errors = Vec::new();
             if plan.input.content.trim().is_empty()
-                && matches!(candidate.kind.as_str(), "episode" | "observation")
+                && candidate.kind == MemoryCandidateKind::Episode
             {
-                errors.push("content must not be empty".to_string());
+                errors.push(CandidateValidationIssueRecord::EmptyEpisodeSummary);
             }
             if candidate
                 .external_id
                 .as_deref()
                 .is_some_and(|external_id| external_id.trim().is_empty())
             {
-                errors.push("external_id must not be empty".to_string());
+                errors.push(CandidateValidationIssueRecord::MissingCandidateId);
             }
             CandidateValidationResult {
                 candidate_index,
-                candidate_kind: candidate.kind.clone(),
+                candidate_kind: candidate.kind,
                 status: if errors.is_empty() {
-                    "valid".to_string()
+                    CandidateValidationStatus::Valid
                 } else {
-                    "invalid".to_string()
+                    CandidateValidationStatus::Invalid
                 },
                 errors,
                 warnings: Vec::new(),
@@ -1301,12 +1619,12 @@ fn mock_plan_validations(plan: &PreparedWritePlan) -> Vec<CandidateValidationRes
         .collect()
 }
 
-fn default_thread_status() -> String {
-    "active".to_string()
+fn default_thread_status() -> ThreadStatus {
+    ThreadStatus::Active
 }
 
-fn default_stability() -> String {
-    "medium".to_string()
+fn default_stability() -> Stability {
+    Stability::Medium
 }
 
 fn default_confidence() -> f32 {
@@ -1321,8 +1639,16 @@ fn default_true() -> bool {
     true
 }
 
-fn default_suppressed_retention_state() -> String {
-    "suppressed".to_string()
+fn default_suppressed_retention_state() -> RetentionState {
+    RetentionState::Suppressed
+}
+
+fn mock_object_ref(object_type: ObjectType, external_id: &str) -> ObjectRefRecord {
+    ObjectRefRecord {
+        object_type,
+        internal_id: format!("mock:{}:{external_id}", object_type.as_str()),
+        external_id: Some(external_id.to_string()),
+    }
 }
 
 fn score_text(query: &str, text: &str) -> f64 {
@@ -1349,6 +1675,30 @@ fn score_text(query: &str, text: &str) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn retrieve_input(
+        mode: RetrievalMode,
+        query: &str,
+        episode_limit: usize,
+        observation_limit: usize,
+        include_derived_memories: bool,
+    ) -> RetrieveInput {
+        let mut surface_policy = RetrievalSurfacePolicy::default();
+        surface_policy.sections.relevant_episodes = episode_limit;
+        surface_policy.sections.salient_observations = observation_limit;
+        if !include_derived_memories {
+            surface_policy
+                .object_types
+                .retain(|kind| *kind != ObjectType::DerivedMemory);
+        }
+        RetrieveInput {
+            mode,
+            namespace: "n".into(),
+            query: query.into(),
+            query_date: None,
+            surface_policy,
+        }
+    }
 
     #[test]
     fn graph_root_counters_default_to_none_for_legacy_telemetry() {
@@ -1439,23 +1789,18 @@ mod tests {
             .unwrap();
 
         let pack = adapter
-            .retrieve(RetrieveInput {
-                mode: RetrievalMode::Hybrid,
-                namespace: "n".into(),
-                query: "chat native first version".into(),
-                query_date: None,
-                top_k_episodes: 5,
-                top_k_observations: 5,
-                include_derived_memories: false,
-                include_threads: false,
-                include_entities: false,
-                include_debug_rationale: false,
-            })
+            .retrieve(retrieve_input(
+                RetrievalMode::Hybrid,
+                "chat native first version",
+                5,
+                5,
+                false,
+            ))
             .await
             .unwrap();
 
         assert!(pack.items.iter().any(|item| {
-            item.kind == "observation" && item.external_id.as_deref() == Some("s1:turn:1")
+            item.kind == ObjectType::Observation && item.external_id.as_deref() == Some("s1:turn:1")
         }));
     }
 
@@ -1510,29 +1855,22 @@ mod tests {
             .unwrap();
 
         let pack = adapter
-            .retrieve(RetrieveInput {
-                mode: RetrievalMode::Hybrid,
-                namespace: "n".into(),
-                query: "chat native first version".into(),
-                query_date: None,
-                top_k_episodes: 5,
-                top_k_observations: 5,
-                include_derived_memories: false,
-                include_threads: false,
-                include_entities: false,
-                include_debug_rationale: false,
-            })
+            .retrieve(retrieve_input(
+                RetrievalMode::Hybrid,
+                "chat native first version",
+                5,
+                5,
+                false,
+            ))
             .await
             .unwrap();
 
         assert!(pack.items.iter().any(|item| {
-            item.kind == "observation" && item.external_id.as_deref() == Some("s1:turn:1")
+            item.kind == ObjectType::Observation && item.external_id.as_deref() == Some("s1:turn:1")
         }));
-        assert!(
-            pack.items
-                .iter()
-                .any(|item| item.kind == "episode" && item.external_id.as_deref() == Some("s1"))
-        );
+        assert!(pack.items.iter().any(|item| {
+            item.kind == ObjectType::Episode && item.external_id.as_deref() == Some("s1")
+        }));
     }
 
     #[tokio::test]
@@ -1543,7 +1881,7 @@ mod tests {
                 namespace: "n".into(),
                 derived_memories: vec![DerivedMemoryInput {
                     external_id: "dm1".into(),
-                    derived_type: "reflection".into(),
+                    derived_type: DerivedType::Reflection,
                     text: "The user prefers chat native design.".into(),
                     source_episode_external_ids: vec!["s1".into()],
                     source_observation_external_ids: vec![],
@@ -1551,7 +1889,7 @@ mod tests {
                     entity_external_ids: vec![],
                     confidence: 1.0,
                     salience_score: 0.5,
-                    stability: "medium".into(),
+                    stability: Stability::Medium,
                     is_current: true,
                     supersedes_external_ids: vec![],
                     metadata: serde_json::json!({}),
@@ -1562,23 +1900,18 @@ mod tests {
             .unwrap();
 
         let pack = adapter
-            .retrieve(RetrieveInput {
-                mode: RetrievalMode::Hybrid,
-                namespace: "n".into(),
-                query: "chat native".into(),
-                query_date: None,
-                top_k_episodes: 5,
-                top_k_observations: 5,
-                include_derived_memories: true,
-                include_threads: false,
-                include_entities: false,
-                include_debug_rationale: false,
-            })
+            .retrieve(retrieve_input(
+                RetrievalMode::Hybrid,
+                "chat native",
+                5,
+                5,
+                true,
+            ))
             .await
             .unwrap();
 
         assert!(pack.items.iter().any(|item| {
-            item.kind == "derived_memory" && item.external_id.as_deref() == Some("dm1")
+            item.kind == ObjectType::DerivedMemory && item.external_id.as_deref() == Some("dm1")
         }));
     }
 
@@ -1633,29 +1966,24 @@ mod tests {
             .unwrap();
 
         let pack = adapter
-            .retrieve(RetrieveInput {
-                mode: RetrievalMode::Bm25Only,
-                namespace: "n".into(),
-                query: "chat native first version".into(),
-                query_date: None,
-                top_k_episodes: 1,
-                top_k_observations: 1,
-                include_derived_memories: false,
-                include_threads: false,
-                include_entities: false,
-                include_debug_rationale: false,
-            })
+            .retrieve(retrieve_input(
+                RetrievalMode::Bm25Only,
+                "chat native first version",
+                1,
+                1,
+                false,
+            ))
             .await
             .unwrap();
 
         assert_eq!(pack.items.len(), 2);
         assert!(pack.items.iter().any(|item| {
-            item.kind == "episode"
+            item.kind == ObjectType::Episode
                 && item.external_id.as_deref() == Some("s1")
                 && item.rationale == vec!["bm25_only"]
         }));
         assert!(pack.items.iter().any(|item| {
-            item.kind == "observation" && item.external_id.as_deref() == Some("s1:turn:1")
+            item.kind == ObjectType::Observation && item.external_id.as_deref() == Some("s1:turn:1")
         }));
     }
 
@@ -1667,7 +1995,7 @@ mod tests {
                 namespace: "n".into(),
                 derived_memories: vec![DerivedMemoryInput {
                     external_id: "dm1".into(),
-                    derived_type: "reflection".into(),
+                    derived_type: DerivedType::Reflection,
                     text: "The user prefers chat native design.".into(),
                     source_episode_external_ids: vec!["s1".into()],
                     source_observation_external_ids: vec![],
@@ -1675,7 +2003,7 @@ mod tests {
                     entity_external_ids: vec![],
                     confidence: 1.0,
                     salience_score: 0.5,
-                    stability: "medium".into(),
+                    stability: Stability::Medium,
                     is_current: true,
                     supersedes_external_ids: vec![],
                     metadata: serde_json::json!({}),
@@ -1686,18 +2014,13 @@ mod tests {
             .unwrap();
 
         let pack = adapter
-            .retrieve(RetrieveInput {
-                mode: RetrievalMode::Bm25Only,
-                namespace: "n".into(),
-                query: "chat native".into(),
-                query_date: None,
-                top_k_episodes: 5,
-                top_k_observations: 5,
-                include_derived_memories: true,
-                include_threads: false,
-                include_entities: false,
-                include_debug_rationale: false,
-            })
+            .retrieve(retrieve_input(
+                RetrievalMode::Bm25Only,
+                "chat native",
+                5,
+                5,
+                true,
+            ))
             .await
             .unwrap();
 
@@ -1721,18 +2044,13 @@ mod tests {
             .unwrap();
 
         let first = adapter
-            .retrieve(RetrieveInput {
-                mode: RetrievalMode::Bm25Only,
-                namespace: "n".into(),
-                query: "chat native".into(),
-                query_date: None,
-                top_k_episodes: 1,
-                top_k_observations: 1,
-                include_derived_memories: false,
-                include_threads: false,
-                include_entities: false,
-                include_debug_rationale: false,
-            })
+            .retrieve(retrieve_input(
+                RetrievalMode::Bm25Only,
+                "chat native",
+                1,
+                1,
+                false,
+            ))
             .await
             .unwrap();
         assert_eq!(first.items[0].external_id.as_deref(), Some("s1:turn:1"));
@@ -1751,18 +2069,13 @@ mod tests {
             .unwrap();
 
         let second = adapter
-            .retrieve(RetrieveInput {
-                mode: RetrievalMode::Bm25Only,
-                namespace: "n".into(),
-                query: "chat native".into(),
-                query_date: None,
-                top_k_episodes: 1,
-                top_k_observations: 1,
-                include_derived_memories: false,
-                include_threads: false,
-                include_entities: false,
-                include_debug_rationale: false,
-            })
+            .retrieve(retrieve_input(
+                RetrievalMode::Bm25Only,
+                "chat native",
+                1,
+                1,
+                false,
+            ))
             .await
             .unwrap();
 
@@ -1789,15 +2102,21 @@ mod tests {
         let second = adapter.prepare(input).await.unwrap();
         assert_eq!(first.operation_internal_id, second.operation_internal_id);
         assert_eq!(first.candidates, second.candidates);
-        assert_eq!(first.candidates[0].producer_kind, "deterministic_helper");
-        assert_eq!(first.candidates[0].rationale_origin, "unavailable");
+        assert_eq!(
+            first.candidates[0].producer_kind,
+            CandidateProducerKind::DeterministicHelper
+        );
+        assert_eq!(
+            first.candidates[0].rationale_origin,
+            RationaleOrigin::Unavailable
+        );
         assert!(adapter.state.lock().unwrap().get("n").is_none());
 
         let validations = adapter.validate_plan(&first).await.unwrap();
         assert!(
             validations
                 .iter()
-                .all(|validation| validation.status == "valid")
+                .all(|validation| validation.status == CandidateValidationStatus::Valid)
         );
         let outcome = adapter
             .commit(first, CommitWriteOptions::default())
@@ -1828,12 +2147,12 @@ mod tests {
                 link: MemoryLinkInput {
                     external_id: "link-1".into(),
                     from: MemoryEndpointInput {
-                        object_type: "episode".into(),
+                        object_type: ObjectType::Episode,
                         external_id: "s1".into(),
                     },
-                    relation: "derived_from".into(),
+                    relation: RelationType::DerivedFrom,
                     to: MemoryEndpointInput {
-                        object_type: "observation".into(),
+                        object_type: ObjectType::Observation,
                         external_id: "s1:turn:1".into(),
                     },
                     confidence: 1.0,
@@ -1843,8 +2162,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(outcome.external_id, "link-1");
-        assert_eq!(outcome.internal_id, "mock:memory_link:link-1");
+        assert_eq!(outcome.value.external_id, "link-1");
+        assert_eq!(outcome.value.internal_id, "mock:memory_link:link-1");
         assert_eq!(adapter.state.lock().unwrap()["n"].links.len(), 1);
     }
 
@@ -1898,7 +2217,7 @@ mod tests {
             .unwrap();
 
         assert!(outcome.mutated_object_refs.iter().any(|reference| {
-            reference.object_type == "derived_memory" && reference.external_id == "new"
+            reference.object_type == ObjectType::DerivedMemory && reference.external_id == "new"
         }));
         let state = adapter.state.lock().unwrap();
         let namespace = state.get("n").unwrap();
@@ -2003,14 +2322,14 @@ mod tests {
             .forget(ForgetMemoryInput {
                 namespace: "n".into(),
                 targets: vec![MemoryEndpointInput {
-                    object_type: "derived_memory".into(),
+                    object_type: ObjectType::DerivedMemory,
                     external_id: "dm1".into(),
                 }],
                 rationale: "No longer relevant.".into(),
                 suppression_policy: SuppressionPolicyInput::default(),
                 archive_policy: ArchivePolicyInput::default(),
                 cascade_policy: ForgetCascadePolicyInput::default(),
-                target_retention_state: "suppressed".into(),
+                target_retention_state: RetentionState::Suppressed,
                 target_thread_status: None,
                 include_trace: false,
             })
@@ -2062,11 +2381,11 @@ mod tests {
                 namespace: "n".into(),
                 targets: vec![
                     MemoryEndpointInput {
-                        object_type: "derived_memory".into(),
+                        object_type: ObjectType::DerivedMemory,
                         external_id: "dm1".into(),
                     },
                     MemoryEndpointInput {
-                        object_type: "unsupported".into(),
+                        object_type: ObjectType::MemoryLink,
                         external_id: "later".into(),
                     },
                 ],
@@ -2074,7 +2393,7 @@ mod tests {
                 suppression_policy: SuppressionPolicyInput::default(),
                 archive_policy: ArchivePolicyInput::default(),
                 cascade_policy: ForgetCascadePolicyInput::default(),
-                target_retention_state: "suppressed".into(),
+                target_retention_state: RetentionState::Suppressed,
                 target_thread_status: None,
                 include_trace: false,
             })
@@ -2102,7 +2421,7 @@ mod tests {
     ) -> DerivedMemoryInput {
         DerivedMemoryInput {
             external_id: external_id.into(),
-            derived_type: "reflection".into(),
+            derived_type: DerivedType::Reflection,
             text: text.into(),
             source_episode_external_ids: vec![episode_external_id.into()],
             source_observation_external_ids: Vec::new(),
@@ -2110,7 +2429,7 @@ mod tests {
             entity_external_ids: Vec::new(),
             confidence: 1.0,
             salience_score: 0.5,
-            stability: "medium".into(),
+            stability: Stability::Medium,
             is_current: true,
             supersedes_external_ids,
             metadata: serde_json::Value::Null,

@@ -1,14 +1,6 @@
+use crate::{DatasetId, DatasetKind, RetrievalSurfacePolicy};
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum DatasetKind {
-    LongMemEvalS,
-    LoCoMo,
-    Synthetic,
-    Continuity,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -30,7 +22,7 @@ pub enum RetrievalMode {
 #[serde(deny_unknown_fields)]
 pub struct BenchmarkRunConfig {
     pub run_id: String,
-    pub dataset: String,
+    pub dataset: DatasetId,
     #[serde(default)]
     pub backend: BackendConfig,
     #[serde(default)]
@@ -52,17 +44,6 @@ impl BenchmarkRunConfig {
 
     pub fn validate_for_dataset_kind(&self, dataset_kind: DatasetKind) -> Result<()> {
         self.validate()?;
-        if dataset_kind == DatasetKind::Continuity
-            && !matches!(
-                self.backend.embedding.provider.as_str(),
-                "controllable_similarity" | "frozen" | "mixed"
-            )
-        {
-            bail!(
-                "continuity dataset requires backend.embedding.provider to be controllable_similarity, frozen, or mixed; got {:?}",
-                self.backend.embedding.provider
-            );
-        }
         if dataset_kind == DatasetKind::Continuity {
             if self.backend.oxigraph_persistence_path.is_none() {
                 bail!(
@@ -127,7 +108,7 @@ impl BackendConfig {
         if self.embedding.vector_size == Some(0) {
             bail!("backend.embedding.vector_size must be greater than zero");
         }
-        if self.embedding.provider == "deterministic" {
+        if self.embedding.provider == EmbeddingProviderConfig::Deterministic {
             let configured_size = self.embedding.vector_size.unwrap_or(3072);
             let model_size = embedding_model_vector_size(&self.embedding.model)?;
             if configured_size != model_size {
@@ -432,7 +413,7 @@ impl CleanupConfig {
 #[serde(deny_unknown_fields)]
 pub struct EmbeddingConfig {
     #[serde(default = "default_embedding_provider")]
-    pub provider: String,
+    pub provider: EmbeddingProviderConfig,
     #[serde(default = "default_embedding_model")]
     pub model: String,
     #[serde(default)]
@@ -454,72 +435,49 @@ impl Default for EmbeddingConfig {
 
 impl EmbeddingConfig {
     pub fn uses_frozen_store(&self) -> bool {
-        matches!(self.provider.as_str(), "frozen" | "mixed")
+        self.provider == EmbeddingProviderConfig::Frozen
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EmbeddingProviderConfig {
+    Deterministic,
+    #[serde(rename = "openai")]
+    OpenAi,
+    ControllableSimilarity,
+    Frozen,
+}
+
+impl EmbeddingProviderConfig {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Deterministic => "deterministic",
+            Self::OpenAi => "openai",
+            Self::ControllableSimilarity => "controllable_similarity",
+            Self::Frozen => "frozen",
+        }
+    }
+}
+
+impl std::fmt::Display for EmbeddingProviderConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct RetrievalConfig {
     #[serde(default)]
     pub mode: RetrievalMode,
-    #[serde(default = "default_top_k_episodes")]
-    pub top_k_episodes: usize,
-    #[serde(default = "default_top_k_observations")]
-    pub top_k_observations: usize,
     #[serde(default)]
-    pub include_derived_memories: bool,
-    #[serde(default)]
-    pub include_threads: bool,
-    #[serde(default)]
-    pub include_entities: bool,
-    #[serde(default)]
-    pub include_debug_rationale: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_vector_candidates: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_graph_roots: Option<usize>,
-}
-
-impl Default for RetrievalConfig {
-    fn default() -> Self {
-        Self {
-            mode: RetrievalMode::default(),
-            top_k_episodes: default_top_k_episodes(),
-            top_k_observations: default_top_k_observations(),
-            include_derived_memories: false,
-            include_threads: false,
-            include_entities: false,
-            include_debug_rationale: false,
-            max_vector_candidates: None,
-            max_graph_roots: None,
-        }
-    }
+    pub surface_policy: RetrievalSurfacePolicy,
 }
 
 impl RetrievalConfig {
     pub fn validate(&self) -> Result<()> {
-        if self.top_k_episodes == 0 {
-            bail!("retrieval.top_k_episodes must be greater than zero");
-        }
-        if self.top_k_observations == 0 {
-            bail!("retrieval.top_k_observations must be greater than zero");
-        }
-        if self.max_vector_candidates == Some(0) {
-            bail!("retrieval.max_vector_candidates must be greater than zero when set");
-        }
-        if self.max_graph_roots == Some(0) {
-            bail!("retrieval.max_graph_roots must be greater than zero when set");
-        }
-        if let (Some(max_vector_candidates), Some(max_graph_roots)) =
-            (self.max_vector_candidates, self.max_graph_roots)
-            && max_graph_roots > max_vector_candidates
-        {
-            bail!(
-                "retrieval.max_graph_roots ({max_graph_roots}) must not exceed retrieval.max_vector_candidates ({max_vector_candidates})"
-            );
-        }
-        Ok(())
+        self.surface_policy.validate()
     }
 }
 
@@ -611,16 +569,8 @@ impl MetricsConfig {
     }
 }
 
-fn default_top_k_episodes() -> usize {
-    8
-}
-
-fn default_top_k_observations() -> usize {
-    16
-}
-
-fn default_embedding_provider() -> String {
-    "openai".to_string()
+fn default_embedding_provider() -> EmbeddingProviderConfig {
+    EmbeddingProviderConfig::OpenAi
 }
 
 fn default_embedding_model() -> String {
@@ -688,7 +638,14 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(config.backend.embedding.provider, "openai");
+        assert_eq!(
+            config.backend.embedding.provider,
+            EmbeddingProviderConfig::OpenAi
+        );
+        assert_eq!(
+            serde_json::to_value(config.backend.embedding.provider).unwrap(),
+            serde_json::json!("openai")
+        );
         assert_eq!(config.backend.embedding.model, "text-embedding-3-large");
     }
 
@@ -786,7 +743,7 @@ mod tests {
     }
 
     #[test]
-    fn continuity_dataset_requires_the_live_supported_embedding_provider_at_validation() {
+    fn continuity_dataset_accepts_supported_embedding_resource_kinds() {
         let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "continuity-run",
             "dataset": "continuity",
@@ -799,27 +756,22 @@ mod tests {
         }))
         .unwrap();
 
-        let error = config
+        config
             .validate_for_dataset_kind(DatasetKind::Continuity)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("continuity dataset"));
-        assert!(error.contains("openai"));
+            .unwrap();
 
         config.backend.embedding = EmbeddingConfig {
-            provider: "deterministic".into(),
+            provider: EmbeddingProviderConfig::Deterministic,
             model: "text-embedding-3-large".into(),
             vector_size: Some(3072),
             store_path: None,
         };
-        let error = config
+        config
             .validate_for_dataset_kind(DatasetKind::Continuity)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("deterministic"));
+            .unwrap();
 
         config.backend.embedding = EmbeddingConfig {
-            provider: "controllable_similarity".into(),
+            provider: EmbeddingProviderConfig::ControllableSimilarity,
             model: "fixture-declared".into(),
             vector_size: Some(8),
             store_path: None,
@@ -829,7 +781,7 @@ mod tests {
             .unwrap();
 
         config.backend.embedding = EmbeddingConfig {
-            provider: "frozen".into(),
+            provider: EmbeddingProviderConfig::Frozen,
             model: "text-embedding-3-large".into(),
             vector_size: Some(3072),
             store_path: Some("fixtures/embeddings/continuity.json".into()),
@@ -1132,22 +1084,43 @@ mod tests {
     }
 
     #[test]
-    fn parses_existing_retrieval_flags() {
+    fn parses_typed_retrieval_surface_policy() {
         let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
             "dataset": "synthetic",
             "retrieval": {
-                "include_threads": true,
-                "include_entities": true,
-                "include_debug_rationale": true
+                "surface_policy": {
+                    "sections": {
+                        "active_threads": 6,
+                        "relevant_episodes": 8,
+                        "salient_observations": 16,
+                        "derived_memories": 12,
+                        "preferences": 8,
+                        "relationship_notes": 8,
+                        "open_loops": 8,
+                        "commitments": 8,
+                        "character_signals": 8
+                    },
+                    "object_types": ["episode", "observation", "memory_thread", "entity"],
+                    "include_debug_rationale": true,
+                    "max_vector_candidates": null,
+                    "max_graph_roots": null
+                }
             }
         }))
         .unwrap();
 
         assert_eq!(config.retrieval.mode, RetrievalMode::Hybrid);
-        assert!(config.retrieval.include_threads);
-        assert!(config.retrieval.include_entities);
-        assert!(config.retrieval.include_debug_rationale);
+        assert_eq!(
+            config.retrieval.surface_policy.object_types,
+            vec![
+                crate::ObjectType::Episode,
+                crate::ObjectType::Observation,
+                crate::ObjectType::MemoryThread,
+                crate::ObjectType::Entity,
+            ]
+        );
+        assert!(config.retrieval.surface_policy.include_debug_rationale);
     }
 
     #[test]
@@ -1156,9 +1129,7 @@ mod tests {
             "run_id": "r",
             "dataset": "synthetic",
             "retrieval": {
-                "mode": "bm25_only",
-                "top_k_episodes": 3,
-                "top_k_observations": 7
+                "mode": "bm25_only"
             },
             "ingest": {
                 "index_observations": true,
@@ -1294,10 +1265,23 @@ mod tests {
             "run_id": "r",
             "dataset": "synthetic",
             "retrieval": {
-                "include_threads": true,
-                "include_entities": true,
-                "max_vector_candidates": 48,
-                "max_graph_roots": 48
+                "surface_policy": {
+                    "sections": {
+                        "active_threads": 6,
+                        "relevant_episodes": 8,
+                        "salient_observations": 16,
+                        "derived_memories": 12,
+                        "preferences": 8,
+                        "relationship_notes": 8,
+                        "open_loops": 8,
+                        "commitments": 8,
+                        "character_signals": 8
+                    },
+                    "object_types": ["episode", "observation", "memory_thread", "entity"],
+                    "include_debug_rationale": false,
+                    "max_vector_candidates": 48,
+                    "max_graph_roots": 48
+                }
             },
             "ingest": {
                 "index_observations": true,
@@ -1307,22 +1291,28 @@ mod tests {
         .unwrap();
 
         config.validate().unwrap();
-        assert_eq!(config.retrieval.max_vector_candidates, Some(48));
-        assert_eq!(config.retrieval.max_graph_roots, Some(48));
+        assert_eq!(
+            config.retrieval.surface_policy.max_vector_candidates,
+            Some(48)
+        );
+        assert_eq!(config.retrieval.surface_policy.max_graph_roots, Some(48));
     }
 
     #[test]
     fn rejects_graph_root_limit_above_vector_candidate_limit() {
         let mut retrieval = RetrievalConfig {
-            max_vector_candidates: Some(12),
-            max_graph_roots: Some(13),
+            surface_policy: RetrievalSurfacePolicy {
+                max_vector_candidates: Some(12),
+                max_graph_roots: Some(13),
+                ..RetrievalSurfacePolicy::default()
+            },
             ..RetrievalConfig::default()
         };
         let error = retrieval.validate().unwrap_err().to_string();
         assert!(error.contains("max_graph_roots (13)"), "{error}");
         assert!(error.contains("max_vector_candidates (12)"), "{error}");
 
-        retrieval.max_graph_roots = Some(0);
+        retrieval.surface_policy.max_graph_roots = Some(0);
         assert!(
             retrieval
                 .validate()

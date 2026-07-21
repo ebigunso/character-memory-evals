@@ -1,6 +1,95 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetricValue {
+    Number(serde_json::Number),
+    Unsupported,
+}
+
+impl Serialize for MetricValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Number(number) => number.serialize(serializer),
+            Self::Unsupported => serializer.serialize_none(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for MetricValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match Value::deserialize(deserializer)? {
+            Value::Number(number) => Ok(Self::Number(number)),
+            Value::Null => Ok(Self::Unsupported),
+            other => Err(D::Error::custom(format!(
+                "metric value must be a JSON number or null, got {other}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(transparent)]
+pub struct MetricsRecord(BTreeMap<String, MetricValue>);
+
+impl MetricsRecord {
+    pub fn new(values: BTreeMap<String, MetricValue>) -> Self {
+        Self(values)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &MetricValue)> {
+        self.0.iter()
+    }
+
+    pub fn get(&self, name: &str) -> Option<&MetricValue> {
+        self.0.get(name)
+    }
+
+    pub fn insert(&mut self, name: String, value: MetricValue) -> Option<MetricValue> {
+        self.0.insert(name, value)
+    }
+
+    pub fn to_json_map(&self) -> Map<String, Value> {
+        self.0
+            .iter()
+            .map(|(name, value)| {
+                let value = match value {
+                    MetricValue::Number(number) => Value::Number(number.clone()),
+                    MetricValue::Unsupported => Value::Null,
+                };
+                (name.clone(), value)
+            })
+            .collect()
+    }
+}
+
+impl TryFrom<Map<String, Value>> for MetricsRecord {
+    type Error = anyhow::Error;
+
+    fn try_from(values: Map<String, Value>) -> Result<Self, Self::Error> {
+        values
+            .into_iter()
+            .map(|(name, value)| {
+                let value = match value {
+                    Value::Number(number) => MetricValue::Number(number),
+                    Value::Null => MetricValue::Unsupported,
+                    other => {
+                        anyhow::bail!("metric {name:?} must be a JSON number or null, got {other}")
+                    }
+                };
+                Ok((name, value))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()
+            .map(Self)
+    }
+}
 
 const CORE_BASE_METRICS: &[&str] = &[
     "retrieved_context_tokens",
@@ -420,7 +509,9 @@ pub fn insert_integrity_metrics(out: &mut Map<String, Value>, retrieved: &[crate
         .count();
     let derived_without_provenance = retrieved
         .iter()
-        .filter(|item| item.kind == "derived_memory" && item.episode_external_id.is_none())
+        .filter(|item| {
+            item.kind == crate::ObjectType::DerivedMemory && item.episode_external_id.is_none()
+        })
         .count();
 
     out.insert(
@@ -433,7 +524,7 @@ pub fn insert_integrity_metrics(out: &mut Map<String, Value>, retrieved: &[crate
     );
     let derived_count = retrieved
         .iter()
-        .filter(|item| item.kind == "derived_memory")
+        .filter(|item| item.kind == crate::ObjectType::DerivedMemory)
         .count();
     let provenance_coverage = if derived_count == 0 {
         Some(1.0)
@@ -527,11 +618,13 @@ pub fn integrity_details(retrieved: &[crate::RetrievedItem]) -> crate::ResultInt
         .count();
     let derived_count = retrieved
         .iter()
-        .filter(|item| item.kind == "derived_memory")
+        .filter(|item| item.kind == crate::ObjectType::DerivedMemory)
         .count();
     let derived_without_provenance = retrieved
         .iter()
-        .filter(|item| item.kind == "derived_memory" && item.episode_external_id.is_none())
+        .filter(|item| {
+            item.kind == crate::ObjectType::DerivedMemory && item.episode_external_id.is_none()
+        })
         .count();
     crate::ResultIntegrityDetails {
         returned_items_without_external_id: without_external_id,
@@ -594,13 +687,13 @@ pub fn composition_metrics(retrieved: &[crate::RetrievedItem]) -> crate::ResultC
                 .any(|rationale| !rationale.trim().is_empty())
         })
         .count();
-    let entities = count_kind(retrieved, "entity");
+    let entities = count_kind(retrieved, crate::ObjectType::Entity);
     crate::ResultCompositionMetrics {
         total_items,
-        episodes: count_kind(retrieved, "episode"),
-        observations: count_kind(retrieved, "observation"),
-        derived_memories: count_kind(retrieved, "derived_memory"),
-        memory_threads: count_kind(retrieved, "memory_thread"),
+        episodes: count_kind(retrieved, crate::ObjectType::Episode),
+        observations: count_kind(retrieved, crate::ObjectType::Observation),
+        derived_memories: count_kind(retrieved, crate::ObjectType::DerivedMemory),
+        memory_threads: count_kind(retrieved, crate::ObjectType::MemoryThread),
         entities: (entities > 0).then_some(entities),
         items_with_rationale,
         rationale_coverage: if total_items == 0 {
@@ -611,7 +704,7 @@ pub fn composition_metrics(retrieved: &[crate::RetrievedItem]) -> crate::ResultC
     }
 }
 
-fn count_kind(retrieved: &[crate::RetrievedItem], kind: &str) -> usize {
+fn count_kind(retrieved: &[crate::RetrievedItem], kind: crate::ObjectType) -> usize {
     retrieved.iter().filter(|item| item.kind == kind).count()
 }
 
@@ -679,12 +772,47 @@ mod tests {
     }
 
     #[test]
+    fn metric_value_admits_only_numbers_or_null() {
+        assert!(matches!(
+            serde_json::from_value::<MetricValue>(serde_json::json!(1.25)).unwrap(),
+            MetricValue::Number(_)
+        ));
+        assert_eq!(
+            serde_json::from_value::<MetricValue>(serde_json::Value::Null).unwrap(),
+            MetricValue::Unsupported
+        );
+
+        for invalid in [
+            serde_json::json!(true),
+            serde_json::json!("1.0"),
+            serde_json::json!([1.0]),
+            serde_json::json!({"value": 1.0}),
+        ] {
+            let error = serde_json::from_value::<MetricValue>(invalid)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("JSON number or null"), "{error}");
+        }
+    }
+
+    #[test]
+    fn metrics_record_rejects_untyped_metric_values() {
+        let error = serde_json::from_value::<MetricsRecord>(serde_json::json!({
+            "recall_any@1": "1.0"
+        }))
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("JSON number or null"), "{error}");
+    }
+
+    #[test]
     fn inserts_integrity_metrics_with_nulls_for_unsupported_states() {
         let mut out = Map::new();
         insert_integrity_metrics(
             &mut out,
             &[crate::RetrievedItem {
-                kind: "observation".to_string(),
+                kind: crate::ObjectType::Observation,
                 internal_id: "i".to_string(),
                 external_id: None,
                 episode_external_id: Some("e".to_string()),
@@ -703,7 +831,7 @@ mod tests {
     fn telemetry_backed_integrity_metrics_are_numeric_when_trace_exists() {
         let retrieved = vec![
             crate::RetrievedItem {
-                kind: "observation".to_string(),
+                kind: crate::ObjectType::Observation,
                 internal_id: "o1".to_string(),
                 external_id: Some("o1".to_string()),
                 episode_external_id: Some("e1".to_string()),
@@ -713,7 +841,7 @@ mod tests {
                 text: None,
             },
             crate::RetrievedItem {
-                kind: "derived_memory".to_string(),
+                kind: crate::ObjectType::DerivedMemory,
                 internal_id: "d1".to_string(),
                 external_id: Some("d1".to_string()),
                 episode_external_id: Some("e1".to_string()),
@@ -751,7 +879,7 @@ mod tests {
     fn context_validation_rate_accounts_for_lifecycle_leakage() {
         let retrieved = vec![
             crate::RetrievedItem {
-                kind: "observation".to_string(),
+                kind: crate::ObjectType::Observation,
                 internal_id: "o1".to_string(),
                 external_id: Some("o1".to_string()),
                 episode_external_id: Some("e1".to_string()),
@@ -761,7 +889,7 @@ mod tests {
                 text: None,
             },
             crate::RetrievedItem {
-                kind: "observation".to_string(),
+                kind: crate::ObjectType::Observation,
                 internal_id: "o2".to_string(),
                 external_id: Some("o2".to_string()),
                 episode_external_id: Some("e1".to_string()),

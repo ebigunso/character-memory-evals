@@ -13,12 +13,21 @@ provider = "openai"
 model = "text-embedding-3-large"
 
 [retrieval]
-top_k_episodes = 5
-top_k_observations = 10
-include_derived_memories = true
-include_threads = false
-include_entities = false
+
+[retrieval.surface_policy]
+object_types = ["episode", "observation", "derived_memory"]
 include_debug_rationale = true
+
+[retrieval.surface_policy.sections]
+active_threads = 0
+relevant_episodes = 5
+salient_observations = 10
+derived_memories = 12
+preferences = 8
+relationship_notes = 8
+open_loops = 8
+commitments = 8
+character_signals = 8
 
 [ingest]
 index_observations = true

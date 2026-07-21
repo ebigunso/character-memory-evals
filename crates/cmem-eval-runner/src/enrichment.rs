@@ -226,6 +226,7 @@ pub fn empty_namespace(namespace: String) -> GraphEnrichmentInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmem_eval_core::{DerivedType, Stability};
 
     #[test]
     fn rejects_derived_memory_without_provenance() {
@@ -233,7 +234,7 @@ mod tests {
             namespace: "n".into(),
             derived_memories: vec![DerivedMemoryInput {
                 external_id: "dm1".into(),
-                derived_type: "reflection".into(),
+                derived_type: DerivedType::Reflection,
                 text: "A memory".into(),
                 source_episode_external_ids: vec![],
                 source_observation_external_ids: vec![],
@@ -241,7 +242,7 @@ mod tests {
                 entity_external_ids: vec![],
                 confidence: 1.0,
                 salience_score: 0.5,
-                stability: "medium".into(),
+                stability: Stability::Medium,
                 is_current: true,
                 supersedes_external_ids: vec![],
                 metadata: serde_json::json!({}),

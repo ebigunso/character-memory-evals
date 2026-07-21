@@ -1,5 +1,5 @@
 use crate::{LoCoMoMemoryInputs, LoCoMoSample};
-use cmem_eval_core::{DerivedMemoryInput, EpisodeInput, ObservationInput};
+use cmem_eval_core::{DerivedMemoryInput, DerivedType, EpisodeInput, ObservationInput, Stability};
 
 pub fn to_memory_inputs(
     sample: &LoCoMoSample,
@@ -70,7 +70,7 @@ pub fn to_memory_inputs(
         {
             derived_memories.push(DerivedMemoryInput {
                 external_id: format!("{}:derived:session_summary", session.session_id),
-                derived_type: "reflection".to_string(),
+                derived_type: DerivedType::Reflection,
                 text: summary.to_string(),
                 source_episode_external_ids: vec![session.session_id.clone()],
                 source_observation_external_ids: vec![],
@@ -78,7 +78,7 @@ pub fn to_memory_inputs(
                 entity_external_ids: vec![],
                 confidence: 1.0,
                 salience_score: 0.6,
-                stability: "medium".to_string(),
+                stability: Stability::Medium,
                 is_current: true,
                 supersedes_external_ids: vec![],
                 metadata: serde_json::json!({
@@ -99,7 +99,7 @@ pub fn to_memory_inputs(
                         session.session_id,
                         idx + 1
                     ),
-                    derived_type: "claim".to_string(),
+                    derived_type: DerivedType::Claim,
                     text: observation.to_string(),
                     source_episode_external_ids: vec![session.session_id.clone()],
                     source_observation_external_ids: vec![],
@@ -107,7 +107,7 @@ pub fn to_memory_inputs(
                     entity_external_ids: vec![],
                     confidence: 1.0,
                     salience_score: 0.6,
-                    stability: "medium".to_string(),
+                    stability: Stability::Medium,
                     is_current: true,
                     supersedes_external_ids: vec![],
                     metadata: serde_json::json!({
