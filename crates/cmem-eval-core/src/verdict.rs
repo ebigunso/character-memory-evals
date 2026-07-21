@@ -270,14 +270,16 @@ snake_case_enum!(CandidateReferenceRole {
 });
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
 pub struct ObjectRefRecord {
     pub object_type: ObjectType,
     pub internal_id: String,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub external_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CandidateValidationIssueRecord {
     MissingPlanIdentity {
         field: PlanIdentityField,
@@ -331,6 +333,7 @@ pub enum CandidateValidationIssueRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct CandidateValidationRecord {
     pub candidate_index: usize,
     pub candidate_kind: MemoryCandidateKind,
@@ -340,13 +343,14 @@ pub struct CandidateValidationRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct CandidateCountRecord {
     pub candidate_kind: MemoryCandidateKind,
     pub count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum VectorDatabaseErrorKind {
     Response,
     ResourceExhausted,
@@ -363,7 +367,12 @@ pub enum VectorDatabaseErrorKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[serde(
+    tag = "kind",
+    content = "value",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 pub enum IoErrorKindRecord {
     NotFound,
     PermissionDenied,
@@ -408,7 +417,12 @@ pub enum IoErrorKindRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[serde(
+    tag = "kind",
+    content = "value",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 pub enum TransportStatus {
     Ok,
     Cancelled,
@@ -431,11 +445,14 @@ pub enum TransportStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct VectorDatabaseErrorRecord {
     pub backend: String,
     pub kind: VectorDatabaseErrorKind,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub status: Option<TransportStatus>,
     pub message: String,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub retry_after_seconds: Option<u64>,
 }
 
@@ -448,7 +465,7 @@ snake_case_enum!(EmbeddingTransportErrorKind {
 });
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EmbeddingErrorRecord {
     MissingApiKey,
     ProviderVectorSizeMismatch {
@@ -456,6 +473,7 @@ pub enum EmbeddingErrorRecord {
         actual: usize,
     },
     BlankInput {
+        #[serde(deserialize_with = "crate::serde_contract::required_option")]
         index: Option<usize>,
     },
     Transport {
@@ -505,7 +523,12 @@ pub enum EmbeddingErrorRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "cause", content = "detail", rename_all = "snake_case")]
+#[serde(
+    tag = "cause",
+    content = "detail",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 pub enum VectorIndexingCauseRecord {
     Embedding(EmbeddingErrorRecord),
     CardinalityMismatch { expected: usize, actual: usize },
@@ -531,6 +554,7 @@ pub enum StatsUpdateCauseRecord {
         error: RetrievalStatsStoreErrorRecord,
     },
     StoreUnhealthy {
+        #[serde(deserialize_with = "crate::serde_contract::required_option")]
         health_cause: Option<RetrievalStatsHealthCauseRecord>,
     },
 }
@@ -588,7 +612,7 @@ pub enum RetrievalStatsHealthCauseRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RepairMarkerRecord {
     VectorIndex {
         unindexed_objects: Vec<ObjectRefRecord>,
@@ -601,20 +625,24 @@ pub enum RepairMarkerRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct VectorIndexingFailureRecord {
     pub unindexed_objects: Vec<ObjectRefRecord>,
     pub cause: VectorIndexingCauseRecord,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct StatsUpdateFailureRecord {
     pub failed_object_internal_ids: Vec<String>,
     pub causes: Vec<StatsUpdateCauseRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct StatsUpdateStatusRecord {
     pub updated_object_internal_ids: Vec<String>,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub failure: Option<StatsUpdateFailureRecord>,
 }
 
@@ -626,6 +654,7 @@ pub enum WriteOperationKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct WriteOutcomeRecord {
     pub operation_id: String,
     pub operation: WriteOperationKind,
@@ -634,6 +663,7 @@ pub struct WriteOutcomeRecord {
     pub vector_indexed_objects: Vec<ObjectRefRecord>,
     pub validations: Vec<CandidateValidationRecord>,
     pub candidate_counts: Vec<CandidateCountRecord>,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub vector_indexing_failure: Option<VectorIndexingFailureRecord>,
     pub stats_update_status: StatsUpdateStatusRecord,
     pub repair_needed: Vec<RepairMarkerRecord>,
@@ -657,6 +687,7 @@ impl WriteOutcomeRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct WriteResult<T> {
     pub value: T,
     pub outcome: WriteOutcomeRecord,
@@ -677,6 +708,7 @@ pub enum VectorMaintenanceOperation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct VectorMaintenanceFailureItemRecord {
     pub operation: VectorMaintenanceOperation,
     pub objects: Vec<ObjectRefRecord>,
@@ -684,6 +716,7 @@ pub struct VectorMaintenanceFailureItemRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct SupersessionRecord {
     pub superseded_internal_id: String,
     pub superseded_by_internal_id: String,
@@ -696,12 +729,14 @@ pub enum LifecycleWarningReason {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct LifecycleWarningRecord {
     pub reason: LifecycleWarningReason,
     pub affected_internal_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct LifecycleOutcomeRecord {
     pub operation_id: String,
     pub operation: LifecycleOperationKind,
@@ -731,6 +766,7 @@ impl LifecycleOutcomeRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct DegradationSummary {
     pub degraded_write_count: usize,
     pub lifecycle_maintenance_failure_count: usize,

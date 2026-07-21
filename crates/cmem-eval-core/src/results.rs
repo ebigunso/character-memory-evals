@@ -24,6 +24,7 @@ pub struct PerQuestionResult {
     pub embedding_binding: EmbeddingBindingRecord,
     pub adapter: RunAdapterMetadata,
     pub question_id: String,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub question_type: Option<String>,
     pub question: String,
     pub gold_episode_ids: Vec<String>,
@@ -51,7 +52,7 @@ pub struct LegacyPerQuestionResultV1 {
     pub run_id: String,
     pub dataset: String,
     #[serde(default)]
-    pub adapter: RunAdapterMetadata,
+    pub adapter: Value,
     pub question_id: String,
     pub question_type: Option<String>,
     pub question: String,
@@ -63,15 +64,15 @@ pub struct LegacyPerQuestionResultV1 {
     pub context_char_count: usize,
     pub context_word_count: usize,
     #[serde(default)]
-    pub context: ResultContextMetrics,
+    pub context: Value,
     #[serde(default)]
     pub telemetry: Value,
     #[serde(default)]
-    pub composition: ResultCompositionMetrics,
+    pub composition: Value,
     #[serde(default)]
-    pub integrity: ResultIntegrityDetails,
+    pub integrity: Value,
     #[serde(default)]
-    pub reader: ReaderResult,
+    pub reader: Value,
 }
 
 /// The sealed 1.0.0 row vocabulary is deliberately kept stringly typed. It
@@ -180,82 +181,76 @@ impl std::fmt::Display for SummaryInvariantError {
 impl std::error::Error for SummaryInvariantError {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ResultContextMetrics {
-    #[serde(default)]
     pub retrieved_context_chars: usize,
-    #[serde(default)]
     pub retrieved_context_words: usize,
-    #[serde(default)]
     pub retrieved_context_tokens: usize,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub full_history_chars: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub full_history_words: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub full_history_tokens: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub compression_ratio: Option<f64>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub reduction_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ResultCompositionMetrics {
-    #[serde(default)]
     pub total_items: usize,
-    #[serde(default)]
     pub episodes: usize,
-    #[serde(default)]
     pub observations: usize,
-    #[serde(default)]
     pub derived_memories: usize,
-    #[serde(default)]
     pub memory_threads: usize,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub entities: Option<usize>,
-    #[serde(default)]
     pub items_with_rationale: usize,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub rationale_coverage: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ResultIntegrityDetails {
-    #[serde(default)]
     pub returned_items_without_external_id: usize,
-    #[serde(default)]
     pub returned_derived_memories_without_provenance: usize,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub suppressed_or_deleted_returned_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub superseded_current_returned_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub provenance_coverage: Option<f64>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub context_validation_pass_rate: Option<f64>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub suppressed_memory_leakage_rate: Option<f64>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub orphan_vector_leakage_rate: Option<f64>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub superseded_current_leakage_rate: Option<f64>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub cross_store_id_validation_pass_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ReaderResult {
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub model: Option<String>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub answer: Option<String>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub qa_score: Option<f64>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub qa_metric_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct RunAdapterMetadata {
     pub adapter: String,
     pub mode: String,
@@ -529,7 +524,7 @@ mod tests {
         let row = LegacyPerQuestionResultV1 {
             run_id: "legacy-run".into(),
             dataset: "locomo".into(),
-            adapter: RunAdapterMetadata::default(),
+            adapter: serde_json::json!({}),
             question_id: "q1".into(),
             question_type: None,
             question: "question".into(),
@@ -561,11 +556,11 @@ mod tests {
             latency_ms: 0,
             context_char_count: 0,
             context_word_count: 0,
-            context: ResultContextMetrics::default(),
+            context: serde_json::json!({}),
             telemetry: serde_json::json!({}),
-            composition: ResultCompositionMetrics::default(),
-            integrity: ResultIntegrityDetails::default(),
-            reader: ReaderResult::default(),
+            composition: serde_json::json!({}),
+            integrity: serde_json::json!({}),
+            reader: serde_json::json!({}),
         };
 
         assert_eq!(
@@ -884,9 +879,52 @@ mod tests {
         let error = format!("{:#}", read_jsonl(&path).unwrap_err());
         assert!(error.contains("missing field `context`"), "{error}");
 
+        let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
+        current["context"]["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
+        current["context"]
+            .as_object_mut()
+            .unwrap()
+            .remove("retrieved_context_chars");
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
+        assert!(
+            error.contains("missing field `retrieved_context_chars`"),
+            "{error}"
+        );
+
+        let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
+        current["context"]
+            .as_object_mut()
+            .unwrap()
+            .remove("full_history_chars");
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
+        assert!(
+            error.contains("missing field `full_history_chars`"),
+            "{error}"
+        );
+
         let mut legacy = versioned_row_value(&row(serde_json::json!({}))).unwrap();
         legacy["schema_version"] = Value::String(LEGACY_RESULT_SCHEMA_VERSION.into());
         legacy["sealed_legacy_extra"] = Value::Bool(true);
+        legacy["context"]["sealed_legacy_nested_extra"] = Value::Bool(true);
         std::fs::write(
             &path,
             format!("{}\n", serde_json::to_string(&legacy).unwrap()),

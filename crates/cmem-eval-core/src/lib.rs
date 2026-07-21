@@ -7,6 +7,7 @@ pub mod memory_adapter;
 pub mod metrics;
 pub mod results;
 pub mod runtime;
+pub mod serde_contract;
 pub mod timing;
 pub mod token_count;
 pub mod verdict;

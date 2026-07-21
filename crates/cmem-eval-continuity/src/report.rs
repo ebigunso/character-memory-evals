@@ -109,7 +109,9 @@ pub struct RationaleSampleItem {
 #[serde(deny_unknown_fields)]
 pub struct QueryFanoutDecisions {
     pub query_id: String,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub utilization: Option<Vec<RetrievalFanoutUtilization>>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub selectivity: Option<Vec<RetrievalSelectivityDecision>>,
 }
 
@@ -118,8 +120,11 @@ pub struct QueryFanoutDecisions {
 pub struct StatsHealthEvent {
     pub query_id: String,
     pub status: String,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub decision_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub scored_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub fallback_count: Option<usize>,
 }
 
@@ -828,7 +833,24 @@ mod tests {
                     metric_support: serde_json::json!({}),
                     registry_coverage: serde_json::json!({}),
                 },
-                scenarios: BTreeMap::new(),
+                scenarios: BTreeMap::from([(
+                    "shape-drift".to_string(),
+                    ScenarioContinuityReport {
+                        pattern: "shape-drift".to_string(),
+                        query_count: 0,
+                        metrics: serde_json::json!({}),
+                        metric_support: serde_json::json!({}),
+                        registry_coverage: serde_json::json!({}),
+                        rationale_samples: Vec::new(),
+                        fanout_decisions: vec![QueryFanoutDecisions {
+                            query_id: "q".to_string(),
+                            utilization: None,
+                            selectivity: None,
+                        }],
+                        stats_health_events: Vec::new(),
+                        restart_observations: Vec::new(),
+                    },
+                )]),
                 tuning_observations: Vec::new(),
             },
         };
@@ -838,6 +860,21 @@ mod tests {
         std::fs::write(&path, serde_json::to_vec(&drifted).unwrap()).unwrap();
         let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
         assert!(error.contains("unknown field"), "{error}");
+
+        let mut shared_nested_drift = serde_json::to_value(&report).unwrap();
+        shared_nested_drift["metadata"]["degradation"]["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&shared_nested_drift).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut nullable_omission = serde_json::to_value(&report).unwrap();
+        nullable_omission["content"]["scenarios"]["shape-drift"]["fanout_decisions"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("utilization");
+        std::fs::write(&path, serde_json::to_vec(&nullable_omission).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("missing field `utilization`"), "{error}");
 
         let mut nested_drift = serde_json::to_value(&report).unwrap();
         nested_drift["metadata"]["normalization"]["unexpected_v2_field"] = Value::Bool(true);

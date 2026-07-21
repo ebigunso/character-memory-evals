@@ -51,12 +51,12 @@ pub struct LegacyContinuityQueryTraceV1 {
     pub schema_version: String,
     pub fixture_id: String,
     pub namespace: String,
-    pub pattern: ScenarioPattern,
+    pub pattern: Value,
     pub event_id: String,
     pub query_id: String,
     pub timestamp: chrono::DateTime<Utc>,
     pub query: String,
-    pub expected: ExpectedRelevance,
+    pub expected: Value,
     pub history_text: String,
     pub retrieval: Value,
 }
@@ -76,34 +76,51 @@ pub struct ContinuityScenarioRun {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RestartProbeSnapshot {
     pub returned_object_ids: Vec<String>,
     pub relevant_returned_count: usize,
     pub expected_relevant_count: usize,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub recall: Option<f64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub graph_relation_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub graph_verified_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub fanout_decision_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub selectivity_decision_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub scored_selectivity_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub fallback_selectivity_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RestartProbeDelta {
     pub returned_object_count: i64,
     pub relevant_returned_count: i64,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub recall: Option<f64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub graph_relation_count: Option<i64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub graph_verified_count: Option<i64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub fanout_decision_count: Option<i64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub selectivity_decision_count: Option<i64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub scored_selectivity_count: Option<i64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub fallback_selectivity_count: Option<i64>,
     pub stable_returned_objects: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RestartObservation {
     pub event_id: String,
     pub timestamp: chrono::DateTime<Utc>,
@@ -1608,6 +1625,32 @@ mod tests {
         let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
         assert!(error.contains("unknown field"), "{error}");
 
+        let mut current = serde_json::to_value(&traces[0]).unwrap();
+        current["retrieval"]["telemetry"]["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut current = serde_json::to_value(&traces[0]).unwrap();
+        current["retrieval"]["telemetry"]
+            .as_object_mut()
+            .unwrap()
+            .remove("vector_candidate_count");
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+        assert!(
+            error.contains("missing field `vector_candidate_count`"),
+            "{error}"
+        );
+
         let mut legacy = serde_json::to_value(&traces[0]).unwrap();
         let object = legacy.as_object_mut().unwrap();
         object.insert(
@@ -1617,6 +1660,7 @@ mod tests {
         object.insert("sealed_legacy_extra".to_string(), Value::Bool(true));
         object.remove("write_outcomes");
         object.remove("lifecycle_outcomes");
+        legacy["retrieval"]["sealed_legacy_nested_extra"] = Value::Bool(true);
         std::fs::write(
             &path,
             format!("{}\n", serde_json::to_string(&legacy).unwrap()),

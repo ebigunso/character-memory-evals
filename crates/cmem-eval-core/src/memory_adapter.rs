@@ -144,24 +144,29 @@ pub struct RetrieveInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RetrievedItem {
     pub kind: ObjectType,
     pub internal_id: String,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub external_id: Option<String>,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub episode_external_id: Option<String>,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub score: Option<f64>,
     pub rank: usize,
     pub rationale: Vec<String>,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RetrievedContextPack {
     items: Vec<RetrievedItem>,
     context_text: String,
     context_char_count: usize,
     context_word_count: usize,
-    #[serde(default)]
     telemetry: RetrievalTelemetry,
 }
 
@@ -230,94 +235,93 @@ impl RetrievedContextPack {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RetrievalTelemetry {
-    #[serde(default)]
     pub trace_available: bool,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub vector_candidate_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub configured_candidate_limits: Option<ConfiguredCandidateLimits>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub configured_graph_limits: Option<ConfiguredGraphLimits>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub configured_section_limits: Option<RetrievalSectionBudgets>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub configured_object_types: Option<Vec<ObjectType>>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub configured_lifecycle_policy: Option<ConfiguredLifecyclePolicy>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub query_embedding_dimension: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub returned_vector_candidate_count: Option<usize>,
-    // Compatibility Policy sealed-artifact exemption: register-cited evidence predates
-    // these counters and must remain readable.
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub unique_graph_root_candidate_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub selected_graph_root_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub graph_root_omission_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub graph_relation_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub graph_expansion: Option<GraphExpansionSummary>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub selectivity_summary: Option<SelectivitySummary>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub section_pressure: Option<Vec<SectionPressureSummary>>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub graph_verified_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub stale_candidate_omission_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub lifecycle_omission_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub lifecycle_filter_decision_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub suppressed_or_deleted_returned_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub superseded_current_returned_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub unsafe_lifecycle_returned_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub graph_object_missing_omitted_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub graph_object_missing_returned_count: Option<usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub section_assignment_count: Option<usize>,
-    #[serde(default)]
     pub section_assignment_counts: BTreeMap<ContextPackSection, usize>,
-    #[serde(default)]
     pub stale_candidate_omission_reasons: BTreeMap<StaleCandidateReason, usize>,
-    #[serde(default)]
     pub lifecycle_omission_reasons: BTreeMap<LifecycleFilterReason, usize>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub fanout_utilization: Option<Vec<RetrievalFanoutUtilization>>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub selectivity_decisions: Option<Vec<RetrievalSelectivityDecision>>,
-    #[serde(default)]
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub rationale_categories_by_internal_id:
         Option<BTreeMap<String, Vec<RetrievalRationaleCategory>>>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ConfiguredCandidateLimits {
     pub max_vector_candidates: usize,
     pub max_graph_roots: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ConfiguredGraphLimits {
     pub max_depth: u8,
     pub max_nodes: usize,
     pub max_fanout_per_node: usize,
     pub max_hub_edges: usize,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub timeout_ms: Option<u64>,
     pub failure_mode: GraphFailureMode,
     pub allowed_relation_types: Vec<RelationType>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ConfiguredLifecyclePolicy {
     pub include_archived: bool,
     pub include_suppressed: bool,
@@ -327,6 +331,7 @@ pub struct ConfiguredLifecyclePolicy {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct GraphExpansionSummary {
     pub attempted_root_count: usize,
     pub expanded_root_count: usize,
@@ -339,6 +344,7 @@ pub struct GraphExpansionSummary {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SelectivitySummary {
     pub decision_count: usize,
     pub high_selectivity_count: usize,
@@ -348,6 +354,7 @@ pub struct SelectivitySummary {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct SectionPressureSummary {
     pub section: ContextPackSection,
     pub limit: usize,
@@ -356,9 +363,11 @@ pub struct SectionPressureSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct RetrievalFanoutUtilization {
     pub root_internal_id: String,
     pub root_object_type: ObjectType,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub root_external_id: Option<String>,
     pub relation: RelationType,
     pub object_type: ObjectType,
@@ -369,15 +378,20 @@ pub struct RetrievalFanoutUtilization {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RetrievalSelectivityDecision {
     pub root_internal_id: String,
     pub root_object_type: ObjectType,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub root_external_id: Option<String>,
     pub relation: RelationType,
     pub object_type: ObjectType,
     pub count_scope: SelectivityCountScope,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub score: Option<f64>,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub entity_count: Option<u64>,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub global_count: Option<u64>,
     pub support_factor: f64,
     pub chosen_fanout: usize,
@@ -691,6 +705,7 @@ impl CommitWriteResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct NamespaceLifecycleResult {
     pub namespace: String,
     pub restored_identity_count: usize,
@@ -1352,57 +1367,57 @@ impl MemoryAdapter for MockMemoryAdapter {
         };
 
         let mut items = Vec::new();
-        let mut episodes = ns.episodes.clone();
-        episodes.sort_by(|a, b| {
-            score_text(&input.query, &b.summary)
-                .partial_cmp(&score_text(&input.query, &a.summary))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        for episode in episodes
-            .into_iter()
-            .take(input.surface_policy.sections.relevant_episodes)
-        {
-            let score = score_text(&input.query, &episode.summary);
-            items.push(RetrievedItem {
-                kind: ObjectType::Episode,
-                internal_id: format!("mock:episode:{}", episode.external_id),
-                external_id: Some(episode.external_id),
-                episode_external_id: None,
-                score: Some(score),
-                rank: 0,
-                rationale: vec!["mock_lexical_overlap".to_string()],
-                text: Some(episode.summary),
+        if selects_object_type(&input, ObjectType::Episode) {
+            let mut episodes = ns.episodes.clone();
+            episodes.sort_by(|a, b| {
+                score_text(&input.query, &b.summary)
+                    .partial_cmp(&score_text(&input.query, &a.summary))
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
+            for episode in episodes
+                .into_iter()
+                .take(input.surface_policy.sections.relevant_episodes)
+            {
+                let score = score_text(&input.query, &episode.summary);
+                items.push(RetrievedItem {
+                    kind: ObjectType::Episode,
+                    internal_id: format!("mock:episode:{}", episode.external_id),
+                    external_id: Some(episode.external_id),
+                    episode_external_id: None,
+                    score: Some(score),
+                    rank: 0,
+                    rationale: vec!["mock_lexical_overlap".to_string()],
+                    text: Some(episode.summary),
+                });
+            }
         }
 
-        let mut observations = ns.observations.clone();
-        observations.sort_by(|a, b| {
-            score_text(&input.query, &b.text)
-                .partial_cmp(&score_text(&input.query, &a.text))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        for observation in observations
-            .into_iter()
-            .take(input.surface_policy.sections.salient_observations)
-        {
-            let score = score_text(&input.query, &observation.text);
-            items.push(RetrievedItem {
-                kind: ObjectType::Observation,
-                internal_id: format!("mock:observation:{}", observation.external_id),
-                external_id: Some(observation.external_id),
-                episode_external_id: Some(observation.episode_external_id),
-                score: Some(score),
-                rank: 0,
-                rationale: vec!["mock_lexical_overlap".to_string()],
-                text: Some(observation.text),
+        if selects_object_type(&input, ObjectType::Observation) {
+            let mut observations = ns.observations.clone();
+            observations.sort_by(|a, b| {
+                score_text(&input.query, &b.text)
+                    .partial_cmp(&score_text(&input.query, &a.text))
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
+            for observation in observations
+                .into_iter()
+                .take(input.surface_policy.sections.salient_observations)
+            {
+                let score = score_text(&input.query, &observation.text);
+                items.push(RetrievedItem {
+                    kind: ObjectType::Observation,
+                    internal_id: format!("mock:observation:{}", observation.external_id),
+                    external_id: Some(observation.external_id),
+                    episode_external_id: Some(observation.episode_external_id),
+                    score: Some(score),
+                    rank: 0,
+                    rationale: vec!["mock_lexical_overlap".to_string()],
+                    text: Some(observation.text),
+                });
+            }
         }
 
-        if input
-            .surface_policy
-            .object_types
-            .contains(&ObjectType::DerivedMemory)
-        {
+        if selects_object_type(&input, ObjectType::DerivedMemory) {
             let mut derived_memories = ns
                 .derived_memories
                 .iter()
@@ -1503,6 +1518,9 @@ fn retrieve_bm25(index: &Bm25NamespaceIndex, input: &RetrieveInput) -> Retrieved
         let Some(document) = index.documents.get(&score.id) else {
             continue;
         };
+        if !selects_object_type(input, document.kind) {
+            continue;
+        }
         match document.kind {
             ObjectType::Episode => insert_top_bm25(
                 &mut top_episodes,
@@ -1552,6 +1570,10 @@ fn retrieve_bm25(index: &Bm25NamespaceIndex, input: &RetrieveInput) -> Retrieved
         RetrievalTelemetry::default(),
         ContextRenderer::PlainText,
     )
+}
+
+fn selects_object_type(input: &RetrieveInput, object_type: ObjectType) -> bool {
+    input.surface_policy.object_types.contains(&object_type)
 }
 
 fn insert_top_bm25(top: &mut Vec<Bm25Score>, score: Bm25Score, limit: usize) {
@@ -1698,15 +1720,8 @@ mod tests {
     }
 
     #[test]
-    fn graph_root_counters_default_to_none_for_legacy_telemetry() {
-        let telemetry: RetrievalTelemetry =
-            serde_json::from_value(serde_json::json!({ "trace_available": true })).unwrap();
-
-        assert_eq!(telemetry.unique_graph_root_candidate_count, None);
-        assert_eq!(telemetry.selected_graph_root_count, None);
-        assert_eq!(telemetry.graph_root_omission_count, None);
-
-        let encoded = serde_json::to_value(telemetry).unwrap();
+    fn telemetry_v2_round_trip_keeps_explicit_null_graph_root_counters() {
+        let encoded = serde_json::to_value(RetrievalTelemetry::default()).unwrap();
         assert_eq!(
             encoded["unique_graph_root_candidate_count"],
             serde_json::Value::Null
@@ -1719,6 +1734,10 @@ mod tests {
             encoded["graph_root_omission_count"],
             serde_json::Value::Null
         );
+        let telemetry: RetrievalTelemetry = serde_json::from_value(encoded).unwrap();
+        assert_eq!(telemetry.unique_graph_root_candidate_count, None);
+        assert_eq!(telemetry.selected_graph_root_count, None);
+        assert_eq!(telemetry.graph_root_omission_count, None);
     }
 
     #[tokio::test]
@@ -1982,6 +2001,50 @@ mod tests {
         assert!(pack.items.iter().any(|item| {
             item.kind == ObjectType::Observation && item.external_id.as_deref() == Some("s1:turn:1")
         }));
+    }
+
+    #[tokio::test]
+    async fn mock_adapter_honors_object_type_selection_for_hybrid_and_bm25() {
+        let adapter = MockMemoryAdapter::default();
+        adapter
+            .remember_episode(EpisodeInput {
+                external_id: "episode-1".into(),
+                namespace: "n".into(),
+                summary: "Shared selector contract".into(),
+                started_at: None,
+                ended_at: None,
+                participants: vec!["user".into()],
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .unwrap();
+        adapter
+            .remember_observation(ObservationInput {
+                external_id: "observation-1".into(),
+                episode_external_id: "episode-1".into(),
+                namespace: "n".into(),
+                speaker: Some("user".into()),
+                text: "Shared selector contract".into(),
+                observed_at: None,
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .unwrap();
+
+        for mode in [RetrievalMode::Hybrid, RetrievalMode::Bm25Only] {
+            for selected in [ObjectType::Episode, ObjectType::Observation] {
+                let mut input = retrieve_input(mode, "shared selector contract", 5, 5, false);
+                input.surface_policy.object_types = vec![selected];
+                let pack = adapter.retrieve(input).await.unwrap();
+
+                assert!(!pack.items.is_empty(), "mode={mode:?} selected={selected}");
+                assert!(
+                    pack.items.iter().all(|item| item.kind == selected),
+                    "mode={mode:?} selected={selected} items={:?}",
+                    pack.items
+                );
+            }
+        }
     }
 
     #[tokio::test]
