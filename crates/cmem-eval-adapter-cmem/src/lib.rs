@@ -4918,9 +4918,9 @@ mod tests {
         CURRENT_SCHEMA_VERSION, ContextPackSection, ContinuityContextPack, Episode,
         FanoutUtilizationTrace, LifecycleFilterDecision, MemoryObjectRef, Modality,
         RationaleCategory, RetrievalRationale, RetrievalTrace, RetrieveOutcome, SectionAssignment,
-        SectionAssignmentReason, SectionScoreComponents, SelectivityCountScope,
-        SelectivityDecision, SelectivityTrace, TransportStatus, VectorDatabaseError,
-        VectorDatabaseErrorKind,
+        SectionAssignmentReason, SectionScoreComponents, SectionVectorScoreSource,
+        SelectivityCountScope, SelectivityDecision, SelectivityTrace, TransportStatus,
+        VectorDatabaseError, VectorDatabaseErrorKind,
     };
     use cmem_eval_core::{
         CleanupConfig, DatasetId, DerivedMemoryInput, EmbeddingConfig, EntityInput,
@@ -7352,6 +7352,7 @@ mod tests {
                 scores: SectionScoreComponents {
                     final_score: 0.75,
                     vector_score: Some(0.5),
+                    vector_score_source: Some(SectionVectorScoreSource::DirectMatch),
                     graph_score: Some(1.0),
                     salience_score: None,
                 },
