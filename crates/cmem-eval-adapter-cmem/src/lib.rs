@@ -46,8 +46,8 @@ use cmem_eval_core::{
     PreparedWritePlan, RationaleOrigin as EvalRationaleOrigin, RelationType as EvalRelationType,
     RepairMarkerRecord, ReplacementDerivedMemoryInput, RetentionState as EvalRetentionState,
     RetrievalFanoutUtilization, RetrievalMode, RetrievalRationaleCategory, RetrievalSectionBudgets,
-    RetrievalSelectivityDecision, RetrievalTelemetry, RetrieveInput, RetrievedContextPack,
-    RetrievedItem, SectionPressureSummary as EvalSectionPressureSummary,
+    RetrievalSelectivityDecision, RetrievalSurfacePolicy, RetrievalTelemetry, RetrieveInput,
+    RetrievedContextPack, RetrievedItem, SectionPressureSummary as EvalSectionPressureSummary,
     SelectivityCountScope as EvalSelectivityCountScope,
     SelectivityDecision as EvalSelectivityDecision, SelectivitySummary, SourceProvenanceInput,
     Stability as EvalStability, StaleCandidateReason as EvalStaleCandidateReason,
@@ -431,9 +431,12 @@ impl CharacterMemoryAdapter {
         allow_test_fixture: bool,
     ) -> Result<()> {
         config.validate()?;
-        let configured_size = config.backend.embedding.vector_size.unwrap_or(
-            cmem_eval_core::model_native_embedding_vector_size(&config.backend.embedding.model)?,
-        );
+        let configured_size = match config.backend.embedding.vector_size {
+            Some(vector_size) => vector_size,
+            None => {
+                cmem_eval_core::model_native_embedding_vector_size(&config.backend.embedding.model)?
+            }
+        };
         match binding {
             EmbeddingRuntimeBinding::Controllable {
                 fixture,
@@ -923,28 +926,17 @@ impl CharacterMemoryAdapter {
     }
 
     async fn retrieve_vector_only(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
+        let search_plan = vector_only_search_plan(&input.surface_policy)?;
         let snapshot = self.vector_namespace_snapshot(&input.namespace).await?;
         let query_embedding = self.query_embedding(&input.query).await?;
 
         let mut hits = Vec::new();
-        hits.extend(
-            self.search_vector_kind(
-                &snapshot.collection_name,
-                &query_embedding,
-                "episode",
-                input.surface_policy.sections.relevant_episodes,
-            )
-            .await?,
-        );
-        hits.extend(
-            self.search_vector_kind(
-                &snapshot.collection_name,
-                &query_embedding,
-                "observation",
-                input.surface_policy.sections.salient_observations,
-            )
-            .await?,
-        );
+        for (kind, limit) in search_plan {
+            hits.extend(
+                self.search_vector_kind(&snapshot.collection_name, &query_embedding, kind, limit)
+                    .await?,
+            );
+        }
 
         Ok(vector_hits_to_context_pack(
             &snapshot,
@@ -1029,6 +1021,26 @@ impl CharacterMemoryAdapter {
             .next()
             .context("OpenAI query embedding response omitted the batch-of-one result")
     }
+}
+
+fn vector_only_search_plan(
+    surface_policy: &RetrievalSurfacePolicy,
+) -> Result<Vec<(&'static str, usize)>> {
+    surface_policy.validate_for_vector_only()?;
+    let mut plan = Vec::new();
+    if surface_policy
+        .object_types
+        .contains(&EvalObjectType::Episode)
+    {
+        plan.push(("episode", surface_policy.sections.relevant_episodes));
+    }
+    if surface_policy
+        .object_types
+        .contains(&EvalObjectType::Observation)
+    {
+        plan.push(("observation", surface_policy.sections.salient_observations));
+    }
+    Ok(plan)
 }
 
 #[async_trait]
@@ -4783,6 +4795,39 @@ mod tests {
             max_vector_candidates: None,
             max_graph_roots: None,
         }
+    }
+
+    #[test]
+    fn explicit_vector_size_skips_model_width_lookup_for_runtime_bindings() {
+        let mut config = adapter_config(
+            "custom-embedding-model".to_string(),
+            "cmem_eval_custom_embedding_model".to_string(),
+        );
+        config.backend.embedding.provider = EmbeddingProviderConfig::OpenAi;
+        config.backend.embedding.model = "future-custom-embedding-model".to_string();
+        config.backend.embedding.vector_size = Some(2_048);
+        let binding = EmbeddingRuntimeBinding::Live {
+            provider: LiveEmbeddingProvider::OpenAi,
+            model: config.backend.embedding.model.clone(),
+        };
+
+        CharacterMemoryAdapter::validate_runtime_binding(&config, &binding, false).unwrap();
+    }
+
+    #[test]
+    fn vector_only_search_plan_honors_the_selected_supported_object_types() {
+        let mut policy = retrieval_surface_policy(3, 5, false, false, false, false);
+        policy.object_types = vec![EvalObjectType::Observation];
+        assert_eq!(
+            vector_only_search_plan(&policy).unwrap(),
+            vec![("observation", 5)]
+        );
+
+        policy.object_types = vec![EvalObjectType::Episode];
+        assert_eq!(
+            vector_only_search_plan(&policy).unwrap(),
+            vec![("episode", 3)]
+        );
     }
 
     #[tokio::test]

@@ -77,9 +77,12 @@ fn live_embedding_binding(config: &BenchmarkRunConfig) -> Result<EmbeddingBindin
             "dataset runtime requires a live embedding provider, got {provider}; continuity scenario bindings must be resolved independently"
         ),
     };
-    let vector_size = config.backend.embedding.vector_size.unwrap_or(
-        cmem_eval_core::model_native_embedding_vector_size(&config.backend.embedding.model)?,
-    );
+    let vector_size = match config.backend.embedding.vector_size {
+        Some(vector_size) => vector_size,
+        None => {
+            cmem_eval_core::model_native_embedding_vector_size(&config.backend.embedding.model)?
+        }
+    };
     Ok(EmbeddingBindingRecord::Live {
         provider,
         model: config.backend.embedding.model.clone(),
@@ -1768,6 +1771,24 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn explicit_vector_size_allows_a_custom_live_embedding_model() {
+        let mut config: BenchmarkRunConfig =
+            toml::from_str(include_str!("../../../configs/synthetic_retrieval.toml")).unwrap();
+        config.backend.embedding.provider = EmbeddingProviderConfig::OpenAi;
+        config.backend.embedding.model = "future-custom-embedding-model".to_string();
+        config.backend.embedding.vector_size = Some(2_048);
+
+        assert_eq!(
+            live_embedding_binding(&config).unwrap(),
+            EmbeddingBindingRecord::Live {
+                provider: LiveEmbeddingProvider::OpenAi,
+                model: "future-custom-embedding-model".to_string(),
+                vector_size: 2_048,
+            }
+        );
+    }
+
     fn continuity_mock_args(directory: &Path) -> ContinuityRunArgs {
         let source_config = fs::read_to_string("../../configs/continuity_retrieval.toml").unwrap();
         let store_path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2190,6 +2211,79 @@ mod tests {
         .to_string();
         assert!(error.contains("trace/result mismatch"), "{error}");
         assert!(error.contains('0'), "{error}");
+
+        let mut altered_outcome_rows = read_v2_rows(&result_path);
+        altered_outcome_rows[0]
+            .write_outcomes
+            .push(WriteOutcomeRecord::clean(
+                "invented-write-outcome",
+                cmem_eval_core::WriteOperationKind::ExplicitCommit,
+            ));
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
+            fixture_seed: fixture.seed,
+            config: summary.config.clone(),
+            adapter: summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &traces,
+            rows: &altered_outcome_rows,
+            summary: &summary,
+            metric_family: &report_metric_family,
+            restart_observations: &valid_restart_observations,
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("trace/result mismatch"), "{error}");
+        assert!(error.contains("write="), "{error}");
+
+        let mut altered_outcome_rows = read_v2_rows(&result_path);
+        altered_outcome_rows[0].lifecycle_outcomes.push(
+            cmem_eval_core::LifecycleOutcomeRecord::clean(
+                "invented-lifecycle-outcome",
+                cmem_eval_core::LifecycleOperationKind::Forget,
+            ),
+        );
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
+            fixture_seed: fixture.seed,
+            config: summary.config.clone(),
+            adapter: summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &traces,
+            rows: &altered_outcome_rows,
+            summary: &summary,
+            metric_family: &report_metric_family,
+            restart_observations: &valid_restart_observations,
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("trace/result mismatch"), "{error}");
+        assert!(error.contains("lifecycle="), "{error}");
+
+        let mut altered_kind_rows = read_v2_rows(&result_path);
+        altered_kind_rows[0].dataset_kind = DatasetKind::Synthetic;
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
+            fixture_seed: fixture.seed,
+            config: summary.config.clone(),
+            adapter: summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &traces,
+            rows: &altered_kind_rows,
+            summary: &summary,
+            metric_family: &report_metric_family,
+            restart_observations: &valid_restart_observations,
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("summary/result identity mismatch"),
+            "{error}"
+        );
+
         let mut invented_traces = traces.clone();
         invented_traces[0].query_id = "invented-query".to_string();
         let mut invented_rows = read_v2_rows(&result_path);

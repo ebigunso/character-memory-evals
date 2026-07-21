@@ -231,15 +231,21 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         if trace.query_id != row.question_id
             || trace.query != row.question
             || row.question_type.as_deref() != Some(trace_question_type.as_str())
+            || trace.write_outcomes != row.write_outcomes
+            || trace.lifecycle_outcomes != row.lifecycle_outcomes
         {
             bail!(
-                "continuity report trace/result mismatch at index {index}: trace ({:?}, {:?}, {:?}), result ({:?}, {:?}, {:?})",
+                "continuity report trace/result mismatch at index {index}: trace ({:?}, {:?}, {:?}, write={}, lifecycle={}), result ({:?}, {:?}, {:?}, write={}, lifecycle={})",
                 trace.query_id,
                 trace_question_type,
                 trace.query,
+                trace.write_outcomes.len(),
+                trace.lifecycle_outcomes.len(),
                 row.question_id,
                 row.question_type,
-                row.question
+                row.question,
+                row.write_outcomes.len(),
+                row.lifecycle_outcomes.len()
             );
         }
     }
@@ -253,6 +259,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
     for (index, row) in input.rows.iter().enumerate() {
         if row.run_id != input.summary.run_id
             || row.dataset != input.summary.dataset
+            || row.dataset_kind != input.summary.dataset_kind
             || row.adapter != input.summary.adapter
         {
             bail!(
@@ -269,7 +276,10 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
     let recomputed_summary = summarize_rows(
         input.summary.run_id.clone(),
         input.summary.dataset.clone(),
-        input.summary.dataset_kind,
+        input
+            .rows
+            .first()
+            .map_or(input.summary.dataset_kind, |row| row.dataset_kind),
         input.summary.adapter.clone(),
         input.summary.config.clone(),
         input.rows,

@@ -477,7 +477,10 @@ pub struct RetrievalConfig {
 
 impl RetrievalConfig {
     pub fn validate(&self) -> Result<()> {
-        self.surface_policy.validate()
+        match self.mode {
+            RetrievalMode::VectorOnly => self.surface_policy.validate_for_vector_only(),
+            RetrievalMode::Hybrid | RetrievalMode::Bm25Only => self.surface_policy.validate(),
+        }
     }
 }
 
@@ -1144,7 +1147,7 @@ mod tests {
 
     #[test]
     fn parses_vector_only_retrieval_mode() {
-        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
             "dataset": "synthetic",
             "retrieval": {
@@ -1158,7 +1161,31 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.retrieval.mode, RetrievalMode::VectorOnly);
+        config.retrieval.surface_policy.object_types =
+            vec![crate::ObjectType::Episode, crate::ObjectType::Observation];
         config.validate().unwrap();
+    }
+
+    #[test]
+    fn vector_only_rejects_object_types_outside_its_episode_observation_capability() {
+        let mut retrieval = RetrievalConfig {
+            mode: RetrievalMode::VectorOnly,
+            surface_policy: RetrievalSurfacePolicy {
+                object_types: vec![crate::ObjectType::Episode, crate::ObjectType::DerivedMemory],
+                ..RetrievalSurfacePolicy::default()
+            },
+        };
+
+        let error = retrieval.validate().unwrap_err().to_string();
+        assert!(
+            error.contains("supports only episode and observation"),
+            "{error}"
+        );
+        assert!(error.contains("derived_memory"), "{error}");
+        assert!(error.contains("v0.1.6"), "{error}");
+
+        retrieval.surface_policy.object_types = vec![crate::ObjectType::Observation];
+        retrieval.validate().unwrap();
     }
 
     #[test]

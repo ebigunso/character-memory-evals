@@ -169,6 +169,26 @@ impl RetrievalSurfacePolicy {
         }
         Ok(())
     }
+
+    pub fn validate_for_vector_only(&self) -> Result<()> {
+        self.validate()?;
+        let unsupported = self
+            .object_types
+            .iter()
+            .copied()
+            .filter(|object_type| {
+                !matches!(object_type, ObjectType::Episode | ObjectType::Observation)
+            })
+            .map(|object_type| object_type.to_string())
+            .collect::<Vec<_>>();
+        if !unsupported.is_empty() {
+            bail!(
+                "retrieval.mode=vector_only supports only episode and observation object_types; unsupported selections: {}. Broader vector-only object support is deferred to v0.1.6",
+                unsupported.join(", ")
+            );
+        }
+        Ok(())
+    }
 }
 
 impl Default for RetrievalSurfacePolicy {

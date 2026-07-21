@@ -96,10 +96,23 @@ pub struct LegacyRetrievedItemV1 {
 impl LegacyPerQuestionResultV1 {
     /// Reconstructs the as-built 1.0.0 context for read-only exports. New
     /// evidence persists the authoritative 2.0.0 `context_text` instead.
+    /// As-built producer: 49984a5:crates/cmem-eval-runner/src/official_exports.rs:181.
     pub fn rendered_context_text(&self) -> String {
-        self.retrieved
+        let mut sorted = self.retrieved.iter().collect::<Vec<_>>();
+        sorted.sort_by_key(|item| item.rank);
+        sorted
             .iter()
-            .filter_map(|item| item.text.as_deref())
+            .filter_map(|item| {
+                item.text.as_ref().map(|text| {
+                    format!(
+                        "[{}:{} rank={}] {}",
+                        item.kind,
+                        item.external_id.as_deref().unwrap_or("unknown"),
+                        item.rank,
+                        text
+                    )
+                })
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -482,6 +495,56 @@ mod tests {
             model: "text-embedding-3-small".into(),
             vector_size: 1536,
         }
+    }
+
+    #[test]
+    fn legacy_context_export_matches_the_as_built_identity_renderer() {
+        let row = LegacyPerQuestionResultV1 {
+            run_id: "legacy-run".into(),
+            dataset: "locomo".into(),
+            adapter: RunAdapterMetadata::default(),
+            question_id: "q1".into(),
+            question_type: None,
+            question: "question".into(),
+            gold_episode_ids: Vec::new(),
+            gold_observation_ids: Vec::new(),
+            retrieved: vec![
+                LegacyRetrievedItemV1 {
+                    kind: "observation".into(),
+                    internal_id: "observation-internal".into(),
+                    external_id: None,
+                    episode_external_id: Some("episode-external".into()),
+                    score: Some(0.7),
+                    rank: 2,
+                    rationale: Vec::new(),
+                    text: Some("second".into()),
+                },
+                LegacyRetrievedItemV1 {
+                    kind: "episode".into(),
+                    internal_id: "episode-internal".into(),
+                    external_id: Some("episode-external".into()),
+                    episode_external_id: None,
+                    score: Some(0.9),
+                    rank: 1,
+                    rationale: Vec::new(),
+                    text: Some("first".into()),
+                },
+            ],
+            metrics: serde_json::json!({}),
+            latency_ms: 0,
+            context_char_count: 0,
+            context_word_count: 0,
+            context: ResultContextMetrics::default(),
+            telemetry: serde_json::json!({}),
+            composition: ResultCompositionMetrics::default(),
+            integrity: ResultIntegrityDetails::default(),
+            reader: ReaderResult::default(),
+        };
+
+        assert_eq!(
+            row.rendered_context_text(),
+            "[episode:episode-external rank=1] first\n[observation:unknown rank=2] second"
+        );
     }
 
     fn metrics(value: Value) -> MetricsRecord {

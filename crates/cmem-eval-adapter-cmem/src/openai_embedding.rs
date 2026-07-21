@@ -128,9 +128,20 @@ fn ordered_embeddings(
         );
     }
     if response.data.len() != expected_count {
+        let mut present = vec![false; expected_count];
+        for item in &response.data {
+            if item.index < expected_count {
+                present[item.index] = true;
+            }
+        }
+        let missing = present
+            .iter()
+            .enumerate()
+            .filter_map(|(index, present)| (!present).then_some(index))
+            .collect::<Vec<_>>();
         bail!(
-            "OpenAI embedding response returned {} vectors for {expected_count} inputs",
-            response.data.len()
+            "OpenAI embedding response returned {} vectors for {expected_count} inputs; missing indices: {missing:?}",
+            response.data.len(),
         );
     }
     let mut ordered = vec![None; expected_count];
@@ -165,4 +176,101 @@ fn ordered_embeddings(
             embedding.with_context(|| format!("OpenAI embedding response omitted index {index}"))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn response(
+        model: &str,
+        data: impl IntoIterator<Item = (usize, Vec<f32>)>,
+    ) -> OpenAiEmbeddingResponse {
+        OpenAiEmbeddingResponse {
+            model: model.to_string(),
+            data: data
+                .into_iter()
+                .map(|(index, embedding)| OpenAiEmbeddingData { index, embedding })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn orders_successful_embeddings_by_response_index() {
+        let ordered = ordered_embeddings(
+            "model",
+            2,
+            Some(2),
+            response("model", [(1, vec![0.0, 1.0]), (0, vec![1.0, 0.0])]),
+        )
+        .unwrap();
+
+        assert_eq!(ordered, vec![vec![1.0, 0.0], vec![0.0, 1.0]]);
+    }
+
+    #[test]
+    fn rejects_duplicate_response_indices() {
+        let error = ordered_embeddings(
+            "model",
+            2,
+            Some(2),
+            response("model", [(0, vec![1.0, 0.0]), (0, vec![0.0, 1.0])]),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("duplicate index 0"), "{error}");
+    }
+
+    #[test]
+    fn rejects_missing_indices_and_response_cardinality_mismatches() {
+        let error = ordered_embeddings(
+            "model",
+            2,
+            Some(2),
+            response("model", [(0, vec![1.0, 0.0])]),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("returned 1 vectors for 2 inputs"), "{error}");
+        assert!(error.contains("missing indices: [1]"), "{error}");
+    }
+
+    #[test]
+    fn rejects_out_of_range_response_indices() {
+        let error = ordered_embeddings(
+            "model",
+            2,
+            Some(2),
+            response("model", [(0, vec![1.0, 0.0]), (2, vec![0.0, 1.0])]),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("outside expected range 0..2"), "{error}");
+    }
+
+    #[test]
+    fn rejects_response_model_mismatches() {
+        let error = ordered_embeddings(
+            "requested-model",
+            1,
+            Some(2),
+            response("different-model", [(0, vec![1.0, 0.0])]),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("does not match requested model"), "{error}");
+    }
+
+    #[test]
+    fn rejects_response_dimension_mismatches() {
+        let error = ordered_embeddings("model", 1, Some(2), response("model", [(0, vec![1.0])]))
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("vector size 1, expected 2"), "{error}");
+    }
 }
