@@ -45,4 +45,5 @@ last_updated: "2026-07-21"
 - Keep the live Character Memory integration in `crates/cmem-eval-adapter-cmem`, including deterministic collection naming and persisted external-ID reattach state.
 - Each dataset crate must own its loader, ingest mapper, scorer, full-history builder, config-name validation, and metric-family declaration; adding a dataset may add a runner `DatasetSpec` but must not require core edits.
 - The continuity benchmark lives in `crates/cmem-eval-continuity`.
-- Emit report schema version `1.0.0` on rows and summaries; keep latency in dedicated row/summary fields rather than deterministic metrics, record the embedding provider, and represent unsupported required metrics as `null`.
+- Emit report schema version `2.0.0` on rows, traces, summaries, and reports; readers are strict fail-closed for 2.0.0 shapes, with exactly one bounded legacy 1.0.0 dispatch (result rows and continuity traces only) retained for sealed register-cited evidence under the Compatibility Policy exemption.
+- Keep latency in dedicated row/summary fields rather than deterministic metrics; record per-scenario typed embedding binding records (summaries aggregate sorted unique bindings — there is no single summary embedding-provider field in 2.0.0); metrics are typed numeric-or-null with fail-closed admission.
