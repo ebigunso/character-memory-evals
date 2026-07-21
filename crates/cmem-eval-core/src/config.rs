@@ -1182,7 +1182,6 @@ mod tests {
             "{error}"
         );
         assert!(error.contains("derived_memory"), "{error}");
-        assert!(error.contains("v0.1.6"), "{error}");
 
         retrieval.surface_policy.object_types = vec![crate::ObjectType::Observation];
         retrieval.validate().unwrap();

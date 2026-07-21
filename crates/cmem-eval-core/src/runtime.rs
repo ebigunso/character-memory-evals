@@ -183,7 +183,7 @@ impl RetrievalSurfacePolicy {
             .collect::<Vec<_>>();
         if !unsupported.is_empty() {
             bail!(
-                "retrieval.mode=vector_only supports only episode and observation object_types; unsupported selections: {}. Broader vector-only object support is deferred to v0.1.6",
+                "retrieval.mode=vector_only supports only episode and observation object_types; unsupported selections: {}",
                 unsupported.join(", ")
             );
         }
