@@ -885,7 +885,7 @@ async fn run_continuity_pipeline(
         config_value.clone(),
         &rows,
         std::slice::from_ref(&metric_family),
-    );
+    )?;
     let report = assemble_continuity_report(ContinuityReportInput {
         generated_at: Utc::now(),
         fixture_schema_version,
@@ -1544,7 +1544,7 @@ fn write_outputs(
         serde_json::to_value(&config)?,
         &rows,
         metric_families,
-    );
+    )?;
     write_jsonl(&args.out, &rows)?;
     write_summary(&args.summary_out, &summary)
 }

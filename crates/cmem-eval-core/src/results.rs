@@ -7,7 +7,7 @@ use crate::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -301,7 +301,7 @@ pub fn summarize_rows(
     config: Value,
     rows: &[PerQuestionResult],
     metric_families: &[MetricFamily],
-) -> RunSummary {
+) -> Result<RunSummary> {
     let metric_rows = rows
         .iter()
         .map(|row| row.metrics.to_json_map())
@@ -321,7 +321,8 @@ pub fn summarize_rows(
         })
         .into_values()
         .collect();
-    RunSummary {
+    let degradation = summarize_degradation(rows)?;
+    Ok(RunSummary {
         schema_version: RESULT_SCHEMA_VERSION.to_string(),
         run_id,
         dataset,
@@ -341,18 +342,25 @@ pub fn summarize_rows(
                 "p95": crate::percentile(&latency_values, 95.0),
             }
         }),
-        degradation: summarize_degradation(rows),
-    }
+        degradation,
+    })
 }
 
-fn summarize_degradation(rows: &[PerQuestionResult]) -> DegradationSummary {
-    let mut seen_writes = BTreeSet::new();
-    let mut seen_lifecycle = BTreeSet::new();
+fn summarize_degradation(rows: &[PerQuestionResult]) -> Result<DegradationSummary> {
+    let mut seen_writes = BTreeMap::new();
+    let mut seen_lifecycle = BTreeMap::new();
     let mut summary = DegradationSummary::default();
     for outcome in rows.iter().flat_map(|row| &row.write_outcomes) {
-        if !seen_writes.insert(outcome.operation_id.as_str()) {
+        if let Some(previous) = seen_writes.get(outcome.operation_id.as_str()) {
+            if *previous != outcome {
+                anyhow::bail!(
+                    "conflicting write outcomes share operation_id {:?}",
+                    outcome.operation_id
+                );
+            }
             continue;
         }
+        seen_writes.insert(outcome.operation_id.as_str(), outcome);
         if outcome.vector_indexing_failure.is_some()
             || outcome.stats_update_status.failure.is_some()
             || !outcome.repair_needed.is_empty()
@@ -371,13 +379,21 @@ fn summarize_degradation(rows: &[PerQuestionResult]) -> DegradationSummary {
         }
     }
     for outcome in rows.iter().flat_map(|row| &row.lifecycle_outcomes) {
-        if seen_lifecycle.insert(outcome.operation_id.as_str())
-            && !outcome.vector_maintenance_failures.is_empty()
-        {
+        if let Some(previous) = seen_lifecycle.get(outcome.operation_id.as_str()) {
+            if *previous != outcome {
+                anyhow::bail!(
+                    "conflicting lifecycle outcomes share operation_id {:?}",
+                    outcome.operation_id
+                );
+            }
+            continue;
+        }
+        seen_lifecycle.insert(outcome.operation_id.as_str(), outcome);
+        if !outcome.vector_maintenance_failures.is_empty() {
             summary.lifecycle_maintenance_failure_count += 1;
         }
     }
-    summary
+    Ok(summary)
 }
 
 pub fn read_jsonl(path: &Path) -> Result<Vec<VersionedPerQuestionResult>> {
@@ -429,6 +445,8 @@ fn validate_row_schema(value: &Value) -> Result<RowSchema> {
         // Compatibility Policy sealed-artifact exemption: only result rows and
         // continuity traces dispatch exact 1.0.0. Summary/report readers remain
         // strict 2.0.0 so the compatibility surface cannot grow accidentally.
+        // Evidence: reports/v0-1-5-findings-register.md:393 and
+        // runs/continuity/v0-1-5-baseline/shipped-a/results.jsonl:1.
         Some(LEGACY_RESULT_SCHEMA_VERSION) => Ok(RowSchema::LegacyV1),
         Some(RESULT_SCHEMA_VERSION) => Ok(RowSchema::CurrentV2),
         Some(version) => anyhow::bail!(
@@ -531,7 +549,8 @@ mod tests {
             serde_json::json!({}),
             &[row],
             &[],
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             summary.metric_support["suppressed_or_deleted_items_returned"]["unsupported"],
@@ -559,13 +578,133 @@ mod tests {
             serde_json::json!({"backend": {"embedding": {"provider": "openai"}}}),
             &[row],
             &[family],
-        );
+        )
+        .unwrap();
 
         assert_eq!(summary.schema_version, RESULT_SCHEMA_VERSION);
         assert_eq!(summary.embedding_bindings, vec![embedding_binding()]);
         assert_eq!(summary.latency["latency_ms"]["p95"], 7.0);
         assert!(summary.metrics.get("retrieval_latency_ms").is_none());
         assert_eq!(summary.registry_coverage["required_metrics_present"], 1);
+    }
+
+    #[test]
+    fn summary_deduplicates_identical_cumulative_outcomes_across_rows() {
+        let object = crate::ObjectRefRecord {
+            object_type: crate::ObjectType::Episode,
+            internal_id: "episode-1".into(),
+            external_id: Some("source-1".into()),
+        };
+        let mut write = WriteOutcomeRecord::clean(
+            "write-operation-1",
+            crate::WriteOperationKind::ExplicitCommit,
+        );
+        write.repair_needed.push(RepairMarkerRecord::StatsUpdate {
+            object_internal_ids: vec![object.internal_id.clone()],
+            cause: crate::StatsUpdateCauseRecord::HealthCheck {
+                detail: "unavailable".into(),
+            },
+        });
+        let mut lifecycle = LifecycleOutcomeRecord::clean(
+            "lifecycle-operation-1",
+            crate::LifecycleOperationKind::Forget,
+        );
+        lifecycle
+            .vector_maintenance_failures
+            .push(crate::VectorMaintenanceFailureItemRecord {
+                operation: crate::VectorMaintenanceOperation::Delete,
+                objects: vec![object],
+                cause: crate::VectorIndexingCauseRecord::CardinalityMismatch {
+                    expected: 1,
+                    actual: 0,
+                },
+            });
+        let mut first = row(serde_json::json!({}));
+        first.write_outcomes.push(write.clone());
+        first.lifecycle_outcomes.push(lifecycle.clone());
+        let mut second = row(serde_json::json!({}));
+        second.question_id = "q2".into();
+        second.write_outcomes.push(write);
+        second.lifecycle_outcomes.push(lifecycle);
+
+        let summary = summarize_rows(
+            "r".into(),
+            dataset(),
+            DatasetKind::Synthetic,
+            RunAdapterMetadata::mock_smoke(),
+            serde_json::json!({}),
+            &[first, second],
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(summary.degradation.degraded_write_count, 1);
+        assert_eq!(summary.degradation.lifecycle_maintenance_failure_count, 1);
+        assert_eq!(
+            summary.degradation.repair_marker_counts_by_kind["stats_update"],
+            1
+        );
+    }
+
+    #[test]
+    fn summary_rejects_conflicting_outcomes_with_the_same_operation_id() {
+        let write = WriteOutcomeRecord::clean(
+            "shared-write-operation",
+            crate::WriteOperationKind::ExplicitCommit,
+        );
+        let mut conflicting_write = write.clone();
+        conflicting_write
+            .persisted_link_internal_ids
+            .push("unexpected-link".into());
+        let mut first = row(serde_json::json!({}));
+        first.write_outcomes.push(write);
+        let mut second = row(serde_json::json!({}));
+        second.question_id = "q2".into();
+        second.write_outcomes.push(conflicting_write);
+        let write_error = summarize_rows(
+            "r".into(),
+            dataset(),
+            DatasetKind::Synthetic,
+            RunAdapterMetadata::mock_smoke(),
+            serde_json::json!({}),
+            &[first, second],
+            &[],
+        )
+        .unwrap_err();
+        assert!(
+            write_error
+                .to_string()
+                .contains("conflicting write outcomes share operation_id")
+        );
+
+        let lifecycle = LifecycleOutcomeRecord::clean(
+            "shared-lifecycle-operation",
+            crate::LifecycleOperationKind::Correct,
+        );
+        let mut conflicting_lifecycle = lifecycle.clone();
+        conflicting_lifecycle
+            .graph_mutated_link_internal_ids
+            .push("unexpected-link".into());
+        let mut first = row(serde_json::json!({}));
+        first.lifecycle_outcomes.push(lifecycle);
+        let mut second = row(serde_json::json!({}));
+        second.question_id = "q2".into();
+        second.lifecycle_outcomes.push(conflicting_lifecycle);
+        let lifecycle_error = summarize_rows(
+            "r".into(),
+            dataset(),
+            DatasetKind::Synthetic,
+            RunAdapterMetadata::mock_smoke(),
+            serde_json::json!({}),
+            &[first, second],
+            &[],
+        )
+        .unwrap_err();
+        assert!(
+            lifecycle_error
+                .to_string()
+                .contains("conflicting lifecycle outcomes share operation_id")
+        );
     }
 
     #[test]
@@ -660,7 +799,8 @@ mod tests {
             serde_json::json!({}),
             &[row(serde_json::json!({}))],
             &[],
-        );
+        )
+        .unwrap();
         write_summary(&path, &summary).unwrap();
         assert_eq!(
             read_summary(&path).unwrap().schema_version,

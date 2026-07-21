@@ -147,6 +147,8 @@ pub fn read_continuity_traces(path: &Path) -> Result<Vec<VersionedContinuityQuer
         // Compatibility Policy sealed-artifact exemption: exact 1.0.0 trace
         // dispatch only. Reports stay strict 2.0.0 and no legacy artifact is
         // upgraded or rewritten.
+        // Evidence: reports/v0-1-5-findings-register.md:363 and
+        // runs/continuity/v0-1-5-baseline/shipped-a/traces.jsonl:1.
         let trace = match value.get("schema_version").and_then(Value::as_str) {
             Some(LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION) => {
                 VersionedContinuityQueryTrace::V1(Box::new(serde_json::from_value(value)?))

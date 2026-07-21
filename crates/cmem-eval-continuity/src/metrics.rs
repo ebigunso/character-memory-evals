@@ -787,6 +787,12 @@ mod tests {
             RetrievedContextPack::from_ranked_items(items, telemetry, ContextRenderer::PlainText);
     }
 
+    fn replace_items(trace: &mut ContinuityQueryTrace, items: Vec<RetrievedItem>) {
+        let (_, _, _, _, telemetry) = std::mem::take(&mut trace.retrieval).into_parts();
+        trace.retrieval =
+            RetrievedContextPack::from_ranked_items(items, telemetry, ContextRenderer::PlainText);
+    }
+
     fn metrics(pattern: ScenarioPattern) -> Map<String, Value> {
         let scenario = scenario(pattern);
         let trace = trace(pattern);
@@ -912,7 +918,9 @@ mod tests {
     fn sampled_pollution_does_not_classify_unlabeled_items_as_negative() {
         let scenario = scenario(ScenarioPattern::MixedSalienceAccumulation);
         let mut trace = trace(ScenarioPattern::MixedSalienceAccumulation);
-        trace.retrieval.items_mut().push(item("unlabeled", 3));
+        let mut items = trace.retrieval.items().to_vec();
+        items.push(item("unlabeled", 3));
+        replace_items(&mut trace, items);
         mutate_telemetry(&mut trace, |telemetry| {
             telemetry
                 .rationale_categories_by_internal_id
@@ -951,38 +959,41 @@ mod tests {
     fn event_pollution_deduplicates_surfaces_by_episode_root() {
         let scenario = scenario(ScenarioPattern::SurfaceContribution);
         let mut trace = trace(ScenarioPattern::SurfaceContribution);
-        *trace.retrieval.items_mut() = vec![
-            RetrievedItem {
-                kind: ObjectType::Episode,
-                internal_id: "relevant-episode".to_string(),
-                external_id: Some("relevant".to_string()),
-                episode_external_id: None,
-                score: None,
-                rank: 1,
-                rationale: Vec::new(),
-                text: None,
-            },
-            RetrievedItem {
-                kind: ObjectType::Observation,
-                internal_id: "relevant-observation".to_string(),
-                external_id: Some("relevant:observation".to_string()),
-                episode_external_id: Some("relevant".to_string()),
-                score: None,
-                rank: 2,
-                rationale: Vec::new(),
-                text: None,
-            },
-            RetrievedItem {
-                kind: ObjectType::Episode,
-                internal_id: "negative-episode".to_string(),
-                external_id: Some("sampled-negative".to_string()),
-                episode_external_id: None,
-                score: None,
-                rank: 3,
-                rationale: Vec::new(),
-                text: None,
-            },
-        ];
+        replace_items(
+            &mut trace,
+            vec![
+                RetrievedItem {
+                    kind: ObjectType::Episode,
+                    internal_id: "relevant-episode".to_string(),
+                    external_id: Some("relevant".to_string()),
+                    episode_external_id: None,
+                    score: None,
+                    rank: 1,
+                    rationale: Vec::new(),
+                    text: None,
+                },
+                RetrievedItem {
+                    kind: ObjectType::Observation,
+                    internal_id: "relevant-observation".to_string(),
+                    external_id: Some("relevant:observation".to_string()),
+                    episode_external_id: Some("relevant".to_string()),
+                    score: None,
+                    rank: 2,
+                    rationale: Vec::new(),
+                    text: None,
+                },
+                RetrievedItem {
+                    kind: ObjectType::Episode,
+                    internal_id: "negative-episode".to_string(),
+                    external_id: Some("sampled-negative".to_string()),
+                    episode_external_id: None,
+                    score: None,
+                    rank: 3,
+                    rationale: Vec::new(),
+                    text: None,
+                },
+            ],
+        );
         mutate_telemetry(&mut trace, |telemetry| {
             telemetry.rationale_categories_by_internal_id = None;
         });
@@ -998,16 +1009,19 @@ mod tests {
     fn relevant_surface_identity_wins_over_a_sampled_negative_provenance_root() {
         let scenario = scenario(ScenarioPattern::CorrectionChains);
         let mut trace = trace(ScenarioPattern::CorrectionChains);
-        *trace.retrieval.items_mut() = vec![RetrievedItem {
-            kind: ObjectType::DerivedMemory,
-            internal_id: "replacement".to_string(),
-            external_id: Some("relevant".to_string()),
-            episode_external_id: Some("sampled-negative".to_string()),
-            score: None,
-            rank: 1,
-            rationale: Vec::new(),
-            text: None,
-        }];
+        replace_items(
+            &mut trace,
+            vec![RetrievedItem {
+                kind: ObjectType::DerivedMemory,
+                internal_id: "replacement".to_string(),
+                external_id: Some("relevant".to_string()),
+                episode_external_id: Some("sampled-negative".to_string()),
+                score: None,
+                rank: 1,
+                rationale: Vec::new(),
+                text: None,
+            }],
+        );
         mutate_telemetry(&mut trace, |telemetry| {
             telemetry.rationale_categories_by_internal_id = None;
         });

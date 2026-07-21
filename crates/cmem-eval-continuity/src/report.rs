@@ -274,7 +274,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         input.summary.config.clone(),
         input.rows,
         std::slice::from_ref(input.metric_family),
-    );
+    )?;
     if input.summary.schema_version != recomputed_summary.schema_version
         || input.summary.dataset_kind != recomputed_summary.dataset_kind
         || input.summary.embedding_bindings != recomputed_summary.embedding_bindings

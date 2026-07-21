@@ -284,7 +284,7 @@ fn summarize(args: SummarizeArgs) -> Result<()> {
         serde_json::to_value(&config)?,
         &rows,
         &[metric_family],
-    );
+    )?;
     write_summary(&args.out, &summary)
 }
 

@@ -205,9 +205,6 @@ impl RetrievedContextPack {
     pub fn items(&self) -> &[RetrievedItem] {
         &self.items
     }
-    pub fn items_mut(&mut self) -> &mut Vec<RetrievedItem> {
-        &mut self.items
-    }
     pub fn context_text(&self) -> &str {
         &self.context_text
     }
