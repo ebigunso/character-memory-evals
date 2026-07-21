@@ -3347,7 +3347,7 @@ fn vector_database_kind_from_live(
         }
         character_memory::VectorDatabaseErrorKind::Io { io_kind } => {
             EvalVectorDatabaseErrorKind::Io {
-                io_kind: io_kind.clone(),
+                io_kind: io_error_kind_from_live(io_kind),
             }
         }
         character_memory::VectorDatabaseErrorKind::HttpTimeout => {
@@ -3365,6 +3365,117 @@ fn vector_database_kind_from_live(
         }
         character_memory::VectorDatabaseErrorKind::PayloadDeserialization => {
             EvalVectorDatabaseErrorKind::PayloadDeserialization
+        }
+    }
+}
+
+fn io_error_kind_from_live(
+    kind: &character_memory::IoErrorKind,
+) -> cmem_eval_core::IoErrorKindRecord {
+    match kind {
+        character_memory::IoErrorKind::NotFound => cmem_eval_core::IoErrorKindRecord::NotFound,
+        character_memory::IoErrorKind::PermissionDenied => {
+            cmem_eval_core::IoErrorKindRecord::PermissionDenied
+        }
+        character_memory::IoErrorKind::ConnectionRefused => {
+            cmem_eval_core::IoErrorKindRecord::ConnectionRefused
+        }
+        character_memory::IoErrorKind::ConnectionReset => {
+            cmem_eval_core::IoErrorKindRecord::ConnectionReset
+        }
+        character_memory::IoErrorKind::HostUnreachable => {
+            cmem_eval_core::IoErrorKindRecord::HostUnreachable
+        }
+        character_memory::IoErrorKind::NetworkUnreachable => {
+            cmem_eval_core::IoErrorKindRecord::NetworkUnreachable
+        }
+        character_memory::IoErrorKind::ConnectionAborted => {
+            cmem_eval_core::IoErrorKindRecord::ConnectionAborted
+        }
+        character_memory::IoErrorKind::NotConnected => {
+            cmem_eval_core::IoErrorKindRecord::NotConnected
+        }
+        character_memory::IoErrorKind::AddrInUse => cmem_eval_core::IoErrorKindRecord::AddrInUse,
+        character_memory::IoErrorKind::AddrNotAvailable => {
+            cmem_eval_core::IoErrorKindRecord::AddrNotAvailable
+        }
+        character_memory::IoErrorKind::NetworkDown => {
+            cmem_eval_core::IoErrorKindRecord::NetworkDown
+        }
+        character_memory::IoErrorKind::BrokenPipe => cmem_eval_core::IoErrorKindRecord::BrokenPipe,
+        character_memory::IoErrorKind::AlreadyExists => {
+            cmem_eval_core::IoErrorKindRecord::AlreadyExists
+        }
+        character_memory::IoErrorKind::WouldBlock => cmem_eval_core::IoErrorKindRecord::WouldBlock,
+        character_memory::IoErrorKind::NotADirectory => {
+            cmem_eval_core::IoErrorKindRecord::NotADirectory
+        }
+        character_memory::IoErrorKind::IsADirectory => {
+            cmem_eval_core::IoErrorKindRecord::IsADirectory
+        }
+        character_memory::IoErrorKind::DirectoryNotEmpty => {
+            cmem_eval_core::IoErrorKindRecord::DirectoryNotEmpty
+        }
+        character_memory::IoErrorKind::ReadOnlyFilesystem => {
+            cmem_eval_core::IoErrorKindRecord::ReadOnlyFilesystem
+        }
+        character_memory::IoErrorKind::StaleNetworkFileHandle => {
+            cmem_eval_core::IoErrorKindRecord::StaleNetworkFileHandle
+        }
+        character_memory::IoErrorKind::InvalidInput => {
+            cmem_eval_core::IoErrorKindRecord::InvalidInput
+        }
+        character_memory::IoErrorKind::InvalidData => {
+            cmem_eval_core::IoErrorKindRecord::InvalidData
+        }
+        character_memory::IoErrorKind::TimedOut => cmem_eval_core::IoErrorKindRecord::TimedOut,
+        character_memory::IoErrorKind::WriteZero => cmem_eval_core::IoErrorKindRecord::WriteZero,
+        character_memory::IoErrorKind::StorageFull => {
+            cmem_eval_core::IoErrorKindRecord::StorageFull
+        }
+        character_memory::IoErrorKind::NotSeekable => {
+            cmem_eval_core::IoErrorKindRecord::NotSeekable
+        }
+        character_memory::IoErrorKind::QuotaExceeded => {
+            cmem_eval_core::IoErrorKindRecord::QuotaExceeded
+        }
+        character_memory::IoErrorKind::FileTooLarge => {
+            cmem_eval_core::IoErrorKindRecord::FileTooLarge
+        }
+        character_memory::IoErrorKind::ResourceBusy => {
+            cmem_eval_core::IoErrorKindRecord::ResourceBusy
+        }
+        character_memory::IoErrorKind::ExecutableFileBusy => {
+            cmem_eval_core::IoErrorKindRecord::ExecutableFileBusy
+        }
+        character_memory::IoErrorKind::Deadlock => cmem_eval_core::IoErrorKindRecord::Deadlock,
+        character_memory::IoErrorKind::CrossesDevices => {
+            cmem_eval_core::IoErrorKindRecord::CrossesDevices
+        }
+        character_memory::IoErrorKind::TooManyLinks => {
+            cmem_eval_core::IoErrorKindRecord::TooManyLinks
+        }
+        character_memory::IoErrorKind::InvalidFilename => {
+            cmem_eval_core::IoErrorKindRecord::InvalidFilename
+        }
+        character_memory::IoErrorKind::ArgumentListTooLong => {
+            cmem_eval_core::IoErrorKindRecord::ArgumentListTooLong
+        }
+        character_memory::IoErrorKind::Interrupted => {
+            cmem_eval_core::IoErrorKindRecord::Interrupted
+        }
+        character_memory::IoErrorKind::Unsupported => {
+            cmem_eval_core::IoErrorKindRecord::Unsupported
+        }
+        character_memory::IoErrorKind::UnexpectedEof => {
+            cmem_eval_core::IoErrorKindRecord::UnexpectedEof
+        }
+        character_memory::IoErrorKind::OutOfMemory => {
+            cmem_eval_core::IoErrorKindRecord::OutOfMemory
+        }
+        character_memory::IoErrorKind::Other => cmem_eval_core::IoErrorKindRecord::Other,
+        character_memory::IoErrorKind::Unrecognized => {
+            cmem_eval_core::IoErrorKindRecord::Unrecognized
         }
     }
 }
@@ -3489,7 +3600,7 @@ fn embedding_error_from_live(error: &character_memory::EmbeddingError) -> Embedd
         character_memory::EmbeddingError::MissingResponseIndex { index } => {
             EmbeddingErrorRecord::MissingResponseIndex { index: *index }
         }
-        character_memory::EmbeddingError::Unrecognized(detail) => {
+        character_memory::EmbeddingError::Unrecognized { detail } => {
             EmbeddingErrorRecord::Unrecognized {
                 detail: detail.clone(),
             }
@@ -4618,14 +4729,14 @@ impl EmbeddingProvider for CharacterMemoryEmbeddingProvider {
     async fn generate_embedding<'a>(
         &self,
         text: &'a str,
-    ) -> std::result::Result<Vec<f32>, character_memory::CustomError> {
+    ) -> std::result::Result<Vec<f32>, character_memory::EmbeddingError> {
         Ok(self.inner.vector_for_text(text))
     }
 
     async fn bulk_generate_embeddings<'a>(
         &self,
         texts: &'a [&'a str],
-    ) -> std::result::Result<Vec<Vec<f32>>, character_memory::CustomError> {
+    ) -> std::result::Result<Vec<Vec<f32>>, character_memory::EmbeddingError> {
         Ok(texts
             .iter()
             .map(|text| self.inner.vector_for_text(text))
@@ -4642,25 +4753,24 @@ impl EmbeddingProvider for CharacterMemoryControllableSimilarityEmbeddingProvide
     async fn generate_embedding<'a>(
         &self,
         text: &'a str,
-    ) -> std::result::Result<Vec<f32>, character_memory::CustomError> {
-        self.vector_for_text(text).map_err(|error| {
-            character_memory::CustomError::Embedding(
-                character_memory::EmbeddingError::Unrecognized(error.to_string()),
-            )
-        })
+    ) -> std::result::Result<Vec<f32>, character_memory::EmbeddingError> {
+        self.vector_for_text(text)
+            .map_err(|error| character_memory::EmbeddingError::Unrecognized {
+                detail: error.to_string(),
+            })
     }
 
     async fn bulk_generate_embeddings<'a>(
         &self,
         texts: &'a [&'a str],
-    ) -> std::result::Result<Vec<Vec<f32>>, character_memory::CustomError> {
+    ) -> std::result::Result<Vec<Vec<f32>>, character_memory::EmbeddingError> {
         texts
             .iter()
             .map(|text| {
                 self.vector_for_text(text).map_err(|error| {
-                    character_memory::CustomError::Embedding(
-                        character_memory::EmbeddingError::Unrecognized(error.to_string()),
-                    )
+                    character_memory::EmbeddingError::Unrecognized {
+                        detail: error.to_string(),
+                    }
                 })
             })
             .collect()
@@ -4676,25 +4786,24 @@ impl EmbeddingProvider for CharacterMemoryFrozenEmbeddingProvider {
     async fn generate_embedding<'a>(
         &self,
         text: &'a str,
-    ) -> std::result::Result<Vec<f32>, character_memory::CustomError> {
-        self.vector_for_text(text).map_err(|error| {
-            character_memory::CustomError::Embedding(
-                character_memory::EmbeddingError::Unrecognized(error.to_string()),
-            )
-        })
+    ) -> std::result::Result<Vec<f32>, character_memory::EmbeddingError> {
+        self.vector_for_text(text)
+            .map_err(|error| character_memory::EmbeddingError::Unrecognized {
+                detail: error.to_string(),
+            })
     }
 
     async fn bulk_generate_embeddings<'a>(
         &self,
         texts: &'a [&'a str],
-    ) -> std::result::Result<Vec<Vec<f32>>, character_memory::CustomError> {
+    ) -> std::result::Result<Vec<Vec<f32>>, character_memory::EmbeddingError> {
         texts
             .iter()
             .map(|text| {
                 self.vector_for_text(text).map_err(|error| {
-                    character_memory::CustomError::Embedding(
-                        character_memory::EmbeddingError::Unrecognized(error.to_string()),
-                    )
+                    character_memory::EmbeddingError::Unrecognized {
+                        detail: error.to_string(),
+                    }
                 })
             })
             .collect()
@@ -4830,6 +4939,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn io_error_kind_projection_preserves_typed_variants_and_unknown_marker() {
+        assert_eq!(
+            vector_database_kind_from_live(&VectorDatabaseErrorKind::Io {
+                io_kind: character_memory::IoErrorKind::ConnectionRefused,
+            }),
+            EvalVectorDatabaseErrorKind::Io {
+                io_kind: cmem_eval_core::IoErrorKindRecord::ConnectionRefused,
+            }
+        );
+        assert_eq!(
+            vector_database_kind_from_live(&VectorDatabaseErrorKind::Io {
+                io_kind: character_memory::IoErrorKind::Unrecognized,
+            }),
+            EvalVectorDatabaseErrorKind::Io {
+                io_kind: cmem_eval_core::IoErrorKindRecord::Unrecognized,
+            }
+        );
+    }
+
     #[tokio::test]
     async fn frozen_provider_uses_exact_fixture_text_after_runtime_prefixes() {
         let store = FrozenEmbeddingStore::new(
@@ -4861,10 +4990,12 @@ mod tests {
         let error = provider
             .generate_embedding("Episode summary: This text is absent.")
             .await
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("frozen embedding cache miss"), "{error}");
-        assert!(error.contains("cmem-eval embeddings generate"), "{error}");
+            .unwrap_err();
+        let character_memory::EmbeddingError::Unrecognized { detail } = error else {
+            panic!("frozen provider returned a non-Unrecognized embedding error: {error:?}");
+        };
+        assert!(detail.contains("frozen embedding cache miss"), "{detail}");
+        assert!(detail.contains("cmem-eval embeddings generate"), "{detail}");
     }
 
     #[tokio::test]
@@ -5056,12 +5187,12 @@ mod tests {
                     &error.kind,
                     VectorDatabaseErrorKind::Io { io_kind }
                         if matches!(
-                            io_kind.as_str(),
-                            "ConnectionRefused"
-                                | "ConnectionReset"
-                                | "ConnectionAborted"
-                                | "NotConnected"
-                                | "TimedOut"
+                            io_kind,
+                            character_memory::IoErrorKind::ConnectionRefused
+                                | character_memory::IoErrorKind::ConnectionReset
+                                | character_memory::IoErrorKind::ConnectionAborted
+                                | character_memory::IoErrorKind::NotConnected
+                                | character_memory::IoErrorKind::TimedOut
                         )
                 ))
     }
@@ -5646,9 +5777,11 @@ mod tests {
         let error = provider
             .generate_embedding("unassigned text")
             .await
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("no assignment"));
+            .unwrap_err();
+        let character_memory::EmbeddingError::Unrecognized { detail } = error else {
+            panic!("controllable provider returned a non-Unrecognized embedding error: {error:?}");
+        };
+        assert!(detail.contains("no assignment"));
     }
 
     #[tokio::test]

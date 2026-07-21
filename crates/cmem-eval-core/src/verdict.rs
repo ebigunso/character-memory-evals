@@ -353,13 +353,58 @@ pub enum VectorDatabaseErrorKind {
     Conversion,
     InvalidUri,
     NoSnapshotFound,
-    Io { io_kind: String },
+    Io { io_kind: IoErrorKindRecord },
     HttpTimeout,
     HttpConnect,
     HttpStatus,
     Http,
     JsonToPayload,
     PayloadDeserialization,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum IoErrorKindRecord {
+    NotFound,
+    PermissionDenied,
+    ConnectionRefused,
+    ConnectionReset,
+    HostUnreachable,
+    NetworkUnreachable,
+    ConnectionAborted,
+    NotConnected,
+    AddrInUse,
+    AddrNotAvailable,
+    NetworkDown,
+    BrokenPipe,
+    AlreadyExists,
+    WouldBlock,
+    NotADirectory,
+    IsADirectory,
+    DirectoryNotEmpty,
+    ReadOnlyFilesystem,
+    StaleNetworkFileHandle,
+    InvalidInput,
+    InvalidData,
+    TimedOut,
+    WriteZero,
+    StorageFull,
+    NotSeekable,
+    QuotaExceeded,
+    FileTooLarge,
+    ResourceBusy,
+    ExecutableFileBusy,
+    Deadlock,
+    CrossesDevices,
+    TooManyLinks,
+    InvalidFilename,
+    ArgumentListTooLong,
+    Interrupted,
+    Unsupported,
+    UnexpectedEof,
+    OutOfMemory,
+    Other,
+    Unrecognized,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -647,4 +692,68 @@ pub fn deterministic_operation_id<'a>(
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     format!("{operation}:{encoded}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_io_error_kind_record_round_trips_through_serde() {
+        let kinds = vec![
+            IoErrorKindRecord::NotFound,
+            IoErrorKindRecord::PermissionDenied,
+            IoErrorKindRecord::ConnectionRefused,
+            IoErrorKindRecord::ConnectionReset,
+            IoErrorKindRecord::HostUnreachable,
+            IoErrorKindRecord::NetworkUnreachable,
+            IoErrorKindRecord::ConnectionAborted,
+            IoErrorKindRecord::NotConnected,
+            IoErrorKindRecord::AddrInUse,
+            IoErrorKindRecord::AddrNotAvailable,
+            IoErrorKindRecord::NetworkDown,
+            IoErrorKindRecord::BrokenPipe,
+            IoErrorKindRecord::AlreadyExists,
+            IoErrorKindRecord::WouldBlock,
+            IoErrorKindRecord::NotADirectory,
+            IoErrorKindRecord::IsADirectory,
+            IoErrorKindRecord::DirectoryNotEmpty,
+            IoErrorKindRecord::ReadOnlyFilesystem,
+            IoErrorKindRecord::StaleNetworkFileHandle,
+            IoErrorKindRecord::InvalidInput,
+            IoErrorKindRecord::InvalidData,
+            IoErrorKindRecord::TimedOut,
+            IoErrorKindRecord::WriteZero,
+            IoErrorKindRecord::StorageFull,
+            IoErrorKindRecord::NotSeekable,
+            IoErrorKindRecord::QuotaExceeded,
+            IoErrorKindRecord::FileTooLarge,
+            IoErrorKindRecord::ResourceBusy,
+            IoErrorKindRecord::ExecutableFileBusy,
+            IoErrorKindRecord::Deadlock,
+            IoErrorKindRecord::CrossesDevices,
+            IoErrorKindRecord::TooManyLinks,
+            IoErrorKindRecord::InvalidFilename,
+            IoErrorKindRecord::ArgumentListTooLong,
+            IoErrorKindRecord::Interrupted,
+            IoErrorKindRecord::Unsupported,
+            IoErrorKindRecord::UnexpectedEof,
+            IoErrorKindRecord::OutOfMemory,
+            IoErrorKindRecord::Other,
+            IoErrorKindRecord::Unrecognized,
+        ];
+
+        for kind in kinds {
+            let value = serde_json::to_value(&kind).unwrap();
+            assert_eq!(
+                serde_json::from_value::<IoErrorKindRecord>(value).unwrap(),
+                kind
+            );
+        }
+
+        assert_eq!(
+            serde_json::to_value(IoErrorKindRecord::Unrecognized).unwrap(),
+            serde_json::json!({ "kind": "unrecognized" })
+        );
+    }
 }
