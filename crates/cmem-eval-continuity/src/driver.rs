@@ -29,6 +29,7 @@ pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "2.0.0";
 const LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContinuityQueryTrace {
     pub schema_version: String,
     pub fixture_id: String,
@@ -1590,6 +1591,43 @@ mod tests {
             error.contains("mixed continuity trace schema versions"),
             "{error}"
         );
+    }
+
+    #[tokio::test]
+    async fn v2_trace_reader_rejects_shape_drift_while_sealed_v1_stays_tolerant() {
+        let (traces, _, _) = run_all().await;
+        let path = temporary_trace_path();
+
+        let mut current = serde_json::to_value(&traces[0]).unwrap();
+        current["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut legacy = serde_json::to_value(&traces[0]).unwrap();
+        let object = legacy.as_object_mut().unwrap();
+        object.insert(
+            "schema_version".to_string(),
+            Value::String(LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION.to_string()),
+        );
+        object.insert("sealed_legacy_extra".to_string(), Value::Bool(true));
+        object.remove("write_outcomes");
+        object.remove("lifecycle_outcomes");
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&legacy).unwrap()),
+        )
+        .unwrap();
+        assert!(matches!(
+            read_continuity_traces(&path).unwrap().as_slice(),
+            [VersionedContinuityQueryTrace::V1(_)]
+        ));
+
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

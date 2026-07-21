@@ -513,13 +513,78 @@ pub enum VectorIndexingCauseRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "cause", rename_all = "snake_case")]
+#[serde(tag = "cause", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StatsUpdateCauseRecord {
-    EndpointHydration { detail: String },
-    EdgeWrite { detail: String },
-    ObjectStateWrite { detail: String },
-    HealthCheck { detail: String },
-    StoreUnhealthy { detail: Option<String> },
+    EndpointHydration {
+        error: GraphQueryErrorRecord,
+    },
+    EdgeWrite {
+        error: RetrievalStatsStoreErrorRecord,
+    },
+    ObjectStateWrite {
+        error: RetrievalStatsStoreErrorRecord,
+    },
+    HealthCheck {
+        error: RetrievalStatsStoreErrorRecord,
+    },
+    HealthMark {
+        error: RetrievalStatsStoreErrorRecord,
+    },
+    StoreUnhealthy {
+        health_cause: Option<RetrievalStatsHealthCauseRecord>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum GraphQueryErrorRecord {
+    Selection { detail: String },
+    Hydration { detail: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RetrievalStatsStoreErrorRecord {
+    Sqlite {
+        detail: String,
+    },
+    Filesystem {
+        io_kind: IoErrorKindRecord,
+        detail: String,
+    },
+    LockPoisoned,
+    HealthSerialization {
+        detail: String,
+    },
+    HealthDeserialization {
+        detail: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RetrievalStatsHealthCauseRecord {
+    StoreInitialization {
+        error: RetrievalStatsStoreErrorRecord,
+    },
+    EndpointHydration {
+        error: GraphQueryErrorRecord,
+    },
+    EdgeWrite {
+        error: RetrievalStatsStoreErrorRecord,
+    },
+    ObjectStateWrite {
+        error: RetrievalStatsStoreErrorRecord,
+    },
+    HealthCheck {
+        error: RetrievalStatsStoreErrorRecord,
+    },
+    CounterRead {
+        error: RetrievalStatsStoreErrorRecord,
+    },
+    GlobalCounterRead {
+        error: RetrievalStatsStoreErrorRecord,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -531,7 +596,7 @@ pub enum RepairMarkerRecord {
     },
     StatsUpdate {
         object_internal_ids: Vec<String>,
-        cause: StatsUpdateCauseRecord,
+        causes: Vec<StatsUpdateCauseRecord>,
     },
 }
 
@@ -544,7 +609,7 @@ pub struct VectorIndexingFailureRecord {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StatsUpdateFailureRecord {
     pub failed_object_internal_ids: Vec<String>,
-    pub cause: StatsUpdateCauseRecord,
+    pub causes: Vec<StatsUpdateCauseRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -754,6 +819,134 @@ mod tests {
         assert_eq!(
             serde_json::to_value(IoErrorKindRecord::Unrecognized).unwrap(),
             serde_json::json!({ "kind": "unrecognized" })
+        );
+    }
+
+    #[test]
+    fn typed_stats_cause_records_round_trip_without_flattening() {
+        let graph_errors = vec![
+            GraphQueryErrorRecord::Selection {
+                detail: "selection".into(),
+            },
+            GraphQueryErrorRecord::Hydration {
+                detail: "hydration".into(),
+            },
+        ];
+        for error in graph_errors {
+            let value = serde_json::to_value(&error).unwrap();
+            assert_eq!(
+                serde_json::from_value::<GraphQueryErrorRecord>(value).unwrap(),
+                error
+            );
+        }
+
+        let store_errors = vec![
+            RetrievalStatsStoreErrorRecord::Sqlite {
+                detail: "sqlite".into(),
+            },
+            RetrievalStatsStoreErrorRecord::Filesystem {
+                io_kind: IoErrorKindRecord::PermissionDenied,
+                detail: "filesystem".into(),
+            },
+            RetrievalStatsStoreErrorRecord::LockPoisoned,
+            RetrievalStatsStoreErrorRecord::HealthSerialization {
+                detail: "serialize".into(),
+            },
+            RetrievalStatsStoreErrorRecord::HealthDeserialization {
+                detail: "deserialize".into(),
+            },
+        ];
+        for error in store_errors {
+            let value = serde_json::to_value(&error).unwrap();
+            assert_eq!(
+                serde_json::from_value::<RetrievalStatsStoreErrorRecord>(value).unwrap(),
+                error
+            );
+        }
+
+        let health_causes = vec![
+            RetrievalStatsHealthCauseRecord::StoreInitialization {
+                error: RetrievalStatsStoreErrorRecord::LockPoisoned,
+            },
+            RetrievalStatsHealthCauseRecord::EndpointHydration {
+                error: GraphQueryErrorRecord::Hydration {
+                    detail: "hydrate".into(),
+                },
+            },
+            RetrievalStatsHealthCauseRecord::EdgeWrite {
+                error: RetrievalStatsStoreErrorRecord::LockPoisoned,
+            },
+            RetrievalStatsHealthCauseRecord::ObjectStateWrite {
+                error: RetrievalStatsStoreErrorRecord::LockPoisoned,
+            },
+            RetrievalStatsHealthCauseRecord::HealthCheck {
+                error: RetrievalStatsStoreErrorRecord::LockPoisoned,
+            },
+            RetrievalStatsHealthCauseRecord::CounterRead {
+                error: RetrievalStatsStoreErrorRecord::LockPoisoned,
+            },
+            RetrievalStatsHealthCauseRecord::GlobalCounterRead {
+                error: RetrievalStatsStoreErrorRecord::LockPoisoned,
+            },
+        ];
+        for cause in health_causes {
+            let value = serde_json::to_value(&cause).unwrap();
+            assert_eq!(
+                serde_json::from_value::<RetrievalStatsHealthCauseRecord>(value).unwrap(),
+                cause
+            );
+        }
+
+        let causes = vec![
+            StatsUpdateCauseRecord::EndpointHydration {
+                error: GraphQueryErrorRecord::Selection {
+                    detail: "select".into(),
+                },
+            },
+            StatsUpdateCauseRecord::EdgeWrite {
+                error: RetrievalStatsStoreErrorRecord::Sqlite {
+                    detail: "edge".into(),
+                },
+            },
+            StatsUpdateCauseRecord::ObjectStateWrite {
+                error: RetrievalStatsStoreErrorRecord::Filesystem {
+                    io_kind: IoErrorKindRecord::TimedOut,
+                    detail: "state".into(),
+                },
+            },
+            StatsUpdateCauseRecord::HealthCheck {
+                error: RetrievalStatsStoreErrorRecord::LockPoisoned,
+            },
+            StatsUpdateCauseRecord::HealthMark {
+                error: RetrievalStatsStoreErrorRecord::HealthSerialization {
+                    detail: "health".into(),
+                },
+            },
+            StatsUpdateCauseRecord::StoreUnhealthy {
+                health_cause: Some(RetrievalStatsHealthCauseRecord::GlobalCounterRead {
+                    error: RetrievalStatsStoreErrorRecord::HealthDeserialization {
+                        detail: "counter".into(),
+                    },
+                }),
+            },
+        ];
+        let value = serde_json::to_value(&causes).unwrap();
+        assert_eq!(value[0]["cause"], "endpoint_hydration");
+        assert_eq!(value[0]["error"]["kind"], "selection");
+        assert_eq!(value[5]["health_cause"]["operation"], "global_counter_read");
+        assert_eq!(
+            serde_json::from_value::<Vec<StatsUpdateCauseRecord>>(value).unwrap(),
+            causes
+        );
+        assert!(
+            serde_json::from_value::<StatsUpdateCauseRecord>(serde_json::json!({
+                "cause": "health_check",
+                "error": { "kind": "lock_poisoned" },
+                "unexpected_v2_field": true
+            }))
+            .unwrap_err()
+            .to_string()
+            .contains("unknown field")
         );
     }
 }

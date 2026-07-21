@@ -117,6 +117,7 @@ pub enum EmbeddingBindingRecord {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct RetrievalSectionBudgets {
     pub active_threads: usize,
     pub relevant_episodes: usize,
@@ -146,6 +147,7 @@ impl Default for RetrievalSectionBudgets {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct RetrievalSurfacePolicy {
     pub sections: RetrievalSectionBudgets,
     pub object_types: Vec<ObjectType>,

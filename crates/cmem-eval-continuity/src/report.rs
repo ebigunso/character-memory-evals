@@ -22,6 +22,7 @@ use crate::{
 pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "2.0.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContinuityReport {
     pub schema_version: String,
     pub metadata: ContinuityReportMetadata,
@@ -29,6 +30,7 @@ pub struct ContinuityReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContinuityReportMetadata {
     pub generated_at: DateTime<Utc>,
     pub run_id: String,
@@ -47,12 +49,14 @@ pub struct ContinuityReportMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ReportNormalization {
     pub nondeterministic_paths: Vec<String>,
     pub excluded_nondeterministic_sources: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContinuityReportContent {
     pub aggregate: AggregateContinuityReport,
     pub scenarios: BTreeMap<String, ScenarioContinuityReport>,
@@ -60,6 +64,7 @@ pub struct ContinuityReportContent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AggregateContinuityReport {
     pub query_count: usize,
     pub restart_count: usize,
@@ -69,6 +74,7 @@ pub struct AggregateContinuityReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ScenarioContinuityReport {
     pub pattern: String,
     pub query_count: usize,
@@ -82,6 +88,7 @@ pub struct ScenarioContinuityReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct QueryRationaleSample {
     pub query_id: String,
     pub query: String,
@@ -90,6 +97,7 @@ pub struct QueryRationaleSample {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RationaleSampleItem {
     pub rank: usize,
     pub object_id: String,
@@ -98,6 +106,7 @@ pub struct RationaleSampleItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct QueryFanoutDecisions {
     pub query_id: String,
     pub utilization: Option<Vec<RetrievalFanoutUtilization>>,
@@ -105,6 +114,7 @@ pub struct QueryFanoutDecisions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct StatsHealthEvent {
     pub query_id: String,
     pub status: String,
@@ -114,6 +124,7 @@ pub struct StatsHealthEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TuningObservation {
     pub id: String,
     pub finding: String,
@@ -780,5 +791,66 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn report_reader_rejects_root_and_nested_v2_shape_drift() {
+        let path = std::env::temp_dir().join(format!(
+            "cmem-continuity-report-shape-drift-{}.json",
+            Uuid::new_v4()
+        ));
+        let report = ContinuityReport {
+            schema_version: CONTINUITY_REPORT_SCHEMA_VERSION.to_string(),
+            metadata: ContinuityReportMetadata {
+                generated_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
+                run_id: "shape-drift".to_string(),
+                dataset: DatasetId::new("continuity").unwrap(),
+                dataset_kind: DatasetKind::Continuity,
+                embedding_bindings: Vec::new(),
+                degradation: DegradationSummary::default(),
+                adapter: RunAdapterMetadata::mock_smoke(),
+                fixture_schema_version: 1,
+                fixture_seed: 1,
+                embedding_seeds: BTreeMap::new(),
+                fixture_ids: Vec::new(),
+                config: serde_json::json!({}),
+                schema_versions: BTreeMap::new(),
+                normalization: ReportNormalization {
+                    nondeterministic_paths: Vec::new(),
+                    excluded_nondeterministic_sources: Vec::new(),
+                },
+            },
+            content: ContinuityReportContent {
+                aggregate: AggregateContinuityReport {
+                    query_count: 0,
+                    restart_count: 0,
+                    metrics: serde_json::json!({}),
+                    metric_support: serde_json::json!({}),
+                    registry_coverage: serde_json::json!({}),
+                },
+                scenarios: BTreeMap::new(),
+                tuning_observations: Vec::new(),
+            },
+        };
+
+        let mut drifted = serde_json::to_value(&report).unwrap();
+        drifted["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&drifted).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut nested_drift = serde_json::to_value(&report).unwrap();
+        nested_drift["metadata"]["normalization"]["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&nested_drift).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut incomplete = serde_json::to_value(&report).unwrap();
+        incomplete.as_object_mut().unwrap().remove("content");
+        std::fs::write(&path, serde_json::to_vec(&incomplete).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("missing field `content`"), "{error}");
+
+        std::fs::remove_file(path).unwrap();
     }
 }

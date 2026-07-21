@@ -673,6 +673,14 @@ mod tests {
                 "retrieval_typo",
             ),
             (
+                serde_json::json!({"retrieval": {"surface_policy": {"surface_typo": true}}}),
+                "surface_typo",
+            ),
+            (
+                serde_json::json!({"retrieval": {"surface_policy": {"sections": {"section_typo": true}}}}),
+                "section_typo",
+            ),
+            (
                 serde_json::json!({"ingest": {"ingest_typo": true}}),
                 "ingest_typo",
             ),

@@ -16,6 +16,7 @@ pub const RESULT_SCHEMA_VERSION: &str = "2.0.0";
 const LEGACY_RESULT_SCHEMA_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PerQuestionResult {
     pub run_id: String,
     pub dataset: DatasetId,
@@ -35,15 +36,10 @@ pub struct PerQuestionResult {
     pub latency_ms: u128,
     pub context_char_count: usize,
     pub context_word_count: usize,
-    #[serde(default)]
     pub context: ResultContextMetrics,
-    #[serde(default)]
     pub telemetry: RetrievalTelemetry,
-    #[serde(default)]
     pub composition: ResultCompositionMetrics,
-    #[serde(default)]
     pub integrity: ResultIntegrityDetails,
-    #[serde(default)]
     pub reader: ReaderResult,
 }
 
@@ -143,6 +139,7 @@ impl VersionedPerQuestionResult {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RunSummary {
     pub schema_version: String,
     pub run_id: String,
@@ -448,7 +445,14 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<VersionedPerQuestionResult>> {
                 VersionedPerQuestionResult::V1(Box::new(serde_json::from_value(value)?))
             }
             RowSchema::CurrentV2 => {
-                VersionedPerQuestionResult::V2(Box::new(serde_json::from_value(value)?))
+                let mut row_value = value;
+                // The writer adds schema_version as envelope metadata; the
+                // strict DTO models only the result payload after dispatch.
+                row_value
+                    .as_object_mut()
+                    .expect("validated result rows are JSON objects")
+                    .remove("schema_version");
+                VersionedPerQuestionResult::V2(Box::new(serde_json::from_value(row_value)?))
             }
         };
         if rows.first().is_some_and(|first| {
@@ -687,9 +691,11 @@ mod tests {
         );
         write.repair_needed.push(RepairMarkerRecord::StatsUpdate {
             object_internal_ids: vec![object.internal_id.clone()],
-            cause: crate::StatsUpdateCauseRecord::HealthCheck {
-                detail: "unavailable".into(),
-            },
+            causes: vec![crate::StatsUpdateCauseRecord::HealthCheck {
+                error: crate::RetrievalStatsStoreErrorRecord::Sqlite {
+                    detail: "unavailable".into(),
+                },
+            }],
         });
         let mut lifecycle = LifecycleOutcomeRecord::clean(
             "lifecycle-operation-1",
@@ -855,6 +861,46 @@ mod tests {
     }
 
     #[test]
+    fn v2_result_reader_rejects_shape_drift_while_sealed_v1_stays_tolerant() {
+        let path = temp_path("results-shape-drift", "jsonl");
+
+        let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
+        current["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
+        current.as_object_mut().unwrap().remove("context");
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
+        assert!(error.contains("missing field `context`"), "{error}");
+
+        let mut legacy = versioned_row_value(&row(serde_json::json!({}))).unwrap();
+        legacy["schema_version"] = Value::String(LEGACY_RESULT_SCHEMA_VERSION.into());
+        legacy["sealed_legacy_extra"] = Value::Bool(true);
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&legacy).unwrap()),
+        )
+        .unwrap();
+        assert!(matches!(
+            read_jsonl(&path).unwrap().as_slice(),
+            [VersionedPerQuestionResult::V1(_)]
+        ));
+
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn read_jsonl_rejects_invalid_encoding_partial_input_and_bad_schema() {
         let path = temp_path("results-invalid", "jsonl");
         for (bytes, expected) in [
@@ -911,6 +957,25 @@ mod tests {
             let error = read_summary(&path).unwrap_err().to_string();
             assert!(error.contains(expected), "{error}");
         }
+
+        let mut drifted = serde_json::to_value(&summary).unwrap();
+        drifted["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&drifted).unwrap()).unwrap();
+        let error = format!("{:#}", read_summary(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut incomplete = serde_json::to_value(&summary).unwrap();
+        incomplete
+            .as_object_mut()
+            .unwrap()
+            .remove("embedding_bindings");
+        std::fs::write(&path, serde_json::to_vec(&incomplete).unwrap()).unwrap();
+        let error = format!("{:#}", read_summary(&path).unwrap_err());
+        assert!(
+            error.contains("missing field `embedding_bindings`"),
+            "{error}"
+        );
+
         std::fs::remove_file(path).unwrap();
     }
 }

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 const OPENAI_EMBEDDINGS_ENDPOINT: &str = "https://api.openai.com/v1/embeddings";
+const OPENAI_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbeddingRetryPolicy {
@@ -28,7 +29,10 @@ pub struct OpenAiEmbeddingClient {
 impl Default for OpenAiEmbeddingClient {
     fn default() -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .timeout(OPENAI_REQUEST_TIMEOUT)
+                .build()
+                .expect("the static OpenAI embedding HTTP client configuration is valid"),
             endpoint: OPENAI_EMBEDDINGS_ENDPOINT.to_string(),
         }
     }
@@ -181,6 +185,11 @@ fn ordered_embeddings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_client_keeps_a_bounded_five_minute_request_timeout() {
+        assert_eq!(OPENAI_REQUEST_TIMEOUT, Duration::from_secs(300));
+    }
 
     fn response(
         model: &str,

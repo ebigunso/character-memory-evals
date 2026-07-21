@@ -1126,7 +1126,7 @@ impl DatasetSpec for LongMemEvalSpec {
     }
 
     fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
-        validate_dataset_name(config, "longmemeval_s")
+        cmem_eval_longmemeval::validate_config(config)
     }
 
     fn load(path: &Path) -> Result<Vec<Self::Item>> {
@@ -1240,7 +1240,7 @@ impl DatasetSpec for LoCoMoSpec {
     }
 
     fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
-        validate_dataset_name(config, "locomo")
+        cmem_eval_locomo::validate_config(config)
     }
 
     fn load(path: &Path) -> Result<Vec<Self::Item>> {

@@ -36,18 +36,20 @@ use cmem_eval_core::{
     EpisodeInput, ExternalSourceRefInput, ForgetMemoryInput, FrozenEmbeddingDimensionPolicy,
     FrozenEmbeddingProvider, FrozenEmbeddingSource, GraphEnrichmentInput,
     GraphExpansionBoundedReason as EvalGraphExpansionBoundedReason, GraphExpansionSummary,
-    GraphFailureMode as EvalGraphFailureMode, LifecycleFilterReason as EvalLifecycleFilterReason,
-    LifecycleMutationResult, LifecycleOperationKind, LifecycleOutcomeRecord,
-    LifecycleWarningReason, LifecycleWarningRecord, LinkMemoryInput, LinkMemoryResult,
-    LiveEmbeddingProvider, MemoryAdapter, MemoryCandidateKind as EvalMemoryCandidateKind,
-    MemoryEndpointInput, MemoryLinkEndpoint as EvalMemoryLinkEndpoint, NamespaceLifecycleResult,
-    ObjectRefRecord, ObjectType as EvalObjectType, ObservationInput,
-    PlanIdentityField as EvalPlanIdentityField, PrepareWriteInput, PreparedCandidate,
-    PreparedWritePlan, RationaleOrigin as EvalRationaleOrigin, RelationType as EvalRelationType,
-    RepairMarkerRecord, ReplacementDerivedMemoryInput, RetentionState as EvalRetentionState,
+    GraphFailureMode as EvalGraphFailureMode, GraphQueryErrorRecord,
+    LifecycleFilterReason as EvalLifecycleFilterReason, LifecycleMutationResult,
+    LifecycleOperationKind, LifecycleOutcomeRecord, LifecycleWarningReason, LifecycleWarningRecord,
+    LinkMemoryInput, LinkMemoryResult, LiveEmbeddingProvider, MemoryAdapter,
+    MemoryCandidateKind as EvalMemoryCandidateKind, MemoryEndpointInput,
+    MemoryLinkEndpoint as EvalMemoryLinkEndpoint, NamespaceLifecycleResult, ObjectRefRecord,
+    ObjectType as EvalObjectType, ObservationInput, PlanIdentityField as EvalPlanIdentityField,
+    PrepareWriteInput, PreparedCandidate, PreparedWritePlan,
+    RationaleOrigin as EvalRationaleOrigin, RelationType as EvalRelationType, RepairMarkerRecord,
+    ReplacementDerivedMemoryInput, RetentionState as EvalRetentionState,
     RetrievalFanoutUtilization, RetrievalMode, RetrievalRationaleCategory, RetrievalSectionBudgets,
-    RetrievalSelectivityDecision, RetrievalSurfacePolicy, RetrievalTelemetry, RetrieveInput,
-    RetrievedContextPack, RetrievedItem, SectionPressureSummary as EvalSectionPressureSummary,
+    RetrievalSelectivityDecision, RetrievalStatsHealthCauseRecord, RetrievalStatsStoreErrorRecord,
+    RetrievalSurfacePolicy, RetrievalTelemetry, RetrieveInput, RetrievedContextPack, RetrievedItem,
+    SectionPressureSummary as EvalSectionPressureSummary,
     SelectivityCountScope as EvalSelectivityCountScope,
     SelectivityDecision as EvalSelectivityDecision, SelectivitySummary, SourceProvenanceInput,
     Stability as EvalStability, StaleCandidateReason as EvalStaleCandidateReason,
@@ -3022,7 +3024,11 @@ fn write_outcome_from_live(
                         .iter()
                         .map(ToString::to_string)
                         .collect(),
-                    cause: stats_update_cause_from_live(&failure.cause),
+                    causes: failure
+                        .causes
+                        .iter()
+                        .map(stats_update_cause_from_live)
+                        .collect(),
                 }
             }),
         },
@@ -3260,10 +3266,10 @@ fn repair_marker_from_live(marker: &character_memory::RepairMarker) -> RepairMar
                 .collect(),
             cause: vector_indexing_cause_from_live(cause),
         },
-        character_memory::RepairMarker::StatsUpdate { object_ids, cause } => {
+        character_memory::RepairMarker::StatsUpdate { object_ids, causes } => {
             RepairMarkerRecord::StatsUpdate {
                 object_internal_ids: object_ids.iter().map(ToString::to_string).collect(),
-                cause: stats_update_cause_from_live(cause),
+                causes: causes.iter().map(stats_update_cause_from_live).collect(),
             }
         }
     }
@@ -3273,29 +3279,124 @@ fn stats_update_cause_from_live(
     cause: &character_memory::StatsUpdateCause,
 ) -> StatsUpdateCauseRecord {
     match cause {
-        character_memory::StatsUpdateCause::EndpointHydration { detail } => {
+        character_memory::StatsUpdateCause::EndpointHydration { error } => {
             StatsUpdateCauseRecord::EndpointHydration {
-                detail: detail.clone(),
+                error: graph_query_error_from_live(error),
             }
         }
-        character_memory::StatsUpdateCause::EdgeWrite { detail } => {
+        character_memory::StatsUpdateCause::EdgeWrite { error } => {
             StatsUpdateCauseRecord::EdgeWrite {
-                detail: detail.clone(),
+                error: retrieval_stats_store_error_from_live(error),
             }
         }
-        character_memory::StatsUpdateCause::ObjectStateWrite { detail } => {
+        character_memory::StatsUpdateCause::ObjectStateWrite { error } => {
             StatsUpdateCauseRecord::ObjectStateWrite {
-                detail: detail.clone(),
+                error: retrieval_stats_store_error_from_live(error),
             }
         }
-        character_memory::StatsUpdateCause::HealthCheck { detail } => {
+        character_memory::StatsUpdateCause::HealthCheck { error } => {
             StatsUpdateCauseRecord::HealthCheck {
+                error: retrieval_stats_store_error_from_live(error),
+            }
+        }
+        character_memory::StatsUpdateCause::HealthMark { error } => {
+            StatsUpdateCauseRecord::HealthMark {
+                error: retrieval_stats_store_error_from_live(error),
+            }
+        }
+        character_memory::StatsUpdateCause::StoreUnhealthy { health_cause } => {
+            StatsUpdateCauseRecord::StoreUnhealthy {
+                health_cause: health_cause
+                    .as_ref()
+                    .map(retrieval_stats_health_cause_from_live),
+            }
+        }
+    }
+}
+
+fn graph_query_error_from_live(error: &character_memory::GraphQueryError) -> GraphQueryErrorRecord {
+    match error {
+        character_memory::GraphQueryError::Selection { detail } => {
+            GraphQueryErrorRecord::Selection {
                 detail: detail.clone(),
             }
         }
-        character_memory::StatsUpdateCause::StoreUnhealthy { detail } => {
-            StatsUpdateCauseRecord::StoreUnhealthy {
+        character_memory::GraphQueryError::Hydration { detail } => {
+            GraphQueryErrorRecord::Hydration {
                 detail: detail.clone(),
+            }
+        }
+    }
+}
+
+fn retrieval_stats_store_error_from_live(
+    error: &character_memory::RetrievalStatsStoreError,
+) -> RetrievalStatsStoreErrorRecord {
+    match error {
+        character_memory::RetrievalStatsStoreError::Sqlite { detail } => {
+            RetrievalStatsStoreErrorRecord::Sqlite {
+                detail: detail.clone(),
+            }
+        }
+        character_memory::RetrievalStatsStoreError::Filesystem { io_kind, detail } => {
+            RetrievalStatsStoreErrorRecord::Filesystem {
+                io_kind: io_error_kind_from_live(io_kind),
+                detail: detail.clone(),
+            }
+        }
+        character_memory::RetrievalStatsStoreError::LockPoisoned => {
+            RetrievalStatsStoreErrorRecord::LockPoisoned
+        }
+        character_memory::RetrievalStatsStoreError::HealthSerialization { detail } => {
+            RetrievalStatsStoreErrorRecord::HealthSerialization {
+                detail: detail.clone(),
+            }
+        }
+        character_memory::RetrievalStatsStoreError::HealthDeserialization { detail } => {
+            RetrievalStatsStoreErrorRecord::HealthDeserialization {
+                detail: detail.clone(),
+            }
+        }
+    }
+}
+
+fn retrieval_stats_health_cause_from_live(
+    cause: &character_memory::RetrievalStatsHealthCause,
+) -> RetrievalStatsHealthCauseRecord {
+    match cause {
+        character_memory::RetrievalStatsHealthCause::StoreInitialization { error } => {
+            RetrievalStatsHealthCauseRecord::StoreInitialization {
+                error: retrieval_stats_store_error_from_live(error),
+            }
+        }
+        character_memory::RetrievalStatsHealthCause::EndpointHydration { error } => {
+            RetrievalStatsHealthCauseRecord::EndpointHydration {
+                error: graph_query_error_from_live(error),
+            }
+        }
+        character_memory::RetrievalStatsHealthCause::EdgeWrite { error } => {
+            RetrievalStatsHealthCauseRecord::EdgeWrite {
+                error: retrieval_stats_store_error_from_live(error),
+            }
+        }
+        character_memory::RetrievalStatsHealthCause::ObjectStateWrite { error } => {
+            RetrievalStatsHealthCauseRecord::ObjectStateWrite {
+                error: retrieval_stats_store_error_from_live(error),
+            }
+        }
+        character_memory::RetrievalStatsHealthCause::HealthCheck { error } => {
+            RetrievalStatsHealthCauseRecord::HealthCheck {
+                error: retrieval_stats_store_error_from_live(error),
+            }
+        }
+        character_memory::RetrievalStatsHealthCause::CounterRead { error } => {
+            RetrievalStatsHealthCauseRecord::CounterRead {
+                error: retrieval_stats_store_error_from_live(error),
+            }
+        }
+        character_memory::RetrievalStatsHealthCause::GlobalCounterRead { error } => {
+            RetrievalStatsHealthCauseRecord::GlobalCounterRead {
+                error: retrieval_stats_store_error_from_live(error),
             }
         }
     }
@@ -4955,6 +5056,106 @@ mod tests {
             }),
             EvalVectorDatabaseErrorKind::Io {
                 io_kind: cmem_eval_core::IoErrorKindRecord::Unrecognized,
+            }
+        );
+    }
+
+    #[test]
+    fn stats_update_projection_preserves_typed_multi_cause_structure() {
+        let live_causes = vec![
+            character_memory::StatsUpdateCause::EndpointHydration {
+                error: character_memory::GraphQueryError::Selection {
+                    detail: "select endpoints".into(),
+                },
+            },
+            character_memory::StatsUpdateCause::EdgeWrite {
+                error: character_memory::RetrievalStatsStoreError::Sqlite {
+                    detail: "write edges".into(),
+                },
+            },
+            character_memory::StatsUpdateCause::ObjectStateWrite {
+                error: character_memory::RetrievalStatsStoreError::Filesystem {
+                    io_kind: character_memory::IoErrorKind::PermissionDenied,
+                    detail: "write states".into(),
+                },
+            },
+            character_memory::StatsUpdateCause::HealthCheck {
+                error: character_memory::RetrievalStatsStoreError::LockPoisoned,
+            },
+            character_memory::StatsUpdateCause::HealthMark {
+                error: character_memory::RetrievalStatsStoreError::HealthSerialization {
+                    detail: "mark unhealthy".into(),
+                },
+            },
+            character_memory::StatsUpdateCause::StoreUnhealthy {
+                health_cause: Some(
+                    character_memory::RetrievalStatsHealthCause::GlobalCounterRead {
+                        error: character_memory::RetrievalStatsStoreError::HealthDeserialization {
+                            detail: "read global counter".into(),
+                        },
+                    },
+                ),
+            },
+        ];
+        let expected = vec![
+            StatsUpdateCauseRecord::EndpointHydration {
+                error: GraphQueryErrorRecord::Selection {
+                    detail: "select endpoints".into(),
+                },
+            },
+            StatsUpdateCauseRecord::EdgeWrite {
+                error: RetrievalStatsStoreErrorRecord::Sqlite {
+                    detail: "write edges".into(),
+                },
+            },
+            StatsUpdateCauseRecord::ObjectStateWrite {
+                error: RetrievalStatsStoreErrorRecord::Filesystem {
+                    io_kind: cmem_eval_core::IoErrorKindRecord::PermissionDenied,
+                    detail: "write states".into(),
+                },
+            },
+            StatsUpdateCauseRecord::HealthCheck {
+                error: RetrievalStatsStoreErrorRecord::LockPoisoned,
+            },
+            StatsUpdateCauseRecord::HealthMark {
+                error: RetrievalStatsStoreErrorRecord::HealthSerialization {
+                    detail: "mark unhealthy".into(),
+                },
+            },
+            StatsUpdateCauseRecord::StoreUnhealthy {
+                health_cause: Some(RetrievalStatsHealthCauseRecord::GlobalCounterRead {
+                    error: RetrievalStatsStoreErrorRecord::HealthDeserialization {
+                        detail: "read global counter".into(),
+                    },
+                }),
+            },
+        ];
+
+        assert_eq!(
+            live_causes
+                .iter()
+                .map(stats_update_cause_from_live)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            graph_query_error_from_live(&character_memory::GraphQueryError::Hydration {
+                detail: "hydrate endpoints".into(),
+            }),
+            GraphQueryErrorRecord::Hydration {
+                detail: "hydrate endpoints".into(),
+            }
+        );
+
+        let marker = character_memory::RepairMarker::StatsUpdate {
+            object_ids: vec![Uuid::nil()],
+            causes: live_causes,
+        };
+        assert_eq!(
+            repair_marker_from_live(&marker),
+            RepairMarkerRecord::StatsUpdate {
+                object_internal_ids: vec![Uuid::nil().to_string()],
+                causes: expected,
             }
         );
     }
