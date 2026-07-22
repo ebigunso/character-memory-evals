@@ -408,6 +408,7 @@ mod tests {
             other => panic!("unsupported sample dataset {other:?}"),
         };
         PerQuestionResult {
+            schema_version: cmem_eval_core::RESULT_SCHEMA_VERSION.to_string(),
             run_id: "r".to_string(),
             dataset: DatasetId::new(dataset).unwrap(),
             dataset_kind,

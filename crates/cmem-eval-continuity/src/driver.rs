@@ -156,23 +156,25 @@ pub fn read_continuity_traces(path: &Path) -> Result<Vec<VersionedContinuityQuer
         if line.trim().is_empty() {
             continue;
         }
-        let value: Value = serde_json::from_str(&line).with_context(|| {
-            format!(
-                "parse continuity trace line {line_number} from {}",
-                path.display()
-            )
-        })?;
+        let schema_version = cmem_eval_core::serde_contract::schema_version_from_str(&line)
+            .with_context(|| {
+                format!(
+                    "parse continuity trace line {line_number} from {}",
+                    path.display()
+                )
+            })?;
         // Compatibility Policy sealed-artifact exemption: exact 1.0.0 trace
         // dispatch only. Reports stay strict 2.0.0 and no legacy artifact is
         // upgraded or rewritten.
         // Evidence: reports/v0-1-5-findings-register.md:363 and
         // runs/continuity/v0-1-5-baseline/shipped-a/traces.jsonl:1.
-        let trace = match value.get("schema_version").and_then(Value::as_str) {
+        let trace = match schema_version.as_deref() {
             Some(LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION) => {
-                VersionedContinuityQueryTrace::V1(Box::new(serde_json::from_value(value)?))
+                VersionedContinuityQueryTrace::V1(Box::new(serde_json::from_str(&line)?))
             }
             Some(CONTINUITY_TRACE_SCHEMA_VERSION) => {
-                VersionedContinuityQueryTrace::V2(Box::new(serde_json::from_value(value)?))
+                cmem_eval_core::serde_contract::reject_duplicate_json_keys(&line)?;
+                VersionedContinuityQueryTrace::V2(Box::new(serde_json::from_str(&line)?))
             }
             Some(version) => bail!(
                 "continuity trace line {line_number} in {} has schema_version {version:?}; expected {:?} or {:?}",
@@ -1621,6 +1623,47 @@ mod tests {
     async fn v2_trace_reader_rejects_shape_drift_while_sealed_v1_stays_tolerant() {
         let (traces, _, _) = run_all().await;
         let path = temporary_trace_path();
+
+        let current = serde_json::to_string(&traces[0]).unwrap();
+        let fixture_id = format!(r#""fixture_id":"{}""#, traces[0].fixture_id);
+        let duplicate_root = current.replacen(
+            &fixture_id,
+            &format!(r#"{fixture_id},"fixture_id":"{}""#, traces[0].fixture_id),
+            1,
+        );
+        assert_ne!(current, duplicate_root);
+        std::fs::write(&path, format!("{duplicate_root}\n")).unwrap();
+        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+        assert!(error.contains("duplicate JSON object key"), "{error}");
+
+        let mut verdict_trace = traces[0].clone();
+        let mut outcome = cmem_eval_core::WriteOutcomeRecord::clean(
+            "duplicate-verdict",
+            cmem_eval_core::WriteOperationKind::ExplicitCommit,
+        );
+        outcome.vector_indexing_failure = Some(cmem_eval_core::VectorIndexingFailureRecord {
+            unindexed_objects: Vec::new(),
+            cause: cmem_eval_core::VectorIndexingCauseRecord::VectorDatabase(
+                cmem_eval_core::VectorDatabaseErrorRecord {
+                    backend: "qdrant".to_string(),
+                    kind: cmem_eval_core::VectorDatabaseErrorKind::Response,
+                    status: None,
+                    message: "rejected".to_string(),
+                    retry_after_seconds: None,
+                },
+            ),
+        });
+        verdict_trace.write_outcomes.push(outcome);
+        let current = serde_json::to_string(&verdict_trace).unwrap();
+        let duplicate_nested_verdict = current.replacen(
+            r#""kind":"response""#,
+            r#""kind":"response","kind":"response""#,
+            1,
+        );
+        assert_ne!(current, duplicate_nested_verdict);
+        std::fs::write(&path, format!("{duplicate_nested_verdict}\n")).unwrap();
+        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+        assert!(error.contains("duplicate JSON object key"), "{error}");
 
         let mut current = serde_json::to_value(&traces[0]).unwrap();
         current["unexpected_v2_field"] = Value::Bool(true);

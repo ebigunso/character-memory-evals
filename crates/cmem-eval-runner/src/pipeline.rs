@@ -533,6 +533,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
             let metrics = MetricsRecord::try_from(metrics)?;
             let (retrieved, context_text, _, _, telemetry) = pack.into_parts();
             rows.push(PerQuestionResult {
+                schema_version: cmem_eval_core::RESULT_SCHEMA_VERSION.to_string(),
                 run_id: config.run_id.clone(),
                 dataset: config.dataset.clone(),
                 dataset_kind: dataset.kind,
@@ -951,6 +952,7 @@ fn continuity_result_row(
         .as_str()
         .map(str::to_string);
     Ok(PerQuestionResult {
+        schema_version: cmem_eval_core::RESULT_SCHEMA_VERSION.to_string(),
         run_id: config.run_id.clone(),
         dataset: config.dataset.clone(),
         dataset_kind: DatasetKind::Continuity,

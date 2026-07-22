@@ -313,12 +313,16 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         || input.summary.num_questions != recomputed_summary.num_questions
     {
         bail!(
-            "continuity report summary identity/count does not match result rows: summary schema/bindings/count ({:?}, {:?}, {}), recomputed ({:?}, {:?}, {})",
+            "continuity report summary identity/count does not match result rows: summary schema/kind/bindings/degradation/count ({:?}, {:?}, {:?}, {:?}, {}), recomputed ({:?}, {:?}, {:?}, {:?}, {})",
             input.summary.schema_version,
+            input.summary.dataset_kind,
             input.summary.embedding_bindings,
+            input.summary.degradation,
             input.summary.num_questions,
             recomputed_summary.schema_version,
+            recomputed_summary.dataset_kind,
             recomputed_summary.embedding_bindings,
+            recomputed_summary.degradation,
             recomputed_summary.num_questions
         );
     }
@@ -530,10 +534,11 @@ pub fn write_continuity_report(path: &Path, report: &ContinuityReport) -> Result
 }
 
 pub fn read_continuity_report(path: &Path) -> Result<ContinuityReport> {
-    let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
-    let value: Value = serde_json::from_reader(file)
+    let raw = std::fs::read_to_string(path)
         .with_context(|| format!("deserialize continuity report {}", path.display()))?;
-    match value.get("schema_version").and_then(Value::as_str) {
+    let schema_version = cmem_eval_core::serde_contract::schema_version_from_str(&raw)
+        .with_context(|| format!("deserialize continuity report {}", path.display()))?;
+    match schema_version.as_deref() {
         Some(CONTINUITY_REPORT_SCHEMA_VERSION) => {}
         Some(version) => bail!(
             "unsupported continuity report schema_version {version:?}; expected {CONTINUITY_REPORT_SCHEMA_VERSION:?}"
@@ -542,7 +547,9 @@ pub fn read_continuity_report(path: &Path) -> Result<ContinuityReport> {
             "missing continuity report schema_version; expected {CONTINUITY_REPORT_SCHEMA_VERSION:?}"
         ),
     }
-    serde_json::from_value(value)
+    cmem_eval_core::serde_contract::reject_duplicate_json_keys(&raw)
+        .with_context(|| format!("decode continuity report {}", path.display()))?;
+    serde_json::from_str(&raw)
         .with_context(|| format!("decode continuity report {}", path.display()))
 }
 
@@ -845,6 +852,31 @@ mod tests {
                 tuning_observations: Vec::new(),
             },
         };
+
+        let raw = serde_json::to_string(&report).unwrap();
+        let duplicate_root = raw.replacen(
+            r#""schema_version":"2.0.0""#,
+            r#""schema_version":"2.0.0","schema_version":"2.0.0""#,
+            1,
+        );
+        assert_ne!(raw, duplicate_root);
+        std::fs::write(&path, duplicate_root).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("duplicate"), "{error}");
+
+        let mut report_with_dynamic_config = report.clone();
+        report_with_dynamic_config.metadata.config =
+            serde_json::json!({"nested": {"mode": "strict"}});
+        let raw = serde_json::to_string(&report_with_dynamic_config).unwrap();
+        let duplicate_dynamic_value = raw.replacen(
+            r#""mode":"strict""#,
+            r#""mode":"strict","mode":"strict""#,
+            1,
+        );
+        assert_ne!(raw, duplicate_dynamic_value);
+        std::fs::write(&path, duplicate_dynamic_value).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("duplicate JSON object key"), "{error}");
 
         let mut drifted = serde_json::to_value(&report).unwrap();
         drifted["unexpected_v2_field"] = Value::Bool(true);

@@ -19,6 +19,7 @@ const LEGACY_RESULT_SCHEMA_VERSION: &str = "1.0.0";
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PerQuestionResult {
+    pub schema_version: String,
     pub run_id: String,
     pub dataset: DatasetId,
     pub dataset_kind: DatasetKind,
@@ -303,16 +304,8 @@ pub fn write_jsonl(path: &Path, rows: &[PerQuestionResult]) -> Result<()> {
     Ok(())
 }
 
-fn versioned_row_value(row: &PerQuestionResult) -> Result<Value> {
-    let mut value = serde_json::to_value(row)?;
-    value
-        .as_object_mut()
-        .expect("PerQuestionResult always serializes as an object")
-        .insert(
-            "schema_version".to_string(),
-            Value::String(RESULT_SCHEMA_VERSION.to_string()),
-        );
-    Ok(value)
+fn versioned_row_value(row: &PerQuestionResult) -> serde_json::Result<Value> {
+    serde_json::to_value(row)
 }
 
 pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
@@ -323,11 +316,14 @@ pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
 }
 
 pub fn read_summary(path: &Path) -> Result<RunSummary> {
-    let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
-    let value: Value = serde_json::from_reader(file)
+    let raw = std::fs::read_to_string(path)
         .with_context(|| format!("deserialize summary {}", path.display()))?;
-    validate_summary_schema(&value)?;
-    serde_json::from_value(value).with_context(|| format!("decode summary {}", path.display()))
+    let schema_version = crate::serde_contract::schema_version_from_str(&raw)
+        .with_context(|| format!("deserialize summary {}", path.display()))?;
+    validate_summary_schema(schema_version.as_deref())?;
+    crate::serde_contract::reject_duplicate_json_keys(&raw)
+        .with_context(|| format!("decode summary {}", path.display()))?;
+    serde_json::from_str(&raw).with_context(|| format!("decode summary {}", path.display()))
 }
 
 pub fn summarize_rows(
@@ -443,21 +439,17 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<VersionedPerQuestionResult>> {
         if line.trim().is_empty() {
             continue;
         }
-        let value = serde_json::from_str::<Value>(&line)?;
-        let schema = validate_row_schema(&value)?;
+        let schema_version = crate::serde_contract::schema_version_from_str(&line)?;
+        let schema = validate_row_schema(schema_version.as_deref())?;
         let row = match schema {
             RowSchema::LegacyV1 => {
-                VersionedPerQuestionResult::V1(Box::new(serde_json::from_value(value)?))
+                VersionedPerQuestionResult::V1(Box::new(serde_json::from_str::<
+                    LegacyPerQuestionResultV1,
+                >(&line)?))
             }
             RowSchema::CurrentV2 => {
-                let mut row_value = value;
-                // The writer adds schema_version as envelope metadata; the
-                // strict DTO models only the result payload after dispatch.
-                row_value
-                    .as_object_mut()
-                    .expect("validated result rows are JSON objects")
-                    .remove("schema_version");
-                VersionedPerQuestionResult::V2(Box::new(serde_json::from_value(row_value)?))
+                crate::serde_contract::reject_duplicate_json_keys(&line)?;
+                VersionedPerQuestionResult::V2(Box::new(serde_json::from_str(&line)?))
             }
         };
         if rows.first().is_some_and(|first| {
@@ -485,8 +477,8 @@ enum RowSchema {
     CurrentV2,
 }
 
-fn validate_row_schema(value: &Value) -> Result<RowSchema> {
-    match value.get("schema_version").and_then(Value::as_str) {
+fn validate_row_schema(schema_version: Option<&str>) -> Result<RowSchema> {
+    match schema_version {
         // Compatibility Policy sealed-artifact exemption: only result rows and
         // continuity traces dispatch exact 1.0.0. Summary/report readers remain
         // strict 2.0.0 so the compatibility surface cannot grow accidentally.
@@ -503,8 +495,8 @@ fn validate_row_schema(value: &Value) -> Result<RowSchema> {
     }
 }
 
-fn validate_summary_schema(value: &Value) -> Result<()> {
-    match value.get("schema_version").and_then(Value::as_str) {
+fn validate_summary_schema(schema_version: Option<&str>) -> Result<()> {
+    match schema_version {
         Some(RESULT_SCHEMA_VERSION) => Ok(()),
         Some(version) => anyhow::bail!(
             "unsupported summary schema_version {version:?}; expected {RESULT_SCHEMA_VERSION:?}"
@@ -585,6 +577,7 @@ mod tests {
 
     fn row(metric_values: Value) -> PerQuestionResult {
         PerQuestionResult {
+            schema_version: RESULT_SCHEMA_VERSION.to_string(),
             run_id: "r".into(),
             dataset: dataset(),
             dataset_kind: DatasetKind::Synthetic,
@@ -901,27 +894,20 @@ mod tests {
     #[test]
     fn row_schema_dispatch_is_exact_and_rejects_missing_or_unsupported_versions() {
         assert_eq!(
-            validate_row_schema(&serde_json::json!({
-                "schema_version": RESULT_SCHEMA_VERSION
-            }))
-            .unwrap(),
+            validate_row_schema(Some(RESULT_SCHEMA_VERSION)).unwrap(),
             RowSchema::CurrentV2
         );
         assert_eq!(
-            validate_row_schema(&serde_json::json!({
-                "schema_version": LEGACY_RESULT_SCHEMA_VERSION
-            }))
-            .unwrap(),
+            validate_row_schema(Some(LEGACY_RESULT_SCHEMA_VERSION)).unwrap(),
             RowSchema::LegacyV1
         );
-        let missing = validate_row_schema(&serde_json::json!({})).unwrap_err();
+        let missing = validate_row_schema(None).unwrap_err();
         assert!(
             missing
                 .to_string()
                 .contains("missing result schema_version")
         );
-        let unsupported =
-            validate_row_schema(&serde_json::json!({"schema_version": "0.9.0"})).unwrap_err();
+        let unsupported = validate_row_schema(Some("0.9.0")).unwrap_err();
         assert!(
             unsupported
                 .to_string()
@@ -933,7 +919,12 @@ mod tests {
     fn read_jsonl_round_trips_v2_and_rejects_mixed_versions() {
         let path = temp_path("results", "jsonl");
         let result_row = row(serde_json::json!({"recall_any@1": 1.0}));
+        let expected_bytes = format!(
+            "{}\n",
+            serde_json::to_string(&versioned_row_value(&result_row).unwrap()).unwrap()
+        );
         write_jsonl(&path, &[result_row]).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), expected_bytes);
         let rows = read_jsonl(&path).unwrap();
         assert_eq!(rows.len(), 1);
         assert!(matches!(rows[0], VersionedPerQuestionResult::V2(_)));
@@ -960,6 +951,41 @@ mod tests {
     #[test]
     fn v2_result_reader_rejects_shape_drift_while_sealed_v1_stays_tolerant() {
         let path = temp_path("results-shape-drift", "jsonl");
+
+        let current = serde_json::to_string(&row(serde_json::json!({}))).unwrap();
+        let duplicate_root = current.replacen(r#""run_id":"r""#, r#""run_id":"r","run_id":"r""#, 1);
+        std::fs::write(&path, format!("{duplicate_root}\n")).unwrap();
+        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
+        assert!(error.contains("duplicate JSON object key"), "{error}");
+
+        let mut verdict_row = row(serde_json::json!({}));
+        let mut outcome = WriteOutcomeRecord::clean(
+            "duplicate-verdict",
+            crate::WriteOperationKind::ExplicitCommit,
+        );
+        outcome.vector_indexing_failure = Some(crate::VectorIndexingFailureRecord {
+            unindexed_objects: Vec::new(),
+            cause: crate::VectorIndexingCauseRecord::VectorDatabase(
+                crate::VectorDatabaseErrorRecord {
+                    backend: "qdrant".to_string(),
+                    kind: crate::VectorDatabaseErrorKind::Response,
+                    status: None,
+                    message: "rejected".to_string(),
+                    retry_after_seconds: None,
+                },
+            ),
+        });
+        verdict_row.write_outcomes.push(outcome);
+        let current = serde_json::to_string(&verdict_row).unwrap();
+        let duplicate_nested_verdict = current.replacen(
+            r#""kind":"response""#,
+            r#""kind":"response","kind":"response""#,
+            1,
+        );
+        assert_ne!(current, duplicate_nested_verdict);
+        std::fs::write(&path, format!("{duplicate_nested_verdict}\n")).unwrap();
+        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
+        assert!(error.contains("duplicate JSON object key"), "{error}");
 
         let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
         current["unexpected_v2_field"] = Value::Bool(true);
@@ -1065,7 +1091,7 @@ mod tests {
     #[test]
     fn read_summary_round_trips_v2_and_rejects_invalid_inputs() {
         let path = temp_path("summary-schema", "json");
-        let summary = summarize_rows(
+        let mut summary = summarize_rows(
             "r".into(),
             dataset(),
             DatasetKind::Synthetic,
@@ -1080,6 +1106,24 @@ mod tests {
             read_summary(&path).unwrap().schema_version,
             RESULT_SCHEMA_VERSION
         );
+
+        let raw = serde_json::to_string(&summary).unwrap();
+        let duplicate_root = raw.replacen(r#""run_id":"r""#, r#""run_id":"r","run_id":"r""#, 1);
+        std::fs::write(&path, duplicate_root).unwrap();
+        let error = format!("{:#}", read_summary(&path).unwrap_err());
+        assert!(error.contains("duplicate JSON object key"), "{error}");
+
+        summary.config = serde_json::json!({"nested": {"mode": "strict"}});
+        let raw = serde_json::to_string(&summary).unwrap();
+        let duplicate_dynamic_value = raw.replacen(
+            r#""mode":"strict""#,
+            r#""mode":"strict","mode":"strict""#,
+            1,
+        );
+        assert_ne!(raw, duplicate_dynamic_value);
+        std::fs::write(&path, duplicate_dynamic_value).unwrap();
+        let error = format!("{:#}", read_summary(&path).unwrap_err());
+        assert!(error.contains("duplicate JSON object key"), "{error}");
 
         for (bytes, expected) in [
             (vec![0xff], "deserialize summary"),
