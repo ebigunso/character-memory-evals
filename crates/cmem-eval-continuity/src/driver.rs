@@ -170,7 +170,8 @@ pub fn read_continuity_traces(path: &Path) -> Result<Vec<VersionedContinuityQuer
         // runs/continuity/v0-1-5-baseline/shipped-a/traces.jsonl:1.
         let trace = match schema_version.as_deref() {
             Some(LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION) => {
-                VersionedContinuityQueryTrace::V1(Box::new(serde_json::from_str(&line)?))
+                let value = serde_json::from_str::<Value>(&line)?;
+                VersionedContinuityQueryTrace::V1(Box::new(serde_json::from_value(value)?))
             }
             Some(CONTINUITY_TRACE_SCHEMA_VERSION) => {
                 cmem_eval_core::serde_contract::reject_duplicate_json_keys(&line)?;
@@ -1603,6 +1604,22 @@ mod tests {
             rows.as_slice(),
             [VersionedContinuityQueryTrace::V1(_)]
         ));
+
+        let legacy_raw = serde_json::to_string(&legacy).unwrap();
+        let fixture_id = traces[0].fixture_id.as_str();
+        let duplicate_known_field = legacy_raw.replacen(
+            &format!(r#""fixture_id":"{fixture_id}""#),
+            r#""fixture_id":"first","fixture_id":"second""#,
+            1,
+        );
+        assert_ne!(legacy_raw, duplicate_known_field);
+        std::fs::write(&path, format!("{duplicate_known_field}\n")).unwrap();
+        match read_continuity_traces(&path).unwrap().as_slice() {
+            [VersionedContinuityQueryTrace::V1(trace)] => {
+                assert_eq!(trace.fixture_id, "second")
+            }
+            rows => panic!("expected one sealed-v1 trace, got {rows:?}"),
+        }
 
         write_continuity_traces(&path, &traces[..1]).unwrap();
         OpenOptions::new()

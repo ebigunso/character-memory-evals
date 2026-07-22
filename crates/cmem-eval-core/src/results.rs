@@ -296,6 +296,15 @@ impl Default for RunAdapterMetadata {
 }
 
 pub fn write_jsonl(path: &Path, rows: &[PerQuestionResult]) -> Result<()> {
+    for (index, row) in rows.iter().enumerate() {
+        if row.schema_version != RESULT_SCHEMA_VERSION {
+            anyhow::bail!(
+                "result row at index {index} has schema_version {:?}; expected {:?}",
+                row.schema_version,
+                RESULT_SCHEMA_VERSION
+            );
+        }
+    }
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     for row in rows {
         serde_json::to_writer(&mut file, &versioned_row_value(row)?)?;
@@ -443,9 +452,8 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<VersionedPerQuestionResult>> {
         let schema = validate_row_schema(schema_version.as_deref())?;
         let row = match schema {
             RowSchema::LegacyV1 => {
-                VersionedPerQuestionResult::V1(Box::new(serde_json::from_str::<
-                    LegacyPerQuestionResultV1,
-                >(&line)?))
+                let value = serde_json::from_str::<Value>(&line)?;
+                VersionedPerQuestionResult::V1(Box::new(serde_json::from_value(value)?))
             }
             RowSchema::CurrentV2 => {
                 crate::serde_contract::reject_duplicate_json_keys(&line)?;
@@ -949,6 +957,25 @@ mod tests {
     }
 
     #[test]
+    fn write_jsonl_rejects_non_v2_rows_before_replacing_the_destination() {
+        let path = temp_path("results-writer-schema", "jsonl");
+        for schema_version in [LEGACY_RESULT_SCHEMA_VERSION, "9.9.9"] {
+            let mut invalid = row(serde_json::json!({}));
+            invalid.schema_version = schema_version.to_string();
+            std::fs::write(&path, "preserved\n").unwrap();
+
+            let error = write_jsonl(&path, &[row(serde_json::json!({})), invalid])
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("index 1"), "{error}");
+            assert!(error.contains(schema_version), "{error}");
+            assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "preserved\n");
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_result_reader_rejects_shape_drift_while_sealed_v1_stays_tolerant() {
         let path = temp_path("results-shape-drift", "jsonl");
 
@@ -1053,6 +1080,20 @@ mod tests {
         legacy["schema_version"] = Value::String(LEGACY_RESULT_SCHEMA_VERSION.into());
         legacy["sealed_legacy_extra"] = Value::Bool(true);
         legacy["context"]["sealed_legacy_nested_extra"] = Value::Bool(true);
+
+        let legacy_raw = serde_json::to_string(&legacy).unwrap();
+        let duplicate_known_field = legacy_raw.replacen(
+            r#""run_id":"r""#,
+            r#""run_id":"first","run_id":"second""#,
+            1,
+        );
+        assert_ne!(legacy_raw, duplicate_known_field);
+        std::fs::write(&path, format!("{duplicate_known_field}\n")).unwrap();
+        match read_jsonl(&path).unwrap().as_slice() {
+            [VersionedPerQuestionResult::V1(row)] => assert_eq!(row.run_id, "second"),
+            rows => panic!("expected one sealed-v1 row, got {rows:?}"),
+        }
+
         std::fs::write(
             &path,
             format!("{}\n", serde_json::to_string(&legacy).unwrap()),
