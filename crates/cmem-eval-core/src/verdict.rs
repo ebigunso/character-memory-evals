@@ -1,6 +1,9 @@
-use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{Error as _, MapAccess, Visitor},
+};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 macro_rules! snake_case_enum {
     ($name:ident { $($variant:ident),+ $(,)? }) => {
@@ -366,63 +369,96 @@ pub enum VectorDatabaseErrorKind {
     PayloadDeserialization,
 }
 
+const VECTOR_DATABASE_ERROR_KIND_VARIANTS: &[&str] = &[
+    "response",
+    "resource_exhausted",
+    "conversion",
+    "invalid_uri",
+    "no_snapshot_found",
+    "io",
+    "http_timeout",
+    "http_connect",
+    "http_status",
+    "http",
+    "json_to_payload",
+    "payload_deserialization",
+];
+
+struct VectorDatabaseErrorKindVisitor;
+
+impl<'de> Visitor<'de> for VectorDatabaseErrorKindVisitor {
+    type Value = VectorDatabaseErrorKind;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a strictly shaped vector database error kind")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut kind = None;
+        let mut io_kind = None;
+
+        while let Some(field) = map.next_key::<String>()? {
+            match field.as_str() {
+                "kind" => {
+                    if kind.is_some() {
+                        return Err(A::Error::duplicate_field("kind"));
+                    }
+                    kind = Some(map.next_value::<String>()?);
+                }
+                "io_kind" => {
+                    if io_kind.is_some() {
+                        return Err(A::Error::duplicate_field("io_kind"));
+                    }
+                    io_kind = Some(map.next_value::<IoErrorKindRecord>()?);
+                }
+                field => {
+                    return Err(A::Error::unknown_field(field, &["kind", "io_kind"]));
+                }
+            }
+        }
+
+        let kind = kind.ok_or_else(|| A::Error::missing_field("kind"))?;
+        let unit_kind = match kind.as_str() {
+            "response" => VectorDatabaseErrorKind::Response,
+            "resource_exhausted" => VectorDatabaseErrorKind::ResourceExhausted,
+            "conversion" => VectorDatabaseErrorKind::Conversion,
+            "invalid_uri" => VectorDatabaseErrorKind::InvalidUri,
+            "no_snapshot_found" => VectorDatabaseErrorKind::NoSnapshotFound,
+            "io" => {
+                return Ok(VectorDatabaseErrorKind::Io {
+                    io_kind: io_kind.ok_or_else(|| A::Error::missing_field("io_kind"))?,
+                });
+            }
+            "http_timeout" => VectorDatabaseErrorKind::HttpTimeout,
+            "http_connect" => VectorDatabaseErrorKind::HttpConnect,
+            "http_status" => VectorDatabaseErrorKind::HttpStatus,
+            "http" => VectorDatabaseErrorKind::Http,
+            "json_to_payload" => VectorDatabaseErrorKind::JsonToPayload,
+            "payload_deserialization" => VectorDatabaseErrorKind::PayloadDeserialization,
+            variant => {
+                return Err(A::Error::unknown_variant(
+                    variant,
+                    VECTOR_DATABASE_ERROR_KIND_VARIANTS,
+                ));
+            }
+        };
+
+        if io_kind.is_some() {
+            return Err(A::Error::unknown_field("io_kind", &["kind"]));
+        }
+        Ok(unit_kind)
+    }
+}
+
 impl<'de> Deserialize<'de> for VectorDatabaseErrorKind {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        const VARIANTS: &[&str] = &[
-            "response",
-            "resource_exhausted",
-            "conversion",
-            "invalid_uri",
-            "no_snapshot_found",
-            "io",
-            "http_timeout",
-            "http_connect",
-            "http_status",
-            "http",
-            "json_to_payload",
-            "payload_deserialization",
-        ];
-
-        let mut fields = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;
-        let kind = fields
-            .remove("kind")
-            .ok_or_else(|| D::Error::missing_field("kind"))?;
-        let kind = String::deserialize(kind).map_err(D::Error::custom)?;
-
-        let unit = |value, fields: &serde_json::Map<String, serde_json::Value>| {
-            if let Some(field) = fields.keys().next() {
-                return Err(D::Error::unknown_field(field, &["kind"]));
-            }
-            Ok(value)
-        };
-
-        match kind.as_str() {
-            "response" => unit(Self::Response, &fields),
-            "resource_exhausted" => unit(Self::ResourceExhausted, &fields),
-            "conversion" => unit(Self::Conversion, &fields),
-            "invalid_uri" => unit(Self::InvalidUri, &fields),
-            "no_snapshot_found" => unit(Self::NoSnapshotFound, &fields),
-            "io" => {
-                let io_kind = fields
-                    .remove("io_kind")
-                    .ok_or_else(|| D::Error::missing_field("io_kind"))?;
-                if let Some(field) = fields.keys().next() {
-                    return Err(D::Error::unknown_field(field, &["kind", "io_kind"]));
-                }
-                let io_kind = IoErrorKindRecord::deserialize(io_kind).map_err(D::Error::custom)?;
-                Ok(Self::Io { io_kind })
-            }
-            "http_timeout" => unit(Self::HttpTimeout, &fields),
-            "http_connect" => unit(Self::HttpConnect, &fields),
-            "http_status" => unit(Self::HttpStatus, &fields),
-            "http" => unit(Self::Http, &fields),
-            "json_to_payload" => unit(Self::JsonToPayload, &fields),
-            "payload_deserialization" => unit(Self::PayloadDeserialization, &fields),
-            variant => Err(D::Error::unknown_variant(variant, VARIANTS)),
-        }
+        deserializer.deserialize_map(VectorDatabaseErrorKindVisitor)
     }
 }
 
@@ -945,6 +981,29 @@ mod tests {
             assert!(
                 error.to_string().contains("unexpected_"),
                 "unknown outer field should be named in the error: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn vector_database_error_kind_rejects_duplicate_fields_before_overwrite() {
+        for (json, field) in [
+            (r#"{"kind":"response","kind":"response"}"#, "kind"),
+            (r#"{"kind":"response","kind":"http"}"#, "kind"),
+            (
+                r#"{"kind":"io","io_kind":{"kind":"permission_denied"},"io_kind":{"kind":"not_found"}}"#,
+                "io_kind",
+            ),
+            (
+                r#"{"kind":"io","io_kind":{"kind":"permission_denied","kind":"not_found"}}"#,
+                "kind",
+            ),
+        ] {
+            let error = serde_json::from_str::<VectorDatabaseErrorKind>(json).unwrap_err();
+            let error = error.to_string();
+            assert!(
+                error.contains("duplicate field") && error.contains(field),
+                "duplicate {field} should be rejected and named: {error}"
             );
         }
     }
