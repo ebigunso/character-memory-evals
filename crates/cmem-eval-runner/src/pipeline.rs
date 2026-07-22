@@ -1971,13 +1971,15 @@ mod tests {
             dataset: None,
             scenario: None,
         })
-        .unwrap_err()
-        .to_string();
-        assert!(
-            error.contains("summary row identity mismatch at index 0"),
-            "{error}"
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<cmem_eval_core::SummaryIdentityError>(),
+            Some(&cmem_eval_core::SummaryIdentityError::RunIdMismatch {
+                row_index: 0,
+                expected: original.run_id,
+                found: "mismatched-run".to_string(),
+            })
         );
-        assert!(error.contains("mismatched-run"), "{error}");
     }
 
     #[tokio::test]

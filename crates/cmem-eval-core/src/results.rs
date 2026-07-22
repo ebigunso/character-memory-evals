@@ -228,6 +228,86 @@ impl std::fmt::Display for SummaryInvariantError {
 
 impl std::error::Error for SummaryInvariantError {}
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SummaryIdentityError {
+    EmptyRows,
+    SchemaVersionMismatch {
+        row_index: usize,
+        expected: String,
+        found: String,
+    },
+    RunIdMismatch {
+        row_index: usize,
+        expected: String,
+        found: String,
+    },
+    DatasetMismatch {
+        row_index: usize,
+        expected: DatasetId,
+        found: DatasetId,
+    },
+    DatasetKindMismatch {
+        row_index: usize,
+        expected: DatasetKind,
+        found: DatasetKind,
+    },
+    AdapterMismatch {
+        row_index: usize,
+        expected: RunAdapterMetadata,
+        found: RunAdapterMetadata,
+    },
+}
+
+impl std::fmt::Display for SummaryIdentityError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyRows => formatter.write_str("cannot summarize empty result rows"),
+            Self::SchemaVersionMismatch {
+                row_index,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "summary row schema_version mismatch at index {row_index}: expected {expected:?}, found {found:?}"
+            ),
+            Self::RunIdMismatch {
+                row_index,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "summary row run_id mismatch at index {row_index}: expected {expected:?}, found {found:?}"
+            ),
+            Self::DatasetMismatch {
+                row_index,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "summary row dataset mismatch at index {row_index}: expected {expected:?}, found {found:?}"
+            ),
+            Self::DatasetKindMismatch {
+                row_index,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "summary row dataset_kind mismatch at index {row_index}: expected {expected:?}, found {found:?}"
+            ),
+            Self::AdapterMismatch {
+                row_index,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "summary row adapter mismatch at index {row_index}: expected {expected:?}, found {found:?}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SummaryIdentityError {}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ResultContextMetrics {
@@ -442,30 +522,45 @@ pub fn validate_summary_row_identity(
     dataset_kind: DatasetKind,
     adapter: &RunAdapterMetadata,
     rows: &[PerQuestionResult],
-) -> Result<()> {
+) -> std::result::Result<(), SummaryIdentityError> {
     if rows.is_empty() {
-        anyhow::bail!("cannot summarize empty result rows");
+        return Err(SummaryIdentityError::EmptyRows);
     }
     for (index, row) in rows.iter().enumerate() {
-        if row.schema_version != RESULT_SCHEMA_VERSION
-            || row.run_id != run_id
-            || row.dataset != *dataset
-            || row.dataset_kind != dataset_kind
-            || row.adapter != *adapter
-        {
-            anyhow::bail!(
-                "summary row identity mismatch at index {index}: row schema/run/dataset/kind/adapter ({:?}, {:?}, {:?}, {:?}, {:?}), supplied ({:?}, {:?}, {:?}, {:?}, {:?})",
-                row.schema_version,
-                row.run_id,
-                row.dataset,
-                row.dataset_kind,
-                row.adapter,
-                RESULT_SCHEMA_VERSION,
-                run_id,
-                dataset,
-                dataset_kind,
-                adapter
-            );
+        if row.schema_version != RESULT_SCHEMA_VERSION {
+            return Err(SummaryIdentityError::SchemaVersionMismatch {
+                row_index: index,
+                expected: RESULT_SCHEMA_VERSION.to_string(),
+                found: row.schema_version.clone(),
+            });
+        }
+        if row.run_id != run_id {
+            return Err(SummaryIdentityError::RunIdMismatch {
+                row_index: index,
+                expected: run_id.to_string(),
+                found: row.run_id.clone(),
+            });
+        }
+        if row.dataset != *dataset {
+            return Err(SummaryIdentityError::DatasetMismatch {
+                row_index: index,
+                expected: dataset.clone(),
+                found: row.dataset.clone(),
+            });
+        }
+        if row.dataset_kind != dataset_kind {
+            return Err(SummaryIdentityError::DatasetKindMismatch {
+                row_index: index,
+                expected: dataset_kind,
+                found: row.dataset_kind,
+            });
+        }
+        if row.adapter != *adapter {
+            return Err(SummaryIdentityError::AdapterMismatch {
+                row_index: index,
+                expected: adapter.clone(),
+                found: row.adapter.clone(),
+            });
         }
     }
     Ok(())
@@ -828,11 +923,10 @@ mod tests {
             &[],
             &[],
         )
-        .unwrap_err()
-        .to_string();
-        assert!(
-            error.contains("cannot summarize empty result rows"),
-            "{error}"
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<SummaryIdentityError>(),
+            Some(&SummaryIdentityError::EmptyRows)
         );
 
         let mut wrong_schema = row(serde_json::json!({}));
@@ -846,12 +940,47 @@ mod tests {
         let mut wrong_adapter = row(serde_json::json!({}));
         wrong_adapter.adapter = RunAdapterMetadata::live();
 
-        for (label, candidate, mismatch) in [
-            ("schema", wrong_schema, "9.9.9"),
-            ("run", wrong_run, "other-run"),
-            ("dataset", wrong_dataset, "other-dataset"),
-            ("kind", wrong_kind, "Continuity"),
-            ("adapter", wrong_adapter, "real"),
+        for (candidate, expected) in [
+            (
+                wrong_schema,
+                SummaryIdentityError::SchemaVersionMismatch {
+                    row_index: 0,
+                    expected: RESULT_SCHEMA_VERSION.to_string(),
+                    found: "9.9.9".to_string(),
+                },
+            ),
+            (
+                wrong_run,
+                SummaryIdentityError::RunIdMismatch {
+                    row_index: 0,
+                    expected: "r".to_string(),
+                    found: "other-run".to_string(),
+                },
+            ),
+            (
+                wrong_dataset,
+                SummaryIdentityError::DatasetMismatch {
+                    row_index: 0,
+                    expected: dataset(),
+                    found: DatasetId::new("other-dataset").unwrap(),
+                },
+            ),
+            (
+                wrong_kind,
+                SummaryIdentityError::DatasetKindMismatch {
+                    row_index: 0,
+                    expected: DatasetKind::Synthetic,
+                    found: DatasetKind::Continuity,
+                },
+            ),
+            (
+                wrong_adapter,
+                SummaryIdentityError::AdapterMismatch {
+                    row_index: 0,
+                    expected: RunAdapterMetadata::mock_smoke(),
+                    found: RunAdapterMetadata::live(),
+                },
+            ),
         ] {
             let error = summarize_rows(
                 "r".into(),
@@ -862,13 +991,11 @@ mod tests {
                 &[candidate],
                 &[],
             )
-            .unwrap_err()
-            .to_string();
-            assert!(
-                error.contains("summary row identity mismatch at index 0"),
-                "{label}: {error}"
+            .unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<SummaryIdentityError>(),
+                Some(&expected)
             );
-            assert!(error.contains(mismatch), "{label}: {error}");
         }
 
         let first = row(serde_json::json!({}));
@@ -884,14 +1011,15 @@ mod tests {
             &[first, second],
             &[],
         )
-        .unwrap_err()
-        .to_string();
-        assert!(
-            error.contains("summary row identity mismatch at index 1"),
-            "{error}"
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<SummaryIdentityError>(),
+            Some(&SummaryIdentityError::AdapterMismatch {
+                row_index: 1,
+                expected: RunAdapterMetadata::mock_smoke(),
+                found: RunAdapterMetadata::live(),
+            })
         );
-        assert!(error.contains("real"), "{error}");
-        assert!(error.contains("mock_smoke"), "{error}");
     }
 
     #[test]
