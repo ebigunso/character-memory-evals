@@ -134,6 +134,15 @@ pub struct RestartObservation {
 }
 
 pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> Result<()> {
+    for (index, trace) in traces.iter().enumerate() {
+        if trace.schema_version != CONTINUITY_TRACE_SCHEMA_VERSION {
+            bail!(
+                "continuity trace at index {index} has schema_version {:?}; expected {:?}",
+                trace.schema_version,
+                CONTINUITY_TRACE_SCHEMA_VERSION
+            );
+        }
+    }
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     for trace in traces {
         serde_json::to_writer(&mut file, trace)?;
@@ -1573,12 +1582,15 @@ mod tests {
         let (mut traces, _, _) = run_all().await;
         traces[0].schema_version = "9.9.9".to_string();
         let path = temporary_trace_path();
-        write_continuity_traces(&path, &traces[..1]).unwrap();
-
-        let error = read_continuity_traces(&path).unwrap_err().to_string();
-        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, "preserved\n").unwrap();
+        let error = write_continuity_traces(&path, &[traces[1].clone(), traces[0].clone()])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("index 1"), "{error}");
         assert!(error.contains("9.9.9"), "{error}");
         assert!(error.contains(CONTINUITY_TRACE_SCHEMA_VERSION), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "preserved\n");
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[tokio::test]

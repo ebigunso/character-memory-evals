@@ -527,6 +527,13 @@ fn validate_restart_observations(
 }
 
 pub fn write_continuity_report(path: &Path, report: &ContinuityReport) -> Result<()> {
+    if report.schema_version != CONTINUITY_REPORT_SCHEMA_VERSION {
+        bail!(
+            "continuity report has schema_version {:?}; expected {:?}",
+            report.schema_version,
+            CONTINUITY_REPORT_SCHEMA_VERSION
+        );
+    }
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     serde_json::to_writer_pretty(&mut file, report)?;
     file.write_all(b"\n")?;
@@ -852,6 +859,16 @@ mod tests {
                 tuning_observations: Vec::new(),
             },
         };
+
+        let mut invalid_report = report.clone();
+        invalid_report.schema_version = "9.9.9".to_string();
+        std::fs::write(&path, "preserved\n").unwrap();
+        let error = write_continuity_report(&path, &invalid_report)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("9.9.9"), "{error}");
+        assert!(error.contains(CONTINUITY_REPORT_SCHEMA_VERSION), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "preserved\n");
 
         let raw = serde_json::to_string(&report).unwrap();
         let duplicate_root = raw.replacen(

@@ -318,6 +318,13 @@ fn versioned_row_value(row: &PerQuestionResult) -> serde_json::Result<Value> {
 }
 
 pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
+    if summary.schema_version != RESULT_SCHEMA_VERSION {
+        anyhow::bail!(
+            "summary has schema_version {:?}; expected {:?}",
+            summary.schema_version,
+            RESULT_SCHEMA_VERSION
+        );
+    }
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     serde_json::to_writer_pretty(&mut file, summary)?;
     file.write_all(b"\n")?;
@@ -1147,6 +1154,14 @@ mod tests {
             read_summary(&path).unwrap().schema_version,
             RESULT_SCHEMA_VERSION
         );
+
+        summary.schema_version = "9.9.9".to_string();
+        std::fs::write(&path, "preserved\n").unwrap();
+        let error = write_summary(&path, &summary).unwrap_err().to_string();
+        assert!(error.contains("9.9.9"), "{error}");
+        assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "preserved\n");
+        summary.schema_version = RESULT_SCHEMA_VERSION.to_string();
 
         let raw = serde_json::to_string(&summary).unwrap();
         let duplicate_root = raw.replacen(r#""run_id":"r""#, r#""run_id":"r","run_id":"r""#, 1);
