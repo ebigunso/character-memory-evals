@@ -411,6 +411,10 @@ fn summarize_degradation(
                 .or_default() += 1;
         }
     }
+    // Production paths currently copy one exact outcome across cumulative rows and do not
+    // emit retries, so the same operation ID must identify an identical record. Any violation
+    // fails closed here. Attempt-vs-operation identity remains deferred to the v0.2+
+    // idempotency work; converged retries with empty graph fields are not special-cased.
     for outcome in rows.iter().flat_map(|row| &row.lifecycle_outcomes) {
         if let Some(previous) = seen_lifecycle.get(outcome.operation_id.as_str()) {
             if *previous != outcome {
@@ -746,6 +750,57 @@ mod tests {
             summary.degradation.repair_marker_counts_by_kind["stats_update"],
             1
         );
+    }
+
+    #[test]
+    fn summary_deduplicates_identical_converged_correction_retry_rows() {
+        let original = crate::ObjectRefRecord {
+            object_type: crate::ObjectType::DerivedMemory,
+            internal_id: "derived-original".into(),
+            external_id: Some("delivery-v1".into()),
+        };
+        let replacement = crate::ObjectRefRecord {
+            object_type: crate::ObjectType::DerivedMemory,
+            internal_id: "derived-replacement".into(),
+            external_id: Some("delivery-v2".into()),
+        };
+        let mut retry = LifecycleOutcomeRecord::clean(
+            "correction-operation",
+            crate::LifecycleOperationKind::Correct,
+        );
+        retry.requested_targets.push(original.clone());
+        retry.vector_maintained_objects = vec![original, replacement];
+        retry.stats_update_status.updated_object_internal_ids =
+            vec!["derived-original".into(), "derived-replacement".into()];
+
+        assert!(retry.graph_mutated_objects.is_empty());
+        assert!(retry.graph_mutated_link_internal_ids.is_empty());
+        assert!(retry.superseded.is_empty());
+        assert_eq!(retry.vector_maintained_objects.len(), 2);
+        assert_eq!(
+            retry.stats_update_status.updated_object_internal_ids.len(),
+            2
+        );
+        assert!(retry.stats_update_status.failure.is_none());
+
+        let mut first = row(serde_json::json!({}));
+        first.lifecycle_outcomes.push(retry.clone());
+        let mut second = row(serde_json::json!({}));
+        second.question_id = "q2".into();
+        second.lifecycle_outcomes.push(retry);
+
+        let summary = summarize_rows(
+            "r".into(),
+            dataset(),
+            DatasetKind::Synthetic,
+            RunAdapterMetadata::mock_smoke(),
+            serde_json::json!({}),
+            &[first, second],
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(summary.degradation, DegradationSummary::default());
     }
 
     #[test]

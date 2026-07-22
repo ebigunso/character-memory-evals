@@ -2446,6 +2446,100 @@ mod tests {
         }));
     }
 
+    #[tokio::test]
+    async fn continuity_lifecycle_stats_failure_reaches_row_summary_and_report() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut args = continuity_mock_args(directory.path());
+        args.scenario = Some("correction-chains".to_string());
+        let result_path = args.run.out.clone();
+        let trace_path = args.trace_out.clone();
+        let config_path = args.run.config.clone();
+        let dataset_path = args.run.dataset.clone();
+
+        run_continuity(args).await.unwrap();
+
+        let mut traces = read_v2_traces(&trace_path);
+        let original_rows = read_v2_rows(&result_path);
+        assert_eq!(traces.len(), 1);
+        assert_eq!(original_rows.len(), 1);
+        let lifecycle = traces[0]
+            .lifecycle_outcomes
+            .first_mut()
+            .expect("correction scenario should emit lifecycle outcomes");
+        let failed_internal_id = lifecycle
+            .requested_targets
+            .first()
+            .expect("correction outcome should retain its requested target")
+            .internal_id
+            .clone();
+        lifecycle.stats_update_status = cmem_eval_core::StatsUpdateStatusRecord {
+            updated_object_internal_ids: Vec::new(),
+            failure: Some(cmem_eval_core::StatsUpdateFailureRecord {
+                failed_object_internal_ids: vec![failed_internal_id],
+                causes: vec![cmem_eval_core::StatsUpdateCauseRecord::HealthCheck {
+                    error: cmem_eval_core::RetrievalStatsStoreErrorRecord::LockPoisoned,
+                }],
+            }),
+        };
+
+        let fixture = parse_fixture_bytes(&fs::read(dataset_path).unwrap()).unwrap();
+        let scenarios =
+            select_continuity_scenarios(fixture.scenarios, Some("correction-chains")).unwrap();
+        let config = read_config(&config_path).unwrap();
+        let metric_family = continuity_metric_family(&config.metrics, &scenarios);
+        let adapter = original_rows[0].adapter.clone();
+        let row = continuity_result_row(
+            &config,
+            &adapter,
+            &metric_family,
+            &scenarios[0],
+            &traces[0],
+            &original_rows[0].embedding_binding,
+            original_rows[0].latency_ms,
+        )
+        .unwrap();
+        assert_eq!(
+            row.lifecycle_outcomes[0].stats_update_status,
+            traces[0].lifecycle_outcomes[0].stats_update_status
+        );
+
+        let rows = vec![row];
+        let config_value = serde_json::to_value(&config).unwrap();
+        let summary = summarize_rows(
+            config.run_id.clone(),
+            config.dataset.clone(),
+            DatasetKind::Continuity,
+            adapter.clone(),
+            config_value.clone(),
+            &rows,
+            std::slice::from_ref(&metric_family),
+        )
+        .unwrap();
+        assert_eq!(summary.degradation.lifecycle_maintenance_failure_count, 1);
+
+        let report = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
+            fixture_seed: fixture.seed,
+            config: config_value,
+            adapter,
+            scenarios: &scenarios,
+            traces: &traces,
+            rows: &rows,
+            summary: &summary,
+            metric_family: &metric_family,
+            restart_observations: &BTreeMap::new(),
+        })
+        .unwrap();
+        assert_eq!(
+            report
+                .metadata
+                .degradation
+                .lifecycle_maintenance_failure_count,
+            1
+        );
+    }
+
     #[test]
     fn continuity_spec_accepts_resource_provider_for_scenario_binding_resolution() {
         let mut config =

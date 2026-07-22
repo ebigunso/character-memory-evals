@@ -6518,52 +6518,107 @@ mod tests {
             observation_external_ids: vec!["observation-external".to_string()],
             ..SourceProvenanceInput::default()
         };
+        let correction_input = CorrectMemoryInput {
+            namespace: namespace.to_string(),
+            targets: vec![CorrectionTargetInput::DerivedMemory {
+                external_id: "pre-correction-memory".to_string(),
+            }],
+            replacements: vec![ReplacementDerivedMemoryInput {
+                memory: DerivedMemoryInput {
+                    external_id: "corrected-memory".to_string(),
+                    derived_type: EvalDerivedType::Reflection,
+                    text: "The restart-safe drink is oolong tea.".to_string(),
+                    source_episode_external_ids: vec!["episode-external".to_string()],
+                    source_observation_external_ids: vec!["observation-external".to_string()],
+                    thread_external_ids: Vec::new(),
+                    entity_external_ids: vec!["alice-entity".to_string()],
+                    confidence: 1.0,
+                    salience_score: 0.8,
+                    stability: EvalStability::Medium,
+                    is_current: true,
+                    supersedes_external_ids: vec!["pre-correction-memory".to_string()],
+                    metadata: serde_json::Value::Null,
+                },
+                original_source_provenance: origin.clone(),
+                correction_origin_provenance: origin.clone(),
+            }],
+            superseded_derived_memory_external_ids: vec!["pre-correction-memory".to_string()],
+            correction_origin: origin,
+            rationale: "The fixture scripted a correction.".to_string(),
+            lifecycle_policy: Default::default(),
+            cascade_policy: Default::default(),
+            include_trace: true,
+        };
         let correction = live_call_or_skip!(
             qdrant_was_available,
             "public correction round-trip",
             true,
-            adapter_a
-                .correct(CorrectMemoryInput {
-                    namespace: namespace.to_string(),
-                    targets: vec![CorrectionTargetInput::DerivedMemory {
-                        external_id: "pre-correction-memory".to_string(),
-                    }],
-                    replacements: vec![ReplacementDerivedMemoryInput {
-                        memory: DerivedMemoryInput {
-                            external_id: "corrected-memory".to_string(),
-                            derived_type: EvalDerivedType::Reflection,
-                            text: "The restart-safe drink is oolong tea.".to_string(),
-                            source_episode_external_ids: vec!["episode-external".to_string()],
-                            source_observation_external_ids: vec![
-                                "observation-external".to_string(),
-                            ],
-                            thread_external_ids: Vec::new(),
-                            entity_external_ids: vec!["alice-entity".to_string()],
-                            confidence: 1.0,
-                            salience_score: 0.8,
-                            stability: EvalStability::Medium,
-                            is_current: true,
-                            supersedes_external_ids: vec!["pre-correction-memory".to_string(),],
-                            metadata: serde_json::Value::Null,
-                        },
-                        original_source_provenance: origin.clone(),
-                        correction_origin_provenance: origin.clone(),
-                    }],
-                    superseded_derived_memory_external_ids: vec![
-                        "pre-correction-memory".to_string(),
-                    ],
-                    correction_origin: origin,
-                    rationale: "The fixture scripted a correction.".to_string(),
-                    lifecycle_policy: Default::default(),
-                    cascade_policy: Default::default(),
-                    include_trace: true,
-                })
-                .await
+            adapter_a.correct(correction_input.clone()).await
         );
         assert!(correction.mutated_object_refs.iter().any(|reference| {
             reference.object_type == EvalObjectType::DerivedMemory
                 && reference.external_id == "corrected-memory"
         }));
+        let correction_retry = live_call_or_skip!(
+            qdrant_was_available,
+            "identical public correction retry",
+            true,
+            adapter_a.correct(correction_input).await
+        );
+        assert_eq!(
+            correction_retry.outcome.operation_id,
+            correction.outcome.operation_id
+        );
+        assert!(correction_retry.mutated_object_refs.is_empty());
+        assert!(correction_retry.mutated_link_external_ids.is_empty());
+        assert!(correction_retry.outcome.graph_mutated_objects.is_empty());
+        assert!(
+            correction_retry
+                .outcome
+                .graph_mutated_link_internal_ids
+                .is_empty()
+        );
+        assert!(correction_retry.superseded.is_empty());
+        assert!(correction_retry.outcome.superseded.is_empty());
+        assert!(
+            correction_retry
+                .outcome
+                .vector_maintenance_failures
+                .is_empty()
+        );
+        assert!(
+            correction_retry
+                .outcome
+                .stats_update_status
+                .failure
+                .is_none()
+        );
+        let mut retried_external_ids = correction_retry
+            .vector_maintained_object_refs
+            .iter()
+            .map(|reference| reference.external_id.as_str())
+            .collect::<Vec<_>>();
+        retried_external_ids.sort_unstable();
+        assert_eq!(
+            retried_external_ids,
+            vec!["corrected-memory", "pre-correction-memory"]
+        );
+        let mut retried_internal_ids = correction_retry
+            .outcome
+            .vector_maintained_objects
+            .iter()
+            .map(|reference| reference.internal_id.as_str())
+            .collect::<Vec<_>>();
+        retried_internal_ids.sort_unstable();
+        let mut retried_stats_ids = correction_retry
+            .outcome
+            .stats_update_status
+            .updated_object_internal_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        retried_stats_ids.sort_unstable();
+        assert_eq!(retried_stats_ids, retried_internal_ids);
 
         let forgotten = live_call_or_skip!(
             qdrant_was_available,
