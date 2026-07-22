@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -349,7 +349,7 @@ pub struct CandidateCountRecord {
     pub count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum VectorDatabaseErrorKind {
     Response,
@@ -364,6 +364,66 @@ pub enum VectorDatabaseErrorKind {
     Http,
     JsonToPayload,
     PayloadDeserialization,
+}
+
+impl<'de> Deserialize<'de> for VectorDatabaseErrorKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        const VARIANTS: &[&str] = &[
+            "response",
+            "resource_exhausted",
+            "conversion",
+            "invalid_uri",
+            "no_snapshot_found",
+            "io",
+            "http_timeout",
+            "http_connect",
+            "http_status",
+            "http",
+            "json_to_payload",
+            "payload_deserialization",
+        ];
+
+        let mut fields = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;
+        let kind = fields
+            .remove("kind")
+            .ok_or_else(|| D::Error::missing_field("kind"))?;
+        let kind = String::deserialize(kind).map_err(D::Error::custom)?;
+
+        let unit = |value, fields: &serde_json::Map<String, serde_json::Value>| {
+            if let Some(field) = fields.keys().next() {
+                return Err(D::Error::unknown_field(field, &["kind"]));
+            }
+            Ok(value)
+        };
+
+        match kind.as_str() {
+            "response" => unit(Self::Response, &fields),
+            "resource_exhausted" => unit(Self::ResourceExhausted, &fields),
+            "conversion" => unit(Self::Conversion, &fields),
+            "invalid_uri" => unit(Self::InvalidUri, &fields),
+            "no_snapshot_found" => unit(Self::NoSnapshotFound, &fields),
+            "io" => {
+                let io_kind = fields
+                    .remove("io_kind")
+                    .ok_or_else(|| D::Error::missing_field("io_kind"))?;
+                if let Some(field) = fields.keys().next() {
+                    return Err(D::Error::unknown_field(field, &["kind", "io_kind"]));
+                }
+                let io_kind = IoErrorKindRecord::deserialize(io_kind).map_err(D::Error::custom)?;
+                Ok(Self::Io { io_kind })
+            }
+            "http_timeout" => unit(Self::HttpTimeout, &fields),
+            "http_connect" => unit(Self::HttpConnect, &fields),
+            "http_status" => unit(Self::HttpStatus, &fields),
+            "http" => unit(Self::Http, &fields),
+            "json_to_payload" => unit(Self::JsonToPayload, &fields),
+            "payload_deserialization" => unit(Self::PayloadDeserialization, &fields),
+            variant => Err(D::Error::unknown_variant(variant, VARIANTS)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -860,7 +920,32 @@ mod tests {
         ];
 
         for (kind, expected) in cases {
-            assert_eq!(serde_json::to_value(kind).unwrap(), expected);
+            assert_eq!(serde_json::to_value(&kind).unwrap(), expected);
+            assert_eq!(
+                serde_json::from_value::<VectorDatabaseErrorKind>(expected).unwrap(),
+                kind
+            );
+        }
+    }
+
+    #[test]
+    fn vector_database_error_kind_rejects_unknown_outer_fields() {
+        for value in [
+            serde_json::json!({
+                "kind": "response",
+                "unexpected_unit_field": true
+            }),
+            serde_json::json!({
+                "kind": "io",
+                "io_kind": { "kind": "permission_denied" },
+                "unexpected_io_field": true
+            }),
+        ] {
+            let error = serde_json::from_value::<VectorDatabaseErrorKind>(value).unwrap_err();
+            assert!(
+                error.to_string().contains("unexpected_"),
+                "unknown outer field should be named in the error: {error}"
+            );
         }
     }
 
