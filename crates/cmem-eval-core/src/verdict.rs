@@ -821,7 +821,7 @@ pub struct SupersessionRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
 pub enum LifecycleWarningReason {
     CascadeSuppressesCurrentReplacement,
 }
@@ -948,6 +948,21 @@ mod tests {
 
         assert_eq!(writes.map(|outcome| outcome.attempt_index), [0, 0, 1]);
         assert_eq!(lifecycle.map(|outcome| outcome.attempt_index), [0, 1, 0]);
+    }
+
+    #[test]
+    fn lifecycle_warning_reason_matches_exhaustive_wire_tokens() {
+        let reason = LifecycleWarningReason::CascadeSuppressesCurrentReplacement;
+        let expected = match reason {
+            LifecycleWarningReason::CascadeSuppressesCurrentReplacement => {
+                serde_json::json!("cascade_suppresses_current_replacement")
+            }
+        };
+        assert_eq!(serde_json::to_value(&reason).unwrap(), expected);
+        assert_eq!(
+            serde_json::from_value::<LifecycleWarningReason>(expected).unwrap(),
+            reason
+        );
     }
 
     #[test]
