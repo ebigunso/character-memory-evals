@@ -156,6 +156,69 @@ pub struct ContinuityReportInput<'a> {
     pub restart_observations: &'a BTreeMap<String, Vec<RestartObservation>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetrievalPayloadConstituent {
+    Items,
+    RenderedContext,
+    CharCount,
+    WordCount,
+    Telemetry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetrievalPayloadMismatchError {
+    pub row_index: usize,
+    pub trace_query_id: String,
+    pub row_question_id: String,
+    pub constituents: Vec<RetrievalPayloadConstituent>,
+}
+
+impl std::fmt::Display for RetrievalPayloadMismatchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "continuity report retrieval payload mismatch at row index {}: trace query {:?}, result question {:?}, constituents {:?}",
+            self.row_index, self.trace_query_id, self.row_question_id, self.constituents
+        )
+    }
+}
+
+impl std::error::Error for RetrievalPayloadMismatchError {}
+
+fn validate_retrieval_payload(
+    row_index: usize,
+    trace: &ContinuityQueryTrace,
+    row: &PerQuestionResult,
+) -> std::result::Result<(), RetrievalPayloadMismatchError> {
+    let mut constituents = Vec::new();
+    if trace.retrieval.items() != row.retrieved.as_slice() {
+        constituents.push(RetrievalPayloadConstituent::Items);
+    }
+    if trace.retrieval.context_text() != row.context_text.as_str() {
+        constituents.push(RetrievalPayloadConstituent::RenderedContext);
+    }
+    if trace.retrieval.context_char_count() != row.context_char_count {
+        constituents.push(RetrievalPayloadConstituent::CharCount);
+    }
+    if trace.retrieval.context_word_count() != row.context_word_count {
+        constituents.push(RetrievalPayloadConstituent::WordCount);
+    }
+    if trace.retrieval.telemetry() != &row.telemetry {
+        constituents.push(RetrievalPayloadConstituent::Telemetry);
+    }
+
+    if constituents.is_empty() {
+        Ok(())
+    } else {
+        Err(RetrievalPayloadMismatchError {
+            row_index,
+            trace_query_id: trace.query_id.clone(),
+            row_question_id: row.question_id.clone(),
+            constituents,
+        })
+    }
+}
+
 pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<ContinuityReport> {
     let restart_count = validate_restart_observations(input.scenarios, input.restart_observations)?;
     let fixture_ids = input
@@ -249,26 +312,14 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             .as_str()
             .expect("ScenarioPattern serializes as a string")
             .to_string();
-        let retrieval_items_match = trace.retrieval.items() == row.retrieved.as_slice();
-        let retrieval_context_match = trace.retrieval.context_text() == row.context_text.as_str();
-        let retrieval_char_count_match =
-            trace.retrieval.context_char_count() == row.context_char_count;
-        let retrieval_word_count_match =
-            trace.retrieval.context_word_count() == row.context_word_count;
-        let retrieval_telemetry_match = trace.retrieval.telemetry() == &row.telemetry;
         if trace.query_id != row.question_id
             || trace.query != row.question
             || row.question_type.as_deref() != Some(trace_question_type.as_str())
-            || !retrieval_items_match
-            || !retrieval_context_match
-            || !retrieval_char_count_match
-            || !retrieval_word_count_match
-            || !retrieval_telemetry_match
             || trace.write_outcomes != row.write_outcomes
             || trace.lifecycle_outcomes != row.lifecycle_outcomes
         {
             bail!(
-                "continuity report trace/result mismatch at index {index}: trace ({:?}, {:?}, {:?}), result ({:?}, {:?}, {:?}), retrieval matches (items={retrieval_items_match}, context={retrieval_context_match}, chars={retrieval_char_count_match}, words={retrieval_word_count_match}, telemetry={retrieval_telemetry_match}), outcome lengths trace/result (write={}/{}, lifecycle={}/{})",
+                "continuity report trace/result mismatch at index {index}: trace ({:?}, {:?}, {:?}), result ({:?}, {:?}, {:?}), outcome lengths trace/result (write={}/{}, lifecycle={}/{})",
                 trace.query_id,
                 trace_question_type,
                 trace.query,
@@ -281,6 +332,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
                 row.lifecycle_outcomes.len()
             );
         }
+        validate_retrieval_payload(index, trace, row)?;
     }
 
     if input.summary.adapter != input.adapter {
