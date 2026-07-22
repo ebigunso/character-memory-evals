@@ -2972,6 +2972,7 @@ fn write_outcome_from_live(
     };
     WriteOutcomeRecord {
         operation_id,
+        attempt_index: 0,
         operation,
         persisted_objects: outcome
             .persisted_object_ids
@@ -4156,6 +4157,7 @@ fn lifecycle_result(
         .collect();
     let outcome_record = LifecycleOutcomeRecord {
         operation_id,
+        attempt_index: 0,
         operation,
         requested_targets,
         graph_mutated_objects,

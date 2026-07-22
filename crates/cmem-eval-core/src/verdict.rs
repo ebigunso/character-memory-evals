@@ -753,6 +753,7 @@ pub enum WriteOperationKind {
 #[serde(deny_unknown_fields)]
 pub struct WriteOutcomeRecord {
     pub operation_id: String,
+    pub attempt_index: u32,
     pub operation: WriteOperationKind,
     pub persisted_objects: Vec<ObjectRefRecord>,
     pub persisted_link_internal_ids: Vec<String>,
@@ -769,6 +770,7 @@ impl WriteOutcomeRecord {
     pub fn clean(operation_id: impl Into<String>, operation: WriteOperationKind) -> Self {
         Self {
             operation_id: operation_id.into(),
+            attempt_index: 0,
             operation,
             persisted_objects: Vec::new(),
             persisted_link_internal_ids: Vec::new(),
@@ -835,6 +837,7 @@ pub struct LifecycleWarningRecord {
 #[serde(deny_unknown_fields)]
 pub struct LifecycleOutcomeRecord {
     pub operation_id: String,
+    pub attempt_index: u32,
     pub operation: LifecycleOperationKind,
     pub requested_targets: Vec<ObjectRefRecord>,
     pub graph_mutated_objects: Vec<ObjectRefRecord>,
@@ -850,6 +853,7 @@ impl LifecycleOutcomeRecord {
     pub fn clean(operation_id: impl Into<String>, operation: LifecycleOperationKind) -> Self {
         Self {
             operation_id: operation_id.into(),
+            attempt_index: 0,
             operation,
             requested_targets: Vec::new(),
             graph_mutated_objects: Vec::new(),
@@ -863,12 +867,42 @@ impl LifecycleOutcomeRecord {
     }
 }
 
+/// Assigns stable, zero-based attempt identities in the order outcomes were
+/// produced. Each outcome family maintains its own operation sequence.
+pub fn assign_outcome_attempt_indexes(
+    write_outcomes: &mut [WriteOutcomeRecord],
+    lifecycle_outcomes: &mut [LifecycleOutcomeRecord],
+) {
+    let mut next_write_attempt = BTreeMap::<String, u32>::new();
+    for outcome in write_outcomes {
+        let next = next_write_attempt
+            .entry(outcome.operation_id.clone())
+            .or_default();
+        outcome.attempt_index = *next;
+        *next = next
+            .checked_add(1)
+            .expect("write attempt count exceeds u32");
+    }
+
+    let mut next_lifecycle_attempt = BTreeMap::<String, u32>::new();
+    for outcome in lifecycle_outcomes {
+        let next = next_lifecycle_attempt
+            .entry(outcome.operation_id.clone())
+            .or_default();
+        outcome.attempt_index = *next;
+        *next = next
+            .checked_add(1)
+            .expect("lifecycle attempt count exceeds u32");
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct DegradationSummary {
     pub degraded_write_count: usize,
     pub lifecycle_maintenance_failure_count: usize,
     pub repair_marker_counts_by_kind: BTreeMap<String, usize>,
+    pub repair_attempt_count: usize,
 }
 
 pub fn deterministic_operation_id<'a>(
@@ -896,6 +930,25 @@ pub fn deterministic_operation_id<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outcome_attempt_indexes_follow_execution_order_per_operation() {
+        let mut writes = [
+            WriteOutcomeRecord::clean("a", WriteOperationKind::TypedIngest),
+            WriteOutcomeRecord::clean("b", WriteOperationKind::TypedIngest),
+            WriteOutcomeRecord::clean("a", WriteOperationKind::TypedIngest),
+        ];
+        let mut lifecycle = [
+            LifecycleOutcomeRecord::clean("b", LifecycleOperationKind::Correct),
+            LifecycleOutcomeRecord::clean("b", LifecycleOperationKind::Correct),
+            LifecycleOutcomeRecord::clean("a", LifecycleOperationKind::Forget),
+        ];
+
+        assign_outcome_attempt_indexes(&mut writes, &mut lifecycle);
+
+        assert_eq!(writes.map(|outcome| outcome.attempt_index), [0, 0, 1]);
+        assert_eq!(lifecycle.map(|outcome| outcome.attempt_index), [0, 1, 0]);
+    }
 
     #[test]
     fn vector_database_error_kind_matches_the_character_memory_wire_shape() {

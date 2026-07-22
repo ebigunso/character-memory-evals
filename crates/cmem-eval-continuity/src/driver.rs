@@ -15,7 +15,7 @@ use cmem_eval_core::{
     NamespaceLifecycleResult, ObjectType, ObservationInput, PrepareWriteInput, RelationType,
     ReplacementDerivedMemoryInput, RetentionState, RetrievalConfig, RetrieveInput,
     RetrievedContextPack, SourceProvenanceInput, Stability, SuppressionPolicyInput, ThreadStatus,
-    WriteOutcomeRecord,
+    WriteOutcomeRecord, assign_outcome_attempt_indexes,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -145,7 +145,16 @@ pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> 
     }
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     for trace in traces {
-        serde_json::to_writer(&mut file, trace)?;
+        let mut canonical = trace.clone();
+        canonical.write_outcomes.sort_by(|left, right| {
+            (&left.operation_id, left.attempt_index)
+                .cmp(&(&right.operation_id, right.attempt_index))
+        });
+        canonical.lifecycle_outcomes.sort_by(|left, right| {
+            (&left.operation_id, left.attempt_index)
+                .cmp(&(&right.operation_id, right.attempt_index))
+        });
+        serde_json::to_writer(&mut file, &canonical)?;
         file.write_all(b"\n")?;
     }
     Ok(())
@@ -814,6 +823,7 @@ pub async fn run_continuity_scenario(
                 text,
                 expected,
             } => {
+                assign_outcome_attempt_indexes(&mut write_outcomes, &mut lifecycle_outcomes);
                 let query_started_at = Instant::now();
                 let pack =
                     retrieve_query(runtime.adapter(), scenario, retrieval, timestamp, text).await?;
@@ -1544,6 +1554,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn trace_writer_canonicalizes_outcomes_by_operation_and_attempt() {
+        let (mut traces, _, _) = run_all().await;
+        let mut trace = traces.remove(0);
+        trace.write_outcomes.clear();
+        trace.lifecycle_outcomes.clear();
+        for (operation_id, attempt_index) in [("b", 0), ("a", 1), ("a", 0)] {
+            let mut write = cmem_eval_core::WriteOutcomeRecord::clean(
+                operation_id,
+                cmem_eval_core::WriteOperationKind::ExplicitCommit,
+            );
+            write.attempt_index = attempt_index;
+            trace.write_outcomes.push(write);
+
+            let mut lifecycle = cmem_eval_core::LifecycleOutcomeRecord::clean(
+                operation_id,
+                cmem_eval_core::LifecycleOperationKind::Correct,
+            );
+            lifecycle.attempt_index = attempt_index;
+            trace.lifecycle_outcomes.push(lifecycle);
+        }
+        let first_path = temporary_trace_path();
+        let second_path = temporary_trace_path();
+        write_continuity_traces(&first_path, std::slice::from_ref(&trace)).unwrap();
+        trace.write_outcomes.reverse();
+        trace.lifecycle_outcomes.reverse();
+        write_continuity_traces(&second_path, &[trace]).unwrap();
+
+        let first = std::fs::read_to_string(&first_path).unwrap();
+        assert_eq!(first, std::fs::read_to_string(&second_path).unwrap());
+        let value: Value = serde_json::from_str(first.trim()).unwrap();
+        for family in ["write_outcomes", "lifecycle_outcomes"] {
+            let identities = value[family]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|outcome| {
+                    (
+                        outcome["operation_id"].as_str().unwrap(),
+                        outcome["attempt_index"].as_u64().unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(identities, vec![("a", 0), ("a", 1), ("b", 0)]);
+        }
+
+        std::fs::remove_file(first_path).unwrap();
+        std::fs::remove_file(second_path).unwrap();
+    }
+
+    #[tokio::test]
     async fn trace_reader_rejects_corrupt_bytes_after_a_valid_trace() {
         let (traces, _, _) = run_all().await;
         let path = temporary_trace_path();
@@ -1683,6 +1743,12 @@ mod tests {
             ),
         });
         verdict_trace.write_outcomes.push(outcome);
+        verdict_trace
+            .lifecycle_outcomes
+            .push(cmem_eval_core::LifecycleOutcomeRecord::clean(
+                "required-attempt-index",
+                cmem_eval_core::LifecycleOperationKind::Correct,
+            ));
         let current = serde_json::to_string(&verdict_trace).unwrap();
         let duplicate_nested_verdict = current.replacen(
             r#""kind":"response""#,
@@ -1693,6 +1759,22 @@ mod tests {
         std::fs::write(&path, format!("{duplicate_nested_verdict}\n")).unwrap();
         let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
         assert!(error.contains("duplicate JSON object key"), "{error}");
+
+        let current = serde_json::to_value(&verdict_trace).unwrap();
+        for family in ["write_outcomes", "lifecycle_outcomes"] {
+            let mut missing_attempt = current.clone();
+            missing_attempt[family][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("attempt_index");
+            std::fs::write(
+                &path,
+                format!("{}\n", serde_json::to_string(&missing_attempt).unwrap()),
+            )
+            .unwrap();
+            let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+            assert!(error.contains("missing field `attempt_index`"), "{error}");
+        }
 
         let mut current = serde_json::to_value(&traces[0]).unwrap();
         current["unexpected_v2_field"] = Value::Bool(true);

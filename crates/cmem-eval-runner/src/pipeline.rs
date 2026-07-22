@@ -17,11 +17,11 @@ use cmem_eval_core::{
     LiveEmbeddingProvider, MemoryAdapter, MetricFamily, MetricsConfig, MetricsRecord,
     MockMemoryAdapter, NamespaceLifecycleResult, ObjectType, ObservationInput, PerQuestionResult,
     ReaderResult, ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem,
-    RunAdapterMetadata, Timer, WriteOutcomeRecord, classify_frozen_embedding_dimensions,
-    composition_metrics, count_tokens, estimate_word_count, initialize_registry_metrics_for,
-    insert_composition_metrics, insert_context_metrics, insert_integrity_detail_metrics,
-    insert_retrieval_metrics, insert_telemetry_metrics, integrity_details_with_telemetry,
-    summarize_rows, write_jsonl, write_summary,
+    RunAdapterMetadata, Timer, WriteOutcomeRecord, assign_outcome_attempt_indexes,
+    classify_frozen_embedding_dimensions, composition_metrics, count_tokens, estimate_word_count,
+    initialize_registry_metrics_for, insert_composition_metrics, insert_context_metrics,
+    insert_integrity_detail_metrics, insert_retrieval_metrics, insert_telemetry_metrics,
+    integrity_details_with_telemetry, summarize_rows, write_jsonl, write_summary,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -468,6 +468,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
             write_outcomes.push(adapter.remember_enrichment(enrichment).await?);
             progress.phase_done(item_number, &item_label, "enrichment", "done");
         }
+        assign_outcome_attempt_indexes(&mut write_outcomes, &mut []);
 
         let full_history = S::full_history_text(&item);
         let full_history_metrics = full_history_context_metrics(Some(&full_history));
@@ -2449,7 +2450,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn continuity_lifecycle_stats_failure_reaches_row_summary_and_report() {
+    async fn continuity_lifecycle_retry_reaches_row_summary_and_report() {
         let directory = tempfile::tempdir().unwrap();
         let mut args = continuity_mock_args(directory.path());
         args.scenario = Some("correction-chains".to_string());
@@ -2464,25 +2465,35 @@ mod tests {
         let original_rows = read_v2_rows(&result_path);
         assert_eq!(traces.len(), 1);
         assert_eq!(original_rows.len(), 1);
-        let lifecycle = traces[0]
-            .lifecycle_outcomes
-            .first_mut()
-            .expect("correction scenario should emit lifecycle outcomes");
-        let failed_internal_id = lifecycle
-            .requested_targets
-            .first()
-            .expect("correction outcome should retain its requested target")
-            .internal_id
-            .clone();
-        lifecycle.stats_update_status = cmem_eval_core::StatsUpdateStatusRecord {
-            updated_object_internal_ids: Vec::new(),
-            failure: Some(cmem_eval_core::StatsUpdateFailureRecord {
-                failed_object_internal_ids: vec![failed_internal_id],
-                causes: vec![cmem_eval_core::StatsUpdateCauseRecord::HealthCheck {
-                    error: cmem_eval_core::RetrievalStatsStoreErrorRecord::LockPoisoned,
-                }],
-            }),
+        let (converged_retry, retried_operation_id) = {
+            let lifecycle = traces[0]
+                .lifecycle_outcomes
+                .first_mut()
+                .expect("correction scenario should emit lifecycle outcomes");
+            let failed_internal_id = lifecycle
+                .requested_targets
+                .first()
+                .expect("correction outcome should retain its requested target")
+                .internal_id
+                .clone();
+            lifecycle.stats_update_status = cmem_eval_core::StatsUpdateStatusRecord {
+                updated_object_internal_ids: Vec::new(),
+                failure: Some(cmem_eval_core::StatsUpdateFailureRecord {
+                    failed_object_internal_ids: vec![failed_internal_id.clone()],
+                    causes: vec![cmem_eval_core::StatsUpdateCauseRecord::HealthCheck {
+                        error: cmem_eval_core::RetrievalStatsStoreErrorRecord::LockPoisoned,
+                    }],
+                }),
+            };
+            let mut retry = lifecycle.clone();
+            retry.attempt_index = 1;
+            retry.stats_update_status = cmem_eval_core::StatsUpdateStatusRecord {
+                updated_object_internal_ids: vec![failed_internal_id],
+                failure: None,
+            };
+            (retry, lifecycle.operation_id.clone())
         };
+        traces[0].lifecycle_outcomes.push(converged_retry);
 
         let fixture = parse_fixture_bytes(&fs::read(dataset_path).unwrap()).unwrap();
         let scenarios =
@@ -2500,9 +2511,14 @@ mod tests {
             original_rows[0].latency_ms,
         )
         .unwrap();
+        assert_eq!(row.lifecycle_outcomes, traces[0].lifecycle_outcomes);
         assert_eq!(
-            row.lifecycle_outcomes[0].stats_update_status,
-            traces[0].lifecycle_outcomes[0].stats_update_status
+            row.lifecycle_outcomes
+                .iter()
+                .filter(|outcome| outcome.operation_id == retried_operation_id)
+                .map(|outcome| outcome.attempt_index)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
         );
 
         let rows = vec![row];
@@ -2518,6 +2534,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(summary.degradation.lifecycle_maintenance_failure_count, 1);
+        assert_eq!(summary.degradation.repair_attempt_count, 1);
 
         let report = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
@@ -2540,6 +2557,7 @@ mod tests {
                 .lifecycle_maintenance_failure_count,
             1
         );
+        assert_eq!(report.metadata.degradation.repair_attempt_count, 1);
     }
 
     #[test]

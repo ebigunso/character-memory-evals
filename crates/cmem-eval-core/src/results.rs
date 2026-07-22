@@ -8,7 +8,7 @@ use crate::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -16,7 +16,7 @@ use std::path::Path;
 pub const RESULT_SCHEMA_VERSION: &str = "2.0.0";
 const LEGACY_RESULT_SCHEMA_VERSION: &str = "1.0.0";
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PerQuestionResult {
     pub schema_version: String,
@@ -169,20 +169,58 @@ pub struct LatencySummary {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SummaryInvariantError {
-    ConflictingWriteOutcome { operation_id: String },
-    ConflictingLifecycleOutcome { operation_id: String },
+    ConflictingWriteOutcome {
+        operation_id: String,
+        attempt_index: u32,
+    },
+    ConflictingLifecycleOutcome {
+        operation_id: String,
+        attempt_index: u32,
+    },
+    NonContiguousWriteAttempts {
+        operation_id: String,
+        expected_attempt_index: u32,
+        actual_attempt_index: u32,
+    },
+    NonContiguousLifecycleAttempts {
+        operation_id: String,
+        expected_attempt_index: u32,
+        actual_attempt_index: u32,
+    },
 }
 
 impl std::fmt::Display for SummaryInvariantError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ConflictingWriteOutcome { operation_id } => write!(
+            Self::ConflictingWriteOutcome {
+                operation_id,
+                attempt_index,
+            } => write!(
                 formatter,
-                "conflicting write outcomes share operation_id {operation_id:?}"
+                "conflicting write outcomes share identity ({operation_id:?}, {attempt_index})"
             ),
-            Self::ConflictingLifecycleOutcome { operation_id } => write!(
+            Self::ConflictingLifecycleOutcome {
+                operation_id,
+                attempt_index,
+            } => write!(
                 formatter,
-                "conflicting lifecycle outcomes share operation_id {operation_id:?}"
+                "conflicting lifecycle outcomes share identity ({operation_id:?}, {attempt_index})"
+            ),
+            Self::NonContiguousWriteAttempts {
+                operation_id,
+                expected_attempt_index,
+                actual_attempt_index,
+            } => write!(
+                formatter,
+                "write outcome operation {operation_id:?} has non-contiguous attempts: expected {expected_attempt_index}, found {actual_attempt_index}"
+            ),
+            Self::NonContiguousLifecycleAttempts {
+                operation_id,
+                expected_attempt_index,
+                actual_attempt_index,
+            } => write!(
+                formatter,
+                "lifecycle outcome operation {operation_id:?} has non-contiguous attempts: expected {expected_attempt_index}, found {actual_attempt_index}"
             ),
         }
     }
@@ -314,7 +352,14 @@ pub fn write_jsonl(path: &Path, rows: &[PerQuestionResult]) -> Result<()> {
 }
 
 fn versioned_row_value(row: &PerQuestionResult) -> serde_json::Result<Value> {
-    serde_json::to_value(row)
+    let mut canonical = row.clone();
+    canonical.write_outcomes.sort_by(|left, right| {
+        (&left.operation_id, left.attempt_index).cmp(&(&right.operation_id, right.attempt_index))
+    });
+    canonical.lifecycle_outcomes.sort_by(|left, right| {
+        (&left.operation_id, left.attempt_index).cmp(&(&right.operation_id, right.attempt_index))
+    });
+    serde_json::to_value(canonical)
 }
 
 pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
@@ -395,52 +440,99 @@ fn summarize_degradation(
 ) -> std::result::Result<DegradationSummary, SummaryInvariantError> {
     let mut seen_writes = BTreeMap::new();
     let mut seen_lifecycle = BTreeMap::new();
+    let mut write_attempts = BTreeMap::<&str, BTreeSet<u32>>::new();
+    let mut lifecycle_attempts = BTreeMap::<&str, BTreeSet<u32>>::new();
+    let mut degraded_writes = BTreeSet::new();
+    let mut lifecycle_failures = BTreeSet::new();
+    let mut repair_markers_by_kind = BTreeMap::<&str, BTreeSet<&str>>::new();
     let mut summary = DegradationSummary::default();
     for outcome in rows.iter().flat_map(|row| &row.write_outcomes) {
-        if let Some(previous) = seen_writes.get(outcome.operation_id.as_str()) {
+        let identity = (outcome.operation_id.as_str(), outcome.attempt_index);
+        if let Some(previous) = seen_writes.get(&identity) {
             if *previous != outcome {
                 return Err(SummaryInvariantError::ConflictingWriteOutcome {
                     operation_id: outcome.operation_id.clone(),
+                    attempt_index: outcome.attempt_index,
                 });
             }
             continue;
         }
-        seen_writes.insert(outcome.operation_id.as_str(), outcome);
+        seen_writes.insert(identity, outcome);
+        write_attempts
+            .entry(outcome.operation_id.as_str())
+            .or_default()
+            .insert(outcome.attempt_index);
+        if outcome.attempt_index > 0 {
+            summary.repair_attempt_count += 1;
+        }
         if outcome.vector_indexing_failure.is_some()
             || outcome.stats_update_status.failure.is_some()
             || !outcome.repair_needed.is_empty()
         {
-            summary.degraded_write_count += 1;
+            degraded_writes.insert(outcome.operation_id.as_str());
         }
         for marker in &outcome.repair_needed {
             let kind = match marker {
                 RepairMarkerRecord::VectorIndex { .. } => "vector_index",
                 RepairMarkerRecord::StatsUpdate { .. } => "stats_update",
             };
-            *summary
-                .repair_marker_counts_by_kind
-                .entry(kind.to_string())
-                .or_default() += 1;
+            repair_markers_by_kind
+                .entry(kind)
+                .or_default()
+                .insert(outcome.operation_id.as_str());
         }
     }
-    // Production paths currently copy one exact outcome across cumulative rows and do not
-    // emit retries, so the same operation ID must identify an identical record. Any violation
-    // fails closed here. Attempt-vs-operation identity remains deferred to the v0.2+
-    // idempotency work; converged retries with empty graph fields are not special-cased.
+    summary.degraded_write_count = degraded_writes.len();
+    summary.repair_marker_counts_by_kind = repair_markers_by_kind
+        .into_iter()
+        .map(|(kind, operations)| (kind.to_string(), operations.len()))
+        .collect();
+    for (operation_id, attempts) in write_attempts {
+        for (expected, actual) in (0_u32..).zip(attempts) {
+            if expected != actual {
+                return Err(SummaryInvariantError::NonContiguousWriteAttempts {
+                    operation_id: operation_id.to_string(),
+                    expected_attempt_index: expected,
+                    actual_attempt_index: actual,
+                });
+            }
+        }
+    }
     for outcome in rows.iter().flat_map(|row| &row.lifecycle_outcomes) {
-        if let Some(previous) = seen_lifecycle.get(outcome.operation_id.as_str()) {
+        let identity = (outcome.operation_id.as_str(), outcome.attempt_index);
+        if let Some(previous) = seen_lifecycle.get(&identity) {
             if *previous != outcome {
                 return Err(SummaryInvariantError::ConflictingLifecycleOutcome {
                     operation_id: outcome.operation_id.clone(),
+                    attempt_index: outcome.attempt_index,
                 });
             }
             continue;
         }
-        seen_lifecycle.insert(outcome.operation_id.as_str(), outcome);
+        seen_lifecycle.insert(identity, outcome);
+        lifecycle_attempts
+            .entry(outcome.operation_id.as_str())
+            .or_default()
+            .insert(outcome.attempt_index);
+        if outcome.attempt_index > 0 {
+            summary.repair_attempt_count += 1;
+        }
         if !outcome.vector_maintenance_failures.is_empty()
             || outcome.stats_update_status.failure.is_some()
         {
-            summary.lifecycle_maintenance_failure_count += 1;
+            lifecycle_failures.insert(outcome.operation_id.as_str());
+        }
+    }
+    summary.lifecycle_maintenance_failure_count = lifecycle_failures.len();
+    for (operation_id, attempts) in lifecycle_attempts {
+        for (expected, actual) in (0_u32..).zip(attempts) {
+            if expected != actual {
+                return Err(SummaryInvariantError::NonContiguousLifecycleAttempts {
+                    operation_id: operation_id.to_string(),
+                    expected_attempt_index: expected,
+                    actual_attempt_index: actual,
+                });
+            }
         }
     }
     Ok(summary)
@@ -690,7 +782,7 @@ mod tests {
     }
 
     #[test]
-    fn summary_deduplicates_identical_cumulative_outcomes_across_rows() {
+    fn summary_counts_degradation_once_per_operation_across_cumulative_retry_rows() {
         let object = crate::ObjectRefRecord {
             object_type: crate::ObjectType::Episode,
             internal_id: "episode-1".into(),
@@ -738,8 +830,14 @@ mod tests {
         first.lifecycle_outcomes.push(lifecycle.clone());
         let mut second = row(serde_json::json!({}));
         second.question_id = "q2".into();
-        second.write_outcomes.push(write);
-        second.lifecycle_outcomes.push(lifecycle);
+        second.write_outcomes.push(write.clone());
+        let mut write_retry = write;
+        write_retry.attempt_index = 1;
+        second.write_outcomes.push(write_retry);
+        second.lifecycle_outcomes.push(lifecycle.clone());
+        let mut lifecycle_retry = lifecycle;
+        lifecycle_retry.attempt_index = 1;
+        second.lifecycle_outcomes.push(lifecycle_retry);
 
         let summary = summarize_rows(
             "r".into(),
@@ -758,10 +856,11 @@ mod tests {
             summary.degradation.repair_marker_counts_by_kind["stats_update"],
             1
         );
+        assert_eq!(summary.degradation.repair_attempt_count, 2);
     }
 
     #[test]
-    fn summary_deduplicates_identical_converged_correction_retry_rows() {
+    fn summary_admits_converged_correction_retry_as_a_distinct_attempt() {
         let original = crate::ObjectRefRecord {
             object_type: crate::ObjectType::DerivedMemory,
             internal_id: "derived-original".into(),
@@ -795,6 +894,7 @@ mod tests {
         first.lifecycle_outcomes.push(retry.clone());
         let mut second = row(serde_json::json!({}));
         second.question_id = "q2".into();
+        retry.attempt_index = 1;
         second.lifecycle_outcomes.push(retry);
 
         let summary = summarize_rows(
@@ -808,7 +908,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(summary.degradation, DegradationSummary::default());
+        assert_eq!(summary.degradation.degraded_write_count, 0);
+        assert_eq!(summary.degradation.lifecycle_maintenance_failure_count, 0);
+        assert!(summary.degradation.repair_marker_counts_by_kind.is_empty());
+        assert_eq!(summary.degradation.repair_attempt_count, 1);
     }
 
     #[test]
@@ -844,7 +947,7 @@ mod tests {
     }
 
     #[test]
-    fn summary_rejects_conflicting_outcomes_with_the_same_operation_id() {
+    fn summary_rejects_conflicting_outcomes_with_the_same_attempt_identity() {
         let write = WriteOutcomeRecord::clean(
             "shared-write-operation",
             crate::WriteOperationKind::ExplicitCommit,
@@ -872,6 +975,7 @@ mod tests {
             write_error.downcast_ref::<SummaryInvariantError>(),
             Some(&SummaryInvariantError::ConflictingWriteOutcome {
                 operation_id: "shared-write-operation".to_string(),
+                attempt_index: 0,
             })
         );
 
@@ -902,6 +1006,63 @@ mod tests {
             lifecycle_error.downcast_ref::<SummaryInvariantError>(),
             Some(&SummaryInvariantError::ConflictingLifecycleOutcome {
                 operation_id: "shared-lifecycle-operation".to_string(),
+                attempt_index: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn summary_rejects_non_contiguous_attempt_indexes() {
+        let mut write = WriteOutcomeRecord::clean(
+            "gapped-write-operation",
+            crate::WriteOperationKind::ExplicitCommit,
+        );
+        write.attempt_index = 1;
+        let mut result = row(serde_json::json!({}));
+        result.write_outcomes.push(write);
+        let error = summarize_rows(
+            "r".into(),
+            dataset(),
+            DatasetKind::Synthetic,
+            RunAdapterMetadata::mock_smoke(),
+            serde_json::json!({}),
+            &[result],
+            &[],
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<SummaryInvariantError>(),
+            Some(&SummaryInvariantError::NonContiguousWriteAttempts {
+                operation_id: "gapped-write-operation".to_string(),
+                expected_attempt_index: 0,
+                actual_attempt_index: 1,
+            })
+        );
+
+        let first = LifecycleOutcomeRecord::clean(
+            "gapped-lifecycle-operation",
+            crate::LifecycleOperationKind::Correct,
+        );
+        let mut third = first.clone();
+        third.attempt_index = 2;
+        let mut result = row(serde_json::json!({}));
+        result.lifecycle_outcomes.extend([first, third]);
+        let error = summarize_rows(
+            "r".into(),
+            dataset(),
+            DatasetKind::Synthetic,
+            RunAdapterMetadata::mock_smoke(),
+            serde_json::json!({}),
+            &[result],
+            &[],
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<SummaryInvariantError>(),
+            Some(&SummaryInvariantError::NonContiguousLifecycleAttempts {
+                operation_id: "gapped-lifecycle-operation".to_string(),
+                expected_attempt_index: 1,
+                actual_attempt_index: 2,
             })
         );
     }
@@ -964,6 +1125,50 @@ mod tests {
     }
 
     #[test]
+    fn write_jsonl_canonicalizes_outcomes_by_operation_and_attempt() {
+        let first_path = temp_path("results-canonical-first", "jsonl");
+        let second_path = temp_path("results-canonical-second", "jsonl");
+        let mut result = row(serde_json::json!({}));
+        for (operation_id, attempt_index) in [("b", 0), ("a", 1), ("a", 0)] {
+            let mut write =
+                WriteOutcomeRecord::clean(operation_id, crate::WriteOperationKind::ExplicitCommit);
+            write.attempt_index = attempt_index;
+            result.write_outcomes.push(write);
+
+            let mut lifecycle =
+                LifecycleOutcomeRecord::clean(operation_id, crate::LifecycleOperationKind::Correct);
+            lifecycle.attempt_index = attempt_index;
+            result.lifecycle_outcomes.push(lifecycle);
+        }
+
+        write_jsonl(&first_path, std::slice::from_ref(&result)).unwrap();
+        result.write_outcomes.reverse();
+        result.lifecycle_outcomes.reverse();
+        write_jsonl(&second_path, &[result]).unwrap();
+
+        let first = std::fs::read_to_string(&first_path).unwrap();
+        assert_eq!(first, std::fs::read_to_string(&second_path).unwrap());
+        let value: Value = serde_json::from_str(first.trim()).unwrap();
+        for family in ["write_outcomes", "lifecycle_outcomes"] {
+            let identities = value[family]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|outcome| {
+                    (
+                        outcome["operation_id"].as_str().unwrap(),
+                        outcome["attempt_index"].as_u64().unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(identities, vec![("a", 0), ("a", 1), ("b", 0)]);
+        }
+
+        std::fs::remove_file(first_path).unwrap();
+        std::fs::remove_file(second_path).unwrap();
+    }
+
+    #[test]
     fn write_jsonl_rejects_non_v2_rows_before_replacing_the_destination() {
         let path = temp_path("results-writer-schema", "jsonl");
         for schema_version in [LEGACY_RESULT_SCHEMA_VERSION, "9.9.9"] {
@@ -1010,6 +1215,12 @@ mod tests {
             ),
         });
         verdict_row.write_outcomes.push(outcome);
+        verdict_row
+            .lifecycle_outcomes
+            .push(LifecycleOutcomeRecord::clean(
+                "required-attempt-index",
+                crate::LifecycleOperationKind::Correct,
+            ));
         let current = serde_json::to_string(&verdict_row).unwrap();
         let duplicate_nested_verdict = current.replacen(
             r#""kind":"response""#,
@@ -1020,6 +1231,22 @@ mod tests {
         std::fs::write(&path, format!("{duplicate_nested_verdict}\n")).unwrap();
         let error = format!("{:#}", read_jsonl(&path).unwrap_err());
         assert!(error.contains("duplicate JSON object key"), "{error}");
+
+        let current = serde_json::to_value(&verdict_row).unwrap();
+        for family in ["write_outcomes", "lifecycle_outcomes"] {
+            let mut missing_attempt = current.clone();
+            missing_attempt[family][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("attempt_index");
+            std::fs::write(
+                &path,
+                format!("{}\n", serde_json::to_string(&missing_attempt).unwrap()),
+            )
+            .unwrap();
+            let error = format!("{:#}", read_jsonl(&path).unwrap_err());
+            assert!(error.contains("missing field `attempt_index`"), "{error}");
+        }
 
         let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
         current["unexpected_v2_field"] = Value::Bool(true);
