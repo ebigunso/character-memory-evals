@@ -396,6 +396,7 @@ pub fn summarize_rows(
     rows: &[PerQuestionResult],
     metric_families: &[MetricFamily],
 ) -> Result<RunSummary> {
+    validate_summary_row_identity(&run_id, &dataset, dataset_kind, &adapter, rows)?;
     let metric_rows = rows
         .iter()
         .map(|row| row.metrics.to_json_map())
@@ -433,6 +434,41 @@ pub fn summarize_rows(
         },
         degradation,
     })
+}
+
+pub fn validate_summary_row_identity(
+    run_id: &str,
+    dataset: &DatasetId,
+    dataset_kind: DatasetKind,
+    adapter: &RunAdapterMetadata,
+    rows: &[PerQuestionResult],
+) -> Result<()> {
+    if rows.is_empty() {
+        anyhow::bail!("cannot summarize empty result rows");
+    }
+    for (index, row) in rows.iter().enumerate() {
+        if row.schema_version != RESULT_SCHEMA_VERSION
+            || row.run_id != run_id
+            || row.dataset != *dataset
+            || row.dataset_kind != dataset_kind
+            || row.adapter != *adapter
+        {
+            anyhow::bail!(
+                "summary row identity mismatch at index {index}: row schema/run/dataset/kind/adapter ({:?}, {:?}, {:?}, {:?}, {:?}), supplied ({:?}, {:?}, {:?}, {:?}, {:?})",
+                row.schema_version,
+                row.run_id,
+                row.dataset,
+                row.dataset_kind,
+                row.adapter,
+                RESULT_SCHEMA_VERSION,
+                run_id,
+                dataset,
+                dataset_kind,
+                adapter
+            );
+        }
+    }
+    Ok(())
 }
 
 fn summarize_degradation(
@@ -779,6 +815,83 @@ mod tests {
         assert_eq!(summary.latency.latency_ms.p95, Some(7.0));
         assert!(!summary.metrics.contains_key("retrieval_latency_ms"));
         assert_eq!(summary.registry_coverage.required_metrics_present, 1);
+    }
+
+    #[test]
+    fn summary_rejects_empty_or_mismatched_row_identity() {
+        let error = summarize_rows(
+            "r".into(),
+            dataset(),
+            DatasetKind::Synthetic,
+            RunAdapterMetadata::mock_smoke(),
+            serde_json::json!({}),
+            &[],
+            &[],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("cannot summarize empty result rows"),
+            "{error}"
+        );
+
+        let mut wrong_schema = row(serde_json::json!({}));
+        wrong_schema.schema_version = "9.9.9".to_string();
+        let mut wrong_run = row(serde_json::json!({}));
+        wrong_run.run_id = "other-run".to_string();
+        let mut wrong_dataset = row(serde_json::json!({}));
+        wrong_dataset.dataset = DatasetId::new("other-dataset").unwrap();
+        let mut wrong_kind = row(serde_json::json!({}));
+        wrong_kind.dataset_kind = DatasetKind::Continuity;
+        let mut wrong_adapter = row(serde_json::json!({}));
+        wrong_adapter.adapter = RunAdapterMetadata::live();
+
+        for (label, candidate, mismatch) in [
+            ("schema", wrong_schema, "9.9.9"),
+            ("run", wrong_run, "other-run"),
+            ("dataset", wrong_dataset, "other-dataset"),
+            ("kind", wrong_kind, "Continuity"),
+            ("adapter", wrong_adapter, "real"),
+        ] {
+            let error = summarize_rows(
+                "r".into(),
+                dataset(),
+                DatasetKind::Synthetic,
+                RunAdapterMetadata::mock_smoke(),
+                serde_json::json!({}),
+                &[candidate],
+                &[],
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(
+                error.contains("summary row identity mismatch at index 0"),
+                "{label}: {error}"
+            );
+            assert!(error.contains(mismatch), "{label}: {error}");
+        }
+
+        let first = row(serde_json::json!({}));
+        let mut second = row(serde_json::json!({}));
+        second.question_id = "q2".to_string();
+        second.adapter = RunAdapterMetadata::live();
+        let error = summarize_rows(
+            "r".into(),
+            dataset(),
+            DatasetKind::Synthetic,
+            RunAdapterMetadata::mock_smoke(),
+            serde_json::json!({}),
+            &[first, second],
+            &[],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("summary row identity mismatch at index 1"),
+            "{error}"
+        );
+        assert!(error.contains("real"), "{error}");
+        assert!(error.contains("mock_smoke"), "{error}");
     }
 
     #[test]

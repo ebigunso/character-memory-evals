@@ -1946,7 +1946,7 @@ mod tests {
         assert!(summary.exists());
 
         crate::commands::summarize(crate::commands::SummarizeArgs {
-            input: out,
+            input: out.clone(),
             config,
             out: resummary.clone(),
             dataset: None,
@@ -1958,6 +1958,26 @@ mod tests {
         assert_eq!(regenerated.embedding_bindings, original.embedding_bindings);
         assert_eq!(regenerated.config, original.config);
         assert_eq!(regenerated.registry_coverage, original.registry_coverage);
+
+        let bad_input = dir.path().join("synthetic-mismatched.jsonl");
+        let bad_summary = dir.path().join("synthetic-mismatched-summary.json");
+        let mut mismatched_rows = read_v2_rows(&out);
+        mismatched_rows[0].run_id = "mismatched-run".to_string();
+        write_jsonl(&bad_input, &mismatched_rows).unwrap();
+        let error = crate::commands::summarize(crate::commands::SummarizeArgs {
+            input: bad_input,
+            config: PathBuf::from("../../configs/synthetic_retrieval.toml"),
+            out: bad_summary,
+            dataset: None,
+            scenario: None,
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("summary row identity mismatch at index 0"),
+            "{error}"
+        );
+        assert!(error.contains("mismatched-run"), "{error}");
     }
 
     #[tokio::test]
@@ -2291,6 +2311,8 @@ mod tests {
             error.contains("summary/result identity mismatch"),
             "{error}"
         );
+        assert!(error.contains("Synthetic"), "{error}");
+        assert!(error.contains("Continuity"), "{error}");
 
         let mut invented_traces = traces.clone();
         invented_traces[0].query_id = "invented-query".to_string();

@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmem_eval_core::{
     BenchmarkRunConfig, RetrievalMode, RunAdapterMetadata, VersionedPerQuestionResult, read_jsonl,
-    summarize_rows, write_summary,
+    summarize_rows, validate_summary_row_identity, write_summary,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -244,27 +244,13 @@ fn summarize(args: SummarizeArgs) -> Result<()> {
     let config = read_config(&args.config)?;
     config.validate()?;
     let expected_dataset_kind = pipeline::dataset_kind_for_config(&config)?;
-    if first.run_id != config.run_id
-        || first.dataset != config.dataset
-        || first.dataset_kind != expected_dataset_kind
-    {
-        bail!(
-            "summary input run/dataset/kind ({}/{}/{:?}) does not match config ({}/{}/{:?})",
-            first.run_id,
-            first.dataset,
-            first.dataset_kind,
-            config.run_id,
-            config.dataset,
-            expected_dataset_kind,
-        );
-    }
-    if rows.iter().any(|row| {
-        row.run_id != first.run_id
-            || row.dataset != first.dataset
-            || row.dataset_kind != first.dataset_kind
-    }) {
-        bail!("summary input contains mixed run_id, dataset, or dataset_kind values");
-    }
+    validate_summary_row_identity(
+        &config.run_id,
+        &config.dataset,
+        expected_dataset_kind,
+        &first.adapter,
+        &rows,
+    )?;
     if config.dataset.as_str() == "continuity" {
         let dataset = args.dataset.as_deref().context(
             "summarizing continuity results requires --dataset with the source fixture path",
@@ -277,9 +263,9 @@ fn summarize(args: SummarizeArgs) -> Result<()> {
         args.scenario.as_deref(),
     )?;
     let summary = summarize_rows(
-        first.run_id.clone(),
-        first.dataset.clone(),
-        first.dataset_kind,
+        config.run_id.clone(),
+        config.dataset.clone(),
+        expected_dataset_kind,
         first.adapter.clone(),
         serde_json::to_value(&config)?,
         &rows,

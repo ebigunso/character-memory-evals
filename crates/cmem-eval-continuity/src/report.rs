@@ -284,12 +284,14 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             || row.adapter != input.summary.adapter
         {
             bail!(
-                "continuity report summary/result identity mismatch at index {index}: row ({:?}, {:?}, {:?}), summary ({:?}, {:?}, {:?})",
+                "continuity report summary/result identity mismatch at index {index}: row run/dataset/kind/adapter ({:?}, {:?}, {:?}, {:?}), summary ({:?}, {:?}, {:?}, {:?})",
                 row.run_id,
                 row.dataset,
+                row.dataset_kind,
                 row.adapter,
                 input.summary.run_id,
                 input.summary.dataset,
+                input.summary.dataset_kind,
                 input.summary.adapter
             );
         }
