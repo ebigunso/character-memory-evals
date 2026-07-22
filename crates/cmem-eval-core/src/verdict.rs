@@ -350,7 +350,7 @@ pub struct CandidateCountRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum VectorDatabaseErrorKind {
     Response,
     ResourceExhausted,
@@ -800,6 +800,69 @@ pub fn deterministic_operation_id<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vector_database_error_kind_matches_the_character_memory_wire_shape() {
+        let cases = vec![
+            (
+                VectorDatabaseErrorKind::Response,
+                serde_json::json!({ "kind": "response" }),
+            ),
+            (
+                VectorDatabaseErrorKind::ResourceExhausted,
+                serde_json::json!({ "kind": "resource_exhausted" }),
+            ),
+            (
+                VectorDatabaseErrorKind::Conversion,
+                serde_json::json!({ "kind": "conversion" }),
+            ),
+            (
+                VectorDatabaseErrorKind::InvalidUri,
+                serde_json::json!({ "kind": "invalid_uri" }),
+            ),
+            (
+                VectorDatabaseErrorKind::NoSnapshotFound,
+                serde_json::json!({ "kind": "no_snapshot_found" }),
+            ),
+            (
+                VectorDatabaseErrorKind::Io {
+                    io_kind: IoErrorKindRecord::PermissionDenied,
+                },
+                serde_json::json!({
+                    "kind": "io",
+                    "io_kind": { "kind": "permission_denied" }
+                }),
+            ),
+            (
+                VectorDatabaseErrorKind::HttpTimeout,
+                serde_json::json!({ "kind": "http_timeout" }),
+            ),
+            (
+                VectorDatabaseErrorKind::HttpConnect,
+                serde_json::json!({ "kind": "http_connect" }),
+            ),
+            (
+                VectorDatabaseErrorKind::HttpStatus,
+                serde_json::json!({ "kind": "http_status" }),
+            ),
+            (
+                VectorDatabaseErrorKind::Http,
+                serde_json::json!({ "kind": "http" }),
+            ),
+            (
+                VectorDatabaseErrorKind::JsonToPayload,
+                serde_json::json!({ "kind": "json_to_payload" }),
+            ),
+            (
+                VectorDatabaseErrorKind::PayloadDeserialization,
+                serde_json::json!({ "kind": "payload_deserialization" }),
+            ),
+        ];
+
+        for (kind, expected) in cases {
+            assert_eq!(serde_json::to_value(kind).unwrap(), expected);
+        }
+    }
 
     #[test]
     fn every_io_error_kind_record_round_trips_through_serde() {

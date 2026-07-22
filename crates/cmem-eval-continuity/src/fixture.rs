@@ -766,6 +766,12 @@ impl ContinuityScenario {
                 self.fixture_id
             );
         }
+        if !matches!(self.events.last(), Some(InteractionEvent::Query { .. })) {
+            bail!(
+                "scenario {:?} must end with a scripted query so every cumulative operation outcome is emitted",
+                self.fixture_id
+            );
+        }
         Ok(())
     }
 }
@@ -1557,6 +1563,24 @@ mod tests {
         let error = parse_error(&fixtures);
         assert!(error.contains("long-gap-recall"), "{error}");
         assert!(error.contains("query"), "{error}");
+    }
+
+    #[test]
+    fn public_parser_rejects_operations_after_the_final_query() {
+        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
+        let terminal_index = scenario.events.len();
+        insert_link_before(
+            scenario,
+            terminal_index,
+            "post-query-link",
+            "memory-dormant",
+        );
+
+        let error = parse_error(&fixtures);
+        assert!(error.contains("long-gap-recall"), "{error}");
+        assert!(error.contains("end with a scripted query"), "{error}");
+        assert!(error.contains("cumulative operation outcome"), "{error}");
     }
 
     #[test]
