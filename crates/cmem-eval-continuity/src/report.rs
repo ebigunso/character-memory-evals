@@ -249,23 +249,35 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             .as_str()
             .expect("ScenarioPattern serializes as a string")
             .to_string();
+        let retrieval_items_match = trace.retrieval.items() == row.retrieved.as_slice();
+        let retrieval_context_match = trace.retrieval.context_text() == row.context_text.as_str();
+        let retrieval_char_count_match =
+            trace.retrieval.context_char_count() == row.context_char_count;
+        let retrieval_word_count_match =
+            trace.retrieval.context_word_count() == row.context_word_count;
+        let retrieval_telemetry_match = trace.retrieval.telemetry() == &row.telemetry;
         if trace.query_id != row.question_id
             || trace.query != row.question
             || row.question_type.as_deref() != Some(trace_question_type.as_str())
+            || !retrieval_items_match
+            || !retrieval_context_match
+            || !retrieval_char_count_match
+            || !retrieval_word_count_match
+            || !retrieval_telemetry_match
             || trace.write_outcomes != row.write_outcomes
             || trace.lifecycle_outcomes != row.lifecycle_outcomes
         {
             bail!(
-                "continuity report trace/result mismatch at index {index}: trace ({:?}, {:?}, {:?}, write={}, lifecycle={}), result ({:?}, {:?}, {:?}, write={}, lifecycle={})",
+                "continuity report trace/result mismatch at index {index}: trace ({:?}, {:?}, {:?}), result ({:?}, {:?}, {:?}), retrieval matches (items={retrieval_items_match}, context={retrieval_context_match}, chars={retrieval_char_count_match}, words={retrieval_word_count_match}, telemetry={retrieval_telemetry_match}), outcome lengths trace/result (write={}/{}, lifecycle={}/{})",
                 trace.query_id,
                 trace_question_type,
                 trace.query,
-                trace.write_outcomes.len(),
-                trace.lifecycle_outcomes.len(),
                 row.question_id,
                 row.question_type,
                 row.question,
+                trace.write_outcomes.len(),
                 row.write_outcomes.len(),
+                trace.lifecycle_outcomes.len(),
                 row.lifecycle_outcomes.len()
             );
         }

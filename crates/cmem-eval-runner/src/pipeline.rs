@@ -2242,6 +2242,36 @@ mod tests {
         assert!(error.contains("trace/result mismatch"), "{error}");
         assert!(error.contains('0'), "{error}");
 
+        let mut altered_retrieval_rows = read_v2_rows(&result_path);
+        let altered_retrieval_index = altered_retrieval_rows
+            .iter()
+            .position(|row| !row.retrieved.is_empty())
+            .expect("continuity fixture should produce a retrieved item");
+        altered_retrieval_rows[altered_retrieval_index]
+            .retrieved
+            .clear();
+        let error = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_schema_version: fixture.schema_version,
+            fixture_seed: fixture.seed,
+            config: summary.config.clone(),
+            adapter: summary.adapter.clone(),
+            scenarios: &fixture.scenarios,
+            traces: &traces,
+            rows: &altered_retrieval_rows,
+            summary: &summary,
+            metric_family: &report_metric_family,
+            restart_observations: &valid_restart_observations,
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("trace/result mismatch"), "{error}");
+        assert!(
+            error.contains(&format!("index {altered_retrieval_index}")),
+            "{error}"
+        );
+        assert!(error.contains("items=false"), "{error}");
+
         let mut altered_outcome_rows = read_v2_rows(&result_path);
         altered_outcome_rows[0]
             .write_outcomes
