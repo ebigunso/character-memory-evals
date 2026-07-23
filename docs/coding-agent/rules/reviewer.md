@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "reviewer"
-last_updated: "2026-07-14"
+last_updated: "2026-07-23"
 ---
 
 # Reviewer Repository Rules
@@ -14,6 +14,8 @@ last_updated: "2026-07-14"
 - The `../CharacterMemory` path dependency resolves per-worktree; pin and state the sibling commit used for any live or `--locked` validation.
 
 ## Review Risk Hotspots
+
+- Optional-diagnostics metric staging: every emitted metric binds to exactly one named stage of the chained limiter pipeline (eligible -> hub cap -> fanout cap); enumerate per-stage producer cardinality before approving optional diagnostics.
 
 - admission_before_side_effect: public parsers/readers (fixture, trace) must reject malformed, partial, wrong-version, or contract-violating input before any backend I/O or state mutation.
 - derived_artifact_congruence: assemblers of derived artifacts (report assembly, summaries) necessarily run after backend I/O; they must validate input identity, count, and order congruence before returning or publishing the artifact, failing closed on mismatch.

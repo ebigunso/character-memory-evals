@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "common"
-last_updated: "2026-07-22"
+last_updated: "2026-07-23"
 ---
 
 # Common Repository Rules
@@ -54,3 +54,7 @@ last_updated: "2026-07-22"
 - Emit report schema version `2.0.0` on rows, traces, summaries, and reports; readers are strict fail-closed for 2.0.0 shapes, with exactly one bounded legacy 1.0.0 dispatch (result rows and continuity traces only) retained for sealed register-cited evidence under the Compatibility Policy exemption.
 - Admission strictness is a reader-side property of the trust boundary, not a mirror of producer serde behavior: a strict reader must accept everything the producer can emit (serialization-shape fidelity, proven by round-tripping every emittable variant) and may reject anything beyond it, regardless of what the producer's own Deserialize would tolerate; producer derive permissiveness is never a license to weaken reader admission (consult-ruled 2026-07-22). SCOPE (Tier A value audit 2026-07-22): this rule binds the hash-cited evidence readers — result rows, summaries, continuity traces, and reports — not every mirrored type; extend to other boundaries only on new evidence, since unbounded application licenses manual-Deserialize proliferation without measurement payoff. Where serde attributes cannot express the required strictness, implement manual Deserialize on the mirrored type itself, never per-field deserialize_with scatter.
 - Keep latency in dedicated row/summary fields rather than deterministic metrics; record per-scenario typed embedding binding records (summaries aggregate sorted unique bindings — there is no single summary embedding-provider field in 2.0.0); metrics are typed numeric-or-null with fail-closed admission.
+
+## Harness Sync Status
+
+- 2026-07-23: agent-harness v0.9.0 promoted this repo's staged generalizable guidance into harness skills (agent-harness PR #41). Do not slim the generic rules in this suite or drain promoted lessons until the installed Claude harness plugin is >= 0.9.0 (it was 0.4.0 on 2026-07-23; Codex profiles were refreshed to 0.9.0 the same day) — until then this suite is the live copy of that guidance.
