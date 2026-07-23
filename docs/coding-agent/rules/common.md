@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "common"
-last_updated: "2026-07-22"
+last_updated: "2026-07-23"
 ---
 
 # Common Repository Rules
@@ -15,7 +15,6 @@ last_updated: "2026-07-22"
 
 - Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` before reporting implementation done.
 - Run the service-free synthetic smoke command before reporting benchmark CLI changes done: `cargo run -p cmem-eval-runner -- run synthetic --dataset ./fixtures/synthetic_small.json --config ./configs/synthetic_retrieval.toml --out ./runs/synthetic.jsonl --summary-out ./runs/synthetic_summary.json --adapter mock --allow-mock-benchmark`.
-- Targeted-test evidence must state an executed-test count greater than zero; a successful exit code alone is insufficient because an unmatched filter can execute no tests.
 
 ## Repo Documentation Wording
 
@@ -29,10 +28,7 @@ last_updated: "2026-07-22"
 
 ## Workaround Tripwire (design-debt escalation)
 
-- The tripwire condition is the failure mode itself, not any specific shape of it: noticing that the work is going *around* something — a type, signature, schema, channel, module boundary, existing abstraction, or a dispatch constraint — when changing that thing itself would be the cleaner design (user-directed 2026-07-21).
-- Recognizable symptoms include, non-exhaustively: structured data flattened into prose; a parallel channel or path duplicating an existing one; tests that parse message strings or pin incidental values to verify behavior; call sites compensating for what the callee should own; logic duplicated to avoid a refactor; shims or adapters absorbing a design mismatch instead of the design being aligned; special-case branches accumulating around an abstraction that no longer fits; "for now"/"workaround" markers.
-- On hitting the tripwire: stop the affected chunk and escalate the design alternative with its cost delta to the role that owns the decision; do not implement through it. Sealed artifacts are the one standing exception: working around them is correct, changing them is not.
-- An alert is an obligation to surface, not a license to redesign: the alerting agent waits for a ruling rather than unilaterally expanding scope.
+- The Workaround Tripwire (detection, stop-and-alert response, alert-awaits-ruling) is harness-owned: engineering-quality-baselines Drift Tripwires. Repo-specific standing exception: sealed artifacts (frozen stores, hashes, committed evidence) — working around them is correct, changing them is not.
 
 ## Artifact Placement And Disposition
 
@@ -54,3 +50,7 @@ last_updated: "2026-07-22"
 - Emit report schema version `2.0.0` on rows, traces, summaries, and reports; readers are strict fail-closed for 2.0.0 shapes, with exactly one bounded legacy 1.0.0 dispatch (result rows and continuity traces only) retained for sealed register-cited evidence under the Compatibility Policy exemption.
 - Admission strictness is a reader-side property of the trust boundary, not a mirror of producer serde behavior: a strict reader must accept everything the producer can emit (serialization-shape fidelity, proven by round-tripping every emittable variant) and may reject anything beyond it, regardless of what the producer's own Deserialize would tolerate; producer derive permissiveness is never a license to weaken reader admission (consult-ruled 2026-07-22). SCOPE (Tier A value audit 2026-07-22): this rule binds the hash-cited evidence readers — result rows, summaries, continuity traces, and reports — not every mirrored type; extend to other boundaries only on new evidence, since unbounded application licenses manual-Deserialize proliferation without measurement payoff. Where serde attributes cannot express the required strictness, implement manual Deserialize on the mirrored type itself, never per-field deserialize_with scatter.
 - Keep latency in dedicated row/summary fields rather than deterministic metrics; record per-scenario typed embedding binding records (summaries aggregate sorted unique bindings — there is no single summary embedding-provider field in 2.0.0); metrics are typed numeric-or-null with fail-closed admission.
+
+## Harness Sync Status
+
+- 2026-07-23: agent-harness v0.9.0 promoted this repo's staged generalizable guidance into harness skills (agent-harness PR #41). Gate CLEARED the same day: installed Claude plugin and Codex profiles both reached 0.9.0, and the rule slimming + lessons drain were applied in this branch per the Codex per-rule verification map (agmsg 2026-07-23T11:50Z).
