@@ -665,6 +665,10 @@ Prevention:
 Evidence:
 - The round-8 regressions admit a padded model only after canonicalization and assert trimmed serialized metadata, compare canonical frozen runtime inputs exactly with both manifest texts and store keys, and the attribution now carries the upstream LongMemEval MIT notice.
 
+## Promotion drain note (2026-07-23)
+
+Drained after agent-harness v0.9.0 went live in this workspace (installed plugin + Codex profiles updated 2026-07-23); each prevention now exists verbatim-or-stronger in harness content: Parallelize Approved Harness Implementation Work (orchestration-harness parallel-by-default dispatch), Resolve Moving External Dependencies Once Before CI Fan-Out (review-latent-risk-build-ci), Label Live Evidence Scope At The Point Of Claim (testing-validation evidence-scope line), Make Layered Vocabulary Duplication Mechanically Exhaustive (validation-tests exhaustiveness checks + architecture-gates boundary ownership), Equivalence Tests Must Compare The Full Observable Contract (review-latent-risk-conservation + owning-surface assertion line).
+
 ## Repo-rule promotion drain note (2026-07-23)
 
 Promoted into this repo's rule suite and removed from this log (per-lesson triage against harness promotion guidelines, agmsg 2026-07-23T12:18Z): source-only metadata gate and fixture-field runtime ownership (worker.md); adapter lifecycle matrix (six lessons -> one evidence row), frozen-store exact bijection (three lessons -> one evidence row), coupled-config invariants, recursive config admission, label-conflict precedence, scenario metric dispatch, and converter attribution (reviewer.md). Partially promoted, entries RETAINED for their residual detail: "Validate Complete Durable Identities And Matched Input Shapes" (malformed matched-input subcase) and "Validate Coupled Configuration And Fix Deterministic Widths" (fixed-width arithmetic detail).
