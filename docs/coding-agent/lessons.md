@@ -1,57 +1,5 @@
 # Coding Agent Lessons
 
-## 2026-04-30 — Treat Forthcoming Public APIs As Contract Targets  [tags: assumptions, planning, adapters]
-
-Context:
-- Plan: `docs/coding-agent/plans/active/character-memory-evals-bootstrap-plan.md`
-- Task/Wave: planning
-- Roles involved: Orchestrator | Researcher
-
-Symptom:
-- The plan framed the real Character Memory adapter mainly as a limitation because the current sibling crate does not yet expose the needed public API.
-
-Root cause:
-- I over-weighted current local implementation state and under-weighted the user's handoff assumption that the API contract should exist shortly.
-
-Fix applied:
-- Plan and implementation will treat the real public API as the intended contract target, while retaining a mock adapter for deterministic tests until the upstream API lands.
-
-Prevention:
-- Repo rule candidate:
-  - audience: orchestrator
-  - proposed rule: When a handoff describes a soon-to-exist external public API, model that API as the target contract and isolate current unavailability behind mocks or documented feature gates.
-- Dispatch/plan guardrail:
-  - Record external API readiness assumptions explicitly before implementation.
-
-Evidence:
-- User correction on 2026-04-30: "assume the public API exists, since it's just not done yet and it will be there shortly."
-
-## 2026-04-30 — Separate Benchmark Runtime Defaults From CI Defaults  [tags: planning, validation, adapters, defaults]
-
-Context:
-- Plan: `docs/coding-agent/plans/active/character-memory-public-api-eval-adapter-plan.md`
-- Task/Wave: planning follow-up
-- Roles involved: Orchestrator | Researcher
-
-Symptom:
-- The active plan preserved mock-backed defaults too broadly, which could let users accidentally run benchmark evals against mocks.
-
-Root cause:
-- I conflated service-free validation defaults with user-facing benchmark runtime defaults.
-
-Fix applied:
-- The plan now makes live Character Memory the default for benchmark CLI runs while keeping mock paths explicit and guarded for tests/smoke validation.
-
-Prevention:
-- Repo rule candidate:
-  - audience: orchestrator
-  - proposed rule: Distinguish benchmark runtime defaults from CI/test defaults; real eval commands should fail loudly instead of silently falling back to mocks.
-- Dispatch/plan guardrail:
-  - When mocks are retained for validation, require explicit mock opt-in flags and visible mock/smoke output labeling.
-
-Evidence:
-- User correction on 2026-04-30: "Can you also make the default run be a live eval run, instead of a mock based solution?"
-
 ## 2026-05-04 — Keep Generated Dataset Artifacts Out Of Commits Unless Explicitly Requested  [tags: git, datasets, artifacts, scope]
 
 Context:
@@ -242,48 +190,6 @@ Fix applied:
 Prevention:
 - Before live validation of fixture-driven integrations, enumerate every closed-enum field across the fixture and facade schemas, test each translation directly, and reject unknown values rather than passing them through the mock path.
 
-## 2026-07-12 — Run Strict Lints After Adding Test Harness Types  [tags: validation, rust, clippy, tests]
-
-Symptom:
-- The required strict Clippy gate rejected a manually implemented `Default` for a test runtime and an oversized real/mock runtime enum even though targeted tests and formatting had passed.
-
-Root cause:
-- Runtime and test helper types were written for clarity during rapid driver iteration without checking the warnings-as-errors lint surface immediately after their shapes stabilized.
-
-Fix applied:
-- Derive `Default`, box the large real-runtime fields, and rerun strict workspace Clippy.
-
-Prevention:
-- Run the strict package lint immediately after new Rust test-support types compile, before expensive live reproducibility probes or final workspace validation.
-
-## 2026-07-12 — Treat Every Public Reader As An Admission Boundary  [tags: review, validation, rust, artifacts]
-
-Symptom:
-- The continuity trace reader silently discarded invalid UTF-8 or other line-read failures and accepted syntactically valid traces with an incompatible schema version.
-
-Root cause:
-- Valid round-trip coverage proved the writer output but did not challenge the public reader with corrupt transport bytes or version skew, and the boundary sweep stopped at the fixture parser instead of covering every public `Result`-returning reader.
-
-Fix applied:
-- Propagate line decoding and I/O failures before blank filtering, validate each trace schema version before returning it, and add public-reader regressions for a valid prefix followed by invalid UTF-8 and for schema version `9.9.9`.
-
-Prevention:
-- For every public artifact reader returning `Result`, test corrupt or invalid encoding, partial input, and incompatible schema versions before claiming the admission boundary is closed; sweep sibling readers by return path, not only by parser name.
-
-## 2026-07-12 — Aggregate Unsafe State By Identity Union  [tags: review, metrics, lifecycle, correctness]
-
-Symptom:
-- Correction safety added suppressed and superseded totals even though one returned object can satisfy both predicates, and the category item counts themselves counted duplicate lifecycle decisions, allowing rates above 1.0.
-
-Root cause:
-- Category counts were treated as disjoint without proving that invariant, and fields named as returned-object counts inherited raw decision multiplicity at the telemetry boundary.
-
-Fix applied:
-- Project every returned-object category count and the unsafe union as unique stable-identity sets, retain a separate raw lifecycle-decision count, and cover overlap plus duplicate-decision rate bounds in hand-calculation regressions.
-
-Prevention:
-- Before combining category counts into a rate, prove the categories are disjoint; independently require every item/object count to deduplicate stable identities, reserve multiplicity for explicitly named decision-volume fields, and test duplicate decisions plus overlapping categories against rate bounds.
-
 ## 2026-07-12 — Preserve Authoritative References Across Live Mutations  [tags: review, integration, lifecycle, validation]
 
 Symptom:
@@ -297,57 +203,6 @@ Fix applied:
 
 Prevention:
 - For every mutation contract, inventory all provenance/reference fields established at admission, preserve them through driver state, and validate the live facade path; mock success alone is not contract evidence.
-
-## 2026-07-13 — Distinguish Artifact Snapshots From Provenance  [tags: docs, review, artifacts, accuracy]
-
-Context:
-- Plan: v0.1.4 continuity plan
-- Task/Wave: Task_12
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- The README said continuity report metadata contained a fixture snapshot even though it stores only fixture identity and seed provenance.
-
-Root cause:
-- The documentation grouped fixture and config metadata together without verifying whether each serialized field contained a full snapshot or provenance only.
-
-Fix applied:
-- Describe fixture identity and seeds separately from the full config snapshot, and state that the fixture body is not embedded in `report.json`.
-
-Prevention:
-- Dispatch/plan guardrail:
-  - Verify artifact documentation against the serialized metadata type field by field, and reserve “snapshot” for embedded content that is sufficient to reconstruct the source.
-- Residual risk / waiver:
-  - None.
-
-Evidence:
-- Reviewer compared `README.md` with `ContinuityReportMetadata` in `crates/cmem-eval-continuity/src/report.rs`.
-
-## 2026-07-14 — Validate Benchmark Claims At The Stored Contract Boundary  [tags: review, benchmarks, integration, evidence]
-
-Context:
-- Plan: v0.1.4 continuity plan
-- Task/Wave: PR #9 Copilot review fixes
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- Scripted timestamps, thread memberships, and salience values existed in fixtures but did not reach live stored objects, while result rows reported false zero latency and scoped reports could claim unsupported tuning observations.
-
-Root cause:
-- Fixture and mock coverage stopped before the live DTO, persistence, retrieval-telemetry, and report-claim boundaries.
-
-Fix applied:
-- Carry timestamps into episode and observation drafts, materialize thread and derived-memory structures with scripted confidence and salience, measure scripted query retrievals, and suppress tuning observations without a live recurring-hub trace.
-
-Prevention:
-- Dispatch/plan guardrail:
-  - For every benchmark field, trace fixture input through adapter DTO, persisted object, retrieval telemetry, metric, and report claim; unsupported observations remain absent rather than becoming zero or prose assertions.
-- Residual risk / waiver:
-  - Gap-day arithmetic is fixture-derived, so its old values were numerically correct, but old live evidence did not validate persisted temporal behavior.
-
-Evidence:
-- Two full eight-scenario live runs using `configs/continuity_retrieval.toml` produced identical trace, normalized-row, and report-content hashes.
-- Long-gap and temporal recall/gap values remained stable after timestamp persistence (`349/31` gap days and recall@5 `1.0`), while thread drift changed from `0` to `1` active thread and `0` to `3` derived memories; mixed salience changed from `0` to `3` derived memories.
 
 ## 2026-07-14 — Document Every Nondeterministic Artifact Source  [tags: review, determinism, reporting, latency]
 
@@ -443,29 +298,6 @@ Evidence:
 - Focused regressions cover queryless fixtures, invalid relations, missing concepts, reserved concept collisions, invalid timestamps, disabled rationale, and unknown or missing restart observations; the canonical fixture remains byte-identical.
 - An accidental broad workspace invocation reproduced the known post-success Qdrant teardown timeout in `live_adapter_reattaches_with_external_ids`; the service-free workspace rerun excludes the two explicitly live adapter tests.
 
-## 2026-07-14 — Require Positive Test Counts For Targeted Evidence  [tags: cargo, validation, test-filter, concurrency, evidence]
-
-Context:
-- Plan: PR #9 Copilot review fixes
-- Task/Wave: Copilot round 6 targeted review
-- Roles involved: Reviewer | Worker
-
-Symptom:
-- During reviewer verification, concurrent `cargo test` and `cargo clippy` processes contended on one shared target-directory build lock, causing Clippy to spend its timeout compiling, while unqualified `--exact` test filters exited successfully with zero executed tests and were initially read as passing evidence.
-
-Root cause:
-- Cargo validation was parallelized despite sharing a build lock, and targeted-test success was inferred from process exit status without checking that the requested test actually executed.
-
-Fix applied:
-- Rerun the Cargo checks sequentially, use fully qualified test names, allow a longer Clippy timeout, and confirm a positive executed-test count for every targeted-test claim.
-
-Prevention:
-- Serialize compile, test, and lint commands that share one Cargo target directory.
-- Targeted-test evidence must record an executed-test count greater than zero; never treat exit code alone as proof that a filtered test ran.
-
-Evidence:
-- The reviewer-observed round-six reruns used fully qualified filters, reported positive executed-test counts, and completed the longer sequential Clippy invocation without build-lock timeout ambiguity.
-
 ## 2026-07-17 — Name Every Supplemental Canonicalization Literal  [tags: validation, determinism, hashing, evidence]
 
 Context:
@@ -533,31 +365,6 @@ Prevention:
 
 Evidence:
 - `live_frozen_write_surface_matches_continuity_runtime_normalization` crosses the real adapter and CharacterMemory write-surface seam with leading/trailing whitespace, repeated spaces, a tab, and a newline.
-
-## 2026-07-19 — Qualify Rust Test Names Before Exact Filtering  [tags: validation, rust, cargo-test, evidence]
-
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: Task_25c
-- Roles involved: Worker
-
-Symptom:
-- A corrective targeted test command exited successfully but executed zero tests because `--exact` was paired with an unqualified Rust test name.
-
-Root cause:
-- The filter omitted the test module path required by libtest exact matching, and the command result was inspected only after execution.
-
-Fix applied:
-- Rerun the test with its module-qualified name and require a positive executed-test count before accepting the evidence.
-
-Prevention:
-- Before using `cargo test ... -- --exact`, obtain or infer the fully qualified libtest name; if uncertain, use `-- --list` or a non-exact filter first, then confirm the reported executed-test count is greater than zero.
-- Repo rule candidate: none; `common.md` and `worker.md` already require positive targeted-test counts.
-- Harness migration candidate: none; the existing validation model already rejects zero-test evidence.
-- Residual risk / waiver: none.
-
-Evidence:
-- The initial command reported `0 passed` and `70 filtered out`; the corrected module-qualified invocation is recorded in the Task_25c validation packet.
 
 ## 2026-07-20 — Cache Immutable Artifacts At The Run Boundary  [tags: review, performance, embeddings, lifecycle, ownership]
 
@@ -672,3 +479,7 @@ Drained after agent-harness v0.9.0 went live in this workspace (installed plugin
 ## Repo-rule promotion drain note (2026-07-23)
 
 Promoted into this repo's rule suite and removed from this log (per-lesson triage against harness promotion guidelines, agmsg 2026-07-23T12:18Z): source-only metadata gate and fixture-field runtime ownership (worker.md); adapter lifecycle matrix (six lessons -> one evidence row), frozen-store exact bijection (three lessons -> one evidence row), coupled-config invariants, recursive config admission, label-conflict precedence, scenario metric dispatch, and converter attribution (reviewer.md). Partially promoted, entries RETAINED for their residual detail: "Validate Complete Durable Identities And Matched Input Shapes" (malformed matched-input subcase) and "Validate Coupled Configuration And Fix Deterministic Widths" (fixed-width arithmetic detail).
+
+## Purge note (2026-07-23)
+
+Nine entries purged per the user-directed low-value/invalid sweep (Codex purge map, agmsg 2026-07-23T12:29Z): eight PURGE-LOW-VALUE (restatements of now-mandatory rule/harness content — reader rejection matrix, benchmark-field trace, identity-union collection semantics, snapshot terminology, positive test counts, exact-filter qualification, strict-lint timing, runtime-vs-CI defaults) and one PURGE-INVALID (the forthcoming-public-API incident, resolved by the live adapter's existence; the reusable rule survives in orchestrator.md). Full entries recoverable from git history at 74a6f7f.
