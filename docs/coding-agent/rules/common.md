@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "common"
-last_updated: "2026-07-23"
+last_updated: "2026-07-24"
 ---
 
 # Common Repository Rules
@@ -10,6 +10,7 @@ last_updated: "2026-07-23"
 ## Repository Reference Documents
 
 - `../../../README.md` is the source of truth for current benchmark commands, workspace architecture, report shape, and runtime lifecycle.
+- Decision records: follow `docs/decisions/` (template.md; ADR-D/ADR-I two-track numbering; superseded/ archive per its README).
 
 ## Repository-Specific Validation Commands
 
