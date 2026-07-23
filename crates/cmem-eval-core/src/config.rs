@@ -1184,14 +1184,67 @@ mod tests {
             },
         };
 
-        let error = retrieval.validate().unwrap_err().to_string();
-        assert!(
-            error.contains("supports only episode and observation"),
-            "{error}"
+        let error = retrieval.validate().unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<crate::VectorOnlySurfacePolicyError>(),
+            Some(
+                &crate::VectorOnlySurfacePolicyError::UnsupportedObjectTypes {
+                    object_types: vec![crate::ObjectType::DerivedMemory],
+                }
+            )
         );
-        assert!(error.contains("derived_memory"), "{error}");
 
         retrieval.surface_policy.object_types = vec![crate::ObjectType::Observation];
+        retrieval.validate().unwrap();
+    }
+
+    #[test]
+    fn vector_only_rejects_zero_budget_for_a_selected_episode_surface() {
+        let mut retrieval = RetrievalConfig {
+            mode: RetrievalMode::VectorOnly,
+            surface_policy: RetrievalSurfacePolicy {
+                object_types: vec![crate::ObjectType::Episode],
+                ..RetrievalSurfacePolicy::default()
+            },
+        };
+        retrieval.surface_policy.sections.relevant_episodes = 0;
+
+        let error = retrieval.validate().unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<crate::VectorOnlySurfacePolicyError>(),
+            Some(
+                &crate::VectorOnlySurfacePolicyError::ZeroSelectedSurfaceBudget {
+                    object_type: crate::ObjectType::Episode,
+                }
+            )
+        );
+
+        retrieval.surface_policy.object_types = vec![crate::ObjectType::Observation];
+        retrieval.validate().unwrap();
+    }
+
+    #[test]
+    fn vector_only_rejects_zero_budget_for_a_selected_observation_surface() {
+        let mut retrieval = RetrievalConfig {
+            mode: RetrievalMode::VectorOnly,
+            surface_policy: RetrievalSurfacePolicy {
+                object_types: vec![crate::ObjectType::Observation],
+                ..RetrievalSurfacePolicy::default()
+            },
+        };
+        retrieval.surface_policy.sections.salient_observations = 0;
+
+        let error = retrieval.validate().unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<crate::VectorOnlySurfacePolicyError>(),
+            Some(
+                &crate::VectorOnlySurfacePolicyError::ZeroSelectedSurfaceBudget {
+                    object_type: crate::ObjectType::Observation,
+                }
+            )
+        );
+
+        retrieval.surface_policy.object_types = vec![crate::ObjectType::Episode];
         retrieval.validate().unwrap();
     }
 

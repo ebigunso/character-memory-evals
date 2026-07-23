@@ -156,6 +156,34 @@ pub struct RetrievalSurfacePolicy {
     pub max_graph_roots: Option<usize>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VectorOnlySurfacePolicyError {
+    UnsupportedObjectTypes { object_types: Vec<ObjectType> },
+    ZeroSelectedSurfaceBudget { object_type: ObjectType },
+}
+
+impl fmt::Display for VectorOnlySurfacePolicyError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedObjectTypes { object_types } => write!(
+                formatter,
+                "retrieval.mode=vector_only supports only episode and observation object_types; unsupported selections: {}",
+                object_types
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Self::ZeroSelectedSurfaceBudget { object_type } => write!(
+                formatter,
+                "retrieval.mode=vector_only selected {object_type} with a zero section budget"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for VectorOnlySurfacePolicyError {}
+
 impl RetrievalSurfacePolicy {
     pub fn validate(&self) -> Result<()> {
         if self.object_types.is_empty() {
@@ -181,13 +209,23 @@ impl RetrievalSurfacePolicy {
             .filter(|object_type| {
                 !matches!(object_type, ObjectType::Episode | ObjectType::Observation)
             })
-            .map(|object_type| object_type.to_string())
             .collect::<Vec<_>>();
         if !unsupported.is_empty() {
-            bail!(
-                "retrieval.mode=vector_only supports only episode and observation object_types; unsupported selections: {}",
-                unsupported.join(", ")
-            );
+            return Err(VectorOnlySurfacePolicyError::UnsupportedObjectTypes {
+                object_types: unsupported,
+            }
+            .into());
+        }
+        for (object_type, budget) in [
+            (ObjectType::Episode, self.sections.relevant_episodes),
+            (ObjectType::Observation, self.sections.salient_observations),
+        ] {
+            if self.object_types.contains(&object_type) && budget == 0 {
+                return Err(VectorOnlySurfacePolicyError::ZeroSelectedSurfaceBudget {
+                    object_type,
+                }
+                .into());
+            }
         }
         Ok(())
     }
