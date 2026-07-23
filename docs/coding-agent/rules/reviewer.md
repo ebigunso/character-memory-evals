@@ -18,6 +18,11 @@ last_updated: "2026-07-23"
 
 - admission_before_side_effect: public parsers/readers (fixture, trace) must reject malformed, partial, wrong-version, or contract-violating input before any backend I/O or state mutation.
 - derived_artifact_congruence: assemblers of derived artifacts (report assembly, summaries) must validate input identity, count, and order congruence before returning or publishing, failing closed on mismatch (conservation generality is harness-owned: review-latent-risk-conservation).
+- coupled_config_invariants: coupled configuration invariants must be validated consistently at configuration admission, artifact production, persisted metadata, and the production-reachable live consumer (recurred 2026-07-12/2026-07-20).
+- recursive_config_admission: configuration schema changes that introduce or tighten nested overrides must audit fail-closed unknown-field admission through every deserialized container from the edited leaf to the run-config root, testing incomplete atomic groups plus a typo at each covered level (recurred 2026-07-17/2026-07-21).
+- label_conflict_precedence: metrics that project labels across provenance or grouping boundaries must define and test precedence for conflicting explicit-object and derived-root labels (broken pollution metric, 2026-07-17).
+- scenario_metric_dispatch: changes to `ScenarioPattern` must classify every variant through each semantic metric dispatcher and prove run/resummarize numeric-support parity for every newly routed family (broken metric output, 2026-07-21).
+- converter_attribution: dataset converters whose source turns carry speaker, author, participant, or actor metadata must preserve behavioral text bytes and encode that attribution through native fixture references, with evidence for both properties (broken benchmark graphs, 2026-07-21).
 - collection_semantics: item/object counts deduplicate stable identities; decision multiplicity belongs only in explicitly named volume fields; published rates must be bounded.
 - summarize_parity: any re-derivation path (summarize, re-assembly) must reproduce the original run's registry/config/coverage exactly; parity regressions required.
 - determinism_and_canonicalization: canonical-hash recipe changes must be reconciled against historical artifacts before accepting moved hashes; nondeterminism belongs only in declared metadata/normalization policy.
@@ -30,6 +35,8 @@ last_updated: "2026-07-23"
 | Live adapter or persistence changes | Live adapter suite exercised (not skipped) with executed-test counts stated; restart/reattach assertions verified against real stores | `cargo test -p cmem-eval-adapter-cmem` with Qdrant up |
 | Fixture/generator changes | Regenerated fixture byte-identity vs the checked artifact (state both SHA256 values) | generator CLI |
 | Hash/evidence claims from Worker | Independently reproduce at least the canonical content hashes; unexplained movement is a blocker, not a footnote | committed configs + recipes |
+| Adapter lifecycle changes | Fresh open, intended reattach, and fresh-instance reset/cleanup tested across every durable store and identity, including phase-local configuration isolation and a surviving sibling for destructive scope | six recurrences, 2026-07-12 |
+| Frozen-store changes | Exact bijection proven among store keys, manifest texts, and inputs from actual runtime provider-call branches, with regressions for both missing and extra entries | three recurrences, 2026-07-19/20 |
 
 ## Review Heuristics
 

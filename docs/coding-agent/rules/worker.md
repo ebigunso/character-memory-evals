@@ -16,6 +16,8 @@ last_updated: "2026-07-23"
 - Every new public `Result`-returning artifact reader must ship corrupt or invalid-encoding, partial-input, and schema-version-rejection tests before completion.
 - For every changed benchmark field, Workers must trace the value from fixture input through the live adapter DTO, persisted object, retrieval telemetry, metric, and report claim before accepting evidence.
 - New validators and admission checks classify their failures with an owned structured error type AT INTRODUCTION (typed variants/fields per the design's error conventions), with tests asserting variants and fields; anyhow/prose belongs only at outer boundaries. Three same-phase recurrences of retrofitting prose validators forced this rule (2026-07-23).
+- Before generating a dataset artifact, verify that the source-only input contains every non-label field required by evaluation semantics; missing required metadata must be corrected at the source rather than replaced with fallback semantics (lesson 2026-05-04).
+- Every public benchmark-fixture field must have an authoritative runtime consumer; remove fields that terminate in generation or validation, and do not expose backend-generated identities that fixture callers cannot control end to end (recurred 2026-07-14, rounds 5-6).
 
 ## Repo CI / Checks Mapping
 

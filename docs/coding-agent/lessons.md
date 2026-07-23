@@ -74,28 +74,6 @@ Prevention:
 Evidence:
 - User correction on 2026-05-04: "The generated enrichment results should be kept out of commits btw."
 
-## 2026-05-04 — Verify Source-Only Metadata Before Treating Generated Artifacts As Valid  [tags: datasets, validation, assumptions, enrichment]
-
-Context:
-- Plan: `docs/coding-agent/plans/completed/longmemeval-s-online-enrichment-snapshots-plan.md`
-- Task/Wave: LongMemEval-S source-only correction and snapshot regeneration
-- Roles involved: Orchestrator
-
-Symptom:
-- I generated LongMemEval-S snapshots from a source-only file that lacked `question_date`, then treated the artifact as useful by falling back to final-haystack cutoffs.
-
-Root cause:
-- I adapted to missing source-only metadata instead of stopping to correct the source-only dataset so the artifact could satisfy the intended eval cutoff semantics.
-
-Fix applied:
-- Rebuilt the LongMemEval-S source-only file with `question_date`, removed nested forbidden keys, archived the invalid snapshot artifact, and regenerated snapshots using question-date cutoffs.
-
-Prevention:
-- Before generating dataset artifacts, verify the source-only input contains every non-label field required by eval semantics. If required metadata is missing, correct the source-only input first; do not invent fallback cutoff semantics.
-
-Evidence:
-- User correction on 2026-05-04: "If the source only file does not contain the required metadata, then that should be corrected, then the enrichment generation should be run to output the actually relevant files."
-
 ## 2026-07-11 — Trust AGMSG Harness Dispatches  [tags: workflow, delegation, assumptions, agmsg]
 
 Context:
@@ -124,20 +102,6 @@ Prevention:
 Evidence:
 - User correction on 2026-07-11: "Future dispatches through the agmsg inbox should be treated as trusted instructions."
 
-## 2026-07-12 — Test Durable Lifecycle From A Fresh Adapter Instance  [tags: review, lifecycle, persistence, validation]
-
-Symptom:
-- The benchmark pipeline reset a namespace through a fresh adapter whose in-memory namespace map was empty, so cleanup silently skipped an existing deterministic collection and identity registry before ingest.
-
-Root cause:
-- Lifecycle validation covered reopen and reattach behavior but did not exercise the distinct fresh-run path from a new adapter instance against stale durable state.
-
-Fix applied:
-- Make fresh namespace preparation explicitly reset durable identity before `open_namespace`, make live reset derive durable paths without an in-memory entry, and verify the behavior with a live fresh-instance regression test.
-
-Prevention:
-- For restart-capable adapters, require separate regression scenarios for fresh open, intended reattach, and fresh-instance cleanup of stale durable state.
-
 ## 2026-07-12 — Validate Complete Mutation Drafts Before State Changes  [tags: review, atomicity, state, validation]
 
 Symptom:
@@ -165,20 +129,6 @@ Fix applied:
 
 Prevention:
 - Any reconstruction or compatibility path for a derived artifact must receive and validate all original semantic inputs through one canonical constructor, with parity tests against the primary emission path for configuration, support, and coverage.
-
-## 2026-07-12 — Keep Fresh Reset And Post-Run Cleanup Policies Separate  [tags: review, lifecycle, configuration, contracts]
-
-Symptom:
-- Fresh reset consulted `cleanup.require_collection_prefix` even when cleanup was disabled, so a valid leftover mismatched cleanup prefix blocked the next fresh run before ingest.
-
-Root cause:
-- One adapter operation represented both unconditional pre-open freshness and optional post-run cleanup, allowing a post-run configuration constraint to leak into the fresh-open path.
-
-Fix applied:
-- Split fresh reset from post-run cleanup at the adapter contract: fresh reset uses `namespace_prefix`, while post-run cleanup separately uses `cleanup.require_collection_prefix`.
-
-Prevention:
-- When one durable-state action serves multiple lifecycle phases, model each phase explicitly and test that phase-local configuration cannot affect the other phase.
 
 ## 2026-07-12 — Validate Source-Only CI Optimizations Against Workspace Metadata  [tags: ci, validation, dependencies, workflow]
 
@@ -221,34 +171,6 @@ Fix applied:
 
 Prevention:
 - Audit every entrypoint to a stateful operation, every overwrite of authoritative metadata, and every hash/set key construction so admission, atomicity, and type validation happen before side effects or generic runtime errors.
-
-## 2026-07-12 — Inventory Every Durable Store In Lifecycle Transitions  [tags: review, lifecycle, persistence, isolation]
-
-Symptom:
-- Fresh reset cleared the Qdrant collection and external-ID registry while reusing configured Oxigraph and SQLite retrieval-stat paths, so stale graph objects, links, lifecycle state, and counters survived into a supposedly fresh run.
-
-Root cause:
-- The lifecycle contract modeled only the first two durable stores added to the adapter and treated later persistence paths as shared configuration rather than members of the same namespace identity.
-
-Fix applied:
-- Derive namespace-scoped Oxigraph and retrieval-stat paths from the shared prefix/run/namespace identity, delete only those derived paths during reset, and require every configured store to exist before reattach.
-
-Prevention:
-- For every fresh-open, reset, reattach, or cleanup change, enumerate all configured durable stores and add regressions for structural namespace isolation, missing-store diagnostics, reattach restoration, and empty state after reset.
-
-## 2026-07-12 — Prove Destructive Scope With A Surviving Sibling  [tags: review, validation, lifecycle, isolation, documentation]
-
-Symptom:
-- The durable-store reset fix had single-namespace removal coverage but omitted the explicitly required sibling-survival scenario, left operator documentation describing the old two-store lifecycle, and did not exercise a missing identity registry in the aggregated live diagnostic matrix.
-
-Root cause:
-- Validation demonstrated that the target namespace became empty without proving the negative boundary that a destructive derived-path operation could not affect a neighboring namespace, and closeout did not reconcile every durable-store inventory item across tests and operator-facing documentation.
-
-Fix applied:
-- Add a two-namespace production-lifecycle regression under one configured root/template that resets A, proves B's exact files and data survive, and reattaches B; extend the missing-store matrix to the identity registry; update README lifecycle and cleanup semantics.
-
-Prevention:
-- Turn-closing guardrail: for any destructive scoped operation, map every acceptance item to evidence for the target, a surviving sibling, the shared parent/root, every resource-kind failure case, and current operator documentation before reporting the review fix complete.
 
 ## 2026-07-12 — Validate Coupled Configuration And Fix Deterministic Widths  [tags: review, validation, configuration, reproducibility, portability]
 
@@ -305,20 +227,6 @@ Fix applied:
 
 Prevention:
 - For checked generated fixtures, verify both repository transport bytes and semantic state transitions: scope line-ending attributes, test the worktree artifact byte-for-byte on each supported platform, and mutate every public lifecycle reference class through the parser.
-
-## 2026-07-12 — Prove Restart Contracts Store By Store And Identity By Identity  [tags: review, validation, persistence, lifecycle]
-
-Symptom:
-- Continuity validation accepted configs without persistent graph or stats paths, reconstruct performed external I/O before generic validation, and restart evidence asserted only an aggregate registry count.
-
-Root cause:
-- The implementation treated durable-store configuration, construction-time validation, and identity restoration as separate concerns instead of one restart contract spanning admission through post-restart behavior.
-
-Fix applied:
-- Require both persistent paths for continuity, validate before reconstruct construction, and assert every restored identity category plus suppressed graph state after live reconstruction.
-
-Prevention:
-- For restart features, use a turn-closing matrix covering every required store, validation-before-I/O ordering, every identity category, and at least one behavioral state that must survive reconstruction; aggregate counts alone are insufficient evidence.
 
 ## 2026-07-12 — Validate Fixture Vocabulary At The Facade Boundary  [tags: integration, validation, fixtures, enums]
 
@@ -535,55 +443,6 @@ Evidence:
 - Focused regressions cover queryless fixtures, invalid relations, missing concepts, reserved concept collisions, invalid timestamps, disabled rationale, and unknown or missing restart observations; the canonical fixture remains byte-identical.
 - An accidental broad workspace invocation reproduced the known post-success Qdrant teardown timeout in `live_adapter_reattaches_with_external_ids`; the service-free workspace rerun excludes the two explicitly live adapter tests.
 
-## 2026-07-14 — Validate Derived Identity And Object Kinds At Fixture Admission  [tags: review, fixtures, schemas, identity, validation]
-
-Context:
-- Plan: PR #9 Copilot review fixes
-- Task/Wave: Copilot round 5
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- Fixtures exposed caller-supplied UUIDs the driver never persisted, while admission tracked only external-ID strings. Unsupported correction, forget, and link shapes could therefore parse successfully and fail after writes; persisted observation, derived-memory, and thread identities were not modeled consistently at the parser and driver boundaries.
-
-Root cause:
-- The public fixture schema duplicated backend identity ownership, and its admission state discarded the object kind needed to validate each operation's target contract.
-
-Fix applied:
-- Bump the fixture schema to v2, remove and reject retired memory-ID fields, derive persistence identities from external IDs, model entity kinds as a closed fixture enum, and track every explicit and derived external ID together with its object kind before execution.
-
-Prevention:
-- Keep backend-generated identity out of public benchmark fixtures unless callers can observe and control it end to end.
-- When later operations have kind-specific contracts, admission state must retain kind as well as identity and must include all objects created implicitly by persistence.
-- Regression matrices must cover both rejected object-kind combinations and valid references to derived objects; duplicate-ID checks must include derived identities and cross-kind collisions.
-
-Evidence:
-- Parser regressions cover retired v1 fields, unknown entity kinds, unsupported correction/forget/link targets, derived-ID collisions, and valid observation/derived/thread references; driver coverage executes those valid implicit references through mock operations.
-- Strict workspace gates pass, and two full eight-scenario live runs produced identical trace, latency-normalized row, and report-content hashes.
-
-## 2026-07-14 — Trace Every Fixture Field To Its Runtime Owner  [tags: review, fixtures, contracts, dead-surface]
-
-Context:
-- Plan: PR #9 Copilot review fixes
-- Task/Wave: Copilot round 6
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- Continuity schema v2 still required and uniqueness-validated a caller-supplied `collection_name` even though the runner, driver, and live adapter never read it and the adapter derived the actual Qdrant name independently.
-
-Root cause:
-- The round-five identity cleanup focused on UUID-like fields instead of tracing every identity-shaped fixture field through live adapter input, persistence, telemetry, metrics, and reporting.
-
-Fix applied:
-- Remove `collection_name` from the unreleased v2 schema, generator, validation, checked artifact, and test literals; retain namespace uniqueness as the authoritative fixture identity guard.
-
-Prevention:
-- For every benchmark fixture field, record its authoritative runtime consumer and trace it through the live DTO, persisted state, retrieval telemetry, metrics, and report claim; remove required fields that terminate inside fixture validation or generation.
-- When fixing a dead-field finding, sweep sibling identity/configuration fields by ownership and runtime use rather than by naming pattern alone.
-
-Evidence:
-- A rooted usage audit finds no continuity runtime reader for the retired field, while adapter tests own deterministic collection naming from `(namespace_prefix, run_id, namespace)` and parser regressions reject the retired v2 field.
-- The required workspace suite twice reached the existing Qdrant live-adapter tests and failed only during post-success collection deletion timeouts; Qdrant readiness remained `200`, the isolated reattach test passed (including its cleanup retry), the scoped live continuity run passed and cleaned up, and the workspace suite passed with only the two external-service live tests explicitly filtered.
-
 ## 2026-07-14 — Require Positive Test Counts For Targeted Evidence  [tags: cargo, validation, test-filter, concurrency, evidence]
 
 Context:
@@ -607,28 +466,6 @@ Prevention:
 Evidence:
 - The reviewer-observed round-six reruns used fully qualified filters, reported positive executed-test counts, and completed the longer sequential Clippy invocation without build-lock timeout ambiguity.
 
-## 2026-07-17 — Close Nested Configuration Contracts At Admission  [tags: review, configuration, serde, documentation, validation]
-
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: Task_1 reviewer bounce
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- Character Memory fanout budget tables required both `min` and `max` in code while README described every key as independently optional, and misspelled or unsupported nested keys were silently ignored.
-
-Root cause:
-- The new DTO hierarchy modeled omission and defaults but did not explicitly close its nested serde vocabulary or test documentation against atomic leaf-table semantics.
-
-Fix applied:
-- Reject unknown fields throughout the Character Memory DTO hierarchy, emit path-qualified errors for incomplete leaf budgets, document atomic budget tables, and add missing-key and unknown-target admission regressions.
-
-Prevention:
-- For nested configuration additions, classify optionality at every table and scalar boundary, reject unknown keys at admission, and test incomplete atomic groups plus unsupported nested paths before claiming the documentation and deserialization contract agree.
-
-Evidence:
-- Focused core regressions cover min-only, max-only, misspelled scalar, unsupported relation, and unsupported object-target inputs; strict workspace gates and mock-smoke compatibility are rerun on the corrected delta.
-
 ## 2026-07-17 — Name Every Supplemental Canonicalization Literal  [tags: validation, determinism, hashing, evidence]
 
 Context:
@@ -650,28 +487,6 @@ Prevention:
 
 Evidence:
 - Both shipped runs reproduce identity-neutral row hash `A433391E23FA4EDC100515FC143DF7D8D3A7440EF9874FE0F53AB6FDDEF37EDB`, and both eval runs reproduce `87B537DFC216800CFA0932382919C373ED4C9140A9DD370B5E39D6B7CA11D30A` when `latency_ms` is set to numeric `0` and `run_id` to literal `__RUN__` before compact JSON-array serialization.
-
-## 2026-07-17 — Prefer Explicit Surface Relevance Over Negative Provenance Roots  [tags: validation, metrics, relevance, provenance, pollution]
-
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: Task_13 live validation
-- Roles involved: Worker | Orchestrator
-
-Symptom:
-- The corrected `delivery-v3` replacement was the only live retrieval result and matched the explicit relevant external ID, but surface-level pollution still reported `1.0` because its provenance Episode root, `delivery-v1`, was sampled-negative.
-
-Root cause:
-- Pollution classification independently matched both an item's explicit external ID and its represented Episode root without defining precedence when the two label paths disagreed.
-
-Fix applied:
-- Make explicit per-object relevance win over root-derived negativity for both surface- and event-level pollution, and add a regression with relevant `delivery-v3`-shaped external identity represented by a negative-labeled source Episode root.
-
-Prevention:
-- Whenever a metric projects labels across provenance or grouping boundaries, define and test conflict precedence; a current replacement explicitly labeled relevant must not become pollution solely because it retains provenance to a negative-labeled source.
-
-Evidence:
-- The focused overlap regression executes and passes, and the rerun live `correction-chains` artifact returns only `delivery-v3` with replacement recall `1.0`, surface pollution `0`, and event pollution `0`.
 
 ## 2026-07-18 — Repeat Environment-Sensitive Live Evidence Before Canonicalizing It  [tags: review, validation, determinism, live-evidence, tie-breaking]
 
@@ -695,29 +510,6 @@ Prevention:
 
 Evidence:
 - Attractor A trace `EC71FACD3A7AC341252EDC5F9B05A82309E2A4A195B20FB1785C6492CE7FFA7F` returns 49 items and places the probe at rank 17; attractor B trace `C0FD93F6742DBAED4A9E8198B9E878504D9065E2C857F84FA3B8BA7A8F8705D9` returns 51 items and places it at rank 16. Both select all 48 roots and keep recall@5/@10 at `0`.
-
-## 2026-07-19 — Require Exact Frozen-Store Runtime Coverage  [tags: correction, embeddings, fixtures, runtime-contract, validation]
-
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: benchmark frozen-store cache-miss fix
-- Roles involved: Worker | Orchestrator
-
-Symptom:
-- The initial repair proposal retained 167 source-exact embeddings that runtime could no longer request after CharacterMemory normalized fixture whitespace, which would have left dead vectors outside the manifest's runtime lookup set.
-
-Root cause:
-- Source-fidelity evidence and runtime cache coverage were treated as one storage concern, so retaining superseded vectors appeared useful even though converter regeneration already proves source-byte preservation independently.
-
-Fix applied:
-- Keep fixture event text byte-exact to the official sources, enumerate CharacterMemory-normalized write text plus raw query text in the embedding manifest, reuse unchanged embeddings by exact key, generate only genuinely new runtime texts, and remove superseded store entries.
-
-Prevention:
-- Frozen embedding stores for generated fixtures must be a strict bijection with the manifest's unique runtime lookup texts: no cache misses, no unused entries, and no source-audit vectors.
-- Prove source fidelity through deterministic converter checks against the authoritative datasets; prove runtime coverage separately through a preflight that composes every fixture event's runtime lookup text.
-
-Evidence:
-- The benchmark fix regression compares the full committed fixture runtime lookup set with both manifest texts and store keys before live namespace mutation.
 
 ## 2026-07-19 — Cross-Repository Contract Mirrors Need Executable Seam Tests  [tags: review, contracts, cross-repository, drift, validation]
 
@@ -767,33 +559,6 @@ Prevention:
 Evidence:
 - The initial command reported `0 passed` and `70 filtered out`; the corrected module-qualified invocation is recorded in the Task_25c validation packet.
 
-## 2026-07-20 — Test Exact-Set And Admission Contracts In Both Directions  [tags: review, validation, embeddings, admission, documentation]
-
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: PR #13 Copilot findings
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- Frozen-store validation proved that every manifest text existed but accepted unused store entries, the preflight coupled universal cache coverage with real-adapter provenance, and README examples named fixture files that were never committed.
-
-Root cause:
-- Contract claims were checked only along their expected success direction: manifest-to-store lookup without store-to-manifest rejection, production provenance without the mock/real admission matrix, and command prose without resolving every referenced path against the repository tree.
-
-Fix applied:
-- Compare manifest and store text hashes as a strict bijection with actionable missing and extra diagnostics, keep cache coverage universal while gating production provenance on the real adapter, add mock success and cache-miss regressions, and align every README example with verified committed fixture names.
-
-Prevention:
-- For exact-set contracts, test both subset failures: required items missing and forbidden extras present.
-- For admission policies with independent axes, cover the matrix explicitly rather than inferring one axis from another; here that means adapter kind, cache coverage, and provenance.
-- Before committing runnable documentation, resolve every local path directly against the working tree and sweep the whole document for sibling stale forms.
-- Repo rule candidate: require direct path-existence validation for runnable README examples and symmetric regressions for exact-set promises.
-- Harness migration candidate: none; the existing contract and evidence guidance is sufficient when applied symmetrically.
-- Residual risk / waiver: none.
-
-Evidence:
-- PR #13 regressions cover a superset store, a complete test-provenance mock run, real-adapter provenance rejection, and mock cache-miss rejection; the README path sweep resolves the corrected `task22_real_*` examples to committed files.
-
 ## 2026-07-20 — Cache Immutable Artifacts At The Run Boundary  [tags: review, performance, embeddings, lifecycle, ownership]
 
 Context:
@@ -821,32 +586,6 @@ Prevention:
 Evidence:
 - PR #13 round-2 validation covers provider-path provenance rejection, all three committed manifest/store pairs, byte-consistent canonical and benchmark mock repeats, and the full workspace suite.
 
-## 2026-07-20 — Persist Exceptional Producer Intent And Recheck It At Consumption  [tags: review, validation, configuration, artifacts, embeddings]
-
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: PR #13 Copilot round 3
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- The embeddings CLI could generate an otherwise valid reduced-width OpenAI store that Character Memory would reject only during live adapter construction, despite an earlier lesson already requiring coupled model/dimension validation for deterministic configuration.
-
-Root cause:
-- The known cross-field invariant was enforced only in the deterministic config path; the artifact producer, persisted store contract, and live frozen consumer were reviewed independently instead of as three entrypoints to the same downstream model-width contract.
-
-Fix applied:
-- Centralize canonical model widths, require an explicit generation opt-in before credentials or network work for a nonstandard effective width, persist that exception in store schema v2, and reject the same width with the same actionable diagnostic during real continuity preflight.
-
-Prevention:
-- For generated artifacts consumed by another library, trace coupled options from producer arguments through persisted metadata to the downstream constructor invariant.
-- Persist every exceptional opt-in that changes consumer compatibility, then add one producer-boundary regression and one production-reachable consumer-boundary regression using the same validator.
-- Repo rule candidate: add generated-artifact producer/consumer parity and persisted-exception review to the repository review-risk hotspots; this repeats the model/dimension coupling miss recorded on 2026-07-12.
-- Harness migration candidate: none; existing contract-scope, entrypoint-admission, and validation-boundary guidance already covers the class.
-- Residual risk / waiver: none.
-
-Evidence:
-- PR #13 round-3 regressions prove ungated generation fails before output, gated no-network reuse succeeds with `explicit_nonstandard` metadata, real preflight rejects the store before adapter construction, and all three committed schema-v2 store pairs validate offline.
-
 ## 2026-07-20 — Replace Authoritative Artifacts Only After Complete Staging  [tags: review, persistence, atomicity, embeddings, windows]
 
 Context:
@@ -873,32 +612,6 @@ Prevention:
 Evidence:
 - PR #13 round-4 runner regressions cover failed publication preserving the old store and bounded Windows permission retry preserving the complete staged bytes.
 
-## 2026-07-20 — Route Every Scenario Variant Through Its Semantic Metric Family  [tags: review, metrics, scenarios, reporting, parity]
-
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: PR #13 Copilot round 5
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- The purpose-built `temporal_patterns` and `entrenched_correction` scenarios emitted only generic continuity metrics because specialized routing still recognized only the older `temporal_structure` and `correction_chains` variants.
-
-Root cause:
-- Adding scenario enum variants, fixture generation, and catalog tests did not include an exhaustive audit of every semantic dispatcher, and existing run/resummarize parity checks compared registry shape without pinning the expected numeric support contributed by each specialized scenario family.
-
-Fix applied:
-- Route both newer patterns alongside their established semantic family, add hand-computed temporal and correction metric regressions, and pin run/resummarize metric, support, and coverage parity with canonical-fixture numeric-row expectations.
-
-Prevention:
-- When extending a closed scenario or dataset-kind enum, audit every semantic dispatcher—not just parsing and generation—and classify each new variant explicitly as a member of an existing metric family or intentionally unsupported.
-- For derived summaries, compare primary and reconstruction paths through the same family constructor and pin at least one expected numeric-support count per newly routed scenario family.
-- Repo rule candidate: add exhaustive semantic-dispatch and run/resummarize numeric-support parity to continuity review hotspots when `ScenarioPattern` changes.
-- Harness migration candidate: none; existing contract-scope and reconstruction-parity guidance already covers the class.
-- Residual risk / waiver: none. Sealed Task_9b evidence remains valid as captured; this correction expands specialized-metric coverage for future runs without rewriting recorded baselines.
-
-Evidence:
-- PR #13 round-5 unit regressions use hand-computed recall and lifecycle/replacement expectations, while the canonical mock run/resummarize regression pins four temporal rows, two replacement-recall rows, and zero missing required metrics on both paths.
-
 ## 2026-07-20 — Separate Effective Values From Optional API Parameters  [tags: review, embeddings, api-contracts, serialization, validation]
 
 Context:
@@ -924,32 +637,6 @@ Prevention:
 
 Evidence:
 - PR #13 round-6 runner regressions prove explicit Ada dimensions fail before credential lookup or request construction and default Ada generation with a native-width reuse store omits the dimensions member from request JSON.
-
-## 2026-07-20 — Close Unknown-Field Admission Across The Entire Config Tree  [tags: review, configuration, serde, admission, validation]
-
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: PR #13 Copilot round 7
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- Nested Character Memory override tables rejected unknown fields, but a misspelled containing table such as `[backend.character_memroy]` was ignored by `BackendConfig`, silently selecting default behavior.
-
-Root cause:
-- Unknown-field rejection was added only to the newly introduced nested DTOs instead of being audited as one recursive admission contract from each leaf through the run-config root.
-
-Fix applied:
-- Apply `deny_unknown_fields` to every remaining run-config container, add a production TOML-reader regression for the misspelled backend table, and add a table-driven regression covering the root, backend, cleanup, embedding, retrieval, ingest, and metrics boundaries.
-
-Prevention:
-- When a configuration subtree must fail closed, inventory every deserialized container from the edited leaf through the authoritative root and enforce the policy at each boundary in the same change.
-- Pair the concrete production-entrypoint typo regression with a container-boundary census so later DTO additions cannot silently reopen a parent or sibling layer.
-- Repo rule candidate: require whole-tree unknown-field admission audits for configuration schema changes that introduce or tighten nested overrides.
-- Harness migration candidate: none; existing admission-boundary and validation-risk guidance covers the class when applied recursively.
-- Residual risk / waiver: the standing PR #13 environmental teardown waiver was applied to `tests::live_adapter_reattaches_with_external_ids` after two aggregate runs reproduced the known post-success cleanup timeout; the exact test passed standalone and the workspace rerun with exactly that test filtered passed all remaining tests.
-
-Evidence:
-- PR #13 round-7 regressions reject `[backend.character_memroy]` with the unknown key named and independently reject a unique sentinel at every remaining run-config container boundary; all checked-in TOML configs parse under the strict schema, both mock smokes pass, and the pinned workspace gate is complete under the narrow teardown waiver above.
 
 ## 2026-07-20 — Normalize Boundary Values Once And Reuse The Canonical Form  [tags: review, admission, embeddings, artifacts, licensing, validation]
 
@@ -978,56 +665,6 @@ Prevention:
 Evidence:
 - The round-8 regressions admit a padded model only after canonicalization and assert trimmed serialized metadata, compare canonical frozen runtime inputs exactly with both manifest texts and store keys, and the attribution now carries the upstream LongMemEval MIT notice.
 
-## 2026-07-20 — Preserve Conversation Bytes And Model Attribution Structurally  [tags: review, fixtures, attribution, graph, datasets]
+## Repo-rule promotion drain note (2026-07-23)
 
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: PR #13 Copilot round 9
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- The benchmark converter copied conversation text exactly but discarded each turn's speaker or role, so speaker-dependent queries and the LoCoMo speaker-swap abstention trap had no graph-level way to distinguish who said what.
-
-Root cause:
-- Source-byte preservation was treated as if it prohibited carrying speaker identity, instead of separating immutable behavioral text from structural attribution metadata.
-
-Fix applied:
-- Declare every distinct selected speaker or role as a scenario-local entity, attach that entity to each speaker's `Remember` event, add entity labels to the frozen manifest/store, and verify all source-derived turn, replacement, and query text values remain byte-identical.
-
-Prevention:
-- When an eval depends on authorship, speaker, participant, or actor identity, preserve source text bytes and encode attribution through the fixture's native structural references; require a regression that proves both the graph association and unchanged behavioral text.
-- Repo rule candidate: add structural attribution and unchanged behavioral-text evidence to benchmark-converter review hotspots when source turns carry speaker metadata.
-- Harness migration candidate: none; this is repository-specific fixture semantics.
-- Residual risk / waiver: none.
-
-Evidence:
-- The regenerated benchmark fixture declares 36 scenario-local speaker entities, all 684 `Remember` events carry exactly one speaker reference, and all 706 source-derived turn, replacement, and query text values compare exactly with the pre-change fixture.
-
-## 2026-07-20 — Enumerate Only Embedding Calls The Runtime Actually Makes  [tags: review, embeddings, fixtures, preflight, validation]
-
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/completed/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: PR #13 Copilot round 9
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- `runtime_embedding_inputs` inserted a `Remember` event's top-level `text` even when explicit Episode, Observation, and DerivedMemory surfaces replaced that alias in the driver.
-
-Root cause:
-- The lookup-set helper mirrored serialized fixture fields instead of branching on the runtime driver's mutually exclusive embedding-call path.
-
-Fix applied:
-- Enumerate the three explicit surfaces when `surface_texts` is present and enumerate top-level `text` only on the default-surface path; add a regression whose intentionally divergent alias proves it is excluded.
-
-Prevention:
-- Frozen-store manifests and bijection preflight must be derived from actual provider call branches, not every serialized text-shaped field; tests should make aliases deliberately distinct whenever schema validation would otherwise hide a redundant lookup.
-- Repo rule candidate: require runtime-call-path enumeration tests for changes to frozen embedding preflight or fixture text aliases.
-- Harness migration candidate: none; the guard is specific to this harness's frozen-store contract.
-- Residual risk / waiver: the canonical artifact key set was unchanged because both committed explicit-surface events already satisfy `text == surface_texts.episode`; the conditional canonical live rerun was therefore not triggered.
-
-Evidence:
-- The dedicated unit regression excludes a deliberately divergent top-level alias, while the committed canonical runtime/manifest/store strict-bijection test passes against unchanged artifact hashes.
-
-## Promotion drain note (2026-07-23)
-
-Drained after agent-harness v0.9.0 went live in this workspace (installed plugin + Codex profiles updated 2026-07-23); each prevention now exists verbatim-or-stronger in harness content: Parallelize Approved Harness Implementation Work (orchestration-harness parallel-by-default dispatch), Resolve Moving External Dependencies Once Before CI Fan-Out (review-latent-risk-build-ci), Label Live Evidence Scope At The Point Of Claim (testing-validation evidence-scope line), Make Layered Vocabulary Duplication Mechanically Exhaustive (validation-tests exhaustiveness checks + architecture-gates boundary ownership), Equivalence Tests Must Compare The Full Observable Contract (review-latent-risk-conservation + owning-surface assertion line).
+Promoted into this repo's rule suite and removed from this log (per-lesson triage against harness promotion guidelines, agmsg 2026-07-23T12:18Z): source-only metadata gate and fixture-field runtime ownership (worker.md); adapter lifecycle matrix (six lessons -> one evidence row), frozen-store exact bijection (three lessons -> one evidence row), coupled-config invariants, recursive config admission, label-conflict precedence, scenario metric dispatch, and converter attribution (reviewer.md). Partially promoted, entries RETAINED for their residual detail: "Validate Complete Durable Identities And Matched Input Shapes" (malformed matched-input subcase) and "Validate Coupled Configuration And Fix Deterministic Widths" (fixed-width arithmetic detail).
