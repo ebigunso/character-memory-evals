@@ -50,3 +50,5 @@ last_updated: "2026-07-14"
 ## Mechanical Gate Candidates
 
 - None.
+
+- The full live two-run reproducibility gate triggers on changes that CAN alter successfully emitted artifact bytes (producers, serialization, DTO shapes) — not on any touch of a reader/report file; failure-path-only admission changes take offline evidence (trigger intent refined 2026-07-23 after a correct procedural hold).
