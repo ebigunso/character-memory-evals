@@ -6,9 +6,9 @@ deciders: [ebigunso]
 consulted: ["Claude Fable 5", "GPT-5.6 Sol"]
 informed: []
 warrant:
-  signals: "externally observable product behavior; a decider's ruling setting a durable governance default"
-  mode: "violate"
-  cost: "silently invalid benchmark evidence that looks real"
+  warranted_by: "without this record, future work would likely flip the benchmark default to mock for convenience or CI symmetry"
+  detected_signals: "externally observable product behavior; a decider's ruling setting a durable governance default"
+  cost_of_violation: "silently invalid benchmark evidence that looks real"
 depends_on: []
 implements: []
 supersedes: []

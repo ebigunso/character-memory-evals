@@ -6,9 +6,9 @@ deciders: [ebigunso]
 consulted: ["Claude Fable 5", "GPT-5.6 Sol"]
 informed: []
 warrant:
-  signals: "cross-boundary contract shape; rejected alternative likely to be re-proposed"
-  mode: "violate"
-  cost: "incremental structural erosion whose unwind is a workspace-wide refactor"
+  warranted_by: "without this record, future work would likely add core dispatch for a cross-dataset feature, against the neutrality boundary"
+  detected_signals: "cross-boundary contract shape; rejected alternative likely to be re-proposed"
+  cost_of_violation: "incremental structural erosion whose unwind is a workspace-wide refactor"
 depends_on: []
 implements: []
 supersedes: []
