@@ -15,7 +15,6 @@ last_updated: "2026-07-23"
 
 - Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` before reporting implementation done.
 - Run the service-free synthetic smoke command before reporting benchmark CLI changes done: `cargo run -p cmem-eval-runner -- run synthetic --dataset ./fixtures/synthetic_small.json --config ./configs/synthetic_retrieval.toml --out ./runs/synthetic.jsonl --summary-out ./runs/synthetic_summary.json --adapter mock --allow-mock-benchmark`.
-- Targeted-test evidence must state an executed-test count greater than zero; a successful exit code alone is insufficient because an unmatched filter can execute no tests.
 
 ## Repo Documentation Wording
 
@@ -29,10 +28,7 @@ last_updated: "2026-07-23"
 
 ## Workaround Tripwire (design-debt escalation)
 
-- The tripwire condition is the failure mode itself, not any specific shape of it: noticing that the work is going *around* something — a type, signature, schema, channel, module boundary, existing abstraction, or a dispatch constraint — when changing that thing itself would be the cleaner design (user-directed 2026-07-21).
-- Recognizable symptoms include, non-exhaustively: structured data flattened into prose; a parallel channel or path duplicating an existing one; tests that parse message strings or pin incidental values to verify behavior; call sites compensating for what the callee should own; logic duplicated to avoid a refactor; shims or adapters absorbing a design mismatch instead of the design being aligned; special-case branches accumulating around an abstraction that no longer fits; "for now"/"workaround" markers.
-- On hitting the tripwire: stop the affected chunk and escalate the design alternative with its cost delta to the role that owns the decision; do not implement through it. Sealed artifacts are the one standing exception: working around them is correct, changing them is not.
-- An alert is an obligation to surface, not a license to redesign: the alerting agent waits for a ruling rather than unilaterally expanding scope.
+- The Workaround Tripwire (detection, stop-and-alert response, alert-awaits-ruling) is harness-owned: engineering-quality-baselines Drift Tripwires. Repo-specific standing exception: sealed artifacts (frozen stores, hashes, committed evidence) — working around them is correct, changing them is not.
 
 ## Artifact Placement And Disposition
 
@@ -57,4 +53,4 @@ last_updated: "2026-07-23"
 
 ## Harness Sync Status
 
-- 2026-07-23: agent-harness v0.9.0 promoted this repo's staged generalizable guidance into harness skills (agent-harness PR #41). Do not slim the generic rules in this suite or drain promoted lessons until the installed Claude harness plugin is >= 0.9.0 (it was 0.4.0 on 2026-07-23; Codex profiles were refreshed to 0.9.0 the same day) — until then this suite is the live copy of that guidance.
+- 2026-07-23: agent-harness v0.9.0 promoted this repo's staged generalizable guidance into harness skills (agent-harness PR #41). Gate CLEARED the same day: installed Claude plugin and Codex profiles both reached 0.9.0, and the rule slimming + lessons drain were applied in this branch per the Codex per-rule verification map (agmsg 2026-07-23T11:50Z).

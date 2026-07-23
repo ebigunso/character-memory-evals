@@ -52,28 +52,6 @@ Prevention:
 Evidence:
 - User correction on 2026-04-30: "Can you also make the default run be a live eval run, instead of a mock based solution?"
 
-## 2026-05-03 — Parallelize Approved Harness Implementation Work  [tags: delegation, orchestration, parallelism, workflow]
-
-Context:
-- Plan: `docs/coding-agent/plans/active/eval-harness-performance-boosts-plan.md`
-- Task/Wave: implementation start
-- Roles involved: Orchestrator | Worker
-
-Symptom:
-- The orchestrator began implementing an approved multi-task harness plan locally without first dispatching eligible disjoint work to subagents.
-
-Root cause:
-- I treated the implementation as a tightly coupled local edit because the first two files were already in progress, but the approved plan had independent LoCoMo caching work that could run safely in parallel.
-
-Fix applied:
-- Continue current real-adapter changes locally to avoid conflicts, and dispatch disjoint Task_4 LoCoMo caching work to a Worker.
-
-Prevention:
-- Before starting implementation on an approved harness plan, identify the immediate local task and at least one disjoint parallel worker task; if none exists, state why parallelism is not useful.
-
-Evidence:
-- User correction on 2026-05-03: "Use sub-agents where possible to parellelize work!"
-
 ## 2026-05-04 — Keep Generated Dataset Artifacts Out Of Commits Unless Explicitly Requested  [tags: git, datasets, artifacts, scope]
 
 Context:
@@ -215,20 +193,6 @@ Fix applied:
 
 Prevention:
 - Before removing dependency checkout or setup steps from a CI gate, execute the exact gate in an isolated environment with that dependency intentionally absent.
-
-## 2026-07-12 — Resolve Moving External Dependencies Once Before CI Fan-Out  [tags: ci, review, dependencies, consistency]
-
-Symptom:
-- Parallel CI jobs independently checked out the public sibling's moving default branch, so a mid-run sibling push could make different gates validate different source snapshots.
-
-Root cause:
-- The job split preserved per-job setup but treated a moving external repository ref as equivalent to the monolithic job's single resolved checkout.
-
-Fix applied:
-- Added a credential-less resolver job that captures the sibling's current `main` SHA once and passes that immutable run-scoped SHA to every parallel gate checkout.
-
-Prevention:
-- When CI fans out across jobs that consume a moving external dependency, resolve the dependency revision once before fan-out and assert every consumer uses the shared immutable output.
 
 ## 2026-07-12 — Validate Complete Durable Identities And Matched Input Shapes  [tags: review, persistence, lifecycle, validation]
 
@@ -426,20 +390,6 @@ Fix applied:
 Prevention:
 - For every mutation contract, inventory all provenance/reference fields established at admission, preserve them through driver state, and validate the live facade path; mock success alone is not contract evidence.
 
-## 2026-07-12 — Label Live Evidence Scope At The Point Of Claim  [tags: validation, reporting, evidence, review]
-
-Symptom:
-- A two-run live result was described as using the committed config without stating that it selected only the cross-store scenario, so it read as evidence for the full suite and concealed an unexercised correction failure.
-
-Root cause:
-- The evidence report named configuration identity and hashes but omitted scenario scope and exact sibling dependency provenance.
-
-Fix applied:
-- Withdraw the full-suite interpretation, audit the Character Memory commit/branch state, and replace the scoped hashes with two full-suite committed-config runs.
-
-Prevention:
-- Every live-evidence claim must state scenario scope, config identity, and sibling dependency commit/branch provenance inline; label scoped evidence as scoped when first reported.
-
 ## 2026-07-13 — Distinguish Artifact Snapshots From Provenance  [tags: docs, review, artifacts, accuracy]
 
 Context:
@@ -584,28 +534,6 @@ Prevention:
 Evidence:
 - Focused regressions cover queryless fixtures, invalid relations, missing concepts, reserved concept collisions, invalid timestamps, disabled rationale, and unknown or missing restart observations; the canonical fixture remains byte-identical.
 - An accidental broad workspace invocation reproduced the known post-success Qdrant teardown timeout in `live_adapter_reattaches_with_external_ids`; the service-free workspace rerun excludes the two explicitly live adapter tests.
-
-## 2026-07-14 — Make Layered Vocabulary Duplication Mechanically Exhaustive  [tags: review, contracts, layering, enums, validation]
-
-Context:
-- Plan: PR #9 Copilot review fixes
-- Task/Wave: Copilot round 4 relation-vocabulary bounce
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- Fixture admission and the live adapter accepted the same fourteen relation names through separate string and enum parsers, but no check owned their continued parity when the CharacterMemory facade evolves.
-
-Root cause:
-- The first fix copied the current facade vocabulary into the dataset crate and tested only an invalid fixture value; it verified today's behavior without identifying the legal integration layer or a future-edit failure mechanism.
-
-Fix applied:
-- Keep CharacterMemory out of the backend-neutral continuity crate, expose its fixture vocabulary, and verify it from the CharacterMemory-aware adapter using an exhaustive `RelationType` match, exact serialized-name set equality, and unknown-value rejection through both parsers.
-
-Prevention:
-- When layering requires two representations of a closed vocabulary, name the canonical ownership boundary and add an exhaustive parity test in the nearest layer that legally depends on both representations; value-by-value spot checks are insufficient.
-
-Evidence:
-- The targeted adapter parity regression passes and will fail to compile if `RelationType` gains a variant without updating the exhaustive match.
 
 ## 2026-07-14 — Validate Derived Identity And Object Kinds At Fixture Admission  [tags: review, fixtures, schemas, identity, validation]
 
@@ -1100,20 +1028,6 @@ Prevention:
 Evidence:
 - The dedicated unit regression excludes a deliberately divergent top-level alias, while the committed canonical runtime/manifest/store strict-bijection test passes against unchanged artifact hashes.
 
-## 2026-07-21 - Equivalence Tests Must Compare The Full Observable Contract  [tags: validation, review]
+## Promotion drain note (2026-07-23)
 
-Context:
-- Backcompat sweep (CM plan backcompat-sweep-plan); typed-plan migration test here, ADR-I-0012 equivalence test in CharacterMemory
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- Both repos' workers independently wrote equivalence/migration tests comparing cardinalities or partial fields (ID vectors + timestamps here; vector counts + a stats flag in CM), so content or link-topology drift could pass; both Tier D reviewers caught the same class independently.
-
-Root cause:
-- Equivalence asserted on the easiest observable slice rather than the contract; no complete candidate/state comparison.
-
-Fix applied:
-- Here: complete object/link MemoryCandidate value equality plus exact vector target/text pins (4cbc1b0). CM: identical deterministic inputs through both paths with canonical graph-state comparison.
-
-Prevention:
-- Migration/equivalence regressions compare the full observable contract — complete candidate/outcome values and contract-relevant persisted state — normalizing only unavoidable generated metadata. Count/partial-field equivalence assertions are a standing Tier D check.
+Drained after agent-harness v0.9.0 went live in this workspace (installed plugin + Codex profiles updated 2026-07-23); each prevention now exists verbatim-or-stronger in harness content: Parallelize Approved Harness Implementation Work (orchestration-harness parallel-by-default dispatch), Resolve Moving External Dependencies Once Before CI Fan-Out (review-latent-risk-build-ci), Label Live Evidence Scope At The Point Of Claim (testing-validation evidence-scope line), Make Layered Vocabulary Duplication Mechanically Exhaustive (validation-tests exhaustiveness checks + architecture-gates boundary ownership), Equivalence Tests Must Compare The Full Observable Contract (review-latent-risk-conservation + owning-surface assertion line).

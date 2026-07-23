@@ -9,18 +9,13 @@ last_updated: "2026-07-23"
 
 ## Repo-Specific Worker Notes
 
-- Workers must not edit files outside their `owns` scope unless they report the reason and the exact paths changed.
 - Dataset workers must keep gold labels out of adapter metadata and use them only in scorer/result output paths.
 - Never move, relocate, or delete gitignored local assets (datasets, snapshots, manifests) during validation procedures: copy them when a second location is needed, and verify the originals still exist before removing any temporary worktree or directory. These assets can be expensive or impossible to regenerate.
 - Never redirect AGMSG_STORAGE_PATH or send reports to an alternate/mirror database when the registered store rejects writes: escalate the write failure instead, and verify critical handoffs landed in the registered store before ending the turn.
-- Any change touching a gated live test's setup, live-call phases, or skip predicate requires BOTH verification runs before completion: service deliberately unavailable (test must skip with its documented marker, full suite green) and service up (test must exercise and pass). Skip semantics: absence before the first successful live operation skips; unavailability after confirmed success fails.
-- When validation depends on local or generated asset existence (datasets, fixtures, snapshots, manifests), use direct filesystem checks (`Test-Path`/`test -f`) or an explicit no-ignore search (`rg --files --no-ignore`); never infer absence from default rg/fd or tracked-file enumeration — gitignored assets can exist and be required.
-- For repository-wide removal acceptance criteria (features, flags, identifiers, command forms), run the audit search from the repository root and explicitly exclude only documented historical or generated paths (e.g. `rg -n <removed-token> . --glob '!docs/coding-agent/plans/**'`); handpicked-path searches do not count as acceptance evidence.
+- Gated live tests: any change to setup, live-call phases, or skip predicate requires a service-up run in which the test exercises and passes (the service-down skip verification is harness-owned). Skip semantics: absence before the first successful live operation skips; unavailability after confirmed success fails.
 - Every new public `Result`-returning artifact reader must ship corrupt or invalid-encoding, partial-input, and schema-version-rejection tests before completion.
 - For every changed benchmark field, Workers must trace the value from fixture input through the live adapter DTO, persisted object, retrieval telemetry, metric, and report claim before accepting evidence.
-- Every live-evidence claim must state scenario scope, config identity, and the Character Memory sibling commit/branch provenance inline; label scoped evidence as scoped when first reported.
 - New validators and admission checks classify their failures with an owned structured error type AT INTRODUCTION (typed variants/fields per the design's error conventions), with tests asserting variants and fields; anyhow/prose belongs only at outer boundaries. Three same-phase recurrences of retrofitting prose validators forced this rule (2026-07-23).
-- Workaround Tripwire (see common.md): when implementation is going around a type, signature, schema, boundary, or dispatch constraint where changing that thing would be the cleaner design, stop that chunk and escalate to the Orchestrator with the alternative and cost delta before implementing through it. Dispatch constraints such as "minimal diff", "no new public types", or "keep the signature" are instrumental, not terminal — when one forces a workaround, escalation outranks compliance. Sealed artifacts stay the standing exception (user-directed 2026-07-21).
 
 ## Repo CI / Checks Mapping
 
