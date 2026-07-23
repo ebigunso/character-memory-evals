@@ -80,7 +80,7 @@ The premise is that per-crate ownership stays cheap at the current dataset count
 
 ## Consultation impact
 
-Identified as the strongest unrecorded architecture decision by the 2026-07 decision-record survey of this workspace; encoded retrospectively from the architecture-revision plan's Decision Log with user calibration.
+Identified as the strongest unrecorded architecture decision by the 2026-07 decision-record survey of this workspace; encoded retrospectively from the architecture-revision plan's Decision Log with calibration by ebigunso.
 
 ## More Information
 

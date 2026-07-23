@@ -6,7 +6,7 @@ deciders: [ebigunso]
 consulted: ["Claude Fable 5", "GPT-5.6 Sol"]
 informed: []
 warrant:
-  signals: "externally observable product behavior; user ruling setting a durable default"
+  signals: "externally observable product behavior; a decider's ruling setting a durable governance default"
   mode: "violate"
   cost: "silently invalid benchmark evidence that looks real"
 depends_on: []
@@ -80,7 +80,7 @@ The premise is that a local live Character Memory service remains cheap enough f
 
 ## Consultation impact
 
-Encoded retrospectively from the public-API eval-adapter plan's Decision Log after the 2026-07 decision-record survey; the user's original correction ("make the default run be a live eval run") is the founding ruling.
+Encoded retrospectively from the public-API eval-adapter plan's Decision Log after the 2026-07 decision-record survey; ebigunso's original correction ("make the default run be a live eval run") is the founding ruling.
 
 ## More Information
 
