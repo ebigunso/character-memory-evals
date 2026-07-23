@@ -3,9 +3,9 @@ status: accepted
 adr_type: design
 date: 2026-07-24
 deciders: [ebigunso]
-consulted: ["Claude Fable 5", "GPT-5.6 Codex"]
+consulted: ["Claude Fable 5", "GPT-5.6 Sol"]
 informed: []
-warrant: "a, e / violate / costing silently invalid benchmark evidence that looks real"
+warrant: "signals: externally observable product behavior, user ruling setting a durable default; mode: violate; cost: silently invalid benchmark evidence that looks real"
 depends_on: []
 implements: []
 supersedes: []
@@ -36,8 +36,14 @@ Evaluation evidence users can trust is this repository's core purpose. A default
 ## Considered Options
 
 1. Live default; mock as loud opt-in (chosen).
-2. Mock default with live opt-in — likely to be re-proposed, because it is convenient for local iteration and CI symmetry. Reopen condition: the live-service dependency becomes prohibitively expensive or unavailable for routine benchmark work.
-3. Automatic fallback from live to mock on service failure — rejected outright: it converts an infrastructure failure into silently invalid evidence.
+2. Mock default with live opt-in.
+3. Automatic fallback from live to mock on service failure.
+
+### Guarded Alternatives
+
+Mock default with live opt-in is likely to be re-proposed: it is convenient for local iteration and CI symmetry. Rejected because a default that never touches the system under test invites unlabeled non-evidence. Reopen if the live-service dependency becomes prohibitively expensive or unavailable for routine benchmark work.
+
+Automatic fallback is rejected outright and unguarded: it converts an infrastructure failure into silently invalid evidence, which is the exact failure this decision exists to prevent.
 
 ## Decision Outcome
 
@@ -57,7 +63,9 @@ Chosen option: **live default, loud mock opt-in**. Accidental invalidity becomes
 
 ## Decision Boundary
 
-Invariant: the default-and-labeling contract for benchmark runs. Not covered: which flag spells the opt-in, label wording, and the service-free defaults of the test/CI class — those are calibrated surfaces owned by rules and configuration.
+Invariant: the default-and-labeling contract for benchmark runs.
+
+Not covered: which flag spells the opt-in, label wording, and the service-free defaults of the test/CI class — calibrated surfaces owned by rules and configuration.
 
 ## Validation
 

@@ -3,9 +3,9 @@ status: accepted
 adr_type: implementation
 date: 2026-07-24
 deciders: [ebigunso]
-consulted: ["Claude Fable 5", "GPT-5.6 Codex"]
+consulted: ["Claude Fable 5", "GPT-5.6 Sol"]
 informed: []
-warrant: "a, b / violate / costing incremental structural erosion whose unwind is a workspace-wide refactor"
+warrant: "signals: cross-boundary contract shape, rejected alternative likely to be re-proposed; mode: violate; cost: incremental structural erosion whose unwind is a workspace-wide refactor"
 depends_on: []
 implements: []
 supersedes: []
@@ -36,8 +36,14 @@ The boundary is enforced by the crate ownership rules in `docs/coding-agent/rule
 ## Considered Options
 
 1. Backend-neutral core with dataset-owned crates and runner registration (chosen).
-2. Core dispatch on dataset names — likely to be re-proposed, because it is the fastest way to ship a cross-dataset feature. Reopen condition: dataset proliferation or shared cross-dataset logic makes per-crate ownership demonstrably net-costlier than a governed core seam.
-3. Extension-trait split of the adapter contract — rejected during the eval-harness architecture revision; the Character-Memory-shaped main trait with staged writes carries the contract without a parallel trait hierarchy.
+2. Core dispatch on dataset names.
+3. Extension-trait split of the adapter contract.
+
+### Guarded Alternatives
+
+Core dispatch on dataset names is likely to be re-proposed: it is the fastest way to ship a cross-dataset feature. Rejected because each dispatch arm erodes the neutrality the shared contracts depend on. Reopen if dataset proliferation or shared cross-dataset logic makes per-crate ownership demonstrably net-costlier than a governed core seam.
+
+The extension-trait split was rejected during the eval-harness architecture revision: the Character-Memory-shaped main trait with staged writes carries the contract without a parallel trait hierarchy. No reopen condition is guarded; it may be re-argued on new evidence like any unguarded option.
 
 ## Decision Outcome
 
@@ -57,7 +63,9 @@ Chosen option: **backend-neutral core with dataset-owned crates**. It keeps the 
 
 ## Decision Boundary
 
-Invariant: core neutrality and the no-core-edits extension path. Not covered: internal dataset-crate structure, and the runner's registration mechanics, which may evolve freely.
+Invariant: core neutrality and the no-core-edits extension path.
+
+Not covered: internal dataset-crate structure, and the runner's registration mechanics, which may evolve freely.
 
 ## Validation
 
