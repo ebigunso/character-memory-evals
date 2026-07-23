@@ -1,23 +1,18 @@
 use std::collections::BTreeMap;
 use std::env;
-use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
+use cmem_eval_adapter_cmem::fs_util::atomic_replace;
+use cmem_eval_adapter_cmem::openai_embedding::{EmbeddingRetryPolicy, OpenAiEmbeddingClient};
 use cmem_eval_core::{
     FrozenEmbeddingDimensionPolicy, FrozenEmbeddingManifest, FrozenEmbeddingProvider,
     FrozenEmbeddingSource, FrozenEmbeddingStore, classify_frozen_embedding_dimensions,
     model_native_embedding_vector_size,
 };
-use serde::{Deserialize, Serialize};
 
-const OPENAI_EMBEDDINGS_ENDPOINT: &str = "https://api.openai.com/v1/embeddings";
 const MAX_EMBEDDING_INPUTS_PER_REQUEST: usize = 2_048;
-const FROZEN_STORE_PERSIST_ATTEMPTS: usize = 4;
-const FROZEN_STORE_PERSIST_BACKOFF_MS: u64 = 25;
 
 #[derive(Debug, Args)]
 pub(crate) struct EmbeddingsCommand {
@@ -131,30 +126,16 @@ async fn generate(args: GenerateArgs) -> Result<()> {
         // One batched request embeds each missing exact text exactly once.
         // There is deliberately no retry: an ambiguous network failure must
         // not create untracked duplicate billable calls.
-        let response = reqwest::Client::builder()
-            .timeout(Duration::from_secs(300))
-            .build()?
-            .post(OPENAI_EMBEDDINGS_ENDPOINT)
-            .bearer_auth(api_key)
-            .json(&OpenAiEmbeddingRequest {
+        let embeddings = OpenAiEmbeddingClient::default()
+            .embed_batch(
+                &api_key,
                 model,
-                input: &missing_texts,
-                encoding_format: "float",
-                dimensions: request_dimensions,
-            })
-            .send()
+                &missing_texts,
+                request_dimensions,
+                EmbeddingRetryPolicy::no_retry(),
+            )
             .await
             .context("request offline OpenAI embeddings")?;
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            bail!("offline OpenAI embedding request failed with {status}: {body}");
-        }
-        let response: OpenAiEmbeddingResponse = response
-            .json()
-            .await
-            .context("parse offline OpenAI embedding response")?;
-        let embeddings = ordered_embeddings(model, missing_texts.len(), response)?;
         for (index, embedding) in embeddings.iter().enumerate() {
             if embedding.len() != effective_vector_size {
                 bail!(
@@ -289,78 +270,7 @@ fn validate(args: ValidateArgs) -> Result<()> {
 }
 
 fn write_store(path: &Path, bytes: &[u8]) -> Result<()> {
-    write_store_with_before_persist(path, bytes, |_| Ok(()))
-}
-
-fn write_store_with_before_persist<F>(path: &Path, bytes: &[u8], before_persist: F) -> Result<()>
-where
-    F: FnOnce(&Path) -> Result<()>,
-{
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)
-        .with_context(|| format!("create frozen embedding directory {}", parent.display()))?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent).with_context(|| {
-        format!(
-            "create temporary frozen embedding store beside {}",
-            path.display()
-        )
-    })?;
-    temporary.write_all(bytes).with_context(|| {
-        format!(
-            "write temporary frozen embedding store for {}",
-            path.display()
-        )
-    })?;
-    temporary.as_file().sync_all().with_context(|| {
-        format!(
-            "sync temporary frozen embedding store for {}",
-            path.display()
-        )
-    })?;
-    before_persist(temporary.path())?;
-    persist_store_with_retry(temporary, path, |temporary, path| temporary.persist(path))
-}
-
-fn persist_store_with_retry<F>(
-    mut temporary: tempfile::NamedTempFile,
-    path: &Path,
-    mut persist: F,
-) -> Result<()>
-where
-    F: FnMut(
-        tempfile::NamedTempFile,
-        &Path,
-    ) -> std::result::Result<std::fs::File, tempfile::PersistError>,
-{
-    for attempt in 1..=FROZEN_STORE_PERSIST_ATTEMPTS {
-        match persist(temporary, path) {
-            Ok(_) => return Ok(()),
-            Err(error) => {
-                let retryable = error.error.kind() == std::io::ErrorKind::PermissionDenied
-                    && attempt < FROZEN_STORE_PERSIST_ATTEMPTS;
-                if !retryable {
-                    return Err(error.error).with_context(|| {
-                        format!(
-                            "atomically replace frozen embedding store {}",
-                            path.display()
-                        )
-                    });
-                }
-
-                // Match the registry persistence precedent: Windows AV/indexers can
-                // briefly hold the destination during replacement. Keep the same
-                // complete staged file and retry only that bounded transient error.
-                temporary = error.file;
-                std::thread::sleep(Duration::from_millis(
-                    FROZEN_STORE_PERSIST_BACKOFF_MS * attempt as u64,
-                ));
-            }
-        }
-    }
-    unreachable!("frozen store persist loop always returns")
+    atomic_replace(path, bytes, "frozen embedding store")
 }
 
 fn print_measurements(measurements: &[cmem_eval_core::FrozenSimilarityMeasurement]) {
@@ -375,69 +285,13 @@ fn print_measurements(measurements: &[cmem_eval_core::FrozenSimilarityMeasuremen
     }
 }
 
-#[derive(Debug, Serialize)]
-struct OpenAiEmbeddingRequest<'a> {
-    model: &'a str,
-    input: &'a [String],
-    encoding_format: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dimensions: Option<usize>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiEmbeddingResponse {
-    model: String,
-    data: Vec<OpenAiEmbeddingData>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiEmbeddingData {
-    index: usize,
-    embedding: Vec<f32>,
-}
-
-fn ordered_embeddings(
-    requested_model: &str,
-    expected_count: usize,
-    response: OpenAiEmbeddingResponse,
-) -> Result<Vec<Vec<f32>>> {
-    if response.model != requested_model {
-        bail!(
-            "OpenAI embedding response model {:?} does not match requested model {requested_model:?}",
-            response.model
-        );
-    }
-    if response.data.len() != expected_count {
-        bail!(
-            "OpenAI embedding response returned {} vectors for {expected_count} unique texts",
-            response.data.len()
-        );
-    }
-    let mut ordered = vec![None; expected_count];
-    for item in response.data {
-        if item.index >= expected_count {
-            bail!(
-                "OpenAI embedding response index {} is outside expected range 0..{expected_count}",
-                item.index
-            );
-        }
-        let index = item.index;
-        if ordered[index].replace(item.embedding).is_some() {
-            bail!("OpenAI embedding response contains duplicate index {index}");
-        }
-    }
-    ordered
-        .into_iter()
-        .enumerate()
-        .map(|(index, embedding)| {
-            embedding.with_context(|| format!("OpenAI embedding response omitted index {index}"))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::io::Write;
+
     use super::*;
+    use cmem_eval_adapter_cmem::fs_util::{atomic_replace_with_before_persist, persist_with_retry};
 
     #[test]
     fn failed_store_write_preserves_preexisting_bytes() {
@@ -448,13 +302,18 @@ mod tests {
         fs::write(&path, previous_bytes).unwrap();
         let mut staged_path = None;
 
-        let error = write_store_with_before_persist(&path, replacement_bytes, |temporary_path| {
-            staged_path = Some(temporary_path.to_path_buf());
-            assert_eq!(temporary_path.parent(), path.parent());
-            assert_eq!(fs::read(temporary_path).unwrap(), replacement_bytes);
-            assert_eq!(fs::read(&path).unwrap(), previous_bytes);
-            bail!("simulated failure before atomic store replacement")
-        })
+        let error = atomic_replace_with_before_persist(
+            &path,
+            replacement_bytes,
+            "frozen embedding store",
+            |temporary_path| {
+                staged_path = Some(temporary_path.to_path_buf());
+                assert_eq!(temporary_path.parent(), path.parent());
+                assert_eq!(fs::read(temporary_path).unwrap(), replacement_bytes);
+                assert_eq!(fs::read(&path).unwrap(), previous_bytes);
+                bail!("simulated failure before atomic store replacement")
+            },
+        )
         .unwrap_err();
 
         assert!(error.to_string().contains("simulated failure"), "{error}");
@@ -473,20 +332,25 @@ mod tests {
         temporary.as_file().sync_all().unwrap();
         let mut attempts = 0;
 
-        persist_store_with_retry(temporary, &path, |temporary, path| {
-            attempts += 1;
-            assert_eq!(fs::read(temporary.path()).unwrap(), staged_bytes);
-            if attempts == 1 {
-                return Err(tempfile::PersistError {
-                    error: std::io::Error::new(
-                        std::io::ErrorKind::PermissionDenied,
-                        "injected Windows replace contention",
-                    ),
-                    file: temporary,
-                });
-            }
-            temporary.persist(path)
-        })
+        persist_with_retry(
+            temporary,
+            &path,
+            "frozen embedding store",
+            |temporary, path| {
+                attempts += 1;
+                assert_eq!(fs::read(temporary.path()).unwrap(), staged_bytes);
+                if attempts == 1 {
+                    return Err(tempfile::PersistError {
+                        error: std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "injected Windows replace contention",
+                        ),
+                        file: temporary,
+                    });
+                }
+                temporary.persist(path)
+            },
+        )
         .unwrap();
 
         assert_eq!(attempts, 2);
@@ -695,50 +559,6 @@ mod tests {
         let serialized: serde_json::Value =
             serde_json::from_slice(&fs::read(output_path).unwrap()).unwrap();
         assert_eq!(serialized["model"], "text-embedding-3-large");
-    }
-
-    #[test]
-    fn response_order_is_index_driven_and_duplicate_indices_fail() {
-        let ordered = ordered_embeddings(
-            "text-embedding-3-large",
-            2,
-            OpenAiEmbeddingResponse {
-                model: "text-embedding-3-large".to_string(),
-                data: vec![
-                    OpenAiEmbeddingData {
-                        index: 1,
-                        embedding: vec![0.0, 1.0],
-                    },
-                    OpenAiEmbeddingData {
-                        index: 0,
-                        embedding: vec![1.0, 0.0],
-                    },
-                ],
-            },
-        )
-        .unwrap();
-        assert_eq!(ordered, vec![vec![1.0, 0.0], vec![0.0, 1.0]]);
-
-        let error = ordered_embeddings(
-            "text-embedding-3-large",
-            2,
-            OpenAiEmbeddingResponse {
-                model: "text-embedding-3-large".to_string(),
-                data: vec![
-                    OpenAiEmbeddingData {
-                        index: 0,
-                        embedding: vec![1.0, 0.0],
-                    },
-                    OpenAiEmbeddingData {
-                        index: 0,
-                        embedding: vec![0.0, 1.0],
-                    },
-                ],
-            },
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(error.contains("duplicate index 0"), "{error}");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::LongMemEvalInstance;
-use cmem_eval_core::{RetrievedItem, insert_retrieval_metrics};
+use cmem_eval_core::{ObjectType, RetrievedItem, insert_retrieval_metrics};
 use serde_json::{Map, Value};
 
 pub fn score(
@@ -10,12 +10,12 @@ pub fn score(
 ) -> Value {
     let session_ids = items
         .iter()
-        .filter(|item| item.kind == "episode")
+        .filter(|item| item.kind == ObjectType::Episode)
         .filter_map(|item| item.external_id.clone())
         .collect::<Vec<_>>();
     let turn_ids = items
         .iter()
-        .filter(|item| item.kind == "observation")
+        .filter(|item| item.kind == ObjectType::Observation)
         .filter_map(|item| item.external_id.clone())
         .collect::<Vec<_>>();
     let gold_turn_ids = instance.gold_turn_ids();
@@ -53,7 +53,7 @@ mod tests {
         let metrics = score(
             &rows[0],
             &[RetrievedItem {
-                kind: "observation".to_string(),
+                kind: ObjectType::Observation,
                 internal_id: "i".to_string(),
                 external_id: Some("s1:turn:1".to_string()),
                 episode_external_id: Some("s1".to_string()),

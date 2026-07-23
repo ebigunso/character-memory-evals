@@ -287,6 +287,15 @@ impl FrozenEmbeddingProvider {
         self.inner.store.source
     }
 
+    pub fn dimension_policy(&self) -> FrozenEmbeddingDimensionPolicy {
+        self.inner.store.dimension_policy
+    }
+
+    pub fn store_sha256(&self) -> Result<String> {
+        let bytes = self.inner.store.canonical_bytes()?;
+        Ok(format!("{:x}", Sha256::digest(bytes)))
+    }
+
     pub fn vector_for_text(&self, text: &str) -> Result<Vec<f32>> {
         let hash = text_sha256(text);
         let Some(index) = self.inner.entries_by_hash.get(&hash) else {

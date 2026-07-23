@@ -5,8 +5,8 @@ use crate::official_exports;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmem_eval_core::{
-    BenchmarkRunConfig, RetrievalMode, RunAdapterMetadata, read_jsonl, summarize_rows,
-    write_summary,
+    BenchmarkRunConfig, RetrievalMode, RunAdapterMetadata, VersionedPerQuestionResult, read_jsonl,
+    summarize_rows, validate_summary_row_identity, write_summary,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -234,28 +234,24 @@ fn export_official(args: ExportOfficialCommand) -> Result<()> {
 }
 
 fn summarize(args: SummarizeArgs) -> Result<()> {
-    let rows = read_jsonl(&args.input)?;
+    let rows = read_jsonl(&args.input)?
+        .into_iter()
+        .map(VersionedPerQuestionResult::into_v2)
+        .collect::<Result<Vec<_>>>()?;
     let Some(first) = rows.first() else {
         bail!("cannot summarize empty JSONL: {}", args.input.display());
     };
     let config = read_config(&args.config)?;
     config.validate()?;
-    if first.run_id != config.run_id || first.dataset != config.dataset {
-        bail!(
-            "summary input run/dataset ({}/{}) does not match config ({}/{})",
-            first.run_id,
-            first.dataset,
-            config.run_id,
-            config.dataset
-        );
-    }
-    if rows
-        .iter()
-        .any(|row| row.run_id != first.run_id || row.dataset != first.dataset)
-    {
-        bail!("summary input contains mixed run_id or dataset values");
-    }
-    if config.dataset == "continuity" {
+    let expected_dataset_kind = pipeline::dataset_kind_for_config(&config)?;
+    validate_summary_row_identity(
+        &config.run_id,
+        &config.dataset,
+        expected_dataset_kind,
+        &first.adapter,
+        &rows,
+    )?;
+    if config.dataset.as_str() == "continuity" {
         let dataset = args.dataset.as_deref().context(
             "summarizing continuity results requires --dataset with the source fixture path",
         )?;
@@ -267,13 +263,14 @@ fn summarize(args: SummarizeArgs) -> Result<()> {
         args.scenario.as_deref(),
     )?;
     let summary = summarize_rows(
-        first.run_id.clone(),
-        first.dataset.clone(),
+        config.run_id.clone(),
+        config.dataset.clone(),
+        expected_dataset_kind,
         first.adapter.clone(),
         serde_json::to_value(&config)?,
         &rows,
         &[metric_family],
-    );
+    )?;
     write_summary(&args.out, &summary)
 }
 

@@ -34,14 +34,23 @@ vector_size = 8
 
 [retrieval]
 mode = "hybrid"
-top_k_episodes = 8
-top_k_observations = 8
-include_derived_memories = true
-include_threads = true
-include_entities = true
+
+[retrieval.surface_policy]
+object_types = ["episode", "observation", "derived_memory", "memory_thread", "entity"]
 include_debug_rationale = true
 max_vector_candidates = 48
 max_graph_roots = 48
+
+[retrieval.surface_policy.sections]
+active_threads = 6
+relevant_episodes = 8
+salient_observations = 8
+derived_memories = 12
+preferences = 8
+relationship_notes = 8
+open_loops = 8
+commitments = 8
+character_signals = 8
 
 [ingest]
 index_observations = true

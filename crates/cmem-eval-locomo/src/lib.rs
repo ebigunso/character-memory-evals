@@ -9,6 +9,16 @@ pub use types::*;
 use anyhow::{Result, bail};
 use cmem_eval_core::{BenchmarkRunConfig, MetricFamily, MetricsConfig, retrieval_metric_family};
 
+pub fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
+    if config.dataset.as_str() != "locomo" {
+        bail!(
+            "config dataset {:?} does not match selected locomo pipeline",
+            config.dataset
+        );
+    }
+    Ok(())
+}
+
 pub fn metric_family(config: &MetricsConfig) -> MetricFamily {
     retrieval_metric_family(
         "locomo_retrieval",
@@ -17,16 +27,6 @@ pub fn metric_family(config: &MetricsConfig) -> MetricFamily {
             ("session", config.ks_session.as_slice()),
         ],
     )
-}
-
-pub fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
-    if config.dataset != "locomo" {
-        bail!(
-            "config dataset {:?} does not match selected locomo pipeline",
-            config.dataset
-        );
-    }
-    Ok(())
 }
 
 pub fn full_history_text(sample: &LoCoMoSample) -> String {
@@ -51,18 +51,6 @@ mod dataset_spec_tests {
     use super::*;
 
     #[test]
-    fn config_validation_is_owned_by_the_dataset_crate() {
-        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
-            "run_id": "r",
-            "dataset": "locomo"
-        }))
-        .unwrap();
-        validate_config(&config).unwrap();
-        config.dataset = "longmemeval_s".to_string();
-        assert!(validate_config(&config).is_err());
-    }
-
-    #[test]
     fn declares_configured_retrieval_metric_family() {
         let config = MetricsConfig {
             ks_session: vec![3],
@@ -73,5 +61,24 @@ mod dataset_spec_tests {
         assert!(family.required_metrics.contains("session_ndcg@3"));
         assert!(family.required_metrics.contains("dialog_recall_fraction@7"));
         assert!(!family.required_metrics.contains("turn_ndcg@3"));
+    }
+
+    #[test]
+    fn validates_its_own_dataset_name() {
+        let valid: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "locomo"
+        }))
+        .unwrap();
+        validate_config(&valid).unwrap();
+
+        let invalid: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "longmemeval_s"
+        }))
+        .unwrap();
+        let error = validate_config(&invalid).unwrap_err().to_string();
+        assert!(error.contains("locomo pipeline"), "{error}");
+        assert!(error.contains("longmemeval_s"), "{error}");
     }
 }

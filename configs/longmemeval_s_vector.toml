@@ -14,12 +14,21 @@ model = "text-embedding-3-large"
 
 [retrieval]
 mode = "vector_only"
-top_k_episodes = 10
-top_k_observations = 50
-include_derived_memories = false
-include_threads = false
-include_entities = false
+
+[retrieval.surface_policy]
+object_types = ["episode", "observation"]
 include_debug_rationale = true
+
+[retrieval.surface_policy.sections]
+active_threads = 0
+relevant_episodes = 10
+salient_observations = 50
+derived_memories = 0
+preferences = 0
+relationship_notes = 0
+open_loops = 0
+commitments = 0
+character_signals = 0
 
 [ingest]
 index_observations = true

@@ -86,7 +86,7 @@ pub fn insert_continuity_metrics(
     }
 
     let retrieved_ids = ranked_ids_for_gold(
-        &trace.retrieval.items,
+        trace.retrieval.items(),
         &trace.expected.relevant_external_ids,
     );
     if let Some(gap_days) = gap_days(scenario, trace) {
@@ -162,17 +162,17 @@ fn insert_hub_metrics(
         rate(
             trace
                 .retrieval
-                .items
+                .items()
                 .iter()
                 .filter(|item| item_matches_any(item, &hub_incident_ids))
                 .count(),
-            trace.retrieval.items.len(),
+            trace.retrieval.items().len(),
         ),
     );
 
     if let Some(categories) = &trace
         .retrieval
-        .telemetry
+        .telemetry()
         .rationale_categories_by_internal_id
     {
         let relevant = trace
@@ -189,7 +189,7 @@ fn insert_hub_metrics(
             .collect::<BTreeSet<_>>();
         let labeled_entity_expansions = trace
             .retrieval
-            .items
+            .items()
             .iter()
             .filter(|item| {
                 categories
@@ -211,7 +211,7 @@ fn insert_hub_metrics(
         );
     }
 
-    if let Some(fanout) = &trace.retrieval.telemetry.fanout_utilization {
+    if let Some(fanout) = &trace.retrieval.telemetry().fanout_utilization {
         let utilizations = fanout
             .iter()
             .filter(|entry| {
@@ -241,17 +241,17 @@ fn insert_correction_metrics(
     ) {
         return;
     }
-    let telemetry = &trace.retrieval.telemetry;
+    let telemetry = trace.retrieval.telemetry();
     if telemetry.trace_available
         && let Some(unsafe_count) = telemetry.unsafe_lifecycle_returned_count
     {
         out.insert(
             "correction_lifecycle_safe_admission_rate".to_string(),
-            Value::from(if trace.retrieval.items.is_empty() {
+            Value::from(if trace.retrieval.items().is_empty() {
                 1.0
             } else {
-                1.0 - unsafe_count.min(trace.retrieval.items.len()) as f64
-                    / trace.retrieval.items.len() as f64
+                1.0 - unsafe_count.min(trace.retrieval.items().len()) as f64
+                    / trace.retrieval.items().len() as f64
             }),
         );
     }
@@ -292,14 +292,14 @@ fn insert_correction_metrics(
 fn insert_rationale_metrics(out: &mut Map<String, Value>, trace: &ContinuityQueryTrace) {
     let Some(categories) = &trace
         .retrieval
-        .telemetry
+        .telemetry()
         .rationale_categories_by_internal_id
     else {
         return;
     };
     let returned_categories = trace
         .retrieval
-        .items
+        .items()
         .iter()
         .map(|item| {
             categories
@@ -338,7 +338,7 @@ fn insert_pollution_metrics(out: &mut Map<String, Value>, trace: &ContinuityQuer
         .collect::<BTreeSet<_>>();
     let labeled = trace
         .retrieval
-        .items
+        .items()
         .iter()
         .filter(|item| {
             item_matches_any(item, &relevant) || item_matches_any(item, &sampled_irrelevant)
@@ -384,7 +384,7 @@ fn insert_pollution_metrics(out: &mut Map<String, Value>, trace: &ContinuityQuer
     );
     if let Some(categories) = &trace
         .retrieval
-        .telemetry
+        .telemetry()
         .rationale_categories_by_internal_id
     {
         let pollution_categories = pollution
@@ -409,7 +409,7 @@ fn insert_fanout_metrics(
     scenario: &ContinuityScenario,
     trace: &ContinuityQueryTrace,
 ) {
-    if let Some(fanout) = &trace.retrieval.telemetry.fanout_utilization {
+    if let Some(fanout) = &trace.retrieval.telemetry().fanout_utilization {
         out.insert(
             "fanout_over_budget_count".to_string(),
             Value::from(
@@ -439,7 +439,7 @@ fn insert_fanout_metrics(
             option_number(mean(&configured)),
         );
     }
-    if let Some(selectivity) = &trace.retrieval.telemetry.selectivity_decisions {
+    if let Some(selectivity) = &trace.retrieval.telemetry().selectivity_decisions {
         out.insert(
             "conservative_fallback_activation_count".to_string(),
             Value::from(selectivity.iter().filter(|entry| entry.fallback).count()),
@@ -634,13 +634,14 @@ mod tests {
     };
     use chrono::{TimeZone, Utc};
     use cmem_eval_core::{
-        RetrievalFanoutUtilization, RetrievalSelectivityDecision, RetrievalTelemetry,
-        RetrievedContextPack,
+        ContextRenderer, ObjectType, RelationType, RetrievalFanoutUtilization,
+        RetrievalSelectivityDecision, RetrievalTelemetry, RetrievedContextPack,
+        SelectivityCountScope, SelectivityDecision,
     };
 
     fn item(id: &str, rank: usize) -> RetrievedItem {
         RetrievedItem {
-            kind: "episode".to_string(),
+            kind: ObjectType::Episode,
             internal_id: format!("internal-{id}"),
             external_id: Some(id.to_string()),
             episode_external_id: None,
@@ -732,19 +733,19 @@ mod tests {
                 irrelevant_external_ids: vec!["sampled-negative".to_string()],
             },
             history_text: String::new(),
-            retrieval: RetrievedContextPack {
+            retrieval: RetrievedContextPack::from_ranked_items(
                 items,
-                telemetry: RetrievalTelemetry {
+                RetrievalTelemetry {
                     trace_available: true,
                     suppressed_or_deleted_returned_count: Some(0),
                     superseded_current_returned_count: Some(0),
                     unsafe_lifecycle_returned_count: Some(0),
                     fanout_utilization: Some(vec![RetrievalFanoutUtilization {
                         root_internal_id: "root".to_string(),
-                        root_object_type: "entity".to_string(),
+                        root_object_type: ObjectType::Entity,
                         root_external_id: Some("hub-person".to_string()),
-                        relation: "mentions".to_string(),
-                        object_type: "episode".to_string(),
+                        relation: RelationType::Mentions,
+                        object_type: ObjectType::Episode,
                         configured_cap: 4,
                         selected_cap: 2,
                         retained_count: 1,
@@ -752,26 +753,44 @@ mod tests {
                     }]),
                     selectivity_decisions: Some(vec![RetrievalSelectivityDecision {
                         root_internal_id: "root".to_string(),
-                        root_object_type: "entity".to_string(),
+                        root_object_type: ObjectType::Entity,
                         root_external_id: Some("hub-person".to_string()),
-                        relation: "mentions".to_string(),
-                        object_type: "episode".to_string(),
-                        count_scope: "active".to_string(),
+                        relation: RelationType::Mentions,
+                        object_type: ObjectType::Episode,
+                        count_scope: SelectivityCountScope::Active,
                         score: Some(0.25),
                         entity_count: Some(5),
                         global_count: Some(20),
                         support_factor: 0.5,
                         chosen_fanout: 2,
                         max_fanout: 4,
-                        decision: "low_selectivity_supported".to_string(),
+                        decision: SelectivityDecision::LowSelectivitySupported,
                         fallback: false,
                     }]),
                     rationale_categories_by_internal_id: Some(rationale_categories_by_internal_id),
                     ..RetrievalTelemetry::default()
                 },
-                ..RetrievedContextPack::default()
-            },
+                ContextRenderer::PlainText,
+            ),
+            write_outcomes: Vec::new(),
+            lifecycle_outcomes: Vec::new(),
         }
+    }
+
+    fn mutate_telemetry(
+        trace: &mut ContinuityQueryTrace,
+        mutate: impl FnOnce(&mut RetrievalTelemetry),
+    ) {
+        let (items, _, _, _, mut telemetry) = std::mem::take(&mut trace.retrieval).into_parts();
+        mutate(&mut telemetry);
+        trace.retrieval =
+            RetrievedContextPack::from_ranked_items(items, telemetry, ContextRenderer::PlainText);
+    }
+
+    fn replace_items(trace: &mut ContinuityQueryTrace, items: Vec<RetrievedItem>) {
+        let (_, _, _, _, telemetry) = std::mem::take(&mut trace.retrieval).into_parts();
+        trace.retrieval =
+            RetrievedContextPack::from_ranked_items(items, telemetry, ContextRenderer::PlainText);
     }
 
     fn metrics(pattern: ScenarioPattern) -> Map<String, Value> {
@@ -794,15 +813,15 @@ mod tests {
     fn entity_continuity_measures_share_hits_and_cap_utilization() {
         let scenario = scenario(ScenarioPattern::RecurringHubEntity);
         let mut trace = trace(ScenarioPattern::RecurringHubEntity);
-        trace
-            .retrieval
-            .telemetry
-            .rationale_categories_by_internal_id
-            .as_mut()
-            .unwrap()
-            .get_mut("internal-sampled-negative")
-            .unwrap()
-            .push(RetrievalRationaleCategory::Entity);
+        mutate_telemetry(&mut trace, |telemetry| {
+            telemetry
+                .rationale_categories_by_internal_id
+                .as_mut()
+                .unwrap()
+                .get_mut("internal-sampled-negative")
+                .unwrap()
+                .push(RetrievalRationaleCategory::Entity);
+        });
         let mut out = Map::new();
         insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
         assert_eq!(out["hub_context_share"], 1.0);
@@ -842,12 +861,14 @@ mod tests {
     fn entrenched_correction_routes_to_correction_metrics_with_hand_computed_expectations() {
         let scenario = scenario(ScenarioPattern::EntrenchedCorrection);
         let mut trace = trace(ScenarioPattern::EntrenchedCorrection);
-        trace.retrieval.telemetry.unsafe_lifecycle_returned_count = Some(1);
+        mutate_telemetry(&mut trace, |telemetry| {
+            telemetry.unsafe_lifecycle_returned_count = Some(1);
+        });
         let mut out = Map::new();
 
         insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
 
-        assert_eq!(trace.retrieval.items.len(), 2);
+        assert_eq!(trace.retrieval.items().len(), 2);
         assert_eq!(out["correction_lifecycle_safe_admission_rate"], 0.5);
         assert_eq!(out["supersession_replacement_recall"], 1.0);
     }
@@ -856,17 +877,16 @@ mod tests {
     fn correction_safety_counts_overlapping_lifecycle_failures_once() {
         let scenario = scenario(ScenarioPattern::CorrectionChains);
         let mut trace = trace(ScenarioPattern::CorrectionChains);
-        trace
-            .retrieval
-            .telemetry
-            .suppressed_or_deleted_returned_count = Some(1);
-        trace.retrieval.telemetry.superseded_current_returned_count = Some(1);
-        trace.retrieval.telemetry.unsafe_lifecycle_returned_count = Some(1);
+        mutate_telemetry(&mut trace, |telemetry| {
+            telemetry.suppressed_or_deleted_returned_count = Some(1);
+            telemetry.superseded_current_returned_count = Some(1);
+            telemetry.unsafe_lifecycle_returned_count = Some(1);
+        });
         let mut out = Map::new();
 
         insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
 
-        assert_eq!(trace.retrieval.items.len(), 2);
+        assert_eq!(trace.retrieval.items().len(), 2);
         assert_eq!(out["correction_lifecycle_safe_admission_rate"], 0.5);
     }
 
@@ -898,17 +918,19 @@ mod tests {
     fn sampled_pollution_does_not_classify_unlabeled_items_as_negative() {
         let scenario = scenario(ScenarioPattern::MixedSalienceAccumulation);
         let mut trace = trace(ScenarioPattern::MixedSalienceAccumulation);
-        trace.retrieval.items.push(item("unlabeled", 3));
-        trace
-            .retrieval
-            .telemetry
-            .rationale_categories_by_internal_id
-            .as_mut()
-            .unwrap()
-            .insert(
-                "internal-unlabeled".to_string(),
-                vec![RetrievalRationaleCategory::Salience],
-            );
+        let mut items = trace.retrieval.items().to_vec();
+        items.push(item("unlabeled", 3));
+        replace_items(&mut trace, items);
+        mutate_telemetry(&mut trace, |telemetry| {
+            telemetry
+                .rationale_categories_by_internal_id
+                .as_mut()
+                .unwrap()
+                .insert(
+                    "internal-unlabeled".to_string(),
+                    vec![RetrievalRationaleCategory::Salience],
+                );
+        });
         let mut out = Map::new();
         insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
         assert_eq!(out["sampled_context_pollution_rate"], 0.5);
@@ -937,42 +959,44 @@ mod tests {
     fn event_pollution_deduplicates_surfaces_by_episode_root() {
         let scenario = scenario(ScenarioPattern::SurfaceContribution);
         let mut trace = trace(ScenarioPattern::SurfaceContribution);
-        trace.retrieval.items = vec![
-            RetrievedItem {
-                kind: "episode".to_string(),
-                internal_id: "relevant-episode".to_string(),
-                external_id: Some("relevant".to_string()),
-                episode_external_id: None,
-                score: None,
-                rank: 1,
-                rationale: Vec::new(),
-                text: None,
-            },
-            RetrievedItem {
-                kind: "observation".to_string(),
-                internal_id: "relevant-observation".to_string(),
-                external_id: Some("relevant:observation".to_string()),
-                episode_external_id: Some("relevant".to_string()),
-                score: None,
-                rank: 2,
-                rationale: Vec::new(),
-                text: None,
-            },
-            RetrievedItem {
-                kind: "episode".to_string(),
-                internal_id: "negative-episode".to_string(),
-                external_id: Some("sampled-negative".to_string()),
-                episode_external_id: None,
-                score: None,
-                rank: 3,
-                rationale: Vec::new(),
-                text: None,
-            },
-        ];
-        trace
-            .retrieval
-            .telemetry
-            .rationale_categories_by_internal_id = None;
+        replace_items(
+            &mut trace,
+            vec![
+                RetrievedItem {
+                    kind: ObjectType::Episode,
+                    internal_id: "relevant-episode".to_string(),
+                    external_id: Some("relevant".to_string()),
+                    episode_external_id: None,
+                    score: None,
+                    rank: 1,
+                    rationale: Vec::new(),
+                    text: None,
+                },
+                RetrievedItem {
+                    kind: ObjectType::Observation,
+                    internal_id: "relevant-observation".to_string(),
+                    external_id: Some("relevant:observation".to_string()),
+                    episode_external_id: Some("relevant".to_string()),
+                    score: None,
+                    rank: 2,
+                    rationale: Vec::new(),
+                    text: None,
+                },
+                RetrievedItem {
+                    kind: ObjectType::Episode,
+                    internal_id: "negative-episode".to_string(),
+                    external_id: Some("sampled-negative".to_string()),
+                    episode_external_id: None,
+                    score: None,
+                    rank: 3,
+                    rationale: Vec::new(),
+                    text: None,
+                },
+            ],
+        );
+        mutate_telemetry(&mut trace, |telemetry| {
+            telemetry.rationale_categories_by_internal_id = None;
+        });
         let mut out = Map::new();
 
         insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
@@ -985,20 +1009,22 @@ mod tests {
     fn relevant_surface_identity_wins_over_a_sampled_negative_provenance_root() {
         let scenario = scenario(ScenarioPattern::CorrectionChains);
         let mut trace = trace(ScenarioPattern::CorrectionChains);
-        trace.retrieval.items = vec![RetrievedItem {
-            kind: "derived_memory".to_string(),
-            internal_id: "replacement".to_string(),
-            external_id: Some("relevant".to_string()),
-            episode_external_id: Some("sampled-negative".to_string()),
-            score: None,
-            rank: 1,
-            rationale: Vec::new(),
-            text: None,
-        }];
-        trace
-            .retrieval
-            .telemetry
-            .rationale_categories_by_internal_id = None;
+        replace_items(
+            &mut trace,
+            vec![RetrievedItem {
+                kind: ObjectType::DerivedMemory,
+                internal_id: "replacement".to_string(),
+                external_id: Some("relevant".to_string()),
+                episode_external_id: Some("sampled-negative".to_string()),
+                score: None,
+                rank: 1,
+                rationale: Vec::new(),
+                text: None,
+            }],
+        );
+        mutate_telemetry(&mut trace, |telemetry| {
+            telemetry.rationale_categories_by_internal_id = None;
+        });
         let mut out = Map::new();
 
         insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
@@ -1022,7 +1048,9 @@ mod tests {
     fn missing_telemetry_stays_null_in_the_registry_instead_of_false_zero() {
         let scenario = scenario(ScenarioPattern::SelectiveEntity);
         let mut trace = trace(ScenarioPattern::SelectiveEntity);
-        trace.retrieval.telemetry = RetrievalTelemetry::default();
+        mutate_telemetry(&mut trace, |telemetry| {
+            *telemetry = RetrievalTelemetry::default();
+        });
         let family =
             continuity_metric_family(&MetricsConfig::default(), std::slice::from_ref(&scenario));
         let mut out = Map::new();

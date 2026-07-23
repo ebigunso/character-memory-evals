@@ -6,10 +6,11 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use cmem_eval_core::{
-    PerQuestionResult, RetrievalFanoutUtilization, RetrievalRationaleCategory,
-    RetrievalSelectivityDecision, RetrievedContextPack, RunAdapterMetadata, RunSummary,
-    aggregate_numeric_metrics, metric_support_summary, registry_coverage_summary_for,
-    summarize_rows,
+    DatasetId, DatasetKind, DegradationSummary, EmbeddingBindingRecord, MetricSupportSummary,
+    NumericMetricSummary, PerQuestionResult, RegistryCoverageSummary, RetrievalFanoutUtilization,
+    RetrievalRationaleCategory, RetrievalSelectivityDecision, RetrievedContextPack,
+    RunAdapterMetadata, RunSummary, aggregate_numeric_metrics, metric_support_summary,
+    registry_coverage_summary_for, summarize_rows,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -19,9 +20,10 @@ use crate::{
     RestartObservation, ScenarioPattern,
 };
 
-pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "1.0.0";
+pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "2.0.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContinuityReport {
     pub schema_version: String,
     pub metadata: ContinuityReportMetadata,
@@ -29,27 +31,34 @@ pub struct ContinuityReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContinuityReportMetadata {
     pub generated_at: DateTime<Utc>,
     pub run_id: String,
-    pub dataset: String,
+    pub dataset: DatasetId,
+    pub dataset_kind: DatasetKind,
+    pub embedding_bindings: Vec<EmbeddingBindingRecord>,
+    pub degradation: DegradationSummary,
     pub adapter: RunAdapterMetadata,
     pub fixture_schema_version: u32,
     pub fixture_seed: u64,
     pub embedding_seeds: BTreeMap<String, u64>,
     pub fixture_ids: Vec<String>,
+    /// Dynamic-by-design snapshot of the selected runner and backend configuration.
     pub config: Value,
     pub schema_versions: BTreeMap<String, String>,
     pub normalization: ReportNormalization,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ReportNormalization {
     pub nondeterministic_paths: Vec<String>,
     pub excluded_nondeterministic_sources: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContinuityReportContent {
     pub aggregate: AggregateContinuityReport,
     pub scenarios: BTreeMap<String, ScenarioContinuityReport>,
@@ -57,21 +66,23 @@ pub struct ContinuityReportContent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AggregateContinuityReport {
     pub query_count: usize,
     pub restart_count: usize,
-    pub metrics: Value,
-    pub metric_support: Value,
-    pub registry_coverage: Value,
+    pub metrics: NumericMetricSummary,
+    pub metric_support: MetricSupportSummary,
+    pub registry_coverage: RegistryCoverageSummary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ScenarioContinuityReport {
     pub pattern: String,
     pub query_count: usize,
-    pub metrics: Value,
-    pub metric_support: Value,
-    pub registry_coverage: Value,
+    pub metrics: NumericMetricSummary,
+    pub metric_support: MetricSupportSummary,
+    pub registry_coverage: RegistryCoverageSummary,
     pub rationale_samples: Vec<QueryRationaleSample>,
     pub fanout_decisions: Vec<QueryFanoutDecisions>,
     pub stats_health_events: Vec<StatsHealthEvent>,
@@ -79,6 +90,7 @@ pub struct ScenarioContinuityReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct QueryRationaleSample {
     pub query_id: String,
     pub query: String,
@@ -87,6 +99,7 @@ pub struct QueryRationaleSample {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RationaleSampleItem {
     pub rank: usize,
     pub object_id: String,
@@ -95,26 +108,36 @@ pub struct RationaleSampleItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct QueryFanoutDecisions {
     pub query_id: String,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub utilization: Option<Vec<RetrievalFanoutUtilization>>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub selectivity: Option<Vec<RetrievalSelectivityDecision>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct StatsHealthEvent {
     pub query_id: String,
     pub status: String,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub decision_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub scored_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub fallback_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TuningObservation {
     pub id: String,
     pub finding: String,
+    /// Dynamic-by-design description of the experiment-specific controls.
     pub measurement_regime: Value,
+    /// Dynamic-by-design observation payload whose keys depend on the tuning finding.
     pub observed: Value,
 }
 
@@ -122,6 +145,7 @@ pub struct ContinuityReportInput<'a> {
     pub generated_at: DateTime<Utc>,
     pub fixture_schema_version: u32,
     pub fixture_seed: u64,
+    /// Dynamic-by-design runner/backend configuration snapshot copied into the report.
     pub config: Value,
     pub adapter: RunAdapterMetadata,
     pub scenarios: &'a [ContinuityScenario],
@@ -130,6 +154,69 @@ pub struct ContinuityReportInput<'a> {
     pub summary: &'a RunSummary,
     pub metric_family: &'a cmem_eval_core::MetricFamily,
     pub restart_observations: &'a BTreeMap<String, Vec<RestartObservation>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetrievalPayloadConstituent {
+    Items,
+    RenderedContext,
+    CharCount,
+    WordCount,
+    Telemetry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetrievalPayloadMismatchError {
+    pub row_index: usize,
+    pub trace_query_id: String,
+    pub row_question_id: String,
+    pub constituents: Vec<RetrievalPayloadConstituent>,
+}
+
+impl std::fmt::Display for RetrievalPayloadMismatchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "continuity report retrieval payload mismatch at row index {}: trace query {:?}, result question {:?}, constituents {:?}",
+            self.row_index, self.trace_query_id, self.row_question_id, self.constituents
+        )
+    }
+}
+
+impl std::error::Error for RetrievalPayloadMismatchError {}
+
+fn validate_retrieval_payload(
+    row_index: usize,
+    trace: &ContinuityQueryTrace,
+    row: &PerQuestionResult,
+) -> std::result::Result<(), RetrievalPayloadMismatchError> {
+    let mut constituents = Vec::new();
+    if trace.retrieval.items() != row.retrieved.as_slice() {
+        constituents.push(RetrievalPayloadConstituent::Items);
+    }
+    if trace.retrieval.context_text() != row.context_text.as_str() {
+        constituents.push(RetrievalPayloadConstituent::RenderedContext);
+    }
+    if trace.retrieval.context_char_count() != row.context_char_count {
+        constituents.push(RetrievalPayloadConstituent::CharCount);
+    }
+    if trace.retrieval.context_word_count() != row.context_word_count {
+        constituents.push(RetrievalPayloadConstituent::WordCount);
+    }
+    if trace.retrieval.telemetry() != &row.telemetry {
+        constituents.push(RetrievalPayloadConstituent::Telemetry);
+    }
+
+    if constituents.is_empty() {
+        Ok(())
+    } else {
+        Err(RetrievalPayloadMismatchError {
+            row_index,
+            trace_query_id: trace.query_id.clone(),
+            row_question_id: row.question_id.clone(),
+            constituents,
+        })
+    }
 }
 
 pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<ContinuityReport> {
@@ -228,17 +315,24 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         if trace.query_id != row.question_id
             || trace.query != row.question
             || row.question_type.as_deref() != Some(trace_question_type.as_str())
+            || trace.write_outcomes != row.write_outcomes
+            || trace.lifecycle_outcomes != row.lifecycle_outcomes
         {
             bail!(
-                "continuity report trace/result mismatch at index {index}: trace ({:?}, {:?}, {:?}), result ({:?}, {:?}, {:?})",
+                "continuity report trace/result mismatch at index {index}: trace ({:?}, {:?}, {:?}), result ({:?}, {:?}, {:?}), outcome lengths trace/result (write={}/{}, lifecycle={}/{})",
                 trace.query_id,
                 trace_question_type,
                 trace.query,
                 row.question_id,
                 row.question_type,
-                row.question
+                row.question,
+                trace.write_outcomes.len(),
+                row.write_outcomes.len(),
+                trace.lifecycle_outcomes.len(),
+                row.lifecycle_outcomes.len()
             );
         }
+        validate_retrieval_payload(index, trace, row)?;
     }
 
     if input.summary.adapter != input.adapter {
@@ -250,15 +344,18 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
     for (index, row) in input.rows.iter().enumerate() {
         if row.run_id != input.summary.run_id
             || row.dataset != input.summary.dataset
+            || row.dataset_kind != input.summary.dataset_kind
             || row.adapter != input.summary.adapter
         {
             bail!(
-                "continuity report summary/result identity mismatch at index {index}: row ({:?}, {:?}, {:?}), summary ({:?}, {:?}, {:?})",
+                "continuity report summary/result identity mismatch at index {index}: row run/dataset/kind/adapter ({:?}, {:?}, {:?}, {:?}), summary ({:?}, {:?}, {:?}, {:?})",
                 row.run_id,
                 row.dataset,
+                row.dataset_kind,
                 row.adapter,
                 input.summary.run_id,
                 input.summary.dataset,
+                input.summary.dataset_kind,
                 input.summary.adapter
             );
         }
@@ -266,50 +363,46 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
     let recomputed_summary = summarize_rows(
         input.summary.run_id.clone(),
         input.summary.dataset.clone(),
+        input
+            .rows
+            .first()
+            .map_or(input.summary.dataset_kind, |row| row.dataset_kind),
         input.summary.adapter.clone(),
         input.summary.config.clone(),
         input.rows,
         std::slice::from_ref(input.metric_family),
-    );
+    )?;
     if input.summary.schema_version != recomputed_summary.schema_version
-        || input.summary.embedding_provider != recomputed_summary.embedding_provider
+        || input.summary.dataset_kind != recomputed_summary.dataset_kind
+        || input.summary.embedding_bindings != recomputed_summary.embedding_bindings
+        || input.summary.degradation != recomputed_summary.degradation
         || input.summary.num_questions != recomputed_summary.num_questions
     {
         bail!(
-            "continuity report summary identity/count does not match result rows: summary schema/provider/count ({:?}, {:?}, {}), recomputed ({:?}, {:?}, {})",
+            "continuity report summary identity/count does not match result rows: summary schema/kind/bindings/degradation/count ({:?}, {:?}, {:?}, {:?}, {}), recomputed ({:?}, {:?}, {:?}, {:?}, {})",
             input.summary.schema_version,
-            input.summary.embedding_provider,
+            input.summary.dataset_kind,
+            input.summary.embedding_bindings,
+            input.summary.degradation,
             input.summary.num_questions,
             recomputed_summary.schema_version,
-            recomputed_summary.embedding_provider,
+            recomputed_summary.dataset_kind,
+            recomputed_summary.embedding_bindings,
+            recomputed_summary.degradation,
             recomputed_summary.num_questions
         );
     }
-    for (field, actual, expected) in [
-        (
-            "metrics",
-            &input.summary.metrics,
-            &recomputed_summary.metrics,
-        ),
-        (
-            "metric_support",
-            &input.summary.metric_support,
-            &recomputed_summary.metric_support,
-        ),
-        (
-            "registry_coverage",
-            &input.summary.registry_coverage,
-            &recomputed_summary.registry_coverage,
-        ),
-        (
-            "latency",
-            &input.summary.latency,
-            &recomputed_summary.latency,
-        ),
-    ] {
-        if actual != expected {
-            bail!("continuity report summary {field} does not match result-row aggregates");
-        }
+    if input.summary.metrics != recomputed_summary.metrics {
+        bail!("continuity report summary metrics does not match result-row aggregates");
+    }
+    if input.summary.metric_support != recomputed_summary.metric_support {
+        bail!("continuity report summary metric_support does not match result-row aggregates");
+    }
+    if input.summary.registry_coverage != recomputed_summary.registry_coverage {
+        bail!("continuity report summary registry_coverage does not match result-row aggregates");
+    }
+    if input.summary.latency != recomputed_summary.latency {
+        bail!("continuity report summary latency does not match result-row aggregates");
     }
 
     let mut scenario_reports = BTreeMap::new();
@@ -331,7 +424,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         assigned_row_count += scenario_rows.len();
         let metric_rows = scenario_rows
             .iter()
-            .filter_map(|row| row.metrics.as_object().cloned())
+            .map(|row| row.metrics.to_json_map())
             .collect::<Vec<Map<String, Value>>>();
         let rationale_samples = scenario_traces
             .iter()
@@ -341,8 +434,8 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             .iter()
             .map(|trace| QueryFanoutDecisions {
                 query_id: trace.query_id.clone(),
-                utilization: trace.retrieval.telemetry.fanout_utilization.clone(),
-                selectivity: trace.retrieval.telemetry.selectivity_decisions.clone(),
+                utilization: trace.retrieval.telemetry().fanout_utilization.clone(),
+                selectivity: trace.retrieval.telemetry().selectivity_decisions.clone(),
             })
             .collect();
         let stats_health_events = scenario_traces
@@ -396,6 +489,9 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             generated_at: input.generated_at,
             run_id: input.summary.run_id.clone(),
             dataset: input.summary.dataset.clone(),
+            dataset_kind: input.summary.dataset_kind,
+            embedding_bindings: input.summary.embedding_bindings.clone(),
+            degradation: input.summary.degradation.clone(),
             adapter: input.adapter,
             fixture_schema_version: input.fixture_schema_version,
             fixture_seed: input.fixture_seed,
@@ -497,16 +593,43 @@ fn validate_restart_observations(
 }
 
 pub fn write_continuity_report(path: &Path, report: &ContinuityReport) -> Result<()> {
+    if report.schema_version != CONTINUITY_REPORT_SCHEMA_VERSION {
+        bail!(
+            "continuity report has schema_version {:?}; expected {:?}",
+            report.schema_version,
+            CONTINUITY_REPORT_SCHEMA_VERSION
+        );
+    }
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     serde_json::to_writer_pretty(&mut file, report)?;
     file.write_all(b"\n")?;
     Ok(())
 }
 
+pub fn read_continuity_report(path: &Path) -> Result<ContinuityReport> {
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("deserialize continuity report {}", path.display()))?;
+    let schema_version = cmem_eval_core::serde_contract::schema_version_from_str(&raw)
+        .with_context(|| format!("deserialize continuity report {}", path.display()))?;
+    match schema_version.as_deref() {
+        Some(CONTINUITY_REPORT_SCHEMA_VERSION) => {}
+        Some(version) => bail!(
+            "unsupported continuity report schema_version {version:?}; expected {CONTINUITY_REPORT_SCHEMA_VERSION:?}"
+        ),
+        None => bail!(
+            "missing continuity report schema_version; expected {CONTINUITY_REPORT_SCHEMA_VERSION:?}"
+        ),
+    }
+    cmem_eval_core::serde_contract::reject_duplicate_json_keys(&raw)
+        .with_context(|| format!("decode continuity report {}", path.display()))?;
+    serde_json::from_str(&raw)
+        .with_context(|| format!("decode continuity report {}", path.display()))
+}
+
 fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
     let categories = trace
         .retrieval
-        .telemetry
+        .telemetry()
         .rationale_categories_by_internal_id
         .as_ref();
     QueryRationaleSample {
@@ -515,7 +638,7 @@ fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
         context_pack: trace.retrieval.clone(),
         items: trace
             .retrieval
-            .items
+            .items()
             .iter()
             .map(|item| RationaleSampleItem {
                 rank: item.rank,
@@ -534,7 +657,7 @@ fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
 }
 
 fn stats_health_event(trace: &ContinuityQueryTrace) -> StatsHealthEvent {
-    let decisions = trace.retrieval.telemetry.selectivity_decisions.as_ref();
+    let decisions = trace.retrieval.telemetry().selectivity_decisions.as_ref();
     let decision_count = decisions.map(Vec::len);
     let scored_count = decisions.map(|values| {
         values
@@ -575,7 +698,7 @@ fn tuning_observation(
     let root_counter_samples = hub_traces
         .iter()
         .filter_map(|trace| {
-            let telemetry = &trace.retrieval.telemetry;
+            let telemetry = trace.retrieval.telemetry();
             Some((
                 telemetry.unique_graph_root_candidate_count?,
                 telemetry.selected_graph_root_count?,
@@ -600,7 +723,7 @@ fn tuning_observation(
         .sum::<usize>();
     let decisions = hub_traces
         .iter()
-        .filter_map(|trace| trace.retrieval.telemetry.selectivity_decisions.as_ref())
+        .filter_map(|trace| trace.retrieval.telemetry().selectivity_decisions.as_ref())
         .flatten()
         .collect::<Vec<_>>();
     let scored_count = decisions
@@ -621,8 +744,8 @@ fn tuning_observation(
             graph_root_omission_count,
         ),
         measurement_regime: serde_json::json!({
-            "max_vector_candidates": config.pointer("/retrieval/max_vector_candidates"),
-            "max_graph_roots": config.pointer("/retrieval/max_graph_roots"),
+            "max_vector_candidates": config.pointer("/retrieval/surface_policy/max_vector_candidates"),
+            "max_graph_roots": config.pointer("/retrieval/surface_policy/max_graph_roots"),
         }),
         observed: serde_json::json!({
             "root_counter_query_count": root_counter_samples.len(),
@@ -639,7 +762,8 @@ fn tuning_observation(
 #[cfg(test)]
 mod tests {
     use chrono::{TimeZone, Utc};
-    use cmem_eval_core::{RetrievalTelemetry, RetrievedContextPack};
+    use cmem_eval_core::{ContextRenderer, RetrievalTelemetry, RetrievedContextPack};
+    use uuid::Uuid;
 
     use super::*;
 
@@ -668,10 +792,13 @@ mod tests {
                 irrelevant_external_ids: vec!["negative".to_string()],
             },
             history_text: String::new(),
-            retrieval: RetrievedContextPack {
+            retrieval: RetrievedContextPack::from_ranked_items(
+                Vec::new(),
                 telemetry,
-                ..RetrievedContextPack::default()
-            },
+                ContextRenderer::PlainText,
+            ),
+            write_outcomes: Vec::new(),
+            lifecycle_outcomes: Vec::new(),
         }
     }
 
@@ -714,5 +841,194 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn report_reader_rejects_missing_and_legacy_schema_versions() {
+        let path = std::env::temp_dir().join(format!(
+            "cmem-continuity-report-schema-{}.json",
+            Uuid::new_v4()
+        ));
+
+        std::fs::write(&path, br#"{}"#).unwrap();
+        let missing = read_continuity_report(&path).unwrap_err();
+        assert!(
+            missing
+                .to_string()
+                .contains("missing continuity report schema_version")
+        );
+
+        std::fs::write(&path, br#"{"schema_version":"1.0.0"}"#).unwrap();
+        let legacy = read_continuity_report(&path).unwrap_err();
+        assert!(
+            legacy
+                .to_string()
+                .contains("unsupported continuity report schema_version")
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn report_reader_rejects_root_and_nested_v2_shape_drift() {
+        let path = std::env::temp_dir().join(format!(
+            "cmem-continuity-report-shape-drift-{}.json",
+            Uuid::new_v4()
+        ));
+        let report = ContinuityReport {
+            schema_version: CONTINUITY_REPORT_SCHEMA_VERSION.to_string(),
+            metadata: ContinuityReportMetadata {
+                generated_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
+                run_id: "shape-drift".to_string(),
+                dataset: DatasetId::new("continuity").unwrap(),
+                dataset_kind: DatasetKind::Continuity,
+                embedding_bindings: Vec::new(),
+                degradation: DegradationSummary::default(),
+                adapter: RunAdapterMetadata::mock_smoke(),
+                fixture_schema_version: 1,
+                fixture_seed: 1,
+                embedding_seeds: BTreeMap::new(),
+                fixture_ids: Vec::new(),
+                config: serde_json::json!({}),
+                schema_versions: BTreeMap::new(),
+                normalization: ReportNormalization {
+                    nondeterministic_paths: Vec::new(),
+                    excluded_nondeterministic_sources: Vec::new(),
+                },
+            },
+            content: ContinuityReportContent {
+                aggregate: AggregateContinuityReport {
+                    query_count: 0,
+                    restart_count: 0,
+                    metrics: BTreeMap::new(),
+                    metric_support: BTreeMap::new(),
+                    registry_coverage: RegistryCoverageSummary::default(),
+                },
+                scenarios: BTreeMap::from([(
+                    "shape-drift".to_string(),
+                    ScenarioContinuityReport {
+                        pattern: "shape-drift".to_string(),
+                        query_count: 0,
+                        metrics: BTreeMap::new(),
+                        metric_support: BTreeMap::new(),
+                        registry_coverage: RegistryCoverageSummary::default(),
+                        rationale_samples: Vec::new(),
+                        fanout_decisions: vec![QueryFanoutDecisions {
+                            query_id: "q".to_string(),
+                            utilization: None,
+                            selectivity: None,
+                        }],
+                        stats_health_events: Vec::new(),
+                        restart_observations: Vec::new(),
+                    },
+                )]),
+                tuning_observations: Vec::new(),
+            },
+        };
+
+        let mut invalid_report = report.clone();
+        invalid_report.schema_version = "9.9.9".to_string();
+        std::fs::write(&path, "preserved\n").unwrap();
+        let error = write_continuity_report(&path, &invalid_report)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("9.9.9"), "{error}");
+        assert!(error.contains(CONTINUITY_REPORT_SCHEMA_VERSION), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "preserved\n");
+
+        let raw = serde_json::to_string(&report).unwrap();
+        let duplicate_root = raw.replacen(
+            r#""schema_version":"2.0.0""#,
+            r#""schema_version":"2.0.0","schema_version":"2.0.0""#,
+            1,
+        );
+        assert_ne!(raw, duplicate_root);
+        std::fs::write(&path, duplicate_root).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("duplicate"), "{error}");
+
+        let mut report_with_dynamic_config = report.clone();
+        report_with_dynamic_config.metadata.config =
+            serde_json::json!({"nested": {"mode": "strict"}});
+        let raw = serde_json::to_string(&report_with_dynamic_config).unwrap();
+        let duplicate_dynamic_value = raw.replacen(
+            r#""mode":"strict""#,
+            r#""mode":"strict","mode":"strict""#,
+            1,
+        );
+        assert_ne!(raw, duplicate_dynamic_value);
+        std::fs::write(&path, duplicate_dynamic_value).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("duplicate JSON object key"), "{error}");
+
+        let mut drifted = serde_json::to_value(&report).unwrap();
+        drifted["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&drifted).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut aggregate_metric_drift = serde_json::to_value(&report).unwrap();
+        aggregate_metric_drift["content"]["aggregate"]["metrics"]["probe"] = serde_json::json!({
+            "mean": null,
+            "median": null,
+            "p50": null,
+            "p95": null,
+            "unexpected_v2_field": true,
+        });
+        std::fs::write(&path, serde_json::to_vec(&aggregate_metric_drift).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut shared_nested_drift = serde_json::to_value(&report).unwrap();
+        shared_nested_drift["metadata"]["degradation"]["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&shared_nested_drift).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut aggregate_coverage_drift = serde_json::to_value(&report).unwrap();
+        aggregate_coverage_drift["content"]["aggregate"]["registry_coverage"]["unexpected_v2_field"] =
+            Value::Bool(true);
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&aggregate_coverage_drift).unwrap(),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut scenario_support_drift = serde_json::to_value(&report).unwrap();
+        scenario_support_drift["content"]["scenarios"]["shape-drift"]["metric_support"]["probe"] = serde_json::json!({
+            "rows_present": 0,
+            "numeric_rows": 0,
+            "null_rows": 0,
+            "unsupported": false,
+            "unexpected_v2_field": true,
+        });
+        std::fs::write(&path, serde_json::to_vec(&scenario_support_drift).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut nullable_omission = serde_json::to_value(&report).unwrap();
+        nullable_omission["content"]["scenarios"]["shape-drift"]["fanout_decisions"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("utilization");
+        std::fs::write(&path, serde_json::to_vec(&nullable_omission).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("missing field `utilization`"), "{error}");
+
+        let mut nested_drift = serde_json::to_value(&report).unwrap();
+        nested_drift["metadata"]["normalization"]["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&nested_drift).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut incomplete = serde_json::to_value(&report).unwrap();
+        incomplete.as_object_mut().unwrap().remove("content");
+        std::fs::write(&path, serde_json::to_vec(&incomplete).unwrap()).unwrap();
+        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
+        assert!(error.contains("missing field `content`"), "{error}");
+
+        std::fs::remove_file(path).unwrap();
     }
 }

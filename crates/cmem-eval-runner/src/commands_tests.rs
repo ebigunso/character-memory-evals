@@ -75,9 +75,19 @@ fn checked_in_vector_configs_use_raw_candidate_ingestion_only() {
         let config = read_config(&path)
             .unwrap_or_else(|err| panic!("read vector config {}: {err}", path.display()));
         assert_eq!(config.retrieval.mode, RetrievalMode::VectorOnly);
-        assert!(!config.retrieval.include_derived_memories);
-        assert!(!config.retrieval.include_threads);
-        assert!(!config.retrieval.include_entities);
+        assert_eq!(
+            config.backend.embedding.provider,
+            cmem_eval_core::EmbeddingProviderConfig::OpenAi
+        );
+        assert_eq!(
+            config.retrieval.surface_policy.object_types,
+            [
+                cmem_eval_core::ObjectType::Episode,
+                cmem_eval_core::ObjectType::Observation,
+            ]
+        );
+        assert_eq!(config.retrieval.surface_policy.sections.derived_memories, 0);
+        assert_eq!(config.retrieval.surface_policy.sections.active_threads, 0);
         assert!(!config.ingest.create_threads);
         assert!(!config.ingest.index_session_summaries);
         assert!(!config.ingest.index_generated_observations);
@@ -136,7 +146,7 @@ fn synthetic_config() -> BenchmarkRunConfig {
 fn synthetic_config_with_mode(mode: RetrievalMode) -> BenchmarkRunConfig {
     BenchmarkRunConfig {
         run_id: "r".into(),
-        dataset: "synthetic".into(),
+        dataset: cmem_eval_core::DatasetId::new("synthetic").unwrap(),
         backend: Default::default(),
         retrieval: cmem_eval_core::RetrievalConfig {
             mode,

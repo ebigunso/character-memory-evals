@@ -8,23 +8,28 @@ use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use chrono::{SecondsFormat, Utc};
 use cmem_eval_core::{
-    CommitWriteOptions, CorrectMemoryInput, CorrectionTargetInput, DerivedMemoryInput, EntityInput,
-    EpisodeInput, ForgetCascadePolicyInput, ForgetMemoryInput, GraphEnrichmentInput,
+    CandidateValidationStatus, CommitWriteOptions, CorrectMemoryInput, CorrectionTargetInput,
+    DerivedMemoryInput, DerivedType, EntityInput, EntityType, EpisodeInput,
+    ForgetCascadePolicyInput, ForgetMemoryInput, GraphEnrichmentInput, LifecycleOutcomeRecord,
     LinkMemoryInput, MemoryAdapter, MemoryEndpointInput, MemoryLinkInput, MemoryThreadInput,
-    NamespaceLifecycleResult, ObservationInput, PrepareWriteInput, ReplacementDerivedMemoryInput,
-    RetrievalConfig, RetrieveInput, RetrievedContextPack, SourceProvenanceInput,
-    SuppressionPolicyInput,
+    NamespaceLifecycleResult, ObjectType, ObservationInput, PrepareWriteInput, RelationType,
+    ReplacementDerivedMemoryInput, RetentionState, RetrievalConfig, RetrieveInput,
+    RetrievedContextPack, SourceProvenanceInput, Stability, SuppressionPolicyInput, ThreadStatus,
+    WriteOutcomeRecord, assign_outcome_attempt_indexes,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
     ContinuityEntityKind, ContinuityScenario, ExpectedRelevance, InteractionEvent, ScenarioPattern,
     derived_external_id, observation_external_id,
 };
 
-pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "1.0.0";
+pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "2.0.0";
+const LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ContinuityQueryTrace {
     pub schema_version: String,
     pub fixture_id: String,
@@ -37,6 +42,29 @@ pub struct ContinuityQueryTrace {
     pub expected: ExpectedRelevance,
     pub history_text: String,
     pub retrieval: RetrievedContextPack,
+    pub write_outcomes: Vec<WriteOutcomeRecord>,
+    pub lifecycle_outcomes: Vec<LifecycleOutcomeRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LegacyContinuityQueryTraceV1 {
+    pub schema_version: String,
+    pub fixture_id: String,
+    pub namespace: String,
+    pub pattern: Value,
+    pub event_id: String,
+    pub query_id: String,
+    pub timestamp: chrono::DateTime<Utc>,
+    pub query: String,
+    pub expected: Value,
+    pub history_text: String,
+    pub retrieval: Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum VersionedContinuityQueryTrace {
+    V1(Box<LegacyContinuityQueryTraceV1>),
+    V2(Box<ContinuityQueryTrace>),
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -48,34 +76,51 @@ pub struct ContinuityScenarioRun {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RestartProbeSnapshot {
     pub returned_object_ids: Vec<String>,
     pub relevant_returned_count: usize,
     pub expected_relevant_count: usize,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub recall: Option<f64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub graph_relation_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub graph_verified_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub fanout_decision_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub selectivity_decision_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub scored_selectivity_count: Option<usize>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub fallback_selectivity_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RestartProbeDelta {
     pub returned_object_count: i64,
     pub relevant_returned_count: i64,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub recall: Option<f64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub graph_relation_count: Option<i64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub graph_verified_count: Option<i64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub fanout_decision_count: Option<i64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub selectivity_decision_count: Option<i64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub scored_selectivity_count: Option<i64>,
+    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
     pub fallback_selectivity_count: Option<i64>,
     pub stable_returned_objects: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RestartObservation {
     pub event_id: String,
     pub timestamp: chrono::DateTime<Utc>,
@@ -89,15 +134,33 @@ pub struct RestartObservation {
 }
 
 pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> Result<()> {
+    for (index, trace) in traces.iter().enumerate() {
+        if trace.schema_version != CONTINUITY_TRACE_SCHEMA_VERSION {
+            bail!(
+                "continuity trace at index {index} has schema_version {:?}; expected {:?}",
+                trace.schema_version,
+                CONTINUITY_TRACE_SCHEMA_VERSION
+            );
+        }
+    }
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     for trace in traces {
-        serde_json::to_writer(&mut file, trace)?;
+        let mut canonical = trace.clone();
+        canonical.write_outcomes.sort_by(|left, right| {
+            (&left.operation_id, left.attempt_index)
+                .cmp(&(&right.operation_id, right.attempt_index))
+        });
+        canonical.lifecycle_outcomes.sort_by(|left, right| {
+            (&left.operation_id, left.attempt_index)
+                .cmp(&(&right.operation_id, right.attempt_index))
+        });
+        serde_json::to_writer(&mut file, &canonical)?;
         file.write_all(b"\n")?;
     }
     Ok(())
 }
 
-pub fn read_continuity_traces(path: &Path) -> Result<Vec<ContinuityQueryTrace>> {
+pub fn read_continuity_traces(path: &Path) -> Result<Vec<VersionedContinuityQueryTrace>> {
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut traces = Vec::new();
     for (index, line) in BufReader::new(file).lines().enumerate() {
@@ -111,19 +174,51 @@ pub fn read_continuity_traces(path: &Path) -> Result<Vec<ContinuityQueryTrace>> 
         if line.trim().is_empty() {
             continue;
         }
-        let trace: ContinuityQueryTrace = serde_json::from_str(&line).with_context(|| {
-            format!(
-                "parse continuity trace line {line_number} from {}",
-                path.display()
-            )
-        })?;
-        if trace.schema_version != CONTINUITY_TRACE_SCHEMA_VERSION {
-            bail!(
-                "continuity trace line {line_number} in {} has schema_version {:?}; expected {:?}",
+        let schema_version = cmem_eval_core::serde_contract::schema_version_from_str(&line)
+            .with_context(|| {
+                format!(
+                    "parse continuity trace line {line_number} from {}",
+                    path.display()
+                )
+            })?;
+        // Compatibility Policy sealed-artifact exemption: exact 1.0.0 trace
+        // dispatch only. Reports stay strict 2.0.0 and no legacy artifact is
+        // upgraded or rewritten.
+        // Evidence: reports/v0-1-5-findings-register.md:363 and
+        // runs/continuity/v0-1-5-baseline/shipped-a/traces.jsonl:1.
+        let trace = match schema_version.as_deref() {
+            Some(LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION) => {
+                let value = serde_json::from_str::<Value>(&line)?;
+                VersionedContinuityQueryTrace::V1(Box::new(serde_json::from_value(value)?))
+            }
+            Some(CONTINUITY_TRACE_SCHEMA_VERSION) => {
+                cmem_eval_core::serde_contract::reject_duplicate_json_keys(&line)?;
+                VersionedContinuityQueryTrace::V2(Box::new(serde_json::from_str(&line)?))
+            }
+            Some(version) => bail!(
+                "continuity trace line {line_number} in {} has schema_version {version:?}; expected {:?} or {:?}",
                 path.display(),
-                trace.schema_version,
+                LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION,
                 CONTINUITY_TRACE_SCHEMA_VERSION
-            );
+            ),
+            None => bail!(
+                "continuity trace line {line_number} in {} is missing schema_version",
+                path.display()
+            ),
+        };
+        if traces.first().is_some_and(|first| {
+            !matches!(
+                (first, &trace),
+                (
+                    VersionedContinuityQueryTrace::V1(_),
+                    VersionedContinuityQueryTrace::V1(_)
+                ) | (
+                    VersionedContinuityQueryTrace::V2(_),
+                    VersionedContinuityQueryTrace::V2(_)
+                )
+            )
+        }) {
+            bail!("mixed continuity trace schema versions are not allowed in one JSONL artifact");
         }
         traces.push(trace);
     }
@@ -139,7 +234,7 @@ pub trait ContinuityRuntime: Send {
 
 #[derive(Debug, Clone)]
 struct AdmittedObject {
-    object_type: String,
+    object_type: ObjectType,
     source_episode_external_id: Option<String>,
     original_raw_ref: Option<String>,
     original_source_ref: Option<String>,
@@ -161,6 +256,8 @@ pub async fn run_continuity_scenario(
         .await?;
 
     let mut run = ContinuityScenarioRun::default();
+    let mut write_outcomes = Vec::new();
+    let mut lifecycle_outcomes = Vec::new();
     let mut admitted = scenario
         .entities
         .iter()
@@ -168,7 +265,7 @@ pub async fn run_continuity_scenario(
             (
                 entity.external_id.clone(),
                 AdmittedObject {
-                    object_type: "entity".to_string(),
+                    object_type: ObjectType::Entity,
                     source_episode_external_id: None,
                     original_raw_ref: None,
                     original_source_ref: None,
@@ -183,7 +280,7 @@ pub async fn run_continuity_scenario(
         .map(|entity| {
             Ok(EntityInput {
                 external_id: entity.external_id.clone(),
-                entity_type: adapter_entity_type(entity.entity_type).to_string(),
+                entity_type: adapter_entity_type(entity.entity_type),
                 name: entity.label.clone(),
                 aliases: Vec::new(),
                 canonical_key: Some(entity.external_id.clone()),
@@ -192,14 +289,16 @@ pub async fn run_continuity_scenario(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    runtime
-        .adapter()
-        .remember_enrichment(GraphEnrichmentInput {
-            namespace: scenario.namespace.clone(),
-            entities,
-            ..GraphEnrichmentInput::default()
-        })
-        .await?;
+    write_outcomes.push(
+        runtime
+            .adapter()
+            .remember_enrichment(GraphEnrichmentInput {
+                namespace: scenario.namespace.clone(),
+                entities,
+                ..GraphEnrichmentInput::default()
+            })
+            .await?,
+    );
     increment(&mut run.operation_counts, "remember");
 
     for (event_index, event) in scenario.events.iter().enumerate() {
@@ -231,7 +330,7 @@ pub async fn run_continuity_scenario(
                     })
                     .unwrap_or((text.as_str(), text.as_str(), text.as_str()));
                 if surface_texts.is_some() {
-                    runtime
+                    let result = runtime
                         .adapter()
                         .remember_episode(EpisodeInput {
                             external_id: external_id.clone(),
@@ -246,8 +345,9 @@ pub async fn run_continuity_scenario(
                             }),
                         })
                         .await?;
+                    write_outcomes.push(result.outcome);
                     increment(&mut run.operation_counts, "remember_episode");
-                    runtime
+                    let result = runtime
                         .adapter()
                         .remember_observation(ObservationInput {
                             external_id: observation_external_id.clone(),
@@ -262,6 +362,7 @@ pub async fn run_continuity_scenario(
                             }),
                         })
                         .await?;
+                    write_outcomes.push(result.outcome);
                     increment(&mut run.operation_counts, "remember_observation");
                 } else {
                     let mut plan = runtime
@@ -287,7 +388,7 @@ pub async fn run_continuity_scenario(
                     increment(&mut run.operation_counts, "validate_plan");
                     if validations
                         .iter()
-                        .any(|validation| validation.status == "invalid")
+                        .any(|validation| validation.status == CandidateValidationStatus::Invalid)
                     {
                         bail!(
                             "scenario {:?} event {event_id:?} produced an invalid write plan: {validations:?}",
@@ -313,11 +414,12 @@ pub async fn run_continuity_scenario(
                             scenario.fixture_id
                         );
                     }
+                    write_outcomes.push(commit.outcome);
                 }
                 admitted.insert(
                     external_id.clone(),
                     AdmittedObject {
-                        object_type: "episode".to_string(),
+                        object_type: ObjectType::Episode,
                         source_episode_external_id: Some(external_id.clone()),
                         original_raw_ref: surface_texts.is_none().then(|| original_raw_ref.clone()),
                         original_source_ref: Some(external_id.clone()),
@@ -326,7 +428,7 @@ pub async fn run_continuity_scenario(
                 admitted.insert(
                     observation_external_id.clone(),
                     AdmittedObject {
-                        object_type: "observation".to_string(),
+                        object_type: ObjectType::Observation,
                         source_episode_external_id: Some(external_id.clone()),
                         original_raw_ref: surface_texts.is_none().then_some(original_raw_ref),
                         original_source_ref: Some(external_id.clone()),
@@ -341,15 +443,15 @@ pub async fn run_continuity_scenario(
                         [
                             (
                                 "mentions",
-                                "mentions",
-                                ("episode", external_id),
-                                ("entity", entity_external_id),
+                                RelationType::Mentions,
+                                (ObjectType::Episode, external_id),
+                                (ObjectType::Entity, entity_external_id),
                             ),
                             (
                                 "involves",
-                                "involves",
-                                ("entity", entity_external_id),
-                                ("episode", external_id),
+                                RelationType::Involves,
+                                (ObjectType::Entity, entity_external_id),
+                                (ObjectType::Episode, external_id),
                             ),
                         ]
                         .into_iter()
@@ -359,12 +461,12 @@ pub async fn run_continuity_scenario(
                                 scenario.fixture_id
                             ),
                             from: MemoryEndpointInput {
-                                object_type: from.0.to_string(),
+                                object_type: from.0,
                                 external_id: from.1.clone(),
                             },
-                            relation: relation.to_string(),
+                            relation,
                             to: MemoryEndpointInput {
-                                object_type: to.0.to_string(),
+                                object_type: to.0,
                                 external_id: to.1.clone(),
                             },
                             confidence: 1.0,
@@ -380,7 +482,7 @@ pub async fn run_continuity_scenario(
                             external_id: thread.thread_external_id.clone(),
                             title: episode_text.to_string(),
                             summary: String::new(),
-                            status: "active".to_string(),
+                            status: ThreadStatus::Active,
                             last_touched_at: Some(scripted_timestamp.clone()),
                             salience_score: *salience,
                             canonical_key: Some(thread.thread_external_id.clone()),
@@ -388,7 +490,7 @@ pub async fn run_continuity_scenario(
                         admitted.insert(
                             thread.thread_external_id.clone(),
                             AdmittedObject {
-                                object_type: "memory_thread".to_string(),
+                                object_type: ObjectType::MemoryThread,
                                 source_episode_external_id: None,
                                 original_raw_ref: None,
                                 original_source_ref: None,
@@ -401,12 +503,12 @@ pub async fn run_continuity_scenario(
                             scenario.fixture_id
                         ),
                         from: MemoryEndpointInput {
-                            object_type: "derived_memory".to_string(),
+                            object_type: ObjectType::DerivedMemory,
                             external_id: derived_external_id.clone(),
                         },
-                        relation: "part_of_thread".to_string(),
+                        relation: RelationType::PartOfThread,
                         to: MemoryEndpointInput {
-                            object_type: "memory_thread".to_string(),
+                            object_type: ObjectType::MemoryThread,
                             external_id: thread.thread_external_id.clone(),
                         },
                         confidence: thread.confidence,
@@ -417,40 +519,44 @@ pub async fn run_continuity_scenario(
                     Vec::new()
                 };
                 let association_count = association_links.len();
-                runtime
-                    .adapter()
-                    .remember_enrichment(GraphEnrichmentInput {
-                        namespace: scenario.namespace.clone(),
-                        threads,
-                        derived_memories: vec![DerivedMemoryInput {
-                            external_id: derived_external_id.clone(),
-                            derived_type: "reflection".to_string(),
-                            text: derived_text.to_string(),
-                            source_episode_external_ids: vec![external_id.clone()],
-                            source_observation_external_ids: vec![observation_external_id.clone()],
-                            thread_external_ids,
-                            entity_external_ids: entity_external_ids.clone(),
-                            confidence: thread.as_ref().map_or(1.0, |thread| thread.confidence),
-                            salience_score: *salience,
-                            stability: "medium".to_string(),
-                            is_current: true,
-                            supersedes_external_ids: Vec::new(),
-                            metadata: serde_json::json!({
-                                "continuity_event_id": event_id,
-                                "timestamp": timestamp,
-                            }),
-                        }],
-                        links: association_links,
-                        ..GraphEnrichmentInput::default()
-                    })
-                    .await?;
+                write_outcomes.push(
+                    runtime
+                        .adapter()
+                        .remember_enrichment(GraphEnrichmentInput {
+                            namespace: scenario.namespace.clone(),
+                            threads,
+                            derived_memories: vec![DerivedMemoryInput {
+                                external_id: derived_external_id.clone(),
+                                derived_type: DerivedType::Reflection,
+                                text: derived_text.to_string(),
+                                source_episode_external_ids: vec![external_id.clone()],
+                                source_observation_external_ids: vec![
+                                    observation_external_id.clone(),
+                                ],
+                                thread_external_ids,
+                                entity_external_ids: entity_external_ids.clone(),
+                                confidence: thread.as_ref().map_or(1.0, |thread| thread.confidence),
+                                salience_score: *salience,
+                                stability: Stability::Medium,
+                                is_current: true,
+                                supersedes_external_ids: Vec::new(),
+                                metadata: serde_json::json!({
+                                    "continuity_event_id": event_id,
+                                    "timestamp": timestamp,
+                                }),
+                            }],
+                            links: association_links,
+                            ..GraphEnrichmentInput::default()
+                        })
+                        .await?,
+                );
                 for _ in 0..association_count {
                     increment(&mut run.operation_counts, "link");
                 }
                 admitted.insert(
                     derived_external_id,
                     AdmittedObject {
-                        object_type: "derived_memory".to_string(),
+                        object_type: ObjectType::DerivedMemory,
                         source_episode_external_id: Some(external_id.clone()),
                         original_raw_ref: None,
                         original_source_ref: None,
@@ -491,7 +597,7 @@ pub async fn run_continuity_scenario(
                 };
                 let (target, supersedes_external_ids) =
                     correction_target_input(&scenario.fixture_id, target_external_id, target)?;
-                runtime
+                let result = runtime
                     .adapter()
                     .correct(CorrectMemoryInput {
                         namespace: scenario.namespace.clone(),
@@ -499,7 +605,7 @@ pub async fn run_continuity_scenario(
                         replacements: vec![ReplacementDerivedMemoryInput {
                             memory: DerivedMemoryInput {
                                 external_id: replacement_external_id.clone(),
-                                derived_type: "reflection".to_string(),
+                                derived_type: DerivedType::Reflection,
                                 text: replacement_text.clone(),
                                 source_episode_external_ids: vec![
                                     source_episode_external_id.clone(),
@@ -509,7 +615,7 @@ pub async fn run_continuity_scenario(
                                 entity_external_ids: Vec::new(),
                                 confidence: 1.0,
                                 salience_score: 1.0,
-                                stability: "medium".to_string(),
+                                stability: Stability::Medium,
                                 is_current: true,
                                 supersedes_external_ids: supersedes_external_ids.clone(),
                                 metadata: serde_json::json!({
@@ -528,11 +634,12 @@ pub async fn run_continuity_scenario(
                         include_trace: true,
                     })
                     .await?;
+                lifecycle_outcomes.push(result.outcome);
                 increment(&mut run.operation_counts, "correct");
                 admitted.insert(
                     replacement_external_id.clone(),
                     AdmittedObject {
-                        object_type: "derived_memory".to_string(),
+                        object_type: ObjectType::DerivedMemory,
                         source_episode_external_id: Some(source_episode_external_id),
                         original_raw_ref: None,
                         original_source_ref: None,
@@ -560,8 +667,11 @@ pub async fn run_continuity_scenario(
                             )
                         })?;
                         if !matches!(
-                            target.object_type.as_str(),
-                            "episode" | "observation" | "derived_memory" | "memory_thread"
+                            target.object_type,
+                            ObjectType::Episode
+                                | ObjectType::Observation
+                                | ObjectType::DerivedMemory
+                                | ObjectType::MemoryThread
                         ) {
                             bail!(
                                 "scenario {:?} cannot forget object type {:?}",
@@ -570,12 +680,12 @@ pub async fn run_continuity_scenario(
                             );
                         }
                         Ok(MemoryEndpointInput {
-                            object_type: target.object_type.clone(),
+                            object_type: target.object_type,
                             external_id: target_external_id.clone(),
                         })
                     })
                     .collect::<Result<Vec<_>>>()?;
-                runtime
+                let result = runtime
                     .adapter()
                     .forget(ForgetMemoryInput {
                         namespace: scenario.namespace.clone(),
@@ -590,11 +700,12 @@ pub async fn run_continuity_scenario(
                             apply_to_derived_from_target: *apply_to_derived_from_target,
                             ..ForgetCascadePolicyInput::default()
                         },
-                        target_retention_state: "suppressed".to_string(),
+                        target_retention_state: RetentionState::Suppressed,
                         target_thread_status: None,
                         include_trace: true,
                     })
                     .await?;
+                lifecycle_outcomes.push(result.outcome);
                 increment(&mut run.operation_counts, "forget");
                 history.push(format!(
                     "{}|forget|{}",
@@ -613,25 +724,26 @@ pub async fn run_continuity_scenario(
             } => {
                 let from = endpoint(&scenario.fixture_id, &admitted, from_external_id)?;
                 let to = endpoint(&scenario.fixture_id, &admitted, to_external_id)?;
-                runtime
+                let result = runtime
                     .adapter()
                     .link(LinkMemoryInput {
                         namespace: scenario.namespace.clone(),
                         link: MemoryLinkInput {
                             external_id: external_id.clone(),
                             from,
-                            relation: relation.clone(),
+                            relation: RelationType::try_from(relation.as_str())?,
                             to,
                             confidence: 1.0,
                             rationale: Some(format!("fixture-scripted link {event_id}")),
                         },
                     })
                     .await?;
+                write_outcomes.push(result.outcome);
                 increment(&mut run.operation_counts, "link");
                 admitted.insert(
                     external_id.clone(),
                     AdmittedObject {
-                        object_type: "memory_link".to_string(),
+                        object_type: ObjectType::MemoryLink,
                         source_episode_external_id: None,
                         original_raw_ref: None,
                         original_source_ref: None,
@@ -711,6 +823,7 @@ pub async fn run_continuity_scenario(
                 text,
                 expected,
             } => {
+                assign_outcome_attempt_indexes(&mut write_outcomes, &mut lifecycle_outcomes);
                 let query_started_at = Instant::now();
                 let pack =
                     retrieve_query(runtime.adapter(), scenario, retrieval, timestamp, text).await?;
@@ -729,6 +842,8 @@ pub async fn run_continuity_scenario(
                     expected: expected.clone(),
                     history_text: history.join("\n"),
                     retrieval: pack,
+                    write_outcomes: write_outcomes.clone(),
+                    lifecycle_outcomes: lifecycle_outcomes.clone(),
                 });
             }
         }
@@ -750,12 +865,11 @@ async fn retrieve_query(
             namespace: scenario.namespace.clone(),
             query: text.to_string(),
             query_date: Some(timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)),
-            top_k_episodes: retrieval.top_k_episodes,
-            top_k_observations: retrieval.top_k_observations,
-            include_derived_memories: retrieval.include_derived_memories,
-            include_threads: retrieval.include_threads,
-            include_entities: retrieval.include_entities,
-            include_debug_rationale: true,
+            surface_policy: {
+                let mut policy = retrieval.surface_policy.clone();
+                policy.include_debug_rationale = true;
+                policy
+            },
         })
         .await
 }
@@ -765,7 +879,7 @@ fn restart_probe_snapshot(
     expected: &ExpectedRelevance,
 ) -> RestartProbeSnapshot {
     let mut returned_object_ids = pack
-        .items
+        .items()
         .iter()
         .map(|item| {
             item.external_id
@@ -779,14 +893,14 @@ fn restart_probe_snapshot(
         .relevant_external_ids
         .iter()
         .filter(|external_id| {
-            pack.items.iter().any(|item| {
+            pack.items().iter().any(|item| {
                 item.external_id.as_ref() == Some(external_id)
                     || item.episode_external_id.as_ref() == Some(external_id)
             })
         })
         .count();
     let expected_relevant_count = expected.relevant_external_ids.len();
-    let telemetry = &pack.telemetry;
+    let telemetry = pack.telemetry();
     RestartProbeSnapshot {
         returned_object_ids,
         relevant_returned_count,
@@ -874,11 +988,11 @@ fn endpoint(
     let object = admitted.get(external_id).with_context(|| {
         format!("scenario {fixture_id:?} link endpoint was not admitted: {external_id}")
     })?;
-    if object.object_type == "memory_link" {
+    if object.object_type == ObjectType::MemoryLink {
         bail!("scenario {fixture_id:?} cannot use a memory link as a link endpoint");
     }
     Ok(MemoryEndpointInput {
-        object_type: object.object_type.clone(),
+        object_type: object.object_type,
         external_id: external_id.to_string(),
     })
 }
@@ -888,8 +1002,8 @@ fn correction_target_input(
     target_external_id: &str,
     target: &AdmittedObject,
 ) -> Result<(CorrectionTargetInput, Vec<String>)> {
-    match target.object_type.as_str() {
-        "episode" | "observation" => {
+    match target.object_type {
+        ObjectType::Episode | ObjectType::Observation => {
             if target.original_raw_ref.is_none() && target.original_source_ref.is_none() {
                 bail!(
                     "scenario {fixture_id:?} source correction target {target_external_id:?} has no authoritative original reference"
@@ -897,7 +1011,7 @@ fn correction_target_input(
             }
             Ok((
                 CorrectionTargetInput::SourceObject {
-                    object_type: target.object_type.clone(),
+                    object_type: target.object_type,
                     external_id: target_external_id.to_string(),
                     original_raw_ref: target.original_raw_ref.clone(),
                     original_source_ref: target.original_source_ref.clone(),
@@ -905,13 +1019,16 @@ fn correction_target_input(
                 Vec::new(),
             ))
         }
-        "derived_memory" => Ok((
+        ObjectType::DerivedMemory => Ok((
             CorrectionTargetInput::DerivedMemory {
                 external_id: target_external_id.to_string(),
             },
             vec![target_external_id.to_string()],
         )),
-        object_type => bail!("scenario {fixture_id:?} cannot correct object type {object_type:?}"),
+        ObjectType::Entity | ObjectType::MemoryThread | ObjectType::MemoryLink => bail!(
+            "scenario {fixture_id:?} cannot correct object type {:?}",
+            target.object_type
+        ),
     }
 }
 
@@ -919,11 +1036,11 @@ fn increment(counts: &mut BTreeMap<String, usize>, operation: &str) {
     *counts.entry(operation.to_string()).or_default() += 1;
 }
 
-fn adapter_entity_type(fixture_entity_type: ContinuityEntityKind) -> &'static str {
+fn adapter_entity_type(fixture_entity_type: ContinuityEntityKind) -> EntityType {
     match fixture_entity_type {
-        ContinuityEntityKind::Location => "place",
-        ContinuityEntityKind::Person => "person",
-        ContinuityEntityKind::Organization => "organization",
+        ContinuityEntityKind::Location => EntityType::Place,
+        ContinuityEntityKind::Person => EntityType::Person,
+        ContinuityEntityKind::Organization => EntityType::Organization,
     }
 }
 
@@ -937,6 +1054,7 @@ mod tests {
     use cmem_eval_core::{
         CandidateValidationResult, CommitWriteResult, EpisodeInput, LifecycleMutationResult,
         LinkMemoryResult, MockMemoryAdapter, ObservationInput, PreparedWritePlan, RetrievalMode,
+        RetrievalSectionBudgets, RetrievalSurfacePolicy, WriteResult,
     };
     use uuid::Uuid;
 
@@ -969,22 +1087,28 @@ mod tests {
             self.inner.reset_namespace(namespace).await
         }
 
-        async fn remember_episode(&self, input: EpisodeInput) -> Result<String> {
+        async fn remember_episode(&self, input: EpisodeInput) -> Result<WriteResult<String>> {
             self.episodes.lock().unwrap().push(input.clone());
             self.inner.remember_episode(input).await
         }
 
-        async fn remember_observation(&self, input: ObservationInput) -> Result<String> {
+        async fn remember_observation(
+            &self,
+            input: ObservationInput,
+        ) -> Result<WriteResult<String>> {
             self.observations.lock().unwrap().push(input.clone());
             self.inner.remember_observation(input).await
         }
 
-        async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<()> {
+        async fn remember_enrichment(
+            &self,
+            input: GraphEnrichmentInput,
+        ) -> Result<WriteOutcomeRecord> {
             self.enrichments.lock().unwrap().push(input.clone());
             self.inner.remember_enrichment(input).await
         }
 
-        async fn link(&self, input: LinkMemoryInput) -> Result<LinkMemoryResult> {
+        async fn link(&self, input: LinkMemoryInput) -> Result<WriteResult<LinkMemoryResult>> {
             self.inner.link(input).await
         }
 
@@ -1061,13 +1185,14 @@ mod tests {
     fn retrieval() -> RetrievalConfig {
         RetrievalConfig {
             mode: RetrievalMode::Hybrid,
-            top_k_episodes: 8,
-            top_k_observations: 8,
-            include_derived_memories: true,
-            include_threads: true,
-            include_entities: true,
-            include_debug_rationale: true,
-            ..RetrievalConfig::default()
+            surface_policy: RetrievalSurfacePolicy {
+                sections: RetrievalSectionBudgets {
+                    salient_observations: 8,
+                    ..RetrievalSectionBudgets::default()
+                },
+                include_debug_rationale: true,
+                ..RetrievalSurfacePolicy::default()
+            },
         }
     }
 
@@ -1133,6 +1258,13 @@ mod tests {
             assert!(counts.get(operation).is_some_and(|count| *count > 0));
         }
         assert_eq!(counts.get("link"), Some(&expected_link_count));
+        assert!(traces.iter().any(|trace| {
+            trace.write_outcomes.iter().any(|outcome| {
+                !outcome.persisted_link_internal_ids.is_empty()
+                    && outcome.stats_update_status
+                        == cmem_eval_core::StatsUpdateStatusRecord::default()
+            })
+        }));
         assert_eq!(restart_observations.len(), 1);
         let restart = &restart_observations[0];
         assert!(restart.reopen_graph);
@@ -1217,9 +1349,9 @@ mod tests {
 
     #[test]
     fn restart_recall_matches_items_by_represented_episode_identity() {
-        let pack = RetrievedContextPack {
-            items: vec![cmem_eval_core::RetrievedItem {
-                kind: "observation".to_string(),
+        let pack = RetrievedContextPack::from_ranked_items(
+            vec![cmem_eval_core::RetrievedItem {
+                kind: ObjectType::Observation,
                 internal_id: "observation-internal".to_string(),
                 external_id: Some("observation-external".to_string()),
                 episode_external_id: Some("episode-relevant".to_string()),
@@ -1228,8 +1360,9 @@ mod tests {
                 rationale: Vec::new(),
                 text: None,
             }],
-            ..RetrievedContextPack::default()
-        };
+            Default::default(),
+            cmem_eval_core::ContextRenderer::PlainText,
+        );
         let expected = ExpectedRelevance {
             relevant_external_ids: vec!["episode-relevant".to_string()],
             irrelevant_external_ids: vec!["episode-negative".to_string()],
@@ -1301,7 +1434,7 @@ mod tests {
                 scripted
                     .iter()
                     .flat_map(|input| &input.links)
-                    .filter(|link| link.relation == "part_of_thread")
+                    .filter(|link| link.relation == RelationType::PartOfThread)
                     .map(|link| link.confidence)
                     .collect::<Vec<_>>(),
                 vec![0.95, 0.65, 0.25]
@@ -1388,7 +1521,7 @@ mod tests {
     #[test]
     fn source_correction_target_preserves_authoritative_write_references() {
         let admitted = AdmittedObject {
-            object_type: "episode".to_string(),
+            object_type: ObjectType::Episode,
             source_episode_external_id: Some("delivery-v1".to_string()),
             original_raw_ref: Some(
                 "continuity://correction-chains/event-001?at=2025-01-01T08:00:00Z".to_string(),
@@ -1403,7 +1536,7 @@ mod tests {
         assert_eq!(
             target,
             CorrectionTargetInput::SourceObject {
-                object_type: "episode".to_string(),
+                object_type: ObjectType::Episode,
                 external_id: "delivery-v1".to_string(),
                 original_raw_ref: Some(
                     "continuity://correction-chains/event-001?at=2025-01-01T08:00:00Z".to_string()
@@ -1418,6 +1551,56 @@ mod tests {
         let first = run_all().await;
         let second = run_all().await;
         assert_eq!(first, second);
+    }
+
+    #[tokio::test]
+    async fn trace_writer_canonicalizes_outcomes_by_operation_and_attempt() {
+        let (mut traces, _, _) = run_all().await;
+        let mut trace = traces.remove(0);
+        trace.write_outcomes.clear();
+        trace.lifecycle_outcomes.clear();
+        for (operation_id, attempt_index) in [("b", 0), ("a", 1), ("a", 0)] {
+            let mut write = cmem_eval_core::WriteOutcomeRecord::clean(
+                operation_id,
+                cmem_eval_core::WriteOperationKind::ExplicitCommit,
+            );
+            write.attempt_index = attempt_index;
+            trace.write_outcomes.push(write);
+
+            let mut lifecycle = cmem_eval_core::LifecycleOutcomeRecord::clean(
+                operation_id,
+                cmem_eval_core::LifecycleOperationKind::Correct,
+            );
+            lifecycle.attempt_index = attempt_index;
+            trace.lifecycle_outcomes.push(lifecycle);
+        }
+        let first_path = temporary_trace_path();
+        let second_path = temporary_trace_path();
+        write_continuity_traces(&first_path, std::slice::from_ref(&trace)).unwrap();
+        trace.write_outcomes.reverse();
+        trace.lifecycle_outcomes.reverse();
+        write_continuity_traces(&second_path, &[trace]).unwrap();
+
+        let first = std::fs::read_to_string(&first_path).unwrap();
+        assert_eq!(first, std::fs::read_to_string(&second_path).unwrap());
+        let value: Value = serde_json::from_str(first.trim()).unwrap();
+        for family in ["write_outcomes", "lifecycle_outcomes"] {
+            let identities = value[family]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|outcome| {
+                    (
+                        outcome["operation_id"].as_str().unwrap(),
+                        outcome["attempt_index"].as_u64().unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(identities, vec![("a", 0), ("a", 1), ("b", 0)]);
+        }
+
+        std::fs::remove_file(first_path).unwrap();
+        std::fs::remove_file(second_path).unwrap();
     }
 
     #[tokio::test]
@@ -1459,21 +1642,221 @@ mod tests {
         let (mut traces, _, _) = run_all().await;
         traces[0].schema_version = "9.9.9".to_string();
         let path = temporary_trace_path();
-        write_continuity_traces(&path, &traces[..1]).unwrap();
-
-        let error = read_continuity_traces(&path).unwrap_err().to_string();
-        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, "preserved\n").unwrap();
+        let error = write_continuity_traces(&path, &[traces[1].clone(), traces[0].clone()])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("index 1"), "{error}");
         assert!(error.contains("9.9.9"), "{error}");
         assert!(error.contains(CONTINUITY_TRACE_SCHEMA_VERSION), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "preserved\n");
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn trace_reader_dispatches_exact_v1_and_rejects_mixed_versions() {
+        let (traces, _, _) = run_all().await;
+        let mut legacy = serde_json::to_value(&traces[0]).unwrap();
+        let object = legacy.as_object_mut().unwrap();
+        object.insert(
+            "schema_version".to_string(),
+            Value::String(LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION.to_string()),
+        );
+        object.remove("write_outcomes");
+        object.remove("lifecycle_outcomes");
+
+        let path = temporary_trace_path();
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&legacy).unwrap()),
+        )
+        .unwrap();
+        let rows = read_continuity_traces(&path).unwrap();
+        assert!(matches!(
+            rows.as_slice(),
+            [VersionedContinuityQueryTrace::V1(_)]
+        ));
+
+        let legacy_raw = serde_json::to_string(&legacy).unwrap();
+        let fixture_id = traces[0].fixture_id.as_str();
+        let duplicate_known_field = legacy_raw.replacen(
+            &format!(r#""fixture_id":"{fixture_id}""#),
+            r#""fixture_id":"first","fixture_id":"second""#,
+            1,
+        );
+        assert_ne!(legacy_raw, duplicate_known_field);
+        std::fs::write(&path, format!("{duplicate_known_field}\n")).unwrap();
+        match read_continuity_traces(&path).unwrap().as_slice() {
+            [VersionedContinuityQueryTrace::V1(trace)] => {
+                assert_eq!(trace.fixture_id, "second")
+            }
+            rows => panic!("expected one sealed-v1 trace, got {rows:?}"),
+        }
+
+        write_continuity_traces(&path, &traces[..1]).unwrap();
+        OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(format!("{}\n", serde_json::to_string(&legacy).unwrap()).as_bytes())
+            .unwrap();
+        let error = read_continuity_traces(&path).unwrap_err().to_string();
+        std::fs::remove_file(&path).unwrap();
+        assert!(
+            error.contains("mixed continuity trace schema versions"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn v2_trace_reader_rejects_shape_drift_while_sealed_v1_stays_tolerant() {
+        let (traces, _, _) = run_all().await;
+        let path = temporary_trace_path();
+
+        let current = serde_json::to_string(&traces[0]).unwrap();
+        let fixture_id = format!(r#""fixture_id":"{}""#, traces[0].fixture_id);
+        let duplicate_root = current.replacen(
+            &fixture_id,
+            &format!(r#"{fixture_id},"fixture_id":"{}""#, traces[0].fixture_id),
+            1,
+        );
+        assert_ne!(current, duplicate_root);
+        std::fs::write(&path, format!("{duplicate_root}\n")).unwrap();
+        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+        assert!(error.contains("duplicate JSON object key"), "{error}");
+
+        let mut verdict_trace = traces[0].clone();
+        let mut outcome = cmem_eval_core::WriteOutcomeRecord::clean(
+            "duplicate-verdict",
+            cmem_eval_core::WriteOperationKind::ExplicitCommit,
+        );
+        outcome.vector_indexing_failure = Some(cmem_eval_core::VectorIndexingFailureRecord {
+            unindexed_objects: Vec::new(),
+            cause: cmem_eval_core::VectorIndexingCauseRecord::VectorDatabase(
+                cmem_eval_core::VectorDatabaseErrorRecord {
+                    backend: "qdrant".to_string(),
+                    kind: cmem_eval_core::VectorDatabaseErrorKind::Response,
+                    status: None,
+                    message: "rejected".to_string(),
+                    retry_after_seconds: None,
+                },
+            ),
+        });
+        verdict_trace.write_outcomes.push(outcome);
+        verdict_trace
+            .lifecycle_outcomes
+            .push(cmem_eval_core::LifecycleOutcomeRecord::clean(
+                "required-attempt-index",
+                cmem_eval_core::LifecycleOperationKind::Correct,
+            ));
+        let current = serde_json::to_string(&verdict_trace).unwrap();
+        let duplicate_nested_verdict = current.replacen(
+            r#""kind":"response""#,
+            r#""kind":"response","kind":"response""#,
+            1,
+        );
+        assert_ne!(current, duplicate_nested_verdict);
+        std::fs::write(&path, format!("{duplicate_nested_verdict}\n")).unwrap();
+        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+        assert!(error.contains("duplicate JSON object key"), "{error}");
+
+        let current = serde_json::to_value(&verdict_trace).unwrap();
+        for family in ["write_outcomes", "lifecycle_outcomes"] {
+            let mut missing_attempt = current.clone();
+            missing_attempt[family][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("attempt_index");
+            std::fs::write(
+                &path,
+                format!("{}\n", serde_json::to_string(&missing_attempt).unwrap()),
+            )
+            .unwrap();
+            let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+            assert!(error.contains("missing field `attempt_index`"), "{error}");
+        }
+
+        let mut current = serde_json::to_value(&traces[0]).unwrap();
+        current["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut current = serde_json::to_value(&traces[0]).unwrap();
+        current["retrieval"]["telemetry"]["unexpected_v2_field"] = Value::Bool(true);
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+        assert!(error.contains("unknown field"), "{error}");
+
+        let mut current = serde_json::to_value(&traces[0]).unwrap();
+        current["retrieval"]["telemetry"]
+            .as_object_mut()
+            .unwrap()
+            .remove("vector_candidate_count");
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&current).unwrap()),
+        )
+        .unwrap();
+        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
+        assert!(
+            error.contains("missing field `vector_candidate_count`"),
+            "{error}"
+        );
+
+        let mut legacy = serde_json::to_value(&traces[0]).unwrap();
+        let object = legacy.as_object_mut().unwrap();
+        object.insert(
+            "schema_version".to_string(),
+            Value::String(LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION.to_string()),
+        );
+        object.insert("sealed_legacy_extra".to_string(), Value::Bool(true));
+        object.remove("write_outcomes");
+        object.remove("lifecycle_outcomes");
+        legacy["retrieval"]["sealed_legacy_nested_extra"] = Value::Bool(true);
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&legacy).unwrap()),
+        )
+        .unwrap();
+        assert!(matches!(
+            read_continuity_traces(&path).unwrap().as_slice(),
+            [VersionedContinuityQueryTrace::V1(_)]
+        ));
+
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn trace_reader_rejects_missing_schema_version() {
+        let path = temporary_trace_path();
+        std::fs::write(&path, "{}\n").unwrap();
+        let error = read_continuity_traces(&path).unwrap_err().to_string();
+        std::fs::remove_file(&path).unwrap();
+        assert!(error.contains("missing schema_version"), "{error}");
     }
 
     #[test]
     fn fixture_entity_types_map_only_through_explicit_facade_vocabulary() {
-        assert_eq!(adapter_entity_type(ContinuityEntityKind::Location), "place");
-        assert_eq!(adapter_entity_type(ContinuityEntityKind::Person), "person");
+        assert_eq!(
+            adapter_entity_type(ContinuityEntityKind::Location),
+            EntityType::Place
+        );
+        assert_eq!(
+            adapter_entity_type(ContinuityEntityKind::Person),
+            EntityType::Person
+        );
         assert_eq!(
             adapter_entity_type(ContinuityEntityKind::Organization),
-            "organization"
+            EntityType::Organization
         );
     }
 }
