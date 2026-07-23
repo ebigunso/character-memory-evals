@@ -42,15 +42,15 @@ The boundary is enforced by the crate ownership rules in `docs/coding-agent/rule
 2. Core dispatch on dataset names.
 3. Extension-trait split of the adapter contract.
 
+## Decision Outcome
+
+Chosen option: **backend-neutral core with dataset-owned crates**. It keeps the seam reviewable, keeps mock/live comparability intact, and localizes dataset risk to dataset crates.
+
 ### Rejected Alternatives
 
 Core dispatch on dataset names is likely to be re-proposed: it is the fastest way to ship a cross-dataset feature. Rejected because each dispatch arm erodes the neutrality the shared contracts depend on. Reopen if dataset proliferation or shared cross-dataset logic makes per-crate ownership demonstrably net-costlier than a governed core seam.
 
 The extension-trait split was rejected during the eval-harness architecture revision: the Character-Memory-shaped main trait with staged writes carries the contract without a parallel trait hierarchy. Rejected outright — no reopen condition; it may be re-argued only on genuinely new evidence.
-
-## Decision Outcome
-
-Chosen option: **backend-neutral core with dataset-owned crates**. It keeps the seam reviewable, keeps mock/live comparability intact, and localizes dataset risk to dataset crates.
 
 ## Consequences
 

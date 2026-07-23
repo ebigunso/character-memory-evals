@@ -42,15 +42,15 @@ Evaluation evidence users can trust is this repository's core purpose. A default
 2. Mock default with live opt-in.
 3. Automatic fallback from live to mock on service failure.
 
+## Decision Outcome
+
+Chosen option: **live default, loud mock opt-in**. Accidental invalidity becomes impossible to miss: a benchmark run either exercises the real system or announces that it did not.
+
 ### Rejected Alternatives
 
 Mock default with live opt-in is likely to be re-proposed: it is convenient for local iteration and CI symmetry. Rejected because a default that never touches the system under test invites unlabeled non-evidence. Reopen if the live-service dependency becomes prohibitively expensive or unavailable for routine benchmark work.
 
 Automatic fallback is rejected outright — no reopen condition: it converts an infrastructure failure into silently invalid evidence, which is the exact failure this decision exists to prevent.
-
-## Decision Outcome
-
-Chosen option: **live default, loud mock opt-in**. Accidental invalidity becomes impossible to miss: a benchmark run either exercises the real system or announces that it did not.
 
 ## Consequences
 
