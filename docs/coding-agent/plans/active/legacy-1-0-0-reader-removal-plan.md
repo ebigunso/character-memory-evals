@@ -156,6 +156,11 @@
   - Validation evidence: register diff is append-only (+4/-0); clause matches the ruling; reviewer independently re-verifies in Task_4.
   - Notes: orchestrator-owned edits per rule-file governance.
 
+- 2026-07-29 Wave 4 completed: [Task_4]
+  - Summary: evals-reviewer APPROVED with zero findings from the pinned worktree at 52c6e5d (range 9997ccd..52c6e5d).
+  - Validation evidence: independent re-verification of all acceptance criteria — zero legacy knowledge (grep + rg --no-ignore), strict reader contract incl. summarize rejecting at schema detection, writer/export conservation, sealed paths untouched with the register delta exactly +4/-0 append-only, governance docs matching ADR-I-0002; full service-free gate suite reproduced (core 109, continuity 80, runner 42, adapter 40/3 filtered, converter 11, LoCoMo 12, LongMemEval 8, zero failures). Live two-run gate NOT_TRIGGERED per read-side-deletion rationale.
+  - Notes: branch pushed after internal approval per push-sequencing rule; PR #20 opened, Copilot review + monitor armed.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-07-28 Decision: Option C (full deletion) selected by ebigunso over migration (non-lossless, breaks hash citations, sealed-policy conflict) and containment (dead code behind a fence, fails EARNS-ITS-PLACE, ratifies the rejected exception shape).
