@@ -62,7 +62,7 @@
   - crates/cmem-eval-continuity/src/lib.rs
   - crates/cmem-eval-runner/src/commands.rs
   - crates/cmem-eval-runner/src/official_exports.rs
-  - crates/cmem-eval-runner/tests/pipeline.rs
+  - crates/cmem-eval-runner/src/pipeline.rs
   - README.md
 - depends_on: [Task_1]
 - description: |
@@ -84,7 +84,7 @@
   - kind: command
     required: true
     owner: worker
-    detail: "cargo test --workspace (service-free: explicitly skip the two live adapter tests per lessons; state the exclusion in the report)"
+    detail: "cargo test --workspace (service-free: explicitly skip every live Qdrant test — three at 2026-07-29: live_frozen_write_surface_matches_continuity_runtime_normalization, live_adapter_reattaches_with_external_ids, live_reset_preserves_sibling_namespace_durable_stores; state the exclusions in the report)"
   - kind: command
     required: true
     owner: worker
@@ -146,6 +146,16 @@
   - Validation evidence: decider approval in-session 2026-07-29; template/numbering conformance vs docs/decisions/README.md and template.md; grep sweep confirms zero version literals and zero tier jargon in both records.
   - Notes: plan approved with ADR-first reordering (see Decision Log).
 
+- 2026-07-29 Wave 2 completed: [Task_2]
+  - Summary: evals-worker removed all live 1.0.0 reader capability (6 files, +78/-468); strict readers return current DTOs; rejection regressions added; README updated. Local commit e8707cd, not pushed.
+  - Validation evidence: fmt + strict clippy pass; service-free workspace suite pass with the three live Qdrant tests excluded by name; synthetic mock smoke pass (schema 2.0.0, mock-marked, outputs deleted per disposition); acceptance grep shows only rejection-test 1.0.0 literals; runs/ and reports/ byte-untouched.
+  - Notes: three in-flight rulings (owns path fix to src/pipeline.rs; three live-test exclusions; smoke output redirect to .agent-work). Two lesson candidates carried to closeout (canonical-writer round-trip expectations; zero-match test-filter evidence).
+
+- 2026-07-29 Wave 3 completed: [Task_3]
+  - Summary: rules/common.md schema clause rewritten to the single-schema/bytes-by-hash contract citing ADR-I-0002; findings register gained a 4-line append-only addendum recording the resurrection pointer (readers last on main at 9997ccd — main-reachable, chosen over branch SHAs because squash merges drop branch lineage).
+  - Validation evidence: register diff is append-only (+4/-0); clause matches the ruling; reviewer independently re-verifies in Task_4.
+  - Notes: orchestrator-owned edits per rule-file governance.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-07-28 Decision: Option C (full deletion) selected by ebigunso over migration (non-lossless, breaks hash citations, sealed-policy conflict) and containment (dead code behind a fence, fails EARNS-ITS-PLACE, ratifies the rejected exception shape).
@@ -159,6 +169,12 @@
   - Plan delta: ADR pair is now Task_1 with persistence gating Wave 2; impl/rules/review renumbered to Task_2/Task_3/Task_4 with dependencies updated.
   - Tradeoffs considered: the harness exception check ("remediate first, then record") is satisfied in spirit because the ADR records the clean target contract already ruled, not the live exception; the exception's removal is committed work in the same plan.
   - User approval: yes (2026-07-28, in-session).
+
+- 2026-07-29 Decision: Task_2 owns path corrected from crates/cmem-eval-runner/tests/pipeline.rs to crates/cmem-eval-runner/src/pipeline.rs.
+  - Trigger / new insight: evals-worker pre-edit check found tests/pipeline.rs does not exist; the version-enum helpers are at src/pipeline.rs:1757-1772 (matching the original census message; the tests/ variant was a continuation-part transcription slip carried into the plan).
+  - Plan delta: owns entry replaced; no scope change in substance.
+  - Tradeoffs considered: none — mechanical correction.
+  - User approval: not required (path fix within ruled scope).
 
 ## Notes
 - Risks: pipeline test helpers may have deeper coupling to the version enums than the census surface shows; worker reports any owns-expansion need instead of improvising.
