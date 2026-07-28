@@ -1,6 +1,6 @@
 # Plan: Legacy 1.0.0 Reader Removal (Option C)
 
-- status: in_progress
+- status: done
 - generated: 2026-07-28
 - last_updated: 2026-07-29
 - work_type: code
@@ -160,6 +160,11 @@
   - Summary: evals-reviewer APPROVED with zero findings from the pinned worktree at 52c6e5d (range 9997ccd..52c6e5d).
   - Validation evidence: independent re-verification of all acceptance criteria — zero legacy knowledge (grep + rg --no-ignore), strict reader contract incl. summarize rejecting at schema detection, writer/export conservation, sealed paths untouched with the register delta exactly +4/-0 append-only, governance docs matching ADR-I-0002; full service-free gate suite reproduced (core 109, continuity 80, runner 42, adapter 40/3 filtered, converter 11, LoCoMo 12, LongMemEval 8, zero failures). Live two-run gate NOT_TRIGGERED per read-side-deletion rationale.
   - Notes: branch pushed after internal approval per push-sequencing rule; PR #20 opened, Copilot review + monitor armed.
+
+- 2026-07-29 Plan closeout
+  - Summary: PR #20 merged to main as squash 9a9f84a (decider-merged 2026-07-28T18:27Z, CI green; no external review findings). The resurrection pointer 9997ccd is the squash commit's parent, as designed. Branch and review worktree removed; plan moved to completed/.
+  - Validation evidence: all Task_X done; every required validation pass with evidence in this log; Reviewer APPROVED; rule refresh for the edited common.md clause completed in-change.
+  - Notes: two worker lesson candidates appended to lessons.md at closeout; CME HANDOFF.md deleted as absorbed.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
