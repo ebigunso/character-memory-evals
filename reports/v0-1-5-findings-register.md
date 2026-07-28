@@ -573,3 +573,7 @@ The service-free canonical mock covers all 15 scenarios and 23 queries with `con
 |---|---|---|---|---|
 | `mock-canonical` | `FDD05374F6032A3DDD2EAEEEA8CC50301EC23C4BCD2403469832CDCB2904069E` | `613B165E73E8153237DA9130B27770EC5B4B58DEB25FF2E41163803546456FC7` | `7069E5A02623DDE0E63F218AEC846AE935173DD5541BEAB1F93DEBF10305925C` | `1E0210C8A270CA7CAA208E5CD22775C9C303D44B7F4D566C68DE87AC207A840D` |
 | `mock-benchmark` | `8351441D5F7D792B73D29B5DFD589C611CC2C47F4B761756B700D50527CF9F61` | `36D38FCA8764C06FB826760DC6EB61E5351B73BDFCFEA7BCEA137E4CF6A6CD63` | `D117E190BAFE66B3955EA6FBD84763C7D5E6833600D9D551073C9177EF29FAF6` | `1F10F333241F8497CF262E9D02A32D9513D7253C90BA1E46690D81B1BC623A5F` |
+
+## Addendum (2026-07-29): legacy reader resurrection pointer
+
+Per ADR-I-0002 (single-schema artifact contract), live reading capability for the superseded 1.0.0 artifact schema was removed; every artifact cited in this register remains sealed, byte-identical, and hash-verifiable. The readers for the 1.0.0 result-row and continuity-trace shapes were last present on `main` at commit `9997ccd8557f843a9a60141d19dab219b0cd6334`; resurrect from there (as a standalone offline tool, never live-path dispatch) if a decider-ruled archival readout need ever materializes.

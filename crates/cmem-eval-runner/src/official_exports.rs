@@ -1,8 +1,5 @@
 use anyhow::{Context, Result, anyhow, bail};
-use cmem_eval_core::{
-    LegacyPerQuestionResultV1, LegacyRetrievedItemV1, ObjectType, PerQuestionResult, RetrievedItem,
-    VersionedPerQuestionResult,
-};
+use cmem_eval_core::{ObjectType, PerQuestionResult, RetrievedItem};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -42,7 +39,7 @@ pub fn read_predictions_jsonl(path: &Path) -> Result<Predictions> {
     Ok(predictions)
 }
 
-pub fn write_longmemeval_retrieval(path: &Path, rows: &[VersionedPerQuestionResult]) -> Result<()> {
+pub fn write_longmemeval_retrieval(path: &Path, rows: &[PerQuestionResult]) -> Result<()> {
     write_values(
         path,
         &rows
@@ -54,7 +51,7 @@ pub fn write_longmemeval_retrieval(path: &Path, rows: &[VersionedPerQuestionResu
 
 pub fn write_longmemeval_qa(
     path: &Path,
-    rows: &[VersionedPerQuestionResult],
+    rows: &[PerQuestionResult],
     predictions: &Predictions,
 ) -> Result<()> {
     write_values(
@@ -68,7 +65,7 @@ pub fn write_longmemeval_qa(
 
 pub fn write_locomo(
     path: &Path,
-    rows: &[VersionedPerQuestionResult],
+    rows: &[PerQuestionResult],
     predictions: Option<&Predictions>,
 ) -> Result<()> {
     write_values(
@@ -80,31 +77,17 @@ pub fn write_locomo(
     )
 }
 
-fn longmemeval_retrieval_row(row: &VersionedPerQuestionResult) -> Value {
-    match row {
-        VersionedPerQuestionResult::V1(row) => serde_json::json!({
-            "question_id": row.question_id,
-            "question": row.question,
-            "question_type": row.question_type,
-            "retrieval_results": { "ranked_items": ranked_items_v1(&row.retrieved) }
-        }),
-        VersionedPerQuestionResult::V2(row) => serde_json::json!({
-            "question_id": row.question_id,
-            "question": row.question,
-            "question_type": row.question_type,
-            "retrieval_results": { "ranked_items": ranked_items(&row.retrieved) }
-        }),
-    }
+fn longmemeval_retrieval_row(row: &PerQuestionResult) -> Value {
+    serde_json::json!({
+        "question_id": row.question_id,
+        "question": row.question,
+        "question_type": row.question_type,
+        "retrieval_results": { "ranked_items": ranked_items(&row.retrieved) }
+    })
 }
 
-fn longmemeval_qa_row(
-    row: &VersionedPerQuestionResult,
-    predictions: &Predictions,
-) -> Result<Value> {
-    let question_id = match row {
-        VersionedPerQuestionResult::V1(row) => &row.question_id,
-        VersionedPerQuestionResult::V2(row) => &row.question_id,
-    };
+fn longmemeval_qa_row(row: &PerQuestionResult, predictions: &Predictions) -> Result<Value> {
+    let question_id = &row.question_id;
     let prediction = predictions
         .get(question_id)
         .ok_or_else(|| anyhow!("missing prediction for question_id {question_id}"))?;
@@ -114,17 +97,7 @@ fn longmemeval_qa_row(
     }))
 }
 
-fn locomo_row(
-    row: &VersionedPerQuestionResult,
-    predictions: Option<&Predictions>,
-) -> Result<Value> {
-    match row {
-        VersionedPerQuestionResult::V1(row) => locomo_row_v1(row, predictions),
-        VersionedPerQuestionResult::V2(row) => locomo_row_v2(row, predictions),
-    }
-}
-
-fn locomo_row_v2(row: &PerQuestionResult, predictions: Option<&Predictions>) -> Result<Value> {
+fn locomo_row(row: &PerQuestionResult, predictions: Option<&Predictions>) -> Result<Value> {
     locomo_row_fields(
         &row.question_id,
         row.question_type.as_deref(),
@@ -134,22 +107,6 @@ fn locomo_row_v2(row: &PerQuestionResult, predictions: Option<&Predictions>) -> 
         retrieved_ids(&row.retrieved, ObjectType::Episode),
         row.context_text.clone(),
         ranked_items(&row.retrieved),
-    )
-}
-
-fn locomo_row_v1(
-    row: &LegacyPerQuestionResultV1,
-    predictions: Option<&Predictions>,
-) -> Result<Value> {
-    locomo_row_fields(
-        &row.question_id,
-        row.question_type.as_deref(),
-        &row.question,
-        predictions,
-        retrieved_ids_v1(&row.retrieved, "observation"),
-        retrieved_ids_v1(&row.retrieved, "episode"),
-        row.rendered_context_text(),
-        ranked_items_v1(&row.retrieved),
     )
 }
 
@@ -239,34 +196,6 @@ fn retrieved_ids(items: &[RetrievedItem], kind: ObjectType) -> Vec<String> {
     sorted.into_iter().map(|(_, id)| id).collect()
 }
 
-fn ranked_items_v1(items: &[LegacyRetrievedItemV1]) -> Vec<Value> {
-    let mut sorted = items.to_vec();
-    sorted.sort_by_key(|item| item.rank);
-    sorted
-        .into_iter()
-        .map(|item| {
-            serde_json::json!({
-                "rank": item.rank,
-                "kind": item.kind,
-                "external_id": item.external_id,
-                "episode_external_id": item.episode_external_id,
-                "score": item.score,
-                "text": item.text
-            })
-        })
-        .collect()
-}
-
-fn retrieved_ids_v1(items: &[LegacyRetrievedItemV1], kind: &str) -> Vec<String> {
-    let mut sorted = items
-        .iter()
-        .filter(|item| item.kind == kind)
-        .filter_map(|item| item.external_id.as_ref().map(|id| (item.rank, id.clone())))
-        .collect::<Vec<_>>();
-    sorted.sort_by_key(|(rank, _)| *rank);
-    sorted.into_iter().map(|(_, id)| id).collect()
-}
-
 fn parse_locomo_question_id(question_id: &str) -> Result<(String, usize)> {
     let Some((sample_id, rest)) = question_id.rsplit_once(":qa:") else {
         bail!(
@@ -310,7 +239,7 @@ mod tests {
 
     #[test]
     fn longmemeval_retrieval_export_pins_official_shape() {
-        let row = VersionedPerQuestionResult::V2(Box::new(sample_row("q1", "longmemeval_s")));
+        let row = sample_row("q1", "longmemeval_s");
         let value = longmemeval_retrieval_row(&row);
 
         assert_eq!(value["question_id"], "q1");
@@ -323,7 +252,7 @@ mod tests {
 
     #[test]
     fn longmemeval_qa_export_requires_prediction() {
-        let row = VersionedPerQuestionResult::V2(Box::new(sample_row("q1", "longmemeval_s")));
+        let row = sample_row("q1", "longmemeval_s");
         let err = longmemeval_qa_row(&row, &Predictions::new())
             .unwrap_err()
             .to_string();
@@ -358,7 +287,6 @@ mod tests {
             text: Some("dialog text".to_string()),
         });
         row.context_text = "authoritative persisted v2 context".to_string();
-        let row = VersionedPerQuestionResult::V2(Box::new(row));
         let mut predictions = Predictions::new();
         predictions.insert(
             "sample_1:qa:2".to_string(),
@@ -396,7 +324,7 @@ mod tests {
 
     #[test]
     fn locomo_export_rejects_unparseable_question_id() {
-        let row = VersionedPerQuestionResult::V2(Box::new(sample_row("q1", "locomo")));
+        let row = sample_row("q1", "locomo");
         let err = locomo_row(&row, None).unwrap_err().to_string();
         assert!(err.contains("<sample_id>:qa:<index>"));
     }

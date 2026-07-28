@@ -1754,24 +1754,11 @@ mod tests {
     }
 
     fn read_v2_rows(path: &Path) -> Vec<PerQuestionResult> {
-        cmem_eval_core::read_jsonl(path)
-            .unwrap()
-            .into_iter()
-            .map(|row| row.into_v2().unwrap())
-            .collect()
+        cmem_eval_core::read_jsonl(path).unwrap()
     }
 
     fn read_v2_traces(path: &Path) -> Vec<ContinuityQueryTrace> {
-        cmem_eval_continuity::read_continuity_traces(path)
-            .unwrap()
-            .into_iter()
-            .map(|trace| match trace {
-                cmem_eval_continuity::VersionedContinuityQueryTrace::V2(trace) => *trace,
-                cmem_eval_continuity::VersionedContinuityQueryTrace::V1(_) => {
-                    panic!("test run unexpectedly emitted a sealed 1.0.0 continuity trace")
-                }
-            })
-            .collect()
+        cmem_eval_continuity::read_continuity_traces(path).unwrap()
     }
 
     #[test]
