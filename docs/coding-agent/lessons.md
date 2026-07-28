@@ -472,6 +472,50 @@ Prevention:
 Evidence:
 - The round-8 regressions admit a padded model only after canonicalization and assert trimmed serialized metadata, compare canonical frozen runtime inputs exactly with both manifest texts and store keys, and the attribution now carries the upstream LongMemEval MIT notice.
 
+## 2026-07-29 — Assert Canonical Writer Output Against Canonical Expectations  [tags: review, testing, serialization, determinism]
+
+Context:
+- Plan: `docs/coding-agent/plans/completed/legacy-1-0-0-reader-removal-plan.md`
+- Task/Wave: Task_2 / Wave 2
+- Roles involved: Worker
+
+Symptom:
+- A new continuity reader round-trip test failed because it compared decoded canonical writer output with the pre-canonical in-memory outcome ordering.
+
+Root cause:
+- The assertion ignored the existing writer contract that sorts outcome families before serialization.
+
+Fix applied:
+- Re-anchored the round-trip assertions to stable reader-owned fields instead of incidental pre-canonical ordering.
+
+Prevention:
+- When testing a reader through a canonicalizing writer, construct the canonical expected value or assert stable reader-owned fields; never assert incidental pre-canonical ordering.
+
+Evidence:
+- Worker Task_2 report 2026-07-28: initial continuity run 79/80, corrected run 80/80 with the focused regression executing 1/1.
+
+## 2026-07-29 — Filtered Test Evidence Requires A Positive Executed Count  [tags: validation, testing, evidence]
+
+Context:
+- Plan: `docs/coding-agent/plans/completed/legacy-1-0-0-reader-removal-plan.md`
+- Task/Wave: Task_2 / Wave 2
+- Roles involved: Worker
+
+Symptom:
+- A focused `cargo test <name> -- --exact` rerun exited success while executing zero tests because the filter lacked the module-qualified path.
+
+Root cause:
+- The filter was taken from the bare function name without checking libtest's fully qualified exact-name semantics.
+
+Fix applied:
+- The zero-test success was discarded as invalid evidence and rerun with a matching filter executing 1/1.
+
+Prevention:
+- Treat filtered test runs as valid evidence only with a positive executed-test count; discard and rerun any zero-test success immediately (harness testing-validation evidence-integrity guidance covers the class; retained here for the libtest --exact name-qualification detail).
+
+Evidence:
+- Worker Task_2 report 2026-07-28: the invalid zero-match run and the corrected 1/1 rerun are both recorded in commands_run.
+
 ## Promotion drain note (2026-07-23)
 
 Drained after agent-harness v0.9.0 went live in this workspace (installed plugin + Codex profiles updated 2026-07-23); each prevention now exists verbatim-or-stronger in harness content: Parallelize Approved Harness Implementation Work (orchestration-harness parallel-by-default dispatch), Resolve Moving External Dependencies Once Before CI Fan-Out (review-latent-risk-build-ci), Label Live Evidence Scope At The Point Of Claim (testing-validation evidence-scope line), Make Layered Vocabulary Duplication Mechanically Exhaustive (validation-tests exhaustiveness checks + architecture-gates boundary ownership), Equivalence Tests Must Compare The Full Observable Contract (review-latent-risk-conservation + owning-surface assertion line).
