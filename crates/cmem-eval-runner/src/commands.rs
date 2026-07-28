@@ -5,8 +5,8 @@ use crate::official_exports;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use cmem_eval_core::{
-    BenchmarkRunConfig, RetrievalMode, RunAdapterMetadata, VersionedPerQuestionResult, read_jsonl,
-    summarize_rows, validate_summary_row_identity, write_summary,
+    BenchmarkRunConfig, RetrievalMode, RunAdapterMetadata, read_jsonl, summarize_rows,
+    validate_summary_row_identity, write_summary,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -234,10 +234,7 @@ fn export_official(args: ExportOfficialCommand) -> Result<()> {
 }
 
 fn summarize(args: SummarizeArgs) -> Result<()> {
-    let rows = read_jsonl(&args.input)?
-        .into_iter()
-        .map(VersionedPerQuestionResult::into_v2)
-        .collect::<Result<Vec<_>>>()?;
+    let rows = read_jsonl(&args.input)?;
     let Some(first) = rows.first() else {
         bail!("cannot summarize empty JSONL: {}", args.input.display());
     };

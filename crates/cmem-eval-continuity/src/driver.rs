@@ -18,6 +18,7 @@ use cmem_eval_core::{
     WriteOutcomeRecord, assign_outcome_attempt_indexes,
 };
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::Value;
 
 use crate::{
@@ -26,7 +27,6 @@ use crate::{
 };
 
 pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "2.0.0";
-const LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -44,27 +44,6 @@ pub struct ContinuityQueryTrace {
     pub retrieval: RetrievedContextPack,
     pub write_outcomes: Vec<WriteOutcomeRecord>,
     pub lifecycle_outcomes: Vec<LifecycleOutcomeRecord>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LegacyContinuityQueryTraceV1 {
-    pub schema_version: String,
-    pub fixture_id: String,
-    pub namespace: String,
-    pub pattern: Value,
-    pub event_id: String,
-    pub query_id: String,
-    pub timestamp: chrono::DateTime<Utc>,
-    pub query: String,
-    pub expected: Value,
-    pub history_text: String,
-    pub retrieval: Value,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum VersionedContinuityQueryTrace {
-    V1(Box<LegacyContinuityQueryTraceV1>),
-    V2(Box<ContinuityQueryTrace>),
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -160,7 +139,7 @@ pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> 
     Ok(())
 }
 
-pub fn read_continuity_traces(path: &Path) -> Result<Vec<VersionedContinuityQueryTrace>> {
+pub fn read_continuity_traces(path: &Path) -> Result<Vec<ContinuityQueryTrace>> {
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut traces = Vec::new();
     for (index, line) in BufReader::new(file).lines().enumerate() {
@@ -181,24 +160,14 @@ pub fn read_continuity_traces(path: &Path) -> Result<Vec<VersionedContinuityQuer
                     path.display()
                 )
             })?;
-        // Compatibility Policy sealed-artifact exemption: exact 1.0.0 trace
-        // dispatch only. Reports stay strict 2.0.0 and no legacy artifact is
-        // upgraded or rewritten.
-        // Evidence: reports/v0-1-5-findings-register.md:363 and
-        // runs/continuity/v0-1-5-baseline/shipped-a/traces.jsonl:1.
         let trace = match schema_version.as_deref() {
-            Some(LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION) => {
-                let value = serde_json::from_str::<Value>(&line)?;
-                VersionedContinuityQueryTrace::V1(Box::new(serde_json::from_value(value)?))
-            }
             Some(CONTINUITY_TRACE_SCHEMA_VERSION) => {
                 cmem_eval_core::serde_contract::reject_duplicate_json_keys(&line)?;
-                VersionedContinuityQueryTrace::V2(Box::new(serde_json::from_str(&line)?))
+                serde_json::from_str(&line)?
             }
             Some(version) => bail!(
-                "continuity trace line {line_number} in {} has schema_version {version:?}; expected {:?} or {:?}",
+                "continuity trace line {line_number} in {} has schema_version {version:?}; expected {:?}",
                 path.display(),
-                LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION,
                 CONTINUITY_TRACE_SCHEMA_VERSION
             ),
             None => bail!(
@@ -206,20 +175,6 @@ pub fn read_continuity_traces(path: &Path) -> Result<Vec<VersionedContinuityQuer
                 path.display()
             ),
         };
-        if traces.first().is_some_and(|first| {
-            !matches!(
-                (first, &trace),
-                (
-                    VersionedContinuityQueryTrace::V1(_),
-                    VersionedContinuityQueryTrace::V1(_)
-                ) | (
-                    VersionedContinuityQueryTrace::V2(_),
-                    VersionedContinuityQueryTrace::V2(_)
-                )
-            )
-        }) {
-            bail!("mixed continuity trace schema versions are not allowed in one JSONL artifact");
-        }
         traces.push(trace);
     }
     Ok(traces)
@@ -1629,7 +1584,7 @@ mod tests {
             .append(true)
             .open(&path)
             .unwrap()
-            .write_all(b"{\"schema_version\":\"1.0.0\"")
+            .write_all(b"{\"schema_version\":\"2.0.0\"")
             .unwrap();
 
         let error = read_continuity_traces(&path).unwrap_err().to_string();
@@ -1654,62 +1609,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn trace_reader_dispatches_exact_v1_and_rejects_mixed_versions() {
+    async fn trace_reader_round_trips_v2_and_rejects_v1_at_schema_detection() {
         let (traces, _, _) = run_all().await;
+        let path = temporary_trace_path();
+        write_continuity_traces(&path, &traces[..1]).unwrap();
+        let decoded = read_continuity_traces(&path).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].schema_version, CONTINUITY_TRACE_SCHEMA_VERSION);
+        assert_eq!(decoded[0].fixture_id, traces[0].fixture_id);
+        assert_eq!(decoded[0].query_id, traces[0].query_id);
+
         let mut legacy = serde_json::to_value(&traces[0]).unwrap();
         let object = legacy.as_object_mut().unwrap();
         object.insert(
             "schema_version".to_string(),
-            Value::String(LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION.to_string()),
+            Value::String("1.0.0".to_string()),
         );
         object.remove("write_outcomes");
         object.remove("lifecycle_outcomes");
 
-        let path = temporary_trace_path();
         std::fs::write(
             &path,
             format!("{}\n", serde_json::to_string(&legacy).unwrap()),
         )
         .unwrap();
-        let rows = read_continuity_traces(&path).unwrap();
-        assert!(matches!(
-            rows.as_slice(),
-            [VersionedContinuityQueryTrace::V1(_)]
-        ));
-
-        let legacy_raw = serde_json::to_string(&legacy).unwrap();
-        let fixture_id = traces[0].fixture_id.as_str();
-        let duplicate_known_field = legacy_raw.replacen(
-            &format!(r#""fixture_id":"{fixture_id}""#),
-            r#""fixture_id":"first","fixture_id":"second""#,
-            1,
-        );
-        assert_ne!(legacy_raw, duplicate_known_field);
-        std::fs::write(&path, format!("{duplicate_known_field}\n")).unwrap();
-        match read_continuity_traces(&path).unwrap().as_slice() {
-            [VersionedContinuityQueryTrace::V1(trace)] => {
-                assert_eq!(trace.fixture_id, "second")
-            }
-            rows => panic!("expected one sealed-v1 trace, got {rows:?}"),
-        }
-
-        write_continuity_traces(&path, &traces[..1]).unwrap();
-        OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .unwrap()
-            .write_all(format!("{}\n", serde_json::to_string(&legacy).unwrap()).as_bytes())
-            .unwrap();
         let error = read_continuity_traces(&path).unwrap_err().to_string();
         std::fs::remove_file(&path).unwrap();
-        assert!(
-            error.contains("mixed continuity trace schema versions"),
-            "{error}"
-        );
+        assert!(error.contains("schema_version"), "{error}");
+        assert!(error.contains("1.0.0"), "{error}");
+        assert!(error.contains(CONTINUITY_TRACE_SCHEMA_VERSION), "{error}");
     }
 
     #[tokio::test]
-    async fn v2_trace_reader_rejects_shape_drift_while_sealed_v1_stays_tolerant() {
+    async fn v2_trace_reader_rejects_shape_drift() {
         let (traces, _, _) = run_all().await;
         let path = temporary_trace_path();
 
@@ -1811,26 +1743,6 @@ mod tests {
             error.contains("missing field `vector_candidate_count`"),
             "{error}"
         );
-
-        let mut legacy = serde_json::to_value(&traces[0]).unwrap();
-        let object = legacy.as_object_mut().unwrap();
-        object.insert(
-            "schema_version".to_string(),
-            Value::String(LEGACY_CONTINUITY_TRACE_SCHEMA_VERSION.to_string()),
-        );
-        object.insert("sealed_legacy_extra".to_string(), Value::Bool(true));
-        object.remove("write_outcomes");
-        object.remove("lifecycle_outcomes");
-        legacy["retrieval"]["sealed_legacy_nested_extra"] = Value::Bool(true);
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&legacy).unwrap()),
-        )
-        .unwrap();
-        assert!(matches!(
-            read_continuity_traces(&path).unwrap().as_slice(),
-            [VersionedContinuityQueryTrace::V1(_)]
-        ));
 
         std::fs::remove_file(path).unwrap();
     }

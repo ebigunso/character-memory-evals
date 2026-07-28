@@ -14,7 +14,6 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
 pub const RESULT_SCHEMA_VERSION: &str = "2.0.0";
-const LEGACY_RESULT_SCHEMA_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,101 +43,6 @@ pub struct PerQuestionResult {
     pub composition: ResultCompositionMetrics,
     pub integrity: ResultIntegrityDetails,
     pub reader: ReaderResult,
-}
-
-/// Read-only shape for the Compatibility Policy's sealed-artifact exemption.
-/// It is intentionally not upgraded into the 2.0 DTO: historical string
-/// vocabularies and missing verdicts remain exactly as recorded.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct LegacyPerQuestionResultV1 {
-    pub run_id: String,
-    pub dataset: String,
-    #[serde(default)]
-    pub adapter: Value,
-    pub question_id: String,
-    pub question_type: Option<String>,
-    pub question: String,
-    pub gold_episode_ids: Vec<String>,
-    pub gold_observation_ids: Vec<String>,
-    pub retrieved: Vec<LegacyRetrievedItemV1>,
-    pub metrics: Value,
-    pub latency_ms: u128,
-    pub context_char_count: usize,
-    pub context_word_count: usize,
-    #[serde(default)]
-    pub context: Value,
-    #[serde(default)]
-    pub telemetry: Value,
-    #[serde(default)]
-    pub composition: Value,
-    #[serde(default)]
-    pub integrity: Value,
-    #[serde(default)]
-    pub reader: Value,
-}
-
-/// The sealed 1.0.0 row vocabulary is deliberately kept stringly typed. It
-/// must not inherit the closed 2.0.0 `ObjectType` vocabulary or its evolution.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LegacyRetrievedItemV1 {
-    pub kind: String,
-    pub internal_id: String,
-    pub external_id: Option<String>,
-    pub episode_external_id: Option<String>,
-    pub score: Option<f64>,
-    pub rank: usize,
-    #[serde(default)]
-    pub rationale: Vec<String>,
-    pub text: Option<String>,
-}
-
-impl LegacyPerQuestionResultV1 {
-    /// Reconstructs the as-built 1.0.0 context for read-only exports. New
-    /// evidence persists the authoritative 2.0.0 `context_text` instead.
-    /// As-built producer: 49984a5:crates/cmem-eval-runner/src/official_exports.rs:181.
-    pub fn rendered_context_text(&self) -> String {
-        let mut sorted = self.retrieved.iter().collect::<Vec<_>>();
-        sorted.sort_by_key(|item| item.rank);
-        sorted
-            .iter()
-            .filter_map(|item| {
-                item.text.as_ref().map(|text| {
-                    format!(
-                        "[{}:{} rank={}] {}",
-                        item.kind,
-                        item.external_id.as_deref().unwrap_or("unknown"),
-                        item.rank,
-                        text
-                    )
-                })
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-}
-
-#[derive(Debug)]
-pub enum VersionedPerQuestionResult {
-    V1(Box<LegacyPerQuestionResultV1>),
-    V2(Box<PerQuestionResult>),
-}
-
-impl VersionedPerQuestionResult {
-    pub fn as_v2(&self) -> Option<&PerQuestionResult> {
-        match self {
-            Self::V1(_) => None,
-            Self::V2(row) => Some(row),
-        }
-    }
-
-    pub fn into_v2(self) -> Result<PerQuestionResult> {
-        match self {
-            Self::V1(_) => anyhow::bail!(
-                "operation requires result schema 2.0.0; sealed schema 1.0.0 rows are read-only"
-            ),
-            Self::V2(row) => Ok(*row),
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -669,7 +573,7 @@ fn summarize_degradation(
     Ok(summary)
 }
 
-pub fn read_jsonl(path: &Path) -> Result<Vec<VersionedPerQuestionResult>> {
+pub fn read_jsonl(path: &Path) -> Result<Vec<PerQuestionResult>> {
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let reader = BufReader::new(file);
     let mut rows = Vec::new();
@@ -679,53 +583,18 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<VersionedPerQuestionResult>> {
             continue;
         }
         let schema_version = crate::serde_contract::schema_version_from_str(&line)?;
-        let schema = validate_row_schema(schema_version.as_deref())?;
-        let row = match schema {
-            RowSchema::LegacyV1 => {
-                let value = serde_json::from_str::<Value>(&line)?;
-                VersionedPerQuestionResult::V1(Box::new(serde_json::from_value(value)?))
-            }
-            RowSchema::CurrentV2 => {
-                crate::serde_contract::reject_duplicate_json_keys(&line)?;
-                VersionedPerQuestionResult::V2(Box::new(serde_json::from_str(&line)?))
-            }
-        };
-        if rows.first().is_some_and(|first| {
-            !matches!(
-                (first, &row),
-                (
-                    VersionedPerQuestionResult::V1(_),
-                    VersionedPerQuestionResult::V1(_)
-                ) | (
-                    VersionedPerQuestionResult::V2(_),
-                    VersionedPerQuestionResult::V2(_)
-                )
-            )
-        }) {
-            anyhow::bail!("mixed result schema versions are not allowed in one JSONL artifact");
-        }
-        rows.push(row);
+        validate_row_schema(schema_version.as_deref())?;
+        crate::serde_contract::reject_duplicate_json_keys(&line)?;
+        rows.push(serde_json::from_str(&line)?);
     }
     Ok(rows)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RowSchema {
-    LegacyV1,
-    CurrentV2,
-}
-
-fn validate_row_schema(schema_version: Option<&str>) -> Result<RowSchema> {
+fn validate_row_schema(schema_version: Option<&str>) -> Result<()> {
     match schema_version {
-        // Compatibility Policy sealed-artifact exemption: only result rows and
-        // continuity traces dispatch exact 1.0.0. Summary/report readers remain
-        // strict 2.0.0 so the compatibility surface cannot grow accidentally.
-        // Evidence: reports/v0-1-5-findings-register.md:393 and
-        // runs/continuity/v0-1-5-baseline/shipped-a/results.jsonl:1.
-        Some(LEGACY_RESULT_SCHEMA_VERSION) => Ok(RowSchema::LegacyV1),
-        Some(RESULT_SCHEMA_VERSION) => Ok(RowSchema::CurrentV2),
+        Some(RESULT_SCHEMA_VERSION) => Ok(()),
         Some(version) => anyhow::bail!(
-            "unsupported result schema_version {version:?}; expected {LEGACY_RESULT_SCHEMA_VERSION:?} or {RESULT_SCHEMA_VERSION:?}"
+            "unsupported result schema_version {version:?}; expected {RESULT_SCHEMA_VERSION:?}"
         ),
         None => {
             anyhow::bail!("missing result schema_version; expected {RESULT_SCHEMA_VERSION:?}")
@@ -757,56 +626,6 @@ mod tests {
             model: "text-embedding-3-small".into(),
             vector_size: 1536,
         }
-    }
-
-    #[test]
-    fn legacy_context_export_matches_the_as_built_identity_renderer() {
-        let row = LegacyPerQuestionResultV1 {
-            run_id: "legacy-run".into(),
-            dataset: "locomo".into(),
-            adapter: serde_json::json!({}),
-            question_id: "q1".into(),
-            question_type: None,
-            question: "question".into(),
-            gold_episode_ids: Vec::new(),
-            gold_observation_ids: Vec::new(),
-            retrieved: vec![
-                LegacyRetrievedItemV1 {
-                    kind: "observation".into(),
-                    internal_id: "observation-internal".into(),
-                    external_id: None,
-                    episode_external_id: Some("episode-external".into()),
-                    score: Some(0.7),
-                    rank: 2,
-                    rationale: Vec::new(),
-                    text: Some("second".into()),
-                },
-                LegacyRetrievedItemV1 {
-                    kind: "episode".into(),
-                    internal_id: "episode-internal".into(),
-                    external_id: Some("episode-external".into()),
-                    episode_external_id: None,
-                    score: Some(0.9),
-                    rank: 1,
-                    rationale: Vec::new(),
-                    text: Some("first".into()),
-                },
-            ],
-            metrics: serde_json::json!({}),
-            latency_ms: 0,
-            context_char_count: 0,
-            context_word_count: 0,
-            context: serde_json::json!({}),
-            telemetry: serde_json::json!({}),
-            composition: serde_json::json!({}),
-            integrity: serde_json::json!({}),
-            reader: serde_json::json!({}),
-        };
-
-        assert_eq!(
-            row.rendered_context_text(),
-            "[episode:episode-external rank=1] first\n[observation:unknown rank=2] second"
-        );
     }
 
     fn metrics(value: Value) -> MetricsRecord {
@@ -1309,59 +1128,54 @@ mod tests {
     }
 
     #[test]
-    fn row_schema_dispatch_is_exact_and_rejects_missing_or_unsupported_versions() {
-        assert_eq!(
-            validate_row_schema(Some(RESULT_SCHEMA_VERSION)).unwrap(),
-            RowSchema::CurrentV2
-        );
-        assert_eq!(
-            validate_row_schema(Some(LEGACY_RESULT_SCHEMA_VERSION)).unwrap(),
-            RowSchema::LegacyV1
-        );
+    fn row_schema_is_exact_and_rejects_missing_or_unsupported_versions() {
+        validate_row_schema(Some(RESULT_SCHEMA_VERSION)).unwrap();
         let missing = validate_row_schema(None).unwrap_err();
         assert!(
             missing
                 .to_string()
                 .contains("missing result schema_version")
         );
-        let unsupported = validate_row_schema(Some("0.9.0")).unwrap_err();
-        assert!(
-            unsupported
-                .to_string()
-                .contains("unsupported result schema_version")
-        );
+        for version in ["1.0.0", "0.9.0"] {
+            let unsupported = validate_row_schema(Some(version)).unwrap_err();
+            let error = unsupported.to_string();
+            assert!(
+                error.contains("unsupported result schema_version"),
+                "{error}"
+            );
+            assert!(error.contains(version), "{error}");
+            assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
+        }
     }
 
     #[test]
-    fn read_jsonl_round_trips_v2_and_rejects_mixed_versions() {
+    fn read_jsonl_round_trips_v2_and_rejects_v1_at_schema_detection() {
         let path = temp_path("results", "jsonl");
         let result_row = row(serde_json::json!({"recall_any@1": 1.0}));
         let expected_bytes = format!(
             "{}\n",
             serde_json::to_string(&versioned_row_value(&result_row).unwrap()).unwrap()
         );
-        write_jsonl(&path, &[result_row]).unwrap();
+        write_jsonl(&path, std::slice::from_ref(&result_row)).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), expected_bytes);
         let rows = read_jsonl(&path).unwrap();
         assert_eq!(rows.len(), 1);
-        assert!(matches!(rows[0], VersionedPerQuestionResult::V2(_)));
+        assert_eq!(rows[0].question_id, result_row.question_id);
 
-        let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        let mut legacy = current.clone();
-        legacy["schema_version"] = Value::String(LEGACY_RESULT_SCHEMA_VERSION.into());
-        let mixed = format!(
-            "{}\n{}\n",
-            serde_json::to_string(&current).unwrap(),
-            serde_json::to_string(&legacy).unwrap()
-        );
-        std::fs::write(&path, mixed).unwrap();
+        let mut legacy = versioned_row_value(&row(serde_json::json!({}))).unwrap();
+        legacy["schema_version"] = Value::String("1.0.0".into());
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&legacy).unwrap()),
+        )
+        .unwrap();
+        let error = read_jsonl(&path).unwrap_err().to_string();
         assert!(
-            read_jsonl(&path)
-                .unwrap_err()
-                .to_string()
-                .contains("mixed result schema versions")
+            error.contains("unsupported result schema_version"),
+            "{error}"
         );
-        current["schema_version"] = Value::String(RESULT_SCHEMA_VERSION.into());
+        assert!(error.contains("1.0.0"), "{error}");
+        assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
         std::fs::remove_file(path).unwrap();
     }
 
@@ -1412,7 +1226,7 @@ mod tests {
     #[test]
     fn write_jsonl_rejects_non_v2_rows_before_replacing_the_destination() {
         let path = temp_path("results-writer-schema", "jsonl");
-        for schema_version in [LEGACY_RESULT_SCHEMA_VERSION, "9.9.9"] {
+        for schema_version in ["1.0.0", "9.9.9"] {
             let mut invalid = row(serde_json::json!({}));
             invalid.schema_version = schema_version.to_string();
             std::fs::write(&path, "preserved\n").unwrap();
@@ -1429,7 +1243,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_result_reader_rejects_shape_drift_while_sealed_v1_stays_tolerant() {
+    fn v2_result_reader_rejects_shape_drift() {
         let path = temp_path("results-shape-drift", "jsonl");
 
         let current = serde_json::to_string(&row(serde_json::json!({}))).unwrap();
@@ -1550,34 +1364,6 @@ mod tests {
             error.contains("missing field `full_history_chars`"),
             "{error}"
         );
-
-        let mut legacy = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        legacy["schema_version"] = Value::String(LEGACY_RESULT_SCHEMA_VERSION.into());
-        legacy["sealed_legacy_extra"] = Value::Bool(true);
-        legacy["context"]["sealed_legacy_nested_extra"] = Value::Bool(true);
-
-        let legacy_raw = serde_json::to_string(&legacy).unwrap();
-        let duplicate_known_field = legacy_raw.replacen(
-            r#""run_id":"r""#,
-            r#""run_id":"first","run_id":"second""#,
-            1,
-        );
-        assert_ne!(legacy_raw, duplicate_known_field);
-        std::fs::write(&path, format!("{duplicate_known_field}\n")).unwrap();
-        match read_jsonl(&path).unwrap().as_slice() {
-            [VersionedPerQuestionResult::V1(row)] => assert_eq!(row.run_id, "second"),
-            rows => panic!("expected one sealed-v1 row, got {rows:?}"),
-        }
-
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&legacy).unwrap()),
-        )
-        .unwrap();
-        assert!(matches!(
-            read_jsonl(&path).unwrap().as_slice(),
-            [VersionedPerQuestionResult::V1(_)]
-        ));
 
         std::fs::remove_file(path).unwrap();
     }
