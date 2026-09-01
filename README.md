@@ -36,7 +36,7 @@ cargo run -p cmem-eval-runner -- run synthetic \
 Benchmark commands default to the live Character Memory adapter. Provide backend settings:
 
 ```bash
-export QDRANT_CONNECTION_STRING=http://localhost:6334
+export QDRANT_CONNECTION_STRING=http://127.0.0.1:6334
 export OPENAI_API_KEY=...
 ```
 
@@ -95,7 +95,7 @@ min = 0
 max = 15
 ```
 
-Mock runs require Rust 1.97.0 and the checked fixture only; they do not connect to Qdrant, Oxigraph, SQLite, OpenAI, or another service. Live runs additionally require the sibling `../CharacterMemory` checkout, a local Qdrant gRPC endpoint such as `http://localhost:6334`, and writable paths under `runs/continuity/stores/`. Neither controllable-similarity nor frozen runtime providers require `OPENAI_API_KEY`; only the explicit offline frozen-store generation command uses it.
+Mock runs require Rust 1.97.0 and the checked fixture only; they do not connect to Qdrant, Oxigraph, SQLite, OpenAI, or another service. Live runs additionally require the sibling `../CharacterMemory` checkout, a local Qdrant gRPC endpoint such as `http://127.0.0.1:6334`, and writable paths under `runs/continuity/stores/`. Neither controllable-similarity nor frozen runtime providers require `OPENAI_API_KEY`; only the explicit offline frozen-store generation command uses it.
 
 ### Generate and validate frozen real embeddings
 
@@ -139,10 +139,10 @@ Use `provider = "mixed"` when selected schema-v3 scenarios contain both explicit
 Set the live endpoint in the current shell before a live run:
 
 ```bash
-export QDRANT_CONNECTION_STRING=http://localhost:6334
+export QDRANT_CONNECTION_STRING=http://127.0.0.1:6334
 ```
 
-PowerShell uses `$env:QDRANT_CONNECTION_STRING = "http://localhost:6334"` for the same setting.
+PowerShell uses `$env:QDRANT_CONNECTION_STRING = "http://127.0.0.1:6334"` for the same setting.
 
 ### Run a service-free mock smoke
 
