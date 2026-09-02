@@ -2,19 +2,11 @@ use crate::{DatasetId, DatasetKind, RetrievalSurfacePolicy};
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum EvaluationMode {
-    RetrievalOnly,
-    FixedReader,
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RetrievalMode {
     #[default]
     Hybrid,
-    Bm25Only,
     VectorOnly,
 }
 
@@ -476,7 +468,7 @@ impl RetrievalConfig {
     pub fn validate(&self) -> Result<()> {
         match self.mode {
             RetrievalMode::VectorOnly => self.surface_policy.validate_for_vector_only(),
-            RetrievalMode::Hybrid | RetrievalMode::Bm25Only => self.surface_policy.validate(),
+            RetrievalMode::Hybrid => self.surface_policy.validate(),
         }
     }
 }
@@ -484,14 +476,6 @@ impl RetrievalConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct IngestConfig {
-    #[serde(default)]
-    pub index_observations: bool,
-    #[serde(default)]
-    pub index_episode_summaries: bool,
-    #[serde(default)]
-    pub create_threads: bool,
-    #[serde(default)]
-    pub store_gold_labels: bool,
     #[serde(default)]
     pub index_session_summaries: bool,
     #[serde(default)]
@@ -506,20 +490,6 @@ pub struct IngestConfig {
 
 impl IngestConfig {
     pub fn validate(&self) -> Result<()> {
-        if self.store_gold_labels {
-            bail!("ingest.store_gold_labels=true is prohibited; gold labels are scorer-only");
-        }
-        if !self.index_observations {
-            bail!("ingest.index_observations=false is not supported by the current eval runner");
-        }
-        if !self.index_episode_summaries {
-            bail!(
-                "ingest.index_episode_summaries=false is not supported by the current eval runner"
-            );
-        }
-        if self.create_threads && self.enrichment_path.is_none() {
-            bail!("ingest.create_threads requires ingest.enrichment_path");
-        }
         if self.enrichment_path.is_some() && self.enrichment_snapshot_path.is_some() {
             bail!(
                 "ingest.enrichment_path and ingest.enrichment_snapshot_path are mutually exclusive"
@@ -717,8 +687,7 @@ mod tests {
         let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
             "dataset": "synthetic",
-            "backend": {"embedding": {"provider": "deterministic", "vector_size": 0}},
-            "ingest": {"index_observations": true, "index_episode_summaries": true}
+            "backend": {"embedding": {"provider": "deterministic", "vector_size": 0}}
         }))
         .unwrap();
 
@@ -737,8 +706,7 @@ mod tests {
                     "model": "text-embedding-3-small",
                     "vector_size": 3072
                 }
-            },
-            "ingest": {"index_observations": true, "index_episode_summaries": true}
+            }
         }))
         .unwrap();
 
@@ -761,8 +729,7 @@ mod tests {
                 "embedding": {"provider": "openai"},
                 "oxigraph_persistence_path": "runs/continuity/oxigraph",
                 "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
-            },
-            "ingest": {"index_observations": true, "index_episode_summaries": true}
+            }
         }))
         .unwrap();
 
@@ -813,8 +780,7 @@ mod tests {
                 },
                 "oxigraph_persistence_path": "runs/continuity/oxigraph",
                 "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
-            },
-            "ingest": {"index_observations": true, "index_episode_summaries": true}
+            }
         }))
         .unwrap();
 
@@ -844,8 +810,7 @@ mod tests {
                 },
                 "oxigraph_persistence_path": "runs/continuity/oxigraph",
                 "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
-            },
-            "ingest": {"index_observations": true, "index_episode_summaries": true}
+            }
         }))
         .unwrap();
 
@@ -877,10 +842,6 @@ mod tests {
                 "oxigraph_persistence_path": "runs/r/oxigraph",
                 "retrieval_stats_path": "runs/r/retrieval.sqlite",
                 "identity_registry_dir": "runs/r/identities"
-            },
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
             }
         }))
         .unwrap();
@@ -918,10 +879,6 @@ mod tests {
                         }
                     }
                 }
-            },
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
             }
         }))
         .unwrap();
@@ -957,11 +914,7 @@ mod tests {
     fn character_memory_overrides_are_absent_from_legacy_config_snapshots() {
         let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
-            "dataset": "synthetic",
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
-            }
+            "dataset": "synthetic"
         }))
         .unwrap();
 
@@ -979,10 +932,6 @@ mod tests {
                 "character_memory": {
                     "selectivity_smoothing_alpha": -1.0
                 }
-            },
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
             }
         }))
         .unwrap();
@@ -1134,35 +1083,12 @@ mod tests {
     }
 
     #[test]
-    fn parses_bm25_retrieval_mode() {
-        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
-            "run_id": "r",
-            "dataset": "synthetic",
-            "retrieval": {
-                "mode": "bm25_only"
-            },
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
-            }
-        }))
-        .unwrap();
-
-        assert_eq!(config.retrieval.mode, RetrievalMode::Bm25Only);
-        config.validate().unwrap();
-    }
-
-    #[test]
     fn parses_vector_only_retrieval_mode() {
         let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
             "dataset": "synthetic",
             "retrieval": {
                 "mode": "vector_only"
-            },
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
             }
         }))
         .unwrap();
@@ -1266,11 +1192,7 @@ mod tests {
     fn core_validation_leaves_dataset_dispatch_to_the_runner_seam() {
         let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
-            "dataset": "future_dataset",
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
-            }
+            "dataset": "future_dataset"
         }))
         .unwrap();
 
@@ -1285,10 +1207,6 @@ mod tests {
             "metrics": {
                 "ks_session": [1, 3],
                 "ks_turn": [7]
-            },
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
             }
         }))
         .unwrap();
@@ -1306,10 +1224,6 @@ mod tests {
             "metrics": {
                 "ks_session": [],
                 "ks_turn": [10]
-            },
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
             }
         }))
         .unwrap();
@@ -1324,25 +1238,19 @@ mod tests {
     }
 
     #[test]
-    fn rejects_gold_label_storage() {
-        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
-            "run_id": "r",
-            "dataset": "synthetic",
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true,
-                "store_gold_labels": true
-            }
-        }))
-        .unwrap();
-
-        assert!(
-            config
-                .validate()
+    fn retired_ingest_keys_are_rejected() {
+        for key in [
+            "index_observations",
+            "index_episode_summaries",
+            "store_gold_labels",
+            "create_threads",
+        ] {
+            let raw = format!(r#"{{"run_id":"r","dataset":"locomo","ingest":{{"{key}":true}}}}"#);
+            let error = serde_json::from_str::<BenchmarkRunConfig>(&raw)
                 .unwrap_err()
-                .to_string()
-                .contains("store_gold_labels")
-        );
+                .to_string();
+            assert!(error.contains("unknown field"), "{key}: {error}");
+        }
     }
 
     #[test]
@@ -1368,10 +1276,6 @@ mod tests {
                     "max_vector_candidates": 48,
                     "max_graph_roots": 48
                 }
-            },
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
             }
         }))
         .unwrap();
@@ -1417,10 +1321,6 @@ mod tests {
                 "cleanup": {
                     "enabled": true
                 }
-            },
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
             }
         }))
         .unwrap();
@@ -1445,10 +1345,6 @@ mod tests {
                     "enabled": true,
                     "require_collection_prefix": "bench:synthetic"
                 }
-            },
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
             }
         }))
         .unwrap();
@@ -1467,10 +1363,6 @@ mod tests {
                     "enabled": true,
                     "require_collection_prefix": "other"
                 }
-            },
-            "ingest": {
-                "index_observations": true,
-                "index_episode_summaries": true
             }
         }))
         .unwrap();

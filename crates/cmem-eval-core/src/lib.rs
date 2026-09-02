@@ -1,4 +1,3 @@
-pub mod bm25;
 pub mod config;
 pub mod controllable_similarity_embedding;
 pub mod deterministic_embedding;

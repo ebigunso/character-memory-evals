@@ -15,14 +15,14 @@ fn run_args(adapter: Option<AdapterKind>, allow_mock_benchmark: bool) -> RunArgs
 fn omitted_adapter_selects_real() {
     let args = run_args(None, false);
     assert_eq!(args.selected_adapter(), AdapterKind::Real);
-    args.validate_adapter_selection(&synthetic_config())
+    args.validate_adapter_selection(&benchmark_config())
         .unwrap();
 }
 
 #[test]
 fn mock_adapter_requires_explicit_benchmark_guard() {
     let err = run_args(Some(AdapterKind::Mock), false)
-        .validate_adapter_selection(&synthetic_config())
+        .validate_adapter_selection(&benchmark_config())
         .unwrap_err()
         .to_string();
     assert!(err.contains("mock adapter is test/smoke-only"));
@@ -32,24 +32,14 @@ fn mock_adapter_requires_explicit_benchmark_guard() {
 fn guarded_mock_adapter_is_allowed_for_smoke_runs() {
     let args = run_args(Some(AdapterKind::Mock), true);
     assert_eq!(args.selected_adapter(), AdapterKind::Mock);
-    args.validate_adapter_selection(&synthetic_config())
+    args.validate_adapter_selection(&benchmark_config())
         .unwrap();
-}
-
-#[test]
-fn bm25_mode_requires_guarded_mock_adapter_before_live_adapter_creation() {
-    let err = run_args(None, false)
-        .validate_adapter_selection(&synthetic_config_with_mode(RetrievalMode::Bm25Only))
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("retrieval.mode=bm25_only"));
-    assert!(err.contains("refusing to create a live adapter"));
 }
 
 #[test]
 fn vector_only_mode_rejects_mock_adapter() {
     let err = run_args(Some(AdapterKind::Mock), true)
-        .validate_adapter_selection(&synthetic_config_with_mode(RetrievalMode::VectorOnly))
+        .validate_adapter_selection(&benchmark_config_with_mode(RetrievalMode::VectorOnly))
         .unwrap_err()
         .to_string();
     assert!(err.contains("retrieval.mode=vector_only"));
@@ -60,14 +50,13 @@ fn vector_only_mode_rejects_mock_adapter() {
 fn vector_only_mode_allows_default_real_adapter() {
     let args = run_args(None, false);
     assert_eq!(args.selected_adapter(), AdapterKind::Real);
-    args.validate_adapter_selection(&synthetic_config_with_mode(RetrievalMode::VectorOnly))
+    args.validate_adapter_selection(&benchmark_config_with_mode(RetrievalMode::VectorOnly))
         .unwrap();
 }
 
 #[test]
 fn checked_in_vector_configs_use_raw_candidate_ingestion_only() {
     for path in [
-        "../../configs/synthetic_vector.toml",
         "../../configs/longmemeval_s_vector.toml",
         "../../configs/locomo_vector.toml",
     ] {
@@ -88,7 +77,6 @@ fn checked_in_vector_configs_use_raw_candidate_ingestion_only() {
         );
         assert_eq!(config.retrieval.surface_policy.sections.derived_memories, 0);
         assert_eq!(config.retrieval.surface_policy.sections.active_threads, 0);
-        assert!(!config.ingest.create_threads);
         assert!(!config.ingest.index_session_summaries);
         assert!(!config.ingest.index_generated_observations);
         assert!(config.ingest.enrichment_path.is_none());
@@ -104,7 +92,7 @@ fn config_reader_rejects_misspelled_backend_table() {
         &path,
         r#"
 run_id = "typo"
-dataset = "synthetic"
+dataset = "locomo"
 
 [backend.character_memroy]
 selectivity_gamma = 0.5
@@ -120,13 +108,18 @@ selectivity_gamma = 0.5
 }
 
 #[test]
-fn all_checked_in_configs_parse_under_the_strict_schema() {
+fn current_checked_in_configs_parse_under_the_strict_schema() {
     let mut paths = fs::read_dir("../../configs")
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| {
             path.extension()
                 .is_some_and(|extension| extension == "toml")
+                && !path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("continuity_")
         })
         .collect::<Vec<_>>();
     paths.sort();
@@ -139,24 +132,20 @@ fn all_checked_in_configs_parse_under_the_strict_schema() {
     }
 }
 
-fn synthetic_config() -> BenchmarkRunConfig {
-    synthetic_config_with_mode(RetrievalMode::Hybrid)
+fn benchmark_config() -> BenchmarkRunConfig {
+    benchmark_config_with_mode(RetrievalMode::Hybrid)
 }
 
-fn synthetic_config_with_mode(mode: RetrievalMode) -> BenchmarkRunConfig {
+fn benchmark_config_with_mode(mode: RetrievalMode) -> BenchmarkRunConfig {
     BenchmarkRunConfig {
         run_id: "r".into(),
-        dataset: cmem_eval_core::DatasetId::new("synthetic").unwrap(),
+        dataset: cmem_eval_core::DatasetId::new("locomo").unwrap(),
         backend: Default::default(),
         retrieval: cmem_eval_core::RetrievalConfig {
             mode,
             ..Default::default()
         },
-        ingest: cmem_eval_core::IngestConfig {
-            index_observations: true,
-            index_episode_summaries: true,
-            ..Default::default()
-        },
+        ingest: Default::default(),
         metrics: Default::default(),
     }
 }

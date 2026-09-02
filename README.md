@@ -18,19 +18,11 @@ The repository pins Rust 1.97.0 with the `rustfmt` and `clippy` components. Each
 - The Formatting job checks `cargo fmt --all --check` without compiling the workspace.
 - The Clippy job enforces warnings-as-errors across the workspace and all targets.
 - The Tests job runs the complete workspace test suite.
-- The Mock smoke job runs the guarded service-free synthetic CLI and verifies that both output artifacts are non-empty.
 
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo run -p cmem-eval-runner -- run synthetic \
-  --dataset ./fixtures/synthetic_small.json \
-  --config ./configs/synthetic_retrieval.toml \
-  --out ./runs/synthetic.jsonl \
-  --summary-out ./runs/synthetic_summary.json \
-  --adapter mock \
-  --allow-mock-benchmark
 ```
 
 Benchmark commands default to the live Character Memory adapter. Provide backend settings:
@@ -43,35 +35,13 @@ export OPENAI_API_KEY=...
 For live runs that use deterministic embeddings instead of OpenAI, set
 `[backend.embedding] provider = "deterministic"` in the run config.
 
-For service-free smoke validation, opt into mock output explicitly:
-
-```bash
-cargo run -p cmem-eval-runner -- run synthetic \
-  --dataset ./fixtures/synthetic_small.json \
-  --config ./configs/synthetic_retrieval.toml \
-  --out ./runs/synthetic.jsonl \
-  --summary-out ./runs/synthetic_summary.json \
-  --adapter mock \
-  --allow-mock-benchmark
-```
-
-Live synthetic runs use the default adapter:
-
-```bash
-cargo run -p cmem-eval-runner -- run synthetic \
-  --dataset ./fixtures/synthetic_small.json \
-  --config ./configs/synthetic_retrieval.toml \
-  --out ./runs/synthetic.jsonl \
-  --summary-out ./runs/synthetic_summary.json
-```
-
 ## Continuity Evaluation
 
 Continuity fixtures run an ordered, fixture-scripted lifecycle through remember, staged prepare/validate/commit, retrieve, correct, forget, link, and restart operations. The harness observes and reports retrieval and lifecycle measurements; it does not enforce metric thresholds as CI pass/fail gates.
 
 ### Configuration and prerequisites
 
-`configs/continuity_retrieval.toml` is the primary/default committed continuity config for both mock smoke runs and live evaluations; the other committed continuity configs are evidence configs for specific validation and sweep regimes. A separate mock config is unnecessary because mock selection is an explicit CLI adapter choice. Continuity validation accepts `controllable_similarity`, `frozen`, or `mixed` deterministic embeddings. The checked schema-v3 fixture is a mixed suite: its two semantic-geometry scenarios use the committed `text-embedding-3-large` frozen store, while its thirteen structural scenarios use controllable similarity and are zero-padded from eight dimensions to the store width. Schema-v3 fixtures declare a provider in every scenario embedding block, and frozen or mixed configs require `backend.embedding.store_path`. Persistent Oxigraph and retrieval-stat SQLite paths remain mandatory so restart scenarios can reconstruct those stores. The identity registry is always persistent: `identity_registry_dir` is optional and falls back deterministically to `runs/<run_id>`; the committed config explicitly places it under `runs/continuity/stores/identities`. The config records `max_vector_candidates = 48` and `max_graph_roots = 48` so report tuning observations remain correlated with the measured candidate-limit regime.
+The seven committed continuity configs are sealed evidence for cited validation and sweep regimes. Their bytes remain immutable and are not maintained as current CLI inputs after config-schema removals. Continuity validation accepts `controllable_similarity`, `frozen`, or `mixed` deterministic embeddings. The checked schema-v3 fixture is a mixed suite: its two semantic-geometry scenarios use the committed `text-embedding-3-large` frozen store, while its thirteen structural scenarios use controllable similarity and are zero-padded from eight dimensions to the store width. Schema-v3 fixtures declare a provider in every scenario embedding block, and frozen or mixed configs require `backend.embedding.store_path`. Persistent Oxigraph and retrieval-stat SQLite paths remain mandatory so restart scenarios can reconstruct those stores. The identity registry is always persistent: `identity_registry_dir` is optional and falls back deterministically to `runs/<run_id>`.
 
 The v3 catalog adds five purpose-built scenarios. `graded-similarity` uses frozen real-model geometry to require target > near miss > background. `combined-life` uses the same frozen store for a 62-event, year-spanning life history with two interleaved threads, correction chains, links, hubs, and varied salience. `temporal-patterns`, `entrenched-correction`, and `autobiographical` use controllable similarity so temporal structure, repeated-misinformation correction, and ordinary-person provider judgment remain deterministic and independently interpretable.
 
@@ -144,51 +114,6 @@ export QDRANT_CONNECTION_STRING=http://127.0.0.1:6334
 
 PowerShell uses `$env:QDRANT_CONNECTION_STRING = "http://127.0.0.1:6334"` for the same setting.
 
-### Run a service-free mock smoke
-
-The guarded mock command runs all fifteen checked scenarios, writes visibly marked `mock_smoke` artifacts, and uses the same config and metric registry as the live path:
-
-```bash
-cargo run -p cmem-eval-runner -- run continuity \
-  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json \
-  --config ./configs/continuity_retrieval.toml \
-  --out ./runs/continuity/mock/results.jsonl \
-  --summary-out ./runs/continuity/mock/summary.json \
-  --trace-out ./runs/continuity/mock/traces.jsonl \
-  --report-out ./runs/continuity/mock/report.json \
-  --adapter mock \
-  --allow-mock-benchmark
-```
-
-### Run a live restart scenario
-
-This bounded live command exercises Qdrant plus the configured persistent stores and performs the mid-scenario drop/reconstruct path. Remove `--scenario cross-store-stress` to run the complete scenario set.
-
-```bash
-cargo run -p cmem-eval-runner -- run continuity \
-  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json \
-  --config ./configs/continuity_retrieval.toml \
-  --out ./runs/continuity/live/results.jsonl \
-  --summary-out ./runs/continuity/live/summary.json \
-  --trace-out ./runs/continuity/live/traces.jsonl \
-  --report-out ./runs/continuity/live/report.json \
-  --scenario cross-store-stress
-```
-
-Fresh runs reset only the deterministic namespace-scoped stores derived from the config's prefix, run ID, and fixture namespace. The restart event inside `cross-store-stress` drops the active adapter without deleting those stores, reconstructs Qdrant/Oxigraph/SQLite/identity state, and remeasures the next scripted query before and after reconstruction.
-
-### Re-summarize existing results
-
-Continuity metric families include fixture-derived entity-kind keys, so `summarize` must receive the original config and source fixture. Repeat `--scenario <fixture-id>` when the original run selected one scenario.
-
-```bash
-cargo run -p cmem-eval-runner -- summarize \
-  --input ./runs/continuity/mock/results.jsonl \
-  --config ./configs/continuity_retrieval.toml \
-  --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json \
-  --out ./runs/continuity/mock/resummary.json
-```
-
 ### Generate a fixture candidate
 
 The checked fixture seed is `20260712`. Generate into `runs/` for inspection instead of overwriting the checked fixture before reviewing the diff:
@@ -250,31 +175,9 @@ Fixture `irrelevant_external_ids` are sampled negatives, not an exhaustive compl
 1. Implement the measurement in `crates/cmem-eval-continuity/src/metrics.rs` using only fixture labels and backend-neutral trace telemetry. Keep entity handling type-neutral and preserve deterministic ordering.
 2. Register every required key in `continuity_metric_family`; add dynamic keys from the selected scenarios when the metric varies by fixture vocabulary.
 3. Initialize unsupported values as `null`, never a fabricated zero. Add hand-computed tests for measured values and an explicit missing-telemetry test for null support.
-4. Confirm run and `summarize` produce identical config, `metric_support`, and `registry_coverage`, and confirm the metric appears in aggregate and per-scenario report sections.
+4. Confirm the metric appears in the run summary and aggregate and per-scenario report sections with matching `metric_support` and `registry_coverage`.
 
 Continuity metrics are measurements for comparison and tuning. Adding a metric does not create a CI threshold or a pass/fail policy.
-
-BM25 retrieval is a service-free lexical baseline selected in TOML with
-`[retrieval] mode = "bm25_only"`. It ranks ingested episodes and observations
-inside the eval harness and does not connect to Qdrant, Oxigraph, OpenAI, or
-live Character Memory retrieval. Use BM25-specific run IDs and output paths so
-active benchmark artifacts are not overwritten:
-
-```bash
-cargo run -p cmem-eval-runner -- run synthetic \
-  --dataset ./fixtures/synthetic_small.json \
-  --config ./configs/synthetic_bm25.toml \
-  --out ./runs/synthetic_bm25.jsonl \
-  --summary-out ./runs/synthetic_bm25_summary.json \
-  --adapter mock \
-  --allow-mock-benchmark
-```
-
-BM25 configs are available for synthetic, LongMemEval-S, and LoCoMo:
-`configs/synthetic_bm25.toml`, `configs/longmemeval_s_bm25.toml`, and
-`configs/locomo_bm25.toml`. Keep cleanup disabled or use a BM25-specific
-namespace prefix; never reuse active live benchmark output paths for baseline
-runs.
 
 Vector-only retrieval is a live baseline selected in TOML with
 `[retrieval] mode = "vector_only"`. It ingests through Character Memory, then
@@ -284,16 +187,15 @@ raw candidates: episodes and observations. It uses the configured embedding
 provider for query embeddings and cannot run with `--adapter mock`.
 
 ```bash
-cargo run -p cmem-eval-runner -- run synthetic \
-  --dataset ./fixtures/synthetic_small.json \
-  --config ./configs/synthetic_vector.toml \
-  --out ./runs/synthetic_vector.jsonl \
-  --summary-out ./runs/synthetic_vector_summary.json
+cargo run -p cmem-eval-runner -- run longmemeval-s \
+  --dataset ./datasets/longmemeval_s_cleaned.json \
+  --config ./configs/longmemeval_s_vector.toml \
+  --out ./runs/longmemeval_s_vector.jsonl \
+  --summary-out ./runs/longmemeval_s_vector_summary.json
 ```
 
-Vector-only configs are available for synthetic, LongMemEval-S, and LoCoMo:
-`configs/synthetic_vector.toml`, `configs/longmemeval_s_vector.toml`, and
-`configs/locomo_vector.toml`. Use vector-specific run IDs, namespace prefixes,
+Vector-only configs are available for LongMemEval-S and LoCoMo:
+`configs/longmemeval_s_vector.toml` and `configs/locomo_vector.toml`. Use vector-specific run IDs, namespace prefixes,
 and output paths. Do not point vector-only runs at active benchmark Qdrant or
 OpenAI resources unless sharing that load is intentional.
 
@@ -328,7 +230,7 @@ Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementa
 
 JSONL rows, continuity traces, summaries, and reports use report schema version `2.0.0`. Readers accept only schema `2.0.0` and fail closed on missing or unsupported versions; sealed evidence from superseded schemas remains immutable bytes verified by hash rather than input for the live readers. The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains first-class as per-row `latency_ms` and summary `latency.latency_ms` mean/median/p50/p95 values, but it is excluded from deterministic `metrics`. Each row records its typed per-scenario embedding binding, and summaries aggregate the sorted unique binding records rather than exposing a single embedding-provider field.
 
-Live namespace lifecycle is explicit: `open_namespace` creates fresh run state, while `reattach_namespace` requires and restores the complete durable identity consisting of the external-ID registry, deterministic Qdrant collection, and every configured namespace-scoped Oxigraph and retrieval-stat store. Before ingesting a conventional dataset item, the runner resets and opens its namespace exactly once per `DatasetSpec::Item`; the item supplies the granularity (a question for LongMemEval-S and synthetic, or a sample for LoCoMo), and configuration does not alter it. Configured `oxigraph_persistence_path` values are shared roots whose namespace child directories use the same prefix/run/namespace UUID identity as Qdrant; configured `retrieval_stats_path` values are filename templates whose derived sibling files use that identity while preserving the configured extension. Cleanup remains guarded by the configured eval prefix and never deletes a configured shared root.
+Live namespace lifecycle is explicit: `open_namespace` creates fresh run state, while `reattach_namespace` requires and restores the complete durable identity consisting of the external-ID registry, deterministic Qdrant collection, and every configured namespace-scoped Oxigraph and retrieval-stat store. Before ingesting a conventional dataset item, the runner resets and opens its namespace exactly once per `DatasetSpec::Item`; the item supplies the granularity (a question for LongMemEval-S or a sample for LoCoMo), and configuration does not alter it. Configured `oxigraph_persistence_path` values are shared roots whose namespace child directories use the same prefix/run/namespace UUID identity as Qdrant; configured `retrieval_stats_path` values are filename templates whose derived sibling files use that identity while preserving the configured extension. Cleanup remains guarded by the configured eval prefix and never deletes a configured shared root.
 
 ## Precomputed Graph Enrichment
 
@@ -364,53 +266,9 @@ LongMemEval-S does not include equivalent generated memory fields, so additional
 entities, threads, links, and derived memories should come from an enrichment
 JSONL artifact.
 
-## Official Exports
-
-Internal benchmark runs write eval JSONL first. Official-compatible artifacts are
-post-processing outputs so runs, logs, summaries, and exports can be preserved
-independently.
-
-LongMemEval retrieval export writes JSONL rows with `question_id` and
-`retrieval_results.ranked_items`:
-
-```bash
-cargo run -p cmem-eval-runner -- export-official longmemeval retrieval \
-  --input ./runs/longmemeval_s_v0_1.jsonl \
-  --out ./runs/longmemeval_s_v0_1_retrieval_official.jsonl
-```
-
-LongMemEval QA export requires explicit predictions and never fabricates empty
-hypotheses. Prediction JSONL must contain `question_id` plus `hypothesis`
-or `prediction`:
-
-```bash
-cargo run -p cmem-eval-runner -- export-official longmemeval qa \
-  --input ./runs/longmemeval_s_v0_1.jsonl \
-  --predictions ./runs/longmemeval_s_predictions.jsonl \
-  --out ./runs/longmemeval_s_v0_1_qa_official.jsonl
-```
-
-LoCoMo export preserves sample/QA identity recovered from stable internal IDs
-like `<sample_id>:qa:<index>`, category, question, optional prediction/context
-fields, and retrieved dialog/session IDs:
-
-```bash
-cargo run -p cmem-eval-runner -- export-official locomo \
-  --input ./runs/locomo_v0_1.jsonl \
-  --predictions ./runs/locomo_predictions.jsonl \
-  --out ./runs/locomo_v0_1_official.jsonl
-```
-
-LoCoMo official answer text is not stored in internal run JSONL, so the export
-sets `answer` to `null` unless a later dataset-join export path is added.
-
 ## Metric Registry
 
-Internal run JSONL records retrieval-only metrics directly and reserves
-reader/QA fields for later external prediction and judge outputs. Scalar
-metrics live under `metrics` so summaries can aggregate them; structured
-details live under `context`, `composition`, `telemetry`, `integrity`, and
-`reader`.
+Internal run JSONL records retrieval-only metrics directly. Scalar metrics live under `metrics` so summaries can aggregate them; structured details live under `context`, `composition`, `telemetry`, and `integrity`.
 
 Always-available retrieval metrics:
 

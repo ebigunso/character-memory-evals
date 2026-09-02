@@ -179,17 +179,3 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: CharacterMemoryEvals
-
-      - name: Run mock synthetic smoke test
-        run: |
-          smoke_dir="$RUNNER_TEMP/cmem-eval-smoke"
-          mkdir -p "$smoke_dir"
-          cargo run -p cmem-eval-runner -- run synthetic \
-            --dataset ./fixtures/synthetic_small.json \
-            --config ./configs/synthetic_retrieval.toml \
-            --out "$smoke_dir/synthetic.jsonl" \
-            --summary-out "$smoke_dir/synthetic_summary.json" \
-            --adapter mock \
-            --allow-mock-benchmark
-          test -s "$smoke_dir/synthetic.jsonl"
-          test -s "$smoke_dir/synthetic_summary.json"

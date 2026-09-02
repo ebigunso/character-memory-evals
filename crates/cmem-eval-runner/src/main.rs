@@ -1,7 +1,6 @@
 mod commands;
 mod enrichment;
 mod frozen_embeddings;
-mod official_exports;
 
 use anyhow::Result;
 use clap::Parser;

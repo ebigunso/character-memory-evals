@@ -16,7 +16,6 @@ last_updated: "2026-09-02"
 ## Repository-Specific Validation Commands
 
 - Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` before reporting implementation done.
-- Run a service-free continuity smoke before reporting continuity CLI changes done.
 
 ## Repo Documentation Wording
 

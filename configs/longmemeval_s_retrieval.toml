@@ -30,10 +30,6 @@ commitments = 8
 character_signals = 8
 
 [ingest]
-index_observations = true
-index_episode_summaries = true
-create_threads = false
-store_gold_labels = false
 # Per-question graph snapshots produced from source-only chronological replay.
 enrichment_snapshot_path = "./datasets/enriched/longmemeval_s_online_snapshots.jsonl"
 
