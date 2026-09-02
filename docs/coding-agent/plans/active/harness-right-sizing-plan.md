@@ -95,7 +95,7 @@
   - kind: command
     required: true
     owner: evals-worker
-    detail: "diff on the reviewer's two candidate runs is empty; diff candidate vs parent baseline shows rank-only movement"
+    detail: "diff on the reviewer's two candidate runs is empty; diff candidate vs parent baseline is empty on identities, ranks, metrics, and degradation (parent already carries the rank fix), while removed-field absence is reported informationally"
   - kind: review
     required: true
     owner: evals-reviewer

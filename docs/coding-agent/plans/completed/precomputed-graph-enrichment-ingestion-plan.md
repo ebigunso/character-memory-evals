@@ -134,7 +134,7 @@
 - owns:
   - `README.md`
   - `configs/*.toml`
-  - `docs/coding-agent/plans/active/precomputed-graph-enrichment-ingestion-plan.md`
+  - `docs/coding-agent/plans/completed/precomputed-graph-enrichment-ingestion-plan.md`
 - depends_on: [Task_4]
 - description: |
   Document enrichment artifact generation boundaries, schema, config, and raw-vs-enriched run modes, then review.

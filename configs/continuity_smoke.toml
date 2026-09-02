@@ -1,0 +1,34 @@
+run_id = "continuity_smoke"
+dataset = "continuity"
+
+[backend]
+namespace_prefix = "cmem_eval_continuity_smoke"
+oxigraph_persistence_path = ".agent-work/continuity-smoke/stores/oxigraph"
+retrieval_stats_path = ".agent-work/continuity-smoke/stores/retrieval.sqlite"
+identity_registry_dir = ".agent-work/continuity-smoke/stores/identities"
+
+[backend.embedding]
+provider = "frozen"
+model = "text-embedding-3-large"
+vector_size = 3072
+store_path = "crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json"
+
+[retrieval]
+mode = "hybrid"
+
+[retrieval.surface_policy]
+object_types = ["episode", "observation", "derived_memory", "memory_thread", "entity"]
+include_debug_rationale = true
+max_vector_candidates = 48
+max_graph_roots = 48
+
+[retrieval.surface_policy.sections]
+active_threads = 6
+relevant_episodes = 8
+salient_observations = 8
+derived_memories = 12
+preferences = 8
+relationship_notes = 8
+open_loops = 8
+commitments = 8
+character_signals = 8

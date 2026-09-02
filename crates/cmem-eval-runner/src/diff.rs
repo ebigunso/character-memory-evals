@@ -1,7 +1,12 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::Args;
-use cmem_eval_core::{PerQuestionResult, RetrievedItem, read_jsonl};
+use serde::de::IgnoredAny;
+use serde::{Deserialize, Deserializer};
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(Debug, Args)]
@@ -12,14 +17,94 @@ pub(crate) struct DiffArgs {
 
 pub(crate) fn run(args: DiffArgs) -> Result<()> {
     let report = compare(
-        normalize(read_jsonl(&args.run_a)?),
-        normalize(read_jsonl(&args.run_b)?),
+        normalize(read_rows(&args.run_a)?),
+        normalize(read_rows(&args.run_b)?),
     )?;
     print!("{}", report.render());
     Ok(())
 }
 
-fn normalize(mut rows: Vec<PerQuestionResult>) -> Vec<PerQuestionResult> {
+#[derive(Debug, Deserialize)]
+struct DiffRow {
+    run_id: String,
+    question_id: String,
+    #[serde(default)]
+    retrieved: Vec<DiffRetrievedItem>,
+    #[serde(default)]
+    write_outcomes: Vec<DiffWriteOutcome>,
+    #[serde(default)]
+    lifecycle_outcomes: Vec<DiffLifecycleOutcome>,
+    #[serde(default)]
+    metrics: Value,
+    latency_ms: u128,
+    #[serde(default, rename = "reader", deserialize_with = "present")]
+    reader_present: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiffRetrievedItem {
+    kind: Value,
+    internal_id: String,
+    #[serde(default)]
+    external_id: Option<String>,
+    #[serde(default)]
+    episode_external_id: Option<String>,
+    rank: usize,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct DiffStatsUpdateStatus {
+    #[serde(default)]
+    failure: Option<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiffWriteOutcome {
+    #[serde(default)]
+    vector_indexing_failure: Option<Value>,
+    #[serde(default)]
+    stats_update_status: DiffStatsUpdateStatus,
+    #[serde(default)]
+    repair_needed: Vec<Value>,
+    #[serde(default, rename = "attempt_index", deserialize_with = "present")]
+    attempt_index_present: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiffLifecycleOutcome {
+    #[serde(default)]
+    vector_maintenance_failures: Vec<Value>,
+    #[serde(default)]
+    stats_update_status: DiffStatsUpdateStatus,
+    #[serde(default, rename = "attempt_index", deserialize_with = "present")]
+    attempt_index_present: bool,
+}
+
+fn present<'de, D>(deserializer: D) -> std::result::Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    IgnoredAny::deserialize(deserializer)?;
+    Ok(true)
+}
+
+fn read_rows(path: &Path) -> Result<Vec<DiffRow>> {
+    let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let mut rows = Vec::new();
+    for (line_index, line) in BufReader::new(file).lines().enumerate() {
+        let line =
+            line.with_context(|| format!("read {} line {}", path.display(), line_index + 1))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        rows.push(serde_json::from_str(&line).with_context(|| {
+            format!("parse {} line {} for diff", path.display(), line_index + 1)
+        })?);
+    }
+    Ok(rows)
+}
+
+fn normalize(mut rows: Vec<DiffRow>) -> Vec<DiffRow> {
     for row in &mut rows {
         row.run_id = "__RUN__".to_string();
         row.latency_ms = 0;
@@ -30,6 +115,7 @@ fn normalize(mut rows: Vec<PerQuestionResult>) -> Vec<PerQuestionResult> {
 #[derive(Debug, Default)]
 struct DiffReport {
     details: Vec<String>,
+    informational_fields: Vec<String>,
     queries: usize,
     differing_queries: usize,
     missing_from_a: usize,
@@ -42,7 +128,15 @@ struct DiffReport {
 
 impl DiffReport {
     fn render(&self) -> String {
-        let mut output = self.details.join("\n");
+        let mut lines = Vec::new();
+        if !self.informational_fields.is_empty() {
+            lines.push(format!(
+                "informational: fields absent on one side: {}",
+                self.informational_fields.join(", ")
+            ));
+        }
+        lines.extend(self.details.iter().cloned());
+        let mut output = lines.join("\n");
         if !output.is_empty() {
             output.push('\n');
         }
@@ -61,7 +155,9 @@ impl DiffReport {
     }
 }
 
-fn compare(run_a: Vec<PerQuestionResult>, run_b: Vec<PerQuestionResult>) -> Result<DiffReport> {
+fn compare(run_a: Vec<DiffRow>, run_b: Vec<DiffRow>) -> Result<DiffReport> {
+    let fields_a = field_presence(&run_a);
+    let fields_b = field_presence(&run_b);
     let run_a = index(run_a, "run A")?;
     let run_b = index(run_b, "run B")?;
     let query_ids = run_a
@@ -71,6 +167,16 @@ fn compare(run_a: Vec<PerQuestionResult>, run_b: Vec<PerQuestionResult>) -> Resu
         .collect::<BTreeSet<_>>();
     let mut report = DiffReport {
         queries: query_ids.len(),
+        informational_fields: fields_a
+            .union(&fields_b)
+            .filter_map(
+                |field| match (fields_a.contains(field), fields_b.contains(field)) {
+                    (true, false) => Some(format!("{field} (run B)")),
+                    (false, true) => Some(format!("{field} (run A)")),
+                    _ => None,
+                },
+            )
+            .collect(),
         ..Default::default()
     };
 
@@ -129,7 +235,31 @@ fn compare(run_a: Vec<PerQuestionResult>, run_b: Vec<PerQuestionResult>) -> Resu
     Ok(report)
 }
 
-fn index(rows: Vec<PerQuestionResult>, label: &str) -> Result<BTreeMap<String, PerQuestionResult>> {
+fn field_presence(rows: &[DiffRow]) -> BTreeSet<String> {
+    let mut fields = BTreeSet::new();
+    for row in rows {
+        if row.reader_present {
+            fields.insert("reader".to_string());
+        }
+        if row
+            .write_outcomes
+            .iter()
+            .any(|outcome| outcome.attempt_index_present)
+        {
+            fields.insert("write_outcomes[].attempt_index".to_string());
+        }
+        if row
+            .lifecycle_outcomes
+            .iter()
+            .any(|outcome| outcome.attempt_index_present)
+        {
+            fields.insert("lifecycle_outcomes[].attempt_index".to_string());
+        }
+    }
+    fields
+}
+
+fn index(rows: Vec<DiffRow>, label: &str) -> Result<BTreeMap<String, DiffRow>> {
     let mut indexed = BTreeMap::new();
     for row in rows {
         let question_id = row.question_id.clone();
@@ -140,13 +270,13 @@ fn index(rows: Vec<PerQuestionResult>, label: &str) -> Result<BTreeMap<String, P
     Ok(indexed)
 }
 
-fn identities(items: &[RetrievedItem]) -> Vec<String> {
+fn identities(items: &[DiffRetrievedItem]) -> Vec<String> {
     let mut identities = items.iter().map(identity).collect::<Vec<_>>();
     identities.sort();
     identities
 }
 
-fn ranks(items: &[RetrievedItem]) -> Vec<(String, usize)> {
+fn ranks(items: &[DiffRetrievedItem]) -> Vec<(String, usize)> {
     let mut ranks = items
         .iter()
         .map(|item| (identity(item), item.rank))
@@ -155,7 +285,7 @@ fn ranks(items: &[RetrievedItem]) -> Vec<(String, usize)> {
     ranks
 }
 
-fn identity(item: &RetrievedItem) -> String {
+fn identity(item: &DiffRetrievedItem) -> String {
     serde_json::to_string(&(
         &item.kind,
         &item.internal_id,
@@ -165,7 +295,7 @@ fn identity(item: &RetrievedItem) -> String {
     .expect("retrieved item identity always serializes")
 }
 
-fn degraded(row: &PerQuestionResult) -> bool {
+fn degraded(row: &DiffRow) -> bool {
     row.write_outcomes.iter().any(|outcome| {
         outcome.vector_indexing_failure.is_some()
             || outcome.stats_update_status.failure.is_some()
@@ -179,66 +309,48 @@ fn degraded(row: &PerQuestionResult) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmem_eval_core::{
-        DatasetId, DatasetKind, EmbeddingBindingRecord, LiveEmbeddingProvider, MetricsRecord,
-        ObjectType, ResultCompositionMetrics, ResultContextMetrics, ResultIntegrityDetails,
-        RetrievalTelemetry, RunAdapterMetadata,
-    };
     use serde_json::json;
 
-    fn row(run_id: &str, latency_ms: u128, items: Vec<RetrievedItem>) -> PerQuestionResult {
-        PerQuestionResult {
-            schema_version: cmem_eval_core::RESULT_SCHEMA_VERSION.to_string(),
-            run_id: run_id.to_string(),
-            dataset: DatasetId::new("locomo").unwrap(),
-            dataset_kind: DatasetKind::LoCoMo,
-            embedding_binding: EmbeddingBindingRecord::Live {
-                provider: LiveEmbeddingProvider::Deterministic,
-                model: "test".to_string(),
-                vector_size: 2,
-            },
-            adapter: RunAdapterMetadata::mock_smoke(),
-            question_id: "q1".to_string(),
-            question_type: None,
-            question: "question".to_string(),
-            gold_episode_ids: Vec::new(),
-            gold_observation_ids: Vec::new(),
-            retrieved: items,
-            context_text: String::new(),
-            write_outcomes: Vec::new(),
-            lifecycle_outcomes: Vec::new(),
-            metrics: MetricsRecord::try_from(
-                json!({"recall_any@1": 1.0}).as_object().unwrap().clone(),
-            )
-            .unwrap(),
-            latency_ms,
-            context_char_count: 0,
-            context_word_count: 0,
-            context: ResultContextMetrics::default(),
-            telemetry: RetrievalTelemetry::default(),
-            composition: ResultCompositionMetrics::default(),
-            integrity: ResultIntegrityDetails::default(),
+    fn row(run_id: &str, latency_ms: u128, rank: usize, legacy_fields: bool) -> DiffRow {
+        let mut value = json!({
+            "schema_version": "2",
+            "run_id": run_id,
+            "question_id": "q1",
+            "retrieved": [{
+                "kind": "episode",
+                "internal_id": "one",
+                "external_id": "one",
+                "episode_external_id": "one",
+                "rank": rank,
+                "score": 1.0
+            }],
+            "write_outcomes": [{
+                "operation_id": "write-1",
+                "vector_indexing_failure": null,
+                "stats_update_status": {"failure": null},
+                "repair_needed": []
+            }],
+            "lifecycle_outcomes": [{
+                "operation_id": "lifecycle-1",
+                "vector_maintenance_failures": [],
+                "stats_update_status": {"failure": null}
+            }],
+            "metrics": {"recall_any@1": 1.0},
+            "latency_ms": latency_ms
+        });
+        if legacy_fields {
+            value["reader"] = json!({"model": null, "answer": null});
+            value["write_outcomes"][0]["attempt_index"] = json!(0);
+            value["lifecycle_outcomes"][0]["attempt_index"] = json!(0);
         }
-    }
-
-    fn item(id: &str, rank: usize) -> RetrievedItem {
-        RetrievedItem {
-            kind: ObjectType::Episode,
-            internal_id: id.to_string(),
-            external_id: Some(id.to_string()),
-            episode_external_id: Some(id.to_string()),
-            score: Some(1.0),
-            rank,
-            rationale: Vec::new(),
-            text: Some(id.to_string()),
-        }
+        serde_json::from_value(value).unwrap()
     }
 
     #[test]
     fn run_identity_and_latency_are_the_only_normalized_fields() {
         let report = compare(
-            normalize(vec![row("a", 1, vec![item("one", 1)])]),
-            normalize(vec![row("b", 99, vec![item("one", 1)])]),
+            normalize(vec![row("a", 1, 1, false)]),
+            normalize(vec![row("b", 99, 1, false)]),
         )
         .unwrap();
         assert_eq!(report.differing_queries, 0);
@@ -249,10 +361,37 @@ mod tests {
     }
 
     #[test]
+    fn prior_fields_are_informational_and_do_not_create_semantic_differences() {
+        let report = compare(
+            normalize(vec![row("parent", 1, 1, true)]),
+            normalize(vec![row("candidate", 2, 1, false)]),
+        )
+        .unwrap();
+        assert_eq!(report.differing_queries, 0);
+        assert_eq!(report.identity_changes, 0);
+        assert_eq!(report.rank_changes, 0);
+        assert_eq!(report.metric_changes, 0);
+        assert_eq!(report.degradation_changes, 0);
+        assert_eq!(
+            report.informational_fields,
+            vec![
+                "lifecycle_outcomes[].attempt_index (run B)",
+                "reader (run B)",
+                "write_outcomes[].attempt_index (run B)",
+            ]
+        );
+        assert!(
+            report
+                .render()
+                .starts_with("informational: fields absent on one side:")
+        );
+    }
+
+    #[test]
     fn rank_only_change_is_reported_once() {
         let report = compare(
-            normalize(vec![row("a", 1, vec![item("one", 1), item("two", 2)])]),
-            normalize(vec![row("b", 2, vec![item("one", 2), item("two", 1)])]),
+            normalize(vec![row("a", 1, 1, false)]),
+            normalize(vec![row("b", 2, 2, false)]),
         )
         .unwrap();
         assert_eq!(report.differing_queries, 1);

@@ -41,8 +41,8 @@
   - `crates/cmem-eval-locomo/src/ingest.rs`
 - Existing patterns or references:
   - `docs/coding-agent/plans/completed/longmemeval-s-online-enrichment-snapshots-plan.md`
-  - `docs/coding-agent/plans/active/locomo-online-enrichment-snapshots-plan.md`
-  - `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
+  - `docs/coding-agent/plans/completed/locomo-online-enrichment-snapshots-plan.md`
+  - `docs/coding-agent/plans/completed/eval-harness-architecture-revision-plan.md`
 - Repo reference docs consulted:
   - `docs/coding-agent/rules/common.md`
   - `docs/coding-agent/rules/orchestrator.md`
@@ -169,7 +169,7 @@
 ### Task_6: Integrate, Back Up, And Validate Consumers
 - type: test
 - owns:
-  - `docs/coding-agent/plans/active/enrichment-artifact-regeneration-plan.md`
+  - `docs/coding-agent/plans/completed/enrichment-artifact-regeneration-plan.md`
   - `C:/tmp/character-memory-evals-enrichment-backup-20260712/**`
 - depends_on: [Task_4, Task_5]
 - description: |

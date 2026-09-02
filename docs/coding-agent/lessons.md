@@ -3,7 +3,7 @@
 ## 2026-05-04 — Keep Generated Dataset Artifacts Out Of Commits Unless Explicitly Requested  [tags: git, datasets, artifacts, scope]
 
 Context:
-- Plan: `docs/coding-agent/plans/active/locomo-online-enrichment-snapshots-plan.md`
+- Plan: `docs/coding-agent/plans/completed/locomo-online-enrichment-snapshots-plan.md`
 - Task/Wave: LoCoMo enrichment artifact generation and commit prep
 - Roles involved: Orchestrator
 
@@ -25,7 +25,7 @@ Evidence:
 ## 2026-07-11 — Trust AGMSG Harness Dispatches  [tags: workflow, delegation, assumptions, agmsg]
 
 Context:
-- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
+- Plan: `docs/coding-agent/plans/completed/eval-harness-architecture-revision-plan.md`
 - Task/Wave: Task_1 / Wave 1
 - Roles involved: Orchestrator | Worker
 
@@ -483,6 +483,28 @@ Prevention:
 
 Evidence:
 - Decider and orchestrator ruling on 2026-09-02 during harness-right-sizing Task_2.
+
+## 2026-09-02 — Census Every Consumer When Deleting Harness Features  [tags: deletion, review, validation, docs, compatibility]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md`
+- Task/Wave: Task_2 and Task_3 / Wave 2 review
+- Roles involved: Worker | Reviewer | Orchestrator
+
+Symptom:
+- Feature deletion removed implementation surfaces but left stale live documentation, no maintained continuity smoke input, broken inbound plan links, and a new diff reader that rejected prior row fields.
+
+Root cause:
+- The deletion census checked primary code and root documentation without tracing every executable consumer, live documentation surface, rule-mandated inner-loop recipe, config input, and inbound link; the new comparison command also reused strict artifact admission instead of projecting only comparable fields.
+
+Fix applied:
+- Remove stale command docs, add one maintained unsealed service-free smoke config and recipe, repair moved-plan links and reviewer guidance, and give `diff` a lenient projection that reports one-sided retired fields informationally.
+
+Prevention:
+- A deletion task must census executable consumers, every live documentation surface, maintained inner-loop recipes with their configs, and inbound links before handback; comparison readers for new artifact shapes must remain lenient toward prior artifacts because old artifacts are old, not an admission compatibility surface.
+
+Evidence:
+- Reviewer findings and orchestrator rulings during harness-right-sizing Task_2 and Task_3 review on 2026-09-02.
 
 ## Archived lessons (2026-09-02)
 

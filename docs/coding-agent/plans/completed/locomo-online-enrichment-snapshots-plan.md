@@ -66,7 +66,7 @@
 ### Task_1: Define LoCoMo Snapshot Contract
 - type: design
 - owns:
-  - `docs/coding-agent/plans/active/locomo-online-enrichment-snapshots-plan.md`
+  - `docs/coding-agent/plans/completed/locomo-online-enrichment-snapshots-plan.md`
   - `README.md`
   - `datasets/enrichment_source/README.md`
 - depends_on: []
@@ -202,7 +202,7 @@
   - `README.md`
   - `configs/*locomo*online*.toml`
   - `datasets/enrichment_source/README.md`
-  - `docs/coding-agent/plans/active/locomo-online-enrichment-snapshots-plan.md`
+  - `docs/coding-agent/plans/completed/locomo-online-enrichment-snapshots-plan.md`
 - depends_on: [Task_6, Task_7]
 - description: |
   Add LoCoMo user-facing docs and validate a small fixture or limited local run that exercises LoCoMo snapshot generation and eval consumption without requiring full benchmark regeneration.
