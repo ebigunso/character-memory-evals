@@ -26,6 +26,7 @@ last_updated: "2026-09-02"
 - Gold evidence labels must be used only for scoring and must not be copied into `EpisodeInput`, `ObservationInput`, or adapter metadata.
 - Default validation must remain deterministic and service-free unless the user explicitly asks for real backend integration.
 - Benchmark CLI runs default to the live Character Memory adapter; mock benchmark runs must require explicit opt-in and visibly mark outputs as mock/smoke.
+- Run the service-free continuity smoke (the README recipe on `configs/continuity_smoke.toml`) before reporting continuity CLI changes done.
 
 ## Workaround Tripwire (design-debt escalation)
 
