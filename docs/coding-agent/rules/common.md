@@ -11,6 +11,7 @@ last_updated: "2026-07-29"
 
 - `../../../README.md` is the source of truth for current benchmark commands, workspace architecture, report shape, and runtime lifecycle.
 - Decision records: follow `docs/decisions/`; match the existing ADRs' numbering and sections.
+- This repository plans and tracks its own work; the library repository's records state only what these measurements allow the library to decide and when they are used (ruled 2026-09-02). Rigor follows the claim a measurement supports, not the code path that produced it: a run and a diff for the inner loop, a deterministic run and a baseline diff for tuning and regression decisions, sealed reproducible evidence only for durable claims.
 
 ## Repository-Specific Validation Commands
 
