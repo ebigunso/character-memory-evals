@@ -179,6 +179,20 @@ Fixture `irrelevant_external_ids` are sampled negatives, not an exhaustive compl
 
 Continuity metrics are measurements for comparison and tuning. Adding a metric does not create a CI threshold or a pass/fail policy.
 
+BM25 retrieval is the service-free lexical hurdle that Character Memory recall must beat. Select it with `[retrieval] mode = "bm25_only"` and the guarded mock adapter; the baseline ranks ingested episodes and observations without Qdrant, Oxigraph, OpenAI, or live Character Memory retrieval:
+
+```bash
+cargo run -p cmem-eval-runner -- run longmemeval-s \
+  --dataset ./datasets/longmemeval_s_cleaned.json \
+  --config ./configs/longmemeval_s_bm25.toml \
+  --out ./runs/longmemeval_s_bm25.jsonl \
+  --summary-out ./runs/longmemeval_s_bm25_summary.json \
+  --adapter mock \
+  --allow-mock-benchmark
+```
+
+BM25 configs are available for LongMemEval-S and LoCoMo: `configs/longmemeval_s_bm25.toml` and `configs/locomo_bm25.toml`. Use baseline-specific run IDs and output paths so active benchmark artifacts are not overwritten.
+
 Vector-only retrieval is a live baseline selected in TOML with
 `[retrieval] mode = "vector_only"`. It ingests through Character Memory, then
 the eval runner bypasses Character Memory retrieval and searches the namespace

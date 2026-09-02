@@ -14,6 +14,8 @@ Every verdict names the decision the feature informs today; where no decision na
 
 ## 2. Purpose map
 
+2026-09-02 override: BM25 baseline retained by decider ruling because it is the lexical hurdle recall must beat and the proof of improvement over prior versions; the audit's DELETE verdict is overridden.
+
 Verdict key: EARNS-ITS-PLACE; OVERSIZED (right size stated); DELETE; DEMOTE-TO-DIAGNOSTIC (keep the data, stop treating it as measurement or gate); SEAL-ON-DEMAND-ONLY (exists only inside the explicit sealing step, never on the default path).
 
 | Feature | Location | Approx. production lines | Decision it informs today | Tier | Verdict |

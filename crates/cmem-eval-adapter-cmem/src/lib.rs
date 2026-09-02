@@ -1787,6 +1787,11 @@ impl MemoryAdapter for CharacterMemoryAdapter {
 
     async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
         match input.mode {
+            RetrievalMode::Bm25Only => {
+                bail!(
+                    "retrieval.mode=bm25_only is service-free and must be run with `--adapter mock --allow-mock-benchmark`; the live Character Memory adapter would use Qdrant/Oxigraph"
+                );
+            }
             RetrievalMode::VectorOnly => return self.retrieve_vector_only(input).await,
             RetrievalMode::Hybrid => {}
         }

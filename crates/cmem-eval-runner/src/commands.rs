@@ -98,6 +98,13 @@ impl RunArgs {
                 "mock adapter is test/smoke-only; pass `--allow-mock-benchmark` to make mock output explicit, or omit `--adapter` for the default live Character Memory run"
             );
         }
+        if config.retrieval.mode == RetrievalMode::Bm25Only
+            && self.selected_adapter() != AdapterKind::Mock
+        {
+            bail!(
+                "retrieval.mode=bm25_only is service-free and requires `--adapter mock --allow-mock-benchmark`; refusing to create a live adapter"
+            );
+        }
         if config.retrieval.mode == RetrievalMode::VectorOnly
             && self.selected_adapter() == AdapterKind::Mock
         {

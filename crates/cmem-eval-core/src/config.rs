@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum RetrievalMode {
     #[default]
     Hybrid,
+    Bm25Only,
     VectorOnly,
 }
 
@@ -468,7 +469,7 @@ impl RetrievalConfig {
     pub fn validate(&self) -> Result<()> {
         match self.mode {
             RetrievalMode::VectorOnly => self.surface_policy.validate_for_vector_only(),
-            RetrievalMode::Hybrid => self.surface_policy.validate(),
+            RetrievalMode::Hybrid | RetrievalMode::Bm25Only => self.surface_policy.validate(),
         }
     }
 }
@@ -1096,6 +1097,19 @@ mod tests {
         assert_eq!(config.retrieval.mode, RetrievalMode::VectorOnly);
         config.retrieval.surface_policy.object_types =
             vec![crate::ObjectType::Episode, crate::ObjectType::Observation];
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn parses_bm25_retrieval_mode() {
+        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+            "run_id": "r",
+            "dataset": "locomo",
+            "retrieval": {"mode": "bm25_only"}
+        }))
+        .unwrap();
+
+        assert_eq!(config.retrieval.mode, RetrievalMode::Bm25Only);
         config.validate().unwrap();
     }
 

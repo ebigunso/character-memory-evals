@@ -462,6 +462,28 @@ Prevention:
 Evidence:
 - Task_2 validation records three consecutive serialized live-test runs, before/after collection counts, and a throwaway-only pruning exercise while preserving the 15 user-owned continuity orphans.
 
+## 2026-09-02 — Confirm Decision Consumers Before Deleting Features  [tags: design-audit, scope, decisions, baselines]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md`
+- Task/Wave: Task_2 / Wave 2
+- Roles involved: Decider | Orchestrator | Worker
+
+Symptom:
+- The design-value audit classified the BM25 baseline for deletion because no findings-register entry cited it, and Task_2 initially removed it.
+
+Root cause:
+- The audit treated “no citation” as “no consumer” before the decider confirmed that BM25 is the lexical hurdle Character Memory recall must beat and the proof of improvement over prior versions.
+
+Fix applied:
+- Restore the BM25 code path and the LongMemEval-S and LoCoMo configs, keep the orphaned synthetic config deleted with its dataset, and record the override in the plan and audit.
+
+Prevention:
+- Treat a design-value audit's DELETE verdict as advisory until the decider has confirmed which decision each feature informs; a baseline claim is a durable decision consumer even without a register citation.
+
+Evidence:
+- Decider and orchestrator ruling on 2026-09-02 during harness-right-sizing Task_2.
+
 ## Archived lessons (2026-09-02)
 
 The harness right-sizing audit archived these historical canonicalization and repeated-run procedures. They remain here as incident history, not current operating rules.

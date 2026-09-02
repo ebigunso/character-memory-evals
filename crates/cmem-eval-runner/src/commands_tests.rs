@@ -37,6 +37,16 @@ fn guarded_mock_adapter_is_allowed_for_smoke_runs() {
 }
 
 #[test]
+fn bm25_mode_requires_guarded_mock_adapter_before_live_adapter_creation() {
+    let err = run_args(None, false)
+        .validate_adapter_selection(&benchmark_config_with_mode(RetrievalMode::Bm25Only))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("retrieval.mode=bm25_only"));
+    assert!(err.contains("refusing to create a live adapter"));
+}
+
+#[test]
 fn vector_only_mode_rejects_mock_adapter() {
     let err = run_args(Some(AdapterKind::Mock), true)
         .validate_adapter_selection(&benchmark_config_with_mode(RetrievalMode::VectorOnly))

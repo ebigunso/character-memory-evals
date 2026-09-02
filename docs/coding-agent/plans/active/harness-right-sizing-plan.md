@@ -68,7 +68,7 @@
   - README.md
 - depends_on: [Task_1]
 - description: |
-  Delete the official-export command, the summarize command with its identity invariants, the synthetic dataset and its smoke, the BM25 baseline, the reserved and assertion-only config knobs, the repair and attempt counters as reported metrics (the library's telemetry stays on rows as diagnostic data), and the 29 sweep configs no decision cites. Nothing depends on them; each deletion ships with a zero-hit census.
+  Delete the official-export command, the summarize command with its identity invariants, the synthetic dataset and its smoke, the reserved and assertion-only config knobs, the repair and attempt counters as reported metrics (the library's telemetry stays on rows as diagnostic data), and the 29 sweep configs no decision cites. Nothing depends on them; each deletion ships with a zero-hit census.
 - acceptance:
   - Zero-hit census per deleted feature; README updated; workspace builds and tests green.
 - validation:
@@ -238,6 +238,9 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 - 2026-09-02 Decision: harness work is planned and tracked in this repository; the library's records state only what these measurements allow it to decide and when.
   - Trigger / new insight: eval-side tasks had been mixed into the library's phase plan.
   - Plan delta: the two eval-side tasks were removed from the library plan and live here as Task_8's steps.
+  - User approval: yes, 2026-09-02.
+- 2026-09-02 Decision: BM25 baseline retained by decider ruling: it is the lexical hurdle recall must beat and the proof of improvement over prior versions; audit verdict DELETE overridden.
+  - Plan delta: Task_2 retains the BM25 code path and the LongMemEval-S and LoCoMo configs; `synthetic_bm25.toml` stays deleted with the synthetic dataset because a config for a deleted dataset is not a usable baseline.
   - User approval: yes, 2026-09-02.
 
 ## Notes
