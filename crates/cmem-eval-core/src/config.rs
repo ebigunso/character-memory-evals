@@ -67,8 +67,6 @@ pub struct BackendConfig {
     pub namespace_prefix: Option<String>,
     #[serde(default)]
     pub qdrant_connection_string: Option<String>,
-    #[serde(default)]
-    pub oxigraph_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oxigraph_persistence_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -90,7 +88,6 @@ impl Default for BackendConfig {
         Self {
             namespace_prefix: None,
             qdrant_connection_string: None,
-            oxigraph_path: None,
             oxigraph_persistence_path: None,
             retrieval_stats_path: None,
             identity_registry_dir: None,
@@ -505,10 +502,6 @@ pub struct IngestConfig {
     pub enrichment_path: Option<String>,
     #[serde(default)]
     pub enrichment_snapshot_path: Option<String>,
-    #[serde(default)]
-    pub enrichment_manifest_path: Option<String>,
-    #[serde(default)]
-    pub require_source_hash_match: bool,
 }
 
 impl IngestConfig {
@@ -531,12 +524,6 @@ impl IngestConfig {
             bail!(
                 "ingest.enrichment_path and ingest.enrichment_snapshot_path are mutually exclusive"
             );
-        }
-        if self.enrichment_manifest_path.is_some() && self.enrichment_snapshot_path.is_none() {
-            bail!("ingest.enrichment_manifest_path requires ingest.enrichment_snapshot_path");
-        }
-        if self.require_source_hash_match && self.enrichment_manifest_path.is_none() {
-            bail!("ingest.require_source_hash_match requires ingest.enrichment_manifest_path");
         }
         Ok(())
     }
@@ -661,6 +648,10 @@ mod tests {
                 "backend_typo",
             ),
             (
+                serde_json::json!({"backend": {"oxigraph_path": "legacy"}}),
+                "oxigraph_path",
+            ),
+            (
                 serde_json::json!({"backend": {"cleanup": {"cleanup_typo": true}}}),
                 "cleanup_typo",
             ),
@@ -683,6 +674,14 @@ mod tests {
             (
                 serde_json::json!({"ingest": {"ingest_typo": true}}),
                 "ingest_typo",
+            ),
+            (
+                serde_json::json!({"ingest": {"enrichment_manifest_path": "manifest.json"}}),
+                "enrichment_manifest_path",
+            ),
+            (
+                serde_json::json!({"ingest": {"require_source_hash_match": true}}),
+                "require_source_hash_match",
             ),
             (
                 serde_json::json!({"metrics": {"metrics_typo": true}}),

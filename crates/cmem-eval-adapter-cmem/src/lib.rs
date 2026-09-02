@@ -622,12 +622,6 @@ impl CharacterMemoryAdapter {
 
     fn settings(&self, namespace: &str) -> Result<Settings> {
         let qdrant = self.qdrant_connection_string()?;
-        let oxigraph_path = self
-            .config
-            .backend
-            .oxigraph_path
-            .clone()
-            .or_else(|| env::var("OXIGRAPH_PATH").ok());
         let openai_api_key = env::var(&self.config.backend.openai_api_key_env)
             .or_else(|_| env::var("OPENAI_API_KEY"))
             .unwrap_or_else(|_| {
@@ -652,12 +646,7 @@ impl CharacterMemoryAdapter {
 
         let mut builder = config::Config::builder()
             .set_override("qdrant_connection_string", qdrant)?
-            .set_override(
-                "oxigraph_path",
-                oxigraph_path
-                    .clone()
-                    .unwrap_or_else(|| "unused-in-memory".to_string()),
-            )?
+            .set_override("oxigraph_path", "unused-in-memory")?
             .set_override("openai_api_key", openai_api_key)?
             .set_override(
                 "embedding_model",
@@ -667,8 +656,6 @@ impl CharacterMemoryAdapter {
             builder = builder
                 .set_override("graph_store_mode", "persistent")?
                 .set_override("oxigraph_path", path.to_string_lossy().into_owned())?;
-        } else if oxigraph_path.is_some() {
-            builder = builder.set_override("graph_store_mode", "persistent")?;
         } else {
             builder = builder.set_override("graph_store_mode", "in_memory")?;
         }
@@ -1154,16 +1141,23 @@ impl MemoryAdapter for CharacterMemoryAdapter {
     }
 
     async fn remember_episode(&self, input: EpisodeInput) -> Result<WriteResult<String>> {
-        let mut ids = self.remember_episodes(vec![input]).await?;
-        Ok(ids.remove(0))
+        let result = self.remember_episodes(vec![input]).await?;
+        let [id]: [String; 1] = result
+            .value
+            .try_into()
+            .expect("single-item episode batch returned one id");
+        Ok(WriteResult {
+            value: id,
+            outcome: result.outcome,
+        })
     }
 
     async fn remember_episodes(
         &self,
         inputs: Vec<EpisodeInput>,
-    ) -> Result<Vec<WriteResult<String>>> {
+    ) -> Result<WriteResult<Vec<String>>> {
         if inputs.is_empty() {
-            return Ok(Vec::new());
+            bail!("episode batch must not be empty");
         }
         let namespace = shared_input_namespace(
             "episode batch",
@@ -1202,26 +1196,30 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         }
         state.persist_identities()?;
 
-        Ok(ids
-            .into_iter()
-            .map(|(_, id)| WriteResult {
-                value: id.to_string(),
-                outcome: outcome.clone(),
-            })
-            .collect())
+        Ok(WriteResult {
+            value: ids.into_iter().map(|(_, id)| id.to_string()).collect(),
+            outcome,
+        })
     }
 
     async fn remember_observation(&self, input: ObservationInput) -> Result<WriteResult<String>> {
-        let mut ids = self.remember_observations(vec![input]).await?;
-        Ok(ids.remove(0))
+        let result = self.remember_observations(vec![input]).await?;
+        let [id]: [String; 1] = result
+            .value
+            .try_into()
+            .expect("single-item observation batch returned one id");
+        Ok(WriteResult {
+            value: id,
+            outcome: result.outcome,
+        })
     }
 
     async fn remember_observations(
         &self,
         inputs: Vec<ObservationInput>,
-    ) -> Result<Vec<WriteResult<String>>> {
+    ) -> Result<WriteResult<Vec<String>>> {
         if inputs.is_empty() {
-            return Ok(Vec::new());
+            bail!("observation batch must not be empty");
         }
         let namespace = shared_input_namespace(
             "observation batch",
@@ -1270,13 +1268,10 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         }
         state.persist_identities()?;
 
-        Ok(ids
-            .into_iter()
-            .map(|(_, _, id)| WriteResult {
-                value: id.to_string(),
-                outcome: outcome.clone(),
-            })
-            .collect())
+        Ok(WriteResult {
+            value: ids.into_iter().map(|(_, _, id)| id.to_string()).collect(),
+            outcome,
+        })
     }
 
     async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<WriteOutcomeRecord> {
@@ -1839,33 +1834,26 @@ impl MemoryAdapter for CharacterMemoryAdapter {
 }
 
 fn flatten_outcome(
-    state: &NamespaceState,
+    state: &ExternalIdRegistry,
     outcome: character_memory::RetrieveOutcome,
 ) -> RetrievedContextPack {
     let telemetry = telemetry_from_outcome(state, &outcome);
-    let mut trace_by_id: HashMap<MemoryId, (Option<f64>, usize)> = HashMap::new();
+    let mut trace_score_by_id: HashMap<MemoryId, f64> = HashMap::new();
     if let Some(trace) = &outcome.trace {
         for candidate in &trace.vector_candidates {
-            trace_by_id.insert(
-                candidate.object.id,
-                (Some(candidate.score as f64), candidate.rank),
-            );
+            trace_score_by_id.insert(candidate.object.id, candidate.score as f64);
         }
     }
 
     let mut items = Vec::new();
     for thread in outcome.pack.active_threads {
-        let (score, rank) = trace_by_id
-            .get(&thread.id)
-            .copied()
-            .unwrap_or((None, items.len() + 1));
         items.push(RetrievedItem {
             kind: EvalObjectType::MemoryThread,
             internal_id: thread.id.to_string(),
             external_id: state.reverse_thread_ids.get(&thread.id).cloned(),
             episode_external_id: None,
-            score,
-            rank,
+            score: trace_score_by_id.get(&thread.id).copied(),
+            rank: items.len() + 1,
             rationale: vec![outcome.rationale.summary.clone()],
             text: Some(thread.summary),
         });
@@ -1877,17 +1865,13 @@ fn flatten_outcome(
             .get(&episode.id)
             .cloned()
             .or(episode.source_conversation_id.clone());
-        let (score, rank) = trace_by_id
-            .get(&episode.id)
-            .copied()
-            .unwrap_or((None, items.len() + 1));
         items.push(RetrievedItem {
             kind: EvalObjectType::Episode,
             internal_id: episode.id.to_string(),
             external_id,
             episode_external_id: None,
-            score,
-            rank,
+            score: trace_score_by_id.get(&episode.id).copied(),
+            rank: items.len() + 1,
             rationale: vec![outcome.rationale.summary.clone()],
             text: Some(episode.summary),
         });
@@ -1906,17 +1890,13 @@ fn flatten_outcome(
                         .cloned(),
                 )
             });
-        let (score, rank) = trace_by_id
-            .get(&observation.id)
-            .copied()
-            .unwrap_or((None, items.len() + 1));
         items.push(RetrievedItem {
             kind: EvalObjectType::Observation,
             internal_id: observation.id.to_string(),
             external_id,
             episode_external_id,
-            score,
-            rank,
+            score: trace_score_by_id.get(&observation.id).copied(),
+            rank: items.len() + 1,
             rationale: vec![outcome.rationale.summary.clone()],
             text: Some(observation.text),
         });
@@ -1936,10 +1916,6 @@ fn flatten_outcome(
         if !seen_derived.insert(derived.memory.id) {
             continue;
         }
-        let (score, rank) = trace_by_id
-            .get(&derived.memory.id)
-            .copied()
-            .unwrap_or((None, items.len() + 1));
         items.push(RetrievedItem {
             kind: EvalObjectType::DerivedMemory,
             internal_id: derived.memory.id.to_string(),
@@ -1952,14 +1928,13 @@ fn flatten_outcome(
                 .first()
                 .and_then(|id| state.reverse_episode_ids.get(id))
                 .cloned(),
-            score,
-            rank,
+            score: trace_score_by_id.get(&derived.memory.id).copied(),
+            rank: items.len() + 1,
             rationale: vec![outcome.rationale.summary.clone()],
             text: Some(derived.memory.text),
         });
     }
 
-    items.sort_by_key(|item| item.rank);
     RetrievedContextPack::from_ranked_items(items, telemetry, ContextRenderer::WithIdentity)
 }
 
@@ -4935,13 +4910,14 @@ mod tests {
         RationaleCategory, RetrievalRationale, RetrievalTrace, RetrieveOutcome, SectionAssignment,
         SectionAssignmentReason, SectionScoreComponents, SectionVectorScoreSource,
         SelectivityCountScope, SelectivityDecision, SelectivityTrace, TransportStatus,
-        VectorDatabaseError, VectorDatabaseErrorKind,
+        VectorCandidateTrace, VectorDatabaseError, VectorDatabaseErrorKind, VectorSurface,
     };
     use cmem_eval_core::{
         CleanupConfig, DatasetId, DerivedMemoryInput, EmbeddingConfig, EntityInput,
         FrozenEmbeddingStore, MemoryLinkInput, RetrievalSurfacePolicy,
     };
     use std::io::Write;
+    use std::process::Command;
     use tempfile::tempdir;
 
     static LIVE_QDRANT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -4977,6 +4953,40 @@ mod tests {
             },
             metrics: Default::default(),
         }
+    }
+
+    #[test]
+    fn oxigraph_env_cannot_redirect_graph_path() {
+        let status = Command::new(env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::oxigraph_env_cannot_redirect_graph_path_probe",
+                "--nocapture",
+            ])
+            .env("CMEM_EVAL_OXIGRAPH_REDIRECT_PROBE", "1")
+            .env("OXIGRAPH_PATH", "redirected-by-env")
+            .status()
+            .unwrap();
+
+        assert!(status.success());
+    }
+
+    #[tokio::test]
+    async fn oxigraph_env_cannot_redirect_graph_path_probe() {
+        if env::var_os("CMEM_EVAL_OXIGRAPH_REDIRECT_PROBE").is_none() {
+            return;
+        }
+        let config = adapter_config("env-probe".into(), "bench:env-probe".into());
+        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+
+        assert_eq!(
+            adapter
+                .settings("namespace")
+                .unwrap()
+                .get_oxigraph_path()
+                .unwrap(),
+            PathBuf::from("unused-in-memory")
+        );
     }
 
     fn retrieval_surface_policy(
@@ -5452,6 +5462,10 @@ mod tests {
             || message.contains("code: unavailable")
     }
 
+    fn qdrant_unavailability_can_skip(service_available: bool) -> bool {
+        !service_available && env::var("CMEM_EVAL_REQUIRE_LIVE").as_deref() != Ok("1")
+    }
+
     macro_rules! live_call_or_skip {
         ($service_available:ident, $phase:expr, $confirms_availability:expr, $call:expr) => {{
             match $call {
@@ -5461,7 +5475,10 @@ mod tests {
                     }
                     value
                 }
-                Err(error) if qdrant_unavailable(&error) && !$service_available => {
+                Err(error)
+                    if qdrant_unavailable(&error)
+                        && qdrant_unavailability_can_skip($service_available) =>
+                {
                     println!(
                         "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
                         $phase
@@ -5470,7 +5487,7 @@ mod tests {
                 }
                 Err(error) if qdrant_unavailable(&error) => {
                     panic!(
-                        "Qdrant became unavailable during {} after a successful live call: {error:#}",
+                        "live adapter test requires Qdrant during {}: {error:#}",
                         $phase
                     )
                 }
@@ -5485,7 +5502,10 @@ mod tests {
         ($service_available:ident, $phase:expr, $call:expr) => {{
             match $call {
                 Ok(value) => value,
-                Err(error) if qdrant_unavailable(&error) && !$service_available => {
+                Err(error)
+                    if qdrant_unavailable(&error)
+                        && qdrant_unavailability_can_skip($service_available) =>
+                {
                     println!(
                         "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
                         $phase
@@ -5494,7 +5514,7 @@ mod tests {
                 }
                 Err(error) if qdrant_unavailable(&error) => {
                     panic!(
-                        "Qdrant became unavailable during {} after a successful live call: {error:#}",
+                        "live adapter test requires Qdrant during {}: {error:#}",
                         $phase
                     )
                 }
@@ -5509,7 +5529,10 @@ mod tests {
         ($service_available:ident, $phase:expr, $call:expr, $retry:expr) => {{
             match $call {
                 Ok(value) => value,
-                Err(error) if qdrant_unavailable(&error) && !$service_available => {
+                Err(error)
+                    if qdrant_unavailable(&error)
+                        && qdrant_unavailability_can_skip($service_available) =>
+                {
                     println!(
                         "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
                         $phase
@@ -5537,7 +5560,10 @@ mod tests {
     macro_rules! live_error_or_skip {
         ($service_available:ident, $phase:expr, $call:expr) => {{
             match $call {
-                Err(error) if qdrant_unavailable(&error) && !$service_available => {
+                Err(error)
+                    if qdrant_unavailable(&error)
+                        && qdrant_unavailability_can_skip($service_available) =>
+                {
                     println!(
                         "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
                         $phase
@@ -5546,7 +5572,7 @@ mod tests {
                 }
                 Err(error) if qdrant_unavailable(&error) => {
                     panic!(
-                        "Qdrant became unavailable during {} after a successful live call: {error:#}",
+                        "live adapter test requires Qdrant during {}: {error:#}",
                         $phase
                     )
                 }
@@ -7343,6 +7369,82 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.len(), 8);
         assert!(first.iter().any(|value| *value > 0.0));
+    }
+
+    #[test]
+    fn pack_delivery_order_defines_rank_with_or_without_debug_trace() {
+        let first_id = deterministic_id("n", "episode", "first");
+        let second_id = deterministic_id("n", "episode", "second");
+        let pack = ContinuityContextPack {
+            relevant_episodes: vec![episode(first_id), episode(second_id)],
+            ..ContinuityContextPack::empty()
+        };
+        let mut trace = RetrievalTrace::empty();
+        trace.vector_candidates = vec![
+            VectorCandidateTrace {
+                object: MemoryObjectRef::new(ObjectType::Episode, second_id),
+                surface: VectorSurface::Summary,
+                score: 0.9,
+                rank: 1,
+            },
+            VectorCandidateTrace {
+                object: MemoryObjectRef::new(ObjectType::Episode, first_id),
+                surface: VectorSurface::Summary,
+                score: 0.5,
+                rank: 2,
+            },
+        ];
+        let registry = ExternalIdRegistry::new("n");
+        let traced = flatten_outcome(
+            &registry,
+            RetrieveOutcome {
+                pack: pack.clone(),
+                rationale: RetrievalRationale::new("test"),
+                trace: Some(trace),
+            },
+        );
+        let untraced = flatten_outcome(
+            &registry,
+            RetrieveOutcome {
+                pack,
+                rationale: RetrievalRationale::new("test"),
+                trace: None,
+            },
+        );
+
+        let expected_ids = vec![first_id.to_string(), second_id.to_string()];
+        assert_eq!(
+            traced
+                .items()
+                .iter()
+                .map(|item| item.internal_id.clone())
+                .collect::<Vec<_>>(),
+            expected_ids
+        );
+        assert_eq!(
+            untraced
+                .items()
+                .iter()
+                .map(|item| item.internal_id.clone())
+                .collect::<Vec<_>>(),
+            expected_ids
+        );
+        assert_eq!(
+            traced
+                .items()
+                .iter()
+                .map(|item| item.rank)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert_eq!(
+            traced
+                .items()
+                .iter()
+                .map(|item| item.score)
+                .collect::<Vec<_>>(),
+            vec![Some(0.5_f32 as f64), Some(0.9_f32 as f64)]
+        );
     }
 
     #[test]

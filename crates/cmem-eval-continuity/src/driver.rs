@@ -1047,12 +1047,31 @@ mod tests {
             self.inner.remember_episode(input).await
         }
 
+        async fn remember_episodes(
+            &self,
+            inputs: Vec<EpisodeInput>,
+        ) -> Result<WriteResult<Vec<String>>> {
+            self.episodes.lock().unwrap().extend(inputs.iter().cloned());
+            self.inner.remember_episodes(inputs).await
+        }
+
         async fn remember_observation(
             &self,
             input: ObservationInput,
         ) -> Result<WriteResult<String>> {
             self.observations.lock().unwrap().push(input.clone());
             self.inner.remember_observation(input).await
+        }
+
+        async fn remember_observations(
+            &self,
+            inputs: Vec<ObservationInput>,
+        ) -> Result<WriteResult<Vec<String>>> {
+            self.observations
+                .lock()
+                .unwrap()
+                .extend(inputs.iter().cloned());
+            self.inner.remember_observations(inputs).await
         }
 
         async fn remember_enrichment(

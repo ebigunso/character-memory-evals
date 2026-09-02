@@ -730,24 +730,12 @@ pub trait MemoryAdapter: Send + Sync {
     async fn remember_episodes(
         &self,
         inputs: Vec<EpisodeInput>,
-    ) -> Result<Vec<WriteResult<String>>> {
-        let mut outcomes = Vec::with_capacity(inputs.len());
-        for input in inputs {
-            outcomes.push(self.remember_episode(input).await?);
-        }
-        Ok(outcomes)
-    }
+    ) -> Result<WriteResult<Vec<String>>>;
     async fn remember_observation(&self, input: ObservationInput) -> Result<WriteResult<String>>;
     async fn remember_observations(
         &self,
         inputs: Vec<ObservationInput>,
-    ) -> Result<Vec<WriteResult<String>>> {
-        let mut outcomes = Vec::with_capacity(inputs.len());
-        for input in inputs {
-            outcomes.push(self.remember_observation(input).await?);
-        }
-        Ok(outcomes)
-    }
+    ) -> Result<WriteResult<Vec<String>>>;
     async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<WriteOutcomeRecord>;
     async fn link(&self, input: LinkMemoryInput) -> Result<WriteResult<LinkMemoryResult>>;
     async fn correct(&self, input: CorrectMemoryInput) -> Result<LifecycleMutationResult>;
@@ -833,53 +821,103 @@ impl MemoryAdapter for MockMemoryAdapter {
     }
 
     async fn remember_episode(&self, input: EpisodeInput) -> Result<WriteResult<String>> {
-        let internal_id = format!("mock:episode:{}", input.external_id);
-        let operation_id = deterministic_operation_id(
-            &input.namespace,
-            "remember_episode",
-            [input.external_id.as_str()],
-        );
-        let external_id = input.external_id.clone();
-        let mut state = self.state.lock().expect("mock memory mutex poisoned");
-        let namespace = state.entry(input.namespace.clone()).or_default();
-        namespace.bm25_index = None;
-        namespace.episodes.push(input);
-        let object = ObjectRefRecord {
-            object_type: ObjectType::Episode,
-            internal_id: internal_id.clone(),
-            external_id: Some(external_id),
-        };
-        let mut outcome = WriteOutcomeRecord::clean(operation_id, WriteOperationKind::TypedIngest);
-        outcome.persisted_objects.push(object.clone());
-        outcome.vector_indexed_objects.push(object);
+        let result = self.remember_episodes(vec![input]).await?;
+        let [internal_id]: [String; 1] = result
+            .value
+            .try_into()
+            .expect("single-item episode batch returned one id");
         Ok(WriteResult {
             value: internal_id,
+            outcome: result.outcome,
+        })
+    }
+
+    async fn remember_episodes(
+        &self,
+        inputs: Vec<EpisodeInput>,
+    ) -> Result<WriteResult<Vec<String>>> {
+        let namespace = inputs
+            .first()
+            .map(|input| input.namespace.clone())
+            .ok_or_else(|| anyhow::anyhow!("episode batch must not be empty"))?;
+        if inputs.iter().any(|input| input.namespace != namespace) {
+            bail!("episode batch spans multiple namespaces");
+        }
+        let ids = inputs
+            .iter()
+            .map(|input| format!("mock:episode:{}", input.external_id))
+            .collect::<Vec<_>>();
+        let operation_id =
+            deterministic_operation_id(&namespace, "remember_plan", ids.iter().map(String::as_str));
+        let objects = inputs
+            .iter()
+            .zip(&ids)
+            .map(|(input, internal_id)| ObjectRefRecord {
+                object_type: ObjectType::Episode,
+                internal_id: internal_id.clone(),
+                external_id: Some(input.external_id.clone()),
+            })
+            .collect::<Vec<_>>();
+        let mut state = self.state.lock().expect("mock memory mutex poisoned");
+        let namespace_state = state.entry(namespace).or_default();
+        namespace_state.bm25_index = None;
+        namespace_state.episodes.extend(inputs);
+        let mut outcome = WriteOutcomeRecord::clean(operation_id, WriteOperationKind::TypedIngest);
+        outcome.persisted_objects = objects.clone();
+        outcome.vector_indexed_objects = objects;
+        Ok(WriteResult {
+            value: ids,
             outcome,
         })
     }
 
     async fn remember_observation(&self, input: ObservationInput) -> Result<WriteResult<String>> {
-        let internal_id = format!("mock:observation:{}", input.external_id);
-        let operation_id = deterministic_operation_id(
-            &input.namespace,
-            "remember_observation",
-            [input.external_id.as_str()],
-        );
-        let external_id = input.external_id.clone();
-        let mut state = self.state.lock().expect("mock memory mutex poisoned");
-        let namespace = state.entry(input.namespace.clone()).or_default();
-        namespace.bm25_index = None;
-        namespace.observations.push(input);
-        let object = ObjectRefRecord {
-            object_type: ObjectType::Observation,
-            internal_id: internal_id.clone(),
-            external_id: Some(external_id),
-        };
-        let mut outcome = WriteOutcomeRecord::clean(operation_id, WriteOperationKind::TypedIngest);
-        outcome.persisted_objects.push(object.clone());
-        outcome.vector_indexed_objects.push(object);
+        let result = self.remember_observations(vec![input]).await?;
+        let [internal_id]: [String; 1] = result
+            .value
+            .try_into()
+            .expect("single-item observation batch returned one id");
         Ok(WriteResult {
             value: internal_id,
+            outcome: result.outcome,
+        })
+    }
+
+    async fn remember_observations(
+        &self,
+        inputs: Vec<ObservationInput>,
+    ) -> Result<WriteResult<Vec<String>>> {
+        let namespace = inputs
+            .first()
+            .map(|input| input.namespace.clone())
+            .ok_or_else(|| anyhow::anyhow!("observation batch must not be empty"))?;
+        if inputs.iter().any(|input| input.namespace != namespace) {
+            bail!("observation batch spans multiple namespaces");
+        }
+        let ids = inputs
+            .iter()
+            .map(|input| format!("mock:observation:{}", input.external_id))
+            .collect::<Vec<_>>();
+        let operation_id =
+            deterministic_operation_id(&namespace, "remember_plan", ids.iter().map(String::as_str));
+        let objects = inputs
+            .iter()
+            .zip(&ids)
+            .map(|(input, internal_id)| ObjectRefRecord {
+                object_type: ObjectType::Observation,
+                internal_id: internal_id.clone(),
+                external_id: Some(input.external_id.clone()),
+            })
+            .collect::<Vec<_>>();
+        let mut state = self.state.lock().expect("mock memory mutex poisoned");
+        let namespace_state = state.entry(namespace).or_default();
+        namespace_state.bm25_index = None;
+        namespace_state.observations.extend(inputs);
+        let mut outcome = WriteOutcomeRecord::clean(operation_id, WriteOperationKind::TypedIngest);
+        outcome.persisted_objects = objects.clone();
+        outcome.vector_indexed_objects = objects;
+        Ok(WriteResult {
+            value: ids,
             outcome,
         })
     }

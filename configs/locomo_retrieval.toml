@@ -38,7 +38,6 @@ include_image_captions = false
 store_gold_labels = false
 # Final per-sample graph snapshots produced from source-only chronological replay.
 enrichment_snapshot_path = "./datasets/enriched/locomo_online_snapshots.jsonl"
-enrichment_manifest_path = "./datasets/enriched/locomo_online_snapshots_manifest.json"
 
 [metrics]
 ks_dialog = [5, 10, 20, 50]
