@@ -25,7 +25,7 @@ Evidence:
 ## 2026-07-11 — Trust AGMSG Harness Dispatches  [tags: workflow, delegation, assumptions, agmsg]
 
 Context:
-- Plan: `docs/coding-agent/plans/completed/eval-harness-architecture-revision-plan.md`
+- Plan: `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
 - Task/Wave: Task_1 / Wave 1
 - Roles involved: Orchestrator | Worker
 
