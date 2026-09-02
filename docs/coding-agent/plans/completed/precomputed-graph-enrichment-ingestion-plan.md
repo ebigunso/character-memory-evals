@@ -2,7 +2,7 @@
 
 - status: completed
 - generated: 2026-05-03
-- last_updated: 2026-05-03
+- last_updated: 2026-09-02
 - work_type: code
 
 ## Goal
@@ -200,3 +200,8 @@
   - Plan delta (what changed): Add precomputed enrichment ingestion and LoCoMo source-derived memory support.
   - Tradeoffs considered: Precomputed artifacts reduce runtime complexity but require strict provenance and gold-label guardrails.
   - User approval: yes.
+
+- 2026-09-02 Plan closeout
+  - Summary: Retired this already-completed plan from the active queue during the harness right-sizing audit; its implementation record remains preserved here.
+  - Validation evidence: The plan already records its completed validation above; this closeout changes documentation placement only.
+  - Notes: Moved to `plans/completed/`; no implementation or evidence artifact changed.

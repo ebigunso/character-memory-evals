@@ -85,4 +85,4 @@ Forensic census (GPT-5.6 Sol, 2026-07-28) established the exact legacy surface a
 
 ## More Information
 
-Provenance: 2026-07-24 ADR calibration ruling (agent-harness `adr-integration-plan.md` Decision Log); remediation plan `docs/coding-agent/plans/active/legacy-1-0-0-reader-removal-plan.md`. Pairs with [ADR-I-0003](ADR-I-0003-reader-admission-strictness-scoped-to-hash-cited-evidence.md), which scopes how strict the admitted-schema readers must be.
+Provenance: 2026-07-24 ADR calibration ruling (agent-harness `adr-integration-plan.md` Decision Log); remediation plan `docs/coding-agent/plans/completed/legacy-1-0-0-reader-removal-plan.md`. The former reader-admission companion was [retired on 2026-09-02](../superseded/ADR-I-0003-reader-admission-strictness-scoped-to-hash-cited-evidence--retired.md) because hash verification needs no typed reader.

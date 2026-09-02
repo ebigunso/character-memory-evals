@@ -1,8 +1,8 @@
 # Plan: LoCoMo Online Enrichment Snapshots
 
-- status: in_progress
+- status: completed
 - generated: 2026-05-04
-- last_updated: 2026-05-04
+- last_updated: 2026-09-02
 - work_type: mixed
 
 ## Goal
@@ -271,3 +271,10 @@
 - Edge cases:
   - Source sessions with missing timestamps.
   - Superseded or suppressed memories that must remain exported because retrieval behavior depends on lifecycle state.
+
+## Closeout
+
+- 2026-09-02 Plan closeout
+  - Summary: Closed the stale active record after its logged implementation completed and archived it during the harness right-sizing audit.
+  - Validation evidence: The completed progress log above records the service-free and workspace validation used at delivery.
+  - Notes: Moved to `plans/completed/`; no generated dataset or evidence artifact changed.

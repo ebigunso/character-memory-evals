@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "common"
-last_updated: "2026-07-29"
+last_updated: "2026-09-02"
 ---
 
 # Common Repository Rules
@@ -16,7 +16,7 @@ last_updated: "2026-07-29"
 ## Repository-Specific Validation Commands
 
 - Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` before reporting implementation done.
-- Run the service-free synthetic smoke command before reporting benchmark CLI changes done: `cargo run -p cmem-eval-runner -- run synthetic --dataset ./fixtures/synthetic_small.json --config ./configs/synthetic_retrieval.toml --out ./runs/synthetic.jsonl --summary-out ./runs/synthetic_summary.json --adapter mock --allow-mock-benchmark`.
+- Run a service-free continuity smoke before reporting continuity CLI changes done.
 
 ## Repo Documentation Wording
 
@@ -30,7 +30,7 @@ last_updated: "2026-07-29"
 
 ## Workaround Tripwire (design-debt escalation)
 
-- The Workaround Tripwire (detection, stop-and-alert response, alert-awaits-ruling) is harness-owned: engineering-quality-baselines Drift Tripwires. Repo-specific standing exception: sealed artifacts (frozen stores, hashes, committed evidence) — working around them is correct, changing them is not.
+- The Workaround Tripwire (detection, stop-and-alert response, alert-awaits-ruling) is harness-owned: engineering-quality-baselines Drift Tripwires. Repo-specific standing exception: an artifact is sealed only when the findings register cites it by hash — working around those cited bytes is correct, changing them is not.
 
 ## Artifact Placement And Disposition
 
@@ -41,7 +41,7 @@ last_updated: "2026-07-29"
 ## Compatibility Policy
 
 - The `character_memory` library has no external consumers, so backwards compatibility is not a goal here either: track the library's latest surface directly and remove superseded shims, serde old-name tolerance, legacy config keys, and dual code paths in the same change that replaces them (user-directed 2026-07-21).
-- This policy does not apply to frozen embedding stores, their hashes, or committed evidence artifacts — those are sealed and must not be regenerated or edited to chase a surface change; flag conflicts to the Orchestrator instead.
+- This policy does not apply to artifacts cited by hash in the findings register — those bytes are sealed and must not be regenerated or edited to chase a surface change; flag conflicts to the Orchestrator instead.
 
 ## Repo Naming / Structure
 
@@ -49,9 +49,8 @@ last_updated: "2026-07-29"
 - Keep the live Character Memory integration in `crates/cmem-eval-adapter-cmem`, including deterministic collection naming and persisted external-ID reattach state.
 - Each dataset crate must own its loader, ingest mapper, scorer, full-history builder, config-name validation, and metric-family declaration; adding a dataset may add a runner `DatasetSpec` but must not require core edits.
 - The continuity benchmark lives in `crates/cmem-eval-continuity`.
-- Emit report schema version `2.0.0` on rows, traces, summaries, and reports; readers are strict fail-closed and admit only the current schema version, with zero superseded-schema knowledge in the live read path — no dual dispatch, readers move with the schema on version bumps (ADR-I-0002). Sealed register-cited evidence is guaranteed as bytes-by-hash, never as parseability by the live binary; when reader capability is removed, the findings register records the resurrection pointer.
-- Admission strictness is a reader-side property of the trust boundary, not a mirror of producer serde behavior: a strict reader must accept everything the producer can emit (serialization-shape fidelity, proven by round-tripping every emittable variant) and may reject anything beyond it, regardless of what the producer's own Deserialize would tolerate; producer derive permissiveness is never a license to weaken reader admission (consult-ruled 2026-07-22). SCOPE (Tier A value audit 2026-07-22): this rule binds the hash-cited evidence readers — result rows, summaries, continuity traces, and reports — not every mirrored type; extend to other boundaries only on new evidence, since unbounded application licenses manual-Deserialize proliferation without measurement payoff. Where serde attributes cannot express the required strictness, implement manual Deserialize on the mirrored type itself, never per-field deserialize_with scatter.
-- Keep latency in dedicated row/summary fields rather than deterministic metrics; record per-scenario typed embedding binding records (summaries aggregate sorted unique bindings — there is no single summary embedding-provider field in 2.0.0); metrics are typed numeric-or-null with fail-closed admission.
+- Artifacts carry the harness and library commits; readers are derived serde; old artifacts are old. Sealed register-cited evidence is guaranteed as bytes-by-hash, never as parseability by the live binary.
+- Keep latency in dedicated row/summary fields rather than deterministic metrics; record one embedding-provenance header per run; metrics are typed numeric-or-null with fail-closed admission.
 
 ## Harness Sync Status
 
