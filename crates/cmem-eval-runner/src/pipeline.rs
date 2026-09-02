@@ -17,7 +17,7 @@ use cmem_eval_core::{
     LiveEmbeddingProvider, MemoryAdapter, MetricFamily, MetricsConfig, MetricsRecord,
     MockMemoryAdapter, NamespaceLifecycleResult, ObjectType, ObservationInput, PerQuestionResult,
     ReaderResult, ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem,
-    RunAdapterMetadata, Timer, WriteOutcomeRecord, assign_outcome_attempt_indexes,
+    RunAdapterMetadata, Timer, assign_outcome_attempt_indexes,
     classify_frozen_embedding_dimensions, composition_metrics, count_tokens, estimate_word_count,
     initialize_registry_metrics_for, insert_composition_metrics, insert_context_metrics,
     insert_integrity_detail_metrics, insert_retrieval_metrics, insert_telemetry_metrics,
@@ -430,25 +430,24 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
         let ingest_detail = S::ingest_progress_detail(&batch);
         let episode_count = batch.episodes.len();
         let observation_count = batch.observations.len();
-        let mut write_outcomes = adapter
-            .remember_episodes(batch.episodes)
-            .await?
-            .into_iter()
-            .map(|result| result.outcome)
-            .collect::<Vec<WriteOutcomeRecord>>();
+        let mut write_outcomes = Vec::new();
+        if !batch.episodes.is_empty() {
+            write_outcomes.push(adapter.remember_episodes(batch.episodes).await?.outcome);
+        }
         progress.phase_done(
             item_number,
             &item_label,
             "ingest-episodes",
             &format!("count={episode_count}"),
         );
-        write_outcomes.extend(
-            adapter
-                .remember_observations(batch.observations)
-                .await?
-                .into_iter()
-                .map(|result| result.outcome),
-        );
+        if !batch.observations.is_empty() {
+            write_outcomes.push(
+                adapter
+                    .remember_observations(batch.observations)
+                    .await?
+                    .outcome,
+            );
+        }
         progress.phase_done(
             item_number,
             &item_label,
@@ -1740,6 +1739,7 @@ struct SyntheticTurn {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmem_eval_core::WriteOutcomeRecord;
     use std::path::PathBuf;
 
     fn mock_args(dataset: PathBuf, config: PathBuf, directory: &Path) -> RunArgs {
@@ -1872,10 +1872,7 @@ mod tests {
         let config = fs::read_to_string(source).unwrap();
         let config = config
             .lines()
-            .filter(|line| {
-                !line.trim_start().starts_with("enrichment_snapshot_path")
-                    && !line.trim_start().starts_with("enrichment_manifest_path")
-            })
+            .filter(|line| !line.trim_start().starts_with("enrichment_snapshot_path"))
             .collect::<Vec<_>>()
             .join("\n");
         let path = directory.join("config.toml");
@@ -1979,11 +1976,23 @@ mod tests {
                 "question_id": "q1",
                 "question": "What does the user like?",
                 "haystack_session_ids": ["s1"],
-                "haystack_sessions": [[{
-                    "role": "user",
-                    "content": "I like jasmine tea",
-                    "has_answer": true
-                }]],
+                "haystack_sessions": [[
+                    {
+                        "role": "user",
+                        "content": "I like jasmine tea",
+                        "has_answer": true
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "That sounds refreshing",
+                        "has_answer": false
+                    },
+                    {
+                        "role": "user",
+                        "content": "Especially in spring",
+                        "has_answer": false
+                    }
+                ]],
                 "answer_session_ids": ["s1"]
             }]))
             .unwrap(),
@@ -1995,6 +2004,7 @@ mod tests {
             dir.path(),
         );
         let output = args.out.clone();
+        let summary_output = args.summary_out.clone();
 
         run_longmemeval(args).await.unwrap();
 
@@ -2003,6 +2013,26 @@ mod tests {
         assert_eq!(rows[0].question_id, "q1");
         assert_eq!(rows[0].gold_episode_ids, vec!["s1"]);
         assert_eq!(rows[0].gold_observation_ids, vec!["s1:turn:1"]);
+        let observation_outcomes = rows[0]
+            .write_outcomes
+            .iter()
+            .filter(|outcome| {
+                outcome.persisted_objects.len() == 3
+                    && outcome
+                        .persisted_objects
+                        .iter()
+                        .all(|object| object.object_type == ObjectType::Observation)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(observation_outcomes.len(), 1);
+        assert_eq!(observation_outcomes[0].attempt_index, 0);
+        assert_eq!(
+            cmem_eval_core::read_summary(&summary_output)
+                .unwrap()
+                .degradation
+                .repair_attempt_count,
+            0
+        );
     }
 
     #[tokio::test]

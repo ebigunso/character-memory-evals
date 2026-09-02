@@ -36,7 +36,6 @@ create_threads = false
 store_gold_labels = false
 # Per-question graph snapshots produced from source-only chronological replay.
 enrichment_snapshot_path = "./datasets/enriched/longmemeval_s_online_snapshots.jsonl"
-enrichment_manifest_path = "./datasets/enriched/longmemeval_s_online_snapshots_manifest.json"
 
 [metrics]
 ks_session = [1, 3, 5, 10]
