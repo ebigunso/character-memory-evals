@@ -527,3 +527,26 @@ Promoted into this repo's rule suite and removed from this log (per-lesson triag
 ## Purge note (2026-07-23)
 
 Nine entries purged per the user-directed low-value/invalid sweep (Codex purge map, agmsg 2026-07-23T12:29Z): eight PURGE-LOW-VALUE (restatements of now-mandatory rule/harness content — reader rejection matrix, benchmark-field trace, identity-union collection semantics, snapshot terminology, positive test counts, exact-filter qualification, strict-lint timing, runtime-vs-CI defaults) and one PURGE-INVALID (the forthcoming-public-API incident, resolved by the live adapter's existence; the reusable rule survives in orchestrator.md). Full entries recoverable from git history at 74a6f7f.
+
+## 2026-09-02 — Rebuild Live Infrastructure Before Retaining A Teardown Waiver  [tags: qdrant, teardown, validation, operations]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/active/qdrant-teardown-hardening-plan.md`
+- Task/Wave: Task_2 / Wave 2
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Repeated Qdrant teardown transport failures had been treated as an environmental exception while stale test collections accumulated.
+
+Root cause:
+- The original machine state was carried forward as evidence after the environment changed, and cleanup relied on test-time sweeping rather than a deliberate operator action.
+
+Fix applied:
+- Re-verified teardown behavior on the rebuilt machine, retired the waiver, bounded client requests with the shared 30-second timeout policy, and added an explicit prefix-scoped pruning tool for orphan recovery.
+
+Prevention:
+- Re-test environmental waivers after machine or service rebuilds and retire them when the reproducer no longer fails.
+- Keep orphan removal operator-controlled and narrowly prefix-scoped; a broad `cmem_eval_*` test sweeper can delete collections owned by concurrent live runs.
+
+Evidence:
+- Task_2 validation records three consecutive serialized live-test runs, before/after collection counts, and a throwaway-only pruning exercise while preserving the 15 user-owned continuity orphans.

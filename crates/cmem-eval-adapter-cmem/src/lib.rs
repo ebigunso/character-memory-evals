@@ -60,14 +60,15 @@ use cmem_eval_core::{
     VectorMaintenanceOperation as EvalVectorMaintenanceOperation, WriteOperationKind,
     WriteOutcomeRecord, WriteResult, deterministic_operation_id,
 };
-use qdrant_client::Qdrant;
 use qdrant_client::qdrant::{Condition, Filter, ScoredPoint, SearchPointsBuilder, value::Kind};
+use qdrant_client::{Qdrant, config::QdrantConfig};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -75,6 +76,7 @@ const UUID_NAMESPACE: Uuid = Uuid::from_u128(0x9b6af7a4_9076_49bb_9231_84d1ed632
 const QDRANT_OBJECT_ID_FIELD: &str = "object_id";
 const QDRANT_OBJECT_TYPE_FIELD: &str = "object_type";
 const QDRANT_CONTENT_TEXT_FIELD: &str = "content_text";
+const QDRANT_REQUEST_TIMEOUT_SECS: u64 = 30;
 
 pub struct CharacterMemoryAdapter {
     config: BenchmarkRunConfig,
@@ -409,15 +411,16 @@ impl CharacterMemoryAdapter {
         config: &BenchmarkRunConfig,
         embedding_binding: EmbeddingRuntimeBinding,
     ) -> Result<Self> {
-        let qdrant = Qdrant::from_url(
-            &config
-                .backend
-                .qdrant_connection_string
-                .clone()
-                .or_else(|| env::var("QDRANT_CONNECTION_STRING").ok())
-                .context("QDRANT_CONNECTION_STRING is required for live Character Memory runs")?,
-        )
-        .build()?;
+        let qdrant_url = config
+            .backend
+            .qdrant_connection_string
+            .clone()
+            .or_else(|| env::var("QDRANT_CONNECTION_STRING").ok())
+            .context("QDRANT_CONNECTION_STRING is required for live Character Memory runs")?;
+        let qdrant = Qdrant::new(
+            QdrantConfig::from_url(&qdrant_url)
+                .timeout(Duration::from_secs(QDRANT_REQUEST_TIMEOUT_SECS)),
+        )?;
         Ok(Self {
             config: config.clone(),
             embedding_binding,
@@ -4948,7 +4951,7 @@ mod tests {
             namespace_prefix: Some(namespace_prefix.clone()),
             qdrant_connection_string: Some(
                 env::var("QDRANT_CONNECTION_STRING")
-                    .unwrap_or_else(|_| "http://localhost:6334".to_string()),
+                    .unwrap_or_else(|_| "http://127.0.0.1:6334".to_string()),
             ),
             cleanup: CleanupConfig {
                 enabled: true,

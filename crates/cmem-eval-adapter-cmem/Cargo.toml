@@ -14,7 +14,7 @@ uuid.workspace = true
 cmem-eval-core = { path = "../cmem-eval-core" }
 character-memory.workspace = true
 config = "0.15"
-qdrant-client = "1.17.0"
+qdrant-client = "1.19.0"
 reqwest.workspace = true
 tempfile = "3"
 
