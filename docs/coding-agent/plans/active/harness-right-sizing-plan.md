@@ -227,6 +227,7 @@
 Append-only editing rule (applies to both logs below): when appending an entry, anchor the edit on the previous entry and reproduce it (or anchor on the section's tail marker) so the edit inserts rather than replaces, and verify afterward that the log grew.
 
 - 2026-09-02 Plan authored from the design-value audit; direction approved by the decider with one correction: harness work is tracked here, not in the library repository.
+- 2026-09-02 Waves 1 and 2 done (Task_1, Task_2, Task_3) with review fixes: lenient diff reader with an empty parent-versus-candidate proof, the maintained unsealed continuity smoke config with its README recipe, the reviewer rule narrowed to run plus diff, inbound links to the moved plans, and the continuity-smoke gate rule restored after Task_2 dropped it. Reviewer approved at d260193 with no open findings. Waves 3 and later remain.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
