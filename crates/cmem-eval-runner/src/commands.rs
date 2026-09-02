@@ -20,6 +20,7 @@ impl Cli {
         match self.command {
             Command::Run(run) => run.run().await,
             Command::Embeddings(args) => args.run().await,
+            Command::Diff(args) => crate::diff::run(args),
         }
     }
 }
@@ -28,6 +29,7 @@ impl Cli {
 enum Command {
     Run(RunCommand),
     Embeddings(crate::frozen_embeddings::EmbeddingsCommand),
+    Diff(crate::diff::DiffArgs),
 }
 
 #[derive(Debug, Args)]

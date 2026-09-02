@@ -1,4 +1,5 @@
 mod commands;
+mod diff;
 mod enrichment;
 mod frozen_embeddings;
 

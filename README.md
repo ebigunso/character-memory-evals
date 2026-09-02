@@ -134,26 +134,14 @@ Schema v3 keeps backend persistence identities derived from config, stable names
 - A restart observation records the lifecycle restoration count, before/after returned object IDs and recall, graph/fanout/selectivity snapshots, signed deltas, and whether the returned object set stayed stable.
 - `tuning_observations` records measured behavior together with the relevant config regime. These are tuning signals, not assertions that a Character Memory default passed or failed.
 
-For canonical repeat-run row hashing, preserve JSONL row order and each row's existing property order, set every existing `latency_ms` property to numeric `0` without deleting it, then replace every existing `run_id` value with the literal string `__RUN__` without deleting or reordering the property. Serialize the rows as one compact JSON array in that order and hash the in-memory UTF-8 bytes without a BOM or trailing newline. The `__RUN__` sentinel makes results from intentionally distinct run identities comparable while preserving every non-identity field. Report content excludes latency entirely, so compare `report.json` runs by compact-serializing only the top-level `content` value with its existing property order and the same UTF-8/no-BOM/no-trailing-newline policy. Raw `summary.json` remains intentionally variable because its latency aggregates summarize the measured row values.
+### Compare runs
 
-```powershell
-$report = Get-Content ./runs/continuity/live/report.json -Raw | ConvertFrom-Json
-$scope = @($report.metadata.fixture_ids)
-$rows = Get-Content ./runs/continuity/live/results.jsonl | ForEach-Object {
-  $row = $_ | ConvertFrom-Json
-  $row.latency_ms = 0
-  $row.run_id = "__RUN__"
-  $row
-}
-$normalized = ConvertTo-Json -InputObject @($rows) -Compress -Depth 100
-$reportContent = ConvertTo-Json -InputObject $report.content -Compress -Depth 100
-function Get-Sha256Hex([byte[]]$Bytes) {
-  [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes))
-}
-"scope=" + ($scope -join ",")
-"traces_sha256=" + (Get-Sha256Hex ([IO.File]::ReadAllBytes((Resolve-Path ./runs/continuity/live/traces.jsonl))))
-"normalized_rows_sha256=" + (Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes($normalized)))
-"report_content_sha256=" + (Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes($reportContent)))
+`diff` compares result JSONL by question after normalizing only `run_id` and `latency_ms`. It reports returned-identity, rank, metric, and degradation-flag changes plus a summary:
+
+```bash
+cargo run -p cmem-eval-runner -- diff \
+  ./runs/continuity/baseline/results.jsonl \
+  ./runs/continuity/candidate/results.jsonl
 ```
 
 Required registry keys are initialized to JSON `null` when a row cannot measure them. In `metric_support`, `numeric_rows` counts measured values, `null_rows` counts explicitly unsupported rows, and `unsupported = true` means every present row was null. A null is not zero and does not mean the evaluation failed. `registry_coverage.missing_required_metrics` instead identifies required keys that were absent entirely.
