@@ -11,20 +11,6 @@ cargo run -p cmem-eval-runner -- run longmemeval-s ...
 cargo run -p cmem-eval-runner -- run locomo ...
 ```
 
-Use mock runs only for service-free smoke validation:
-
-```bash
-cargo run -p cmem-eval-runner -- run synthetic ... --adapter mock --allow-mock-benchmark
-```
-
-Official-format exports are post-processing commands over saved internal JSONL:
-
-```bash
-cargo run -p cmem-eval-runner -- export-official longmemeval retrieval --input ./runs/longmemeval_s_v0_1.jsonl --out ./runs/longmemeval_s_v0_1_retrieval_official.jsonl
-cargo run -p cmem-eval-runner -- export-official longmemeval qa --input ./runs/longmemeval_s_v0_1.jsonl --predictions ./runs/longmemeval_s_predictions.jsonl --out ./runs/longmemeval_s_v0_1_qa_official.jsonl
-cargo run -p cmem-eval-runner -- export-official locomo --input ./runs/locomo_v0_1.jsonl --predictions ./runs/locomo_predictions.jsonl --out ./runs/locomo_v0_1_official.jsonl
-```
-
 ## Prune orphaned Qdrant collections
 
 `qdrant_prune_collections.sh` lists Qdrant collections whose names begin with an exact prefix and deletes them only when passed `--delete`. It uses `QDRANT_REST_URL`, defaulting to `http://127.0.0.1:6333`.
