@@ -22,7 +22,7 @@
 ## Context (workspace)
 - Basis: the design-value audit at `docs/audits/2026-09-02-harness-design-value-audit.md`; verdict tally 14 delete, 18 oversized, 5 demote to diagnostic, 3 seal-on-demand, 12 earn their place, over ~21,300 production and ~13,000 test lines across seven crates.
 - Prerequisite: the evidence-integrity fixes (PR #22) merged, since they already remove the shared graph-path fallback and the unhonored enrichment knobs and fix batch-outcome duplication.
-- Sealed bytes that never change: every existing line of `reports/v0-1-5-findings-register.md` (new information is only ever appended as a dated addendum, the precedent set on 2026-07-29); the continuity fixtures and committed embedding manifests and stores it cites by hash; the seven hash-cited configs. Deleting a config key that makes a cited config unparseable is acceptable (old artifacts are old); re-running a cited config is new evidence under a new hash.
+- Sealed bytes that never change: every existing line of `reports/v0-1-5-findings-register.md` (new information is only ever appended as a dated addendum, the precedent set on 2026-07-29); the continuity fixtures and committed embedding manifests and stores it cites by hash; the 26 hash-cited configs. Deleting a config key that makes a cited config unparseable is acceptable (old artifacts are old); re-running a cited config is new evidence under a new hash.
 - Constraint: the frozen-store file shape is kept as plain data while its guard logic is deleted, because the committed stores cost money to regenerate.
 - Constraint: no run artifact is tracked today; the 885 MB of hash-cited evidence exists on one machine, so evidence promotion is the first sealing act.
 
@@ -68,7 +68,7 @@
   - README.md
 - depends_on: [Task_1]
 - description: |
-  Delete the official-export command, the summarize command with its identity invariants, the synthetic dataset and its smoke, the reserved and assertion-only config knobs, the repair and attempt counters as reported metrics (the library's telemetry stays on rows as diagnostic data), and the 29 sweep configs no decision cites. Nothing depends on them; each deletion ships with a zero-hit census.
+  Delete the official-export command, the summarize command with its identity invariants, the synthetic dataset and its smoke, the reserved and assertion-only config knobs, the repair and attempt counters as reported metrics (the library's telemetry stays on rows as diagnostic data), and the ten Task_7 sweep configs no decision cites. Nothing depends on them; each deletion ships with a zero-hit census.
 - acceptance:
   - Zero-hit census per deleted feature; README updated; workspace builds and tests green.
 - validation:

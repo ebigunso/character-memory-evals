@@ -28,13 +28,12 @@ pub(crate) fn run(args: DiffArgs) -> Result<()> {
 struct DiffRow {
     run_id: String,
     question_id: String,
-    #[serde(default)]
+    // The fields the comparison is about are required: a row missing them is
+    // not "no identities / no degradation", it is an incomparable artifact.
+    // Retired or unknown fields are still ignored.
     retrieved: Vec<DiffRetrievedItem>,
-    #[serde(default)]
     write_outcomes: Vec<DiffWriteOutcome>,
-    #[serde(default)]
     lifecycle_outcomes: Vec<DiffLifecycleOutcome>,
-    #[serde(default)]
     metrics: Value,
     latency_ms: u128,
     #[serde(default, rename = "reader", deserialize_with = "present")]
@@ -484,6 +483,25 @@ mod tests {
             report
                 .render()
                 .starts_with("informational: fields absent on one side:")
+        );
+    }
+
+    #[test]
+    fn rows_missing_a_compared_field_are_rejected_not_defaulted() {
+        let mut value = serde_json::to_value(json!({
+            "run_id": "a", "question_id": "q1", "latency_ms": 1,
+            "write_outcomes": [], "lifecycle_outcomes": [], "metrics": {}
+        }))
+        .unwrap();
+        assert!(
+            serde_json::from_value::<DiffRow>(value.clone()).is_err(),
+            "retrieved is required"
+        );
+        value["retrieved"] = json!([]);
+        value.as_object_mut().unwrap().remove("metrics");
+        assert!(
+            serde_json::from_value::<DiffRow>(value).is_err(),
+            "metrics is required"
         );
     }
 
