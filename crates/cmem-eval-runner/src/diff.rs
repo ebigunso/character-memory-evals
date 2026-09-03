@@ -512,6 +512,57 @@ mod tests {
         );
     }
 
+    fn write_rows(directory: &std::path::Path, name: &str, rows: &[Value]) -> PathBuf {
+        let path = directory.join(name);
+        let text = rows
+            .iter()
+            .map(|row| serde_json::to_string(row).unwrap())
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            );
+        std::fs::write(&path, text).unwrap();
+        path
+    }
+
+    fn row_value(run_id: &str, metric: f64) -> Value {
+        json!({
+            "schema_version": "2",
+            "run_id": run_id,
+            "question_id": "q1",
+            "retrieved": [],
+            "write_outcomes": [],
+            "lifecycle_outcomes": [],
+            "metrics": {"x": metric},
+            "latency_ms": 1
+        })
+    }
+
+    #[test]
+    fn run_fails_on_a_semantic_difference_and_succeeds_on_none() {
+        let directory = tempfile::tempdir().unwrap();
+        let a = write_rows(directory.path(), "a.jsonl", &[row_value("a", 1.0)]);
+        let same = write_rows(directory.path(), "same.jsonl", &[row_value("b", 1.0)]);
+        let different = write_rows(directory.path(), "different.jsonl", &[row_value("b", 2.0)]);
+
+        run(DiffArgs {
+            run_a: a.clone(),
+            run_b: same,
+        })
+        .unwrap();
+        let error = run(DiffArgs {
+            run_a: a,
+            run_b: different,
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("1 of 1 queries differ semantically"),
+            "{error}"
+        );
+    }
+
     #[test]
     fn empty_runs_are_rejected_rather_than_reported_equivalent() {
         let error = compare(Vec::new(), Vec::new()).unwrap_err().to_string();
