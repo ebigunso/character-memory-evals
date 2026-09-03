@@ -394,7 +394,9 @@ mod tests {
         only_counter(&report, 1, 1, 0, 0);
         let rendered = report.render();
         assert!(rendered.contains("query q1: identities: a=["), "{rendered}");
-        assert!(rendered.contains("\"one\"") && rendered.contains("\"two\""), "{rendered}");
+        assert!(
+            rendered.contains("\"one\"") && rendered.contains("\"two\""),
+            "{rendered}"
         );
         assert!(!rendered.contains("metrics:"), "{rendered}");
         assert!(!rendered.contains("degradation:"), "{rendered}");
