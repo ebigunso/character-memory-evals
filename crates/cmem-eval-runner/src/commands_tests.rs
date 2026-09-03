@@ -123,13 +123,12 @@ fn current_checked_in_configs_parse_under_the_strict_schema() {
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| {
+            let name = path.file_name().unwrap().to_string_lossy();
+            // Sealed continuity configs are cited by hash and may predate the
+            // current schema; the maintained smoke config must track it.
             path.extension()
                 .is_some_and(|extension| extension == "toml")
-                && !path
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .starts_with("continuity_")
+                && (!name.starts_with("continuity_") || name == "continuity_smoke.toml")
         })
         .collect::<Vec<_>>();
     paths.sort();

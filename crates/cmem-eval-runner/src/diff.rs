@@ -156,6 +156,13 @@ impl DiffReport {
 }
 
 fn compare(run_a: Vec<DiffRow>, run_b: Vec<DiffRow>) -> Result<DiffReport> {
+    if run_a.is_empty() || run_b.is_empty() {
+        bail!(
+            "refusing to compare: run A has {} rows and run B has {} rows; an empty run is a failed or missing evaluation, not a zero-difference proof",
+            run_a.len(),
+            run_b.len()
+        );
+    }
     let fields_a = field_presence(&run_a);
     let fields_b = field_presence(&run_b);
     let run_a = index(run_a, "run A")?;
@@ -385,6 +392,16 @@ mod tests {
                 .render()
                 .starts_with("informational: fields absent on one side:")
         );
+    }
+
+    #[test]
+    fn empty_runs_are_rejected_rather_than_reported_equivalent() {
+        let error = compare(Vec::new(), Vec::new()).unwrap_err().to_string();
+        assert!(error.contains("refusing to compare"), "{error}");
+        let error = compare(vec![row("a", 1, 0, false)], Vec::new())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("run B has 0 rows"), "{error}");
     }
 
     #[test]
