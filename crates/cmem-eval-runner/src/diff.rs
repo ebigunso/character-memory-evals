@@ -319,6 +319,16 @@ mod tests {
     use serde_json::json;
 
     fn row(run_id: &str, latency_ms: u128, rank: usize, legacy_fields: bool) -> DiffRow {
+        row_with(run_id, latency_ms, rank, legacy_fields, |_| {})
+    }
+
+    fn row_with(
+        run_id: &str,
+        latency_ms: u128,
+        rank: usize,
+        legacy_fields: bool,
+        edit: impl FnOnce(&mut Value),
+    ) -> DiffRow {
         let mut value = json!({
             "schema_version": "2",
             "run_id": run_id,
@@ -350,7 +360,88 @@ mod tests {
             value["write_outcomes"][0]["attempt_index"] = json!(0);
             value["lifecycle_outcomes"][0]["attempt_index"] = json!(0);
         }
+        edit(&mut value);
         serde_json::from_value(value).unwrap()
+    }
+
+    fn only_counter(
+        report: &DiffReport,
+        identity: usize,
+        rank: usize,
+        metric: usize,
+        degradation: usize,
+    ) {
+        assert_eq!(report.differing_queries, 1);
+        assert_eq!(report.identity_changes, identity);
+        assert_eq!(report.rank_changes, rank);
+        assert_eq!(report.metric_changes, metric);
+        assert_eq!(report.degradation_changes, degradation);
+    }
+
+    #[test]
+    fn identity_only_change_is_reported_as_identity_and_rank() {
+        // A different object at the same rank changes the identity list and,
+        // because ranks are keyed by identity, the rank list too.
+        let report = compare(
+            normalize(vec![row("a", 1, 1, false)]),
+            normalize(vec![row_with("b", 1, 1, false, |value| {
+                value["retrieved"][0]["internal_id"] = json!("two");
+                value["retrieved"][0]["external_id"] = json!("two");
+                value["retrieved"][0]["episode_external_id"] = json!("two");
+            })]),
+        )
+        .unwrap();
+        only_counter(&report, 1, 1, 0, 0);
+        let rendered = report.render();
+        assert!(rendered.contains("query q1: identities: a=["), "{rendered}");
+        assert!(rendered.contains("\"one\"") && rendered.contains("\"two\""), "{rendered}");
+        );
+        assert!(!rendered.contains("metrics:"), "{rendered}");
+        assert!(!rendered.contains("degradation:"), "{rendered}");
+    }
+
+    #[test]
+    fn metric_only_change_is_reported_once() {
+        let report = compare(
+            normalize(vec![row("a", 1, 1, false)]),
+            normalize(vec![row_with("b", 1, 1, false, |value| {
+                value["metrics"] = json!({"recall_any@1": 0.0});
+            })]),
+        )
+        .unwrap();
+        only_counter(&report, 0, 0, 1, 0);
+        let rendered = report.render();
+        assert!(
+            rendered
+                .contains("query q1: metrics: a={\"recall_any@1\":1.0} b={\"recall_any@1\":0.0}"),
+            "{rendered}"
+        );
+        assert!(
+            !rendered.contains("identities:") && !rendered.contains("ranks:"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn degradation_only_change_is_reported_once() {
+        let report = compare(
+            normalize(vec![row("a", 1, 1, false)]),
+            normalize(vec![row_with("b", 1, 1, false, |value| {
+                value["write_outcomes"][0]["vector_indexing_failure"] =
+                    json!({"kind": "zero_norm"});
+            })]),
+        )
+        .unwrap();
+        only_counter(&report, 0, 0, 0, 1);
+        let rendered = report.render();
+        assert!(
+            rendered.contains("query q1: degradation: a=false b=true"),
+            "{rendered}"
+        );
+        assert!(
+            !rendered.contains("metrics:") && !rendered.contains("identities:"),
+            "{rendered}"
+        );
     }
 
     #[test]

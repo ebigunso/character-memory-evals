@@ -793,6 +793,7 @@ async fn run_continuity_pipeline(
     progress.write_outputs_started(rows.len());
     write_continuity_traces(&args.trace_out, &traces)?;
     let config_value = serde_json::to_value(&config)?;
+    cmem_eval_core::reject_empty_run(&rows)?;
     let summary = summarize_rows(
         config.run_id.clone(),
         config.dataset.clone(),
@@ -1262,6 +1263,7 @@ fn write_outputs(
     if let Some(parent) = args.summary_out.parent() {
         fs::create_dir_all(parent)?;
     }
+    cmem_eval_core::reject_empty_run(&rows)?;
     let summary = summarize_rows(
         config.run_id.clone(),
         config.dataset.clone(),
@@ -1451,22 +1453,9 @@ mod tests {
     }
 
     fn current_continuity_config_text() -> String {
-        fs::read_to_string("../../configs/continuity_retrieval.toml")
-            .unwrap()
-            .lines()
-            .filter(|line| {
-                !matches!(
-                    line.trim().split_once('=').map(|(key, _)| key.trim()),
-                    Some(
-                        "index_observations"
-                            | "index_episode_summaries"
-                            | "store_gold_labels"
-                            | "create_threads"
-                    )
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        // The maintained, unsealed config is the one that tracks the live CLI
+        // schema; the sealed configs are cited by hash and never edited.
+        fs::read_to_string("../../configs/continuity_smoke.toml").unwrap()
     }
 
     fn current_continuity_config() -> BenchmarkRunConfig {

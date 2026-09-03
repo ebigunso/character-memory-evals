@@ -216,6 +216,17 @@ pub fn read_summary(path: &Path) -> Result<RunSummary> {
     serde_json::from_str(&raw).with_context(|| format!("decode summary {}", path.display()))
 }
 
+/// A run that produced no rows is a failed or missing evaluation, not an
+/// empty success: `diff` refuses such artifacts, so `run` must never emit one.
+pub fn reject_empty_run(rows: &[PerQuestionResult]) -> Result<()> {
+    if rows.is_empty() {
+        anyhow::bail!(
+            "the run produced no result rows; an empty run is a failed or missing evaluation and is not written as a summary"
+        );
+    }
+    Ok(())
+}
+
 pub fn summarize_rows(
     run_id: String,
     dataset: DatasetId,
@@ -327,6 +338,12 @@ fn validate_summary_schema(schema_version: Option<&str>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_run_is_rejected_before_summary() {
+        let error = reject_empty_run(&[]).unwrap_err().to_string();
+        assert!(error.contains("produced no result rows"), "{error}");
+    }
     use crate::RepairMarkerRecord;
 
     fn dataset() -> DatasetId {
