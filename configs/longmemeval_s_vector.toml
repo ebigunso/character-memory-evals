@@ -31,10 +31,6 @@ commitments = 0
 character_signals = 0
 
 [ingest]
-index_observations = true
-index_episode_summaries = true
-create_threads = false
-store_gold_labels = false
 
 [metrics]
 ks_session = [1, 3, 5, 10]

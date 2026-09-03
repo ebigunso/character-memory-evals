@@ -15,15 +15,13 @@ use cmem_eval_core::{
     EmbeddingBindingRecord, EmbeddingProviderConfig, EmbeddingRuntimeBinding, EpisodeInput,
     FrozenEmbeddingProvider, FrozenEmbeddingSource, GraphEnrichmentInput, GraphSnapshotInput,
     LiveEmbeddingProvider, MemoryAdapter, MetricFamily, MetricsConfig, MetricsRecord,
-    MockMemoryAdapter, NamespaceLifecycleResult, ObjectType, ObservationInput, PerQuestionResult,
-    ReaderResult, ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem,
-    RunAdapterMetadata, Timer, assign_outcome_attempt_indexes,
-    classify_frozen_embedding_dimensions, composition_metrics, count_tokens, estimate_word_count,
-    initialize_registry_metrics_for, insert_composition_metrics, insert_context_metrics,
-    insert_integrity_detail_metrics, insert_retrieval_metrics, insert_telemetry_metrics,
+    MockMemoryAdapter, NamespaceLifecycleResult, ObservationInput, PerQuestionResult,
+    ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem, RunAdapterMetadata,
+    Timer, classify_frozen_embedding_dimensions, composition_metrics, count_tokens,
+    estimate_word_count, initialize_registry_metrics_for, insert_composition_metrics,
+    insert_context_metrics, insert_integrity_detail_metrics, insert_telemetry_metrics,
     integrity_details_with_telemetry, summarize_rows, write_jsonl, write_summary,
 };
-use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -39,10 +37,6 @@ struct DatasetDescriptor {
 }
 
 const DATASET_REGISTRY: &[DatasetDescriptor] = &[
-    DatasetDescriptor {
-        id: "synthetic",
-        kind: DatasetKind::Synthetic,
-    },
     DatasetDescriptor {
         id: "continuity",
         kind: DatasetKind::Continuity,
@@ -65,10 +59,6 @@ fn dataset_descriptor(dataset: &DatasetId) -> Result<DatasetDescriptor> {
         .with_context(|| format!("unsupported dataset {:?}", dataset.as_str()))
 }
 
-pub(crate) fn dataset_kind_for_config(config: &BenchmarkRunConfig) -> Result<DatasetKind> {
-    Ok(dataset_descriptor(&config.dataset)?.kind)
-}
-
 fn live_embedding_binding(config: &BenchmarkRunConfig) -> Result<EmbeddingBindingRecord> {
     let provider = match config.backend.embedding.provider {
         EmbeddingProviderConfig::Deterministic => LiveEmbeddingProvider::Deterministic,
@@ -88,10 +78,6 @@ fn live_embedding_binding(config: &BenchmarkRunConfig) -> Result<EmbeddingBindin
         model: config.backend.embedding.model.clone(),
         vector_size,
     })
-}
-
-pub(crate) async fn run_synthetic(args: RunArgs) -> Result<()> {
-    run_pipeline::<SyntheticSpec>(args).await
 }
 
 pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
@@ -122,77 +108,6 @@ pub(crate) async fn run_longmemeval(args: RunArgs) -> Result<()> {
 
 pub(crate) async fn run_locomo(args: RunArgs) -> Result<()> {
     run_pipeline::<LoCoMoSpec>(args).await
-}
-
-pub(crate) fn metric_family_for_config(
-    config: &BenchmarkRunConfig,
-    continuity_dataset: Option<&Path>,
-    continuity_scenario: Option<&str>,
-) -> Result<MetricFamily> {
-    match dataset_descriptor(&config.dataset)?.kind {
-        DatasetKind::Synthetic => {
-            SyntheticSpec::validate_config(config)?;
-            Ok(SyntheticSpec::metric_family(&config.metrics))
-        }
-        DatasetKind::Continuity => {
-            ContinuitySpec::validate_config(config)?;
-            let dataset = continuity_dataset.context(
-                "summarizing continuity results requires --dataset with the source fixture path",
-            )?;
-            let scenarios = load_continuity_scenarios(dataset, continuity_scenario)?;
-            validate_continuity_embedding_sizes(config, &scenarios, None)?;
-            Ok(continuity_metric_family(&config.metrics, &scenarios))
-        }
-        DatasetKind::LongMemEvalS => {
-            LongMemEvalSpec::validate_config(config)?;
-            Ok(LongMemEvalSpec::metric_family(&config.metrics))
-        }
-        DatasetKind::LoCoMo => {
-            LoCoMoSpec::validate_config(config)?;
-            Ok(LoCoMoSpec::metric_family(&config.metrics))
-        }
-    }
-}
-
-pub(crate) fn validate_continuity_summary_rows(
-    rows: &[PerQuestionResult],
-    dataset: &Path,
-    selected_scenario: Option<&str>,
-) -> Result<()> {
-    let scenarios = load_continuity_scenarios(dataset, selected_scenario)?;
-    let expected_query_ids = scenarios
-        .iter()
-        .flat_map(|scenario| scenario.events.iter())
-        .filter_map(|event| match event {
-            InteractionEvent::Query { query_id, .. } => Some(query_id.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if rows.len() != expected_query_ids.len() {
-        bail!(
-            "continuity summary input has {} rows but selected fixture scope requires {} queries",
-            rows.len(),
-            expected_query_ids.len()
-        );
-    }
-    for (index, (row, expected_query_id)) in rows.iter().zip(expected_query_ids).enumerate() {
-        if row.question_id != expected_query_id {
-            bail!(
-                "continuity summary row/query mismatch at index {index}: got {:?}, expected {:?} from the selected fixture scope",
-                row.question_id,
-                expected_query_id
-            );
-        }
-    }
-    Ok(())
-}
-
-fn load_continuity_scenarios(
-    path: &Path,
-    selected_scenario: Option<&str>,
-) -> Result<Vec<ContinuityScenario>> {
-    let fixture = load_continuity_fixture(path)?;
-    select_continuity_scenarios(fixture.scenarios, selected_scenario)
 }
 
 fn load_continuity_fixture(path: &Path) -> Result<cmem_eval_continuity::ContinuityFixtureSet> {
@@ -467,8 +382,6 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
             write_outcomes.push(adapter.remember_enrichment(enrichment).await?);
             progress.phase_done(item_number, &item_label, "enrichment", "done");
         }
-        assign_outcome_attempt_indexes(&mut write_outcomes, &mut []);
-
         let full_history = S::full_history_text(&item);
         let full_history_metrics = full_history_context_metrics(Some(&full_history));
         let questions = S::questions(&item);
@@ -556,7 +469,6 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                 telemetry,
                 composition,
                 integrity,
-                reader: ReaderResult::default(),
             });
             completed_questions += 1;
             if S::REPORT_QA_PROGRESS {
@@ -878,6 +790,7 @@ async fn run_continuity_pipeline(
     if let Some(parent) = args.report_out.parent() {
         fs::create_dir_all(parent)?;
     }
+    cmem_eval_core::reject_empty_run(&rows)?;
     progress.write_outputs_started(rows.len());
     write_continuity_traces(&args.trace_out, &traces)?;
     let config_value = serde_json::to_value(&config)?;
@@ -975,142 +888,7 @@ fn continuity_result_row(
         telemetry: trace.retrieval.telemetry().clone(),
         composition,
         integrity,
-        reader: ReaderResult::default(),
     })
-}
-
-struct SyntheticSpec;
-
-impl DatasetSpec for SyntheticSpec {
-    type Item = SyntheticQuestion;
-    type Question = SyntheticQuestion;
-
-    const LATENCY_INCLUDES_INGEST: bool = true;
-    const REPORT_QA_PROGRESS: bool = false;
-    const USES_ENRICHMENT: bool = false;
-
-    fn metric_family(_config: &MetricsConfig) -> MetricFamily {
-        cmem_eval_core::retrieval_metric_family(
-            "synthetic_retrieval",
-            [
-                ("session", [5, 10].as_slice()),
-                ("turn", [10, 50].as_slice()),
-            ],
-        )
-    }
-
-    fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
-        validate_dataset_name(config, "synthetic")
-    }
-
-    fn load(path: &Path) -> Result<Vec<Self::Item>> {
-        Ok(read_json::<SyntheticFixture>(path)?.questions)
-    }
-
-    fn item_id(item: &Self::Item) -> &str {
-        &item.question_id
-    }
-
-    fn namespace(item: &Self::Item) -> String {
-        format!("synthetic:{}", item.question_id)
-    }
-
-    fn memory_inputs(item: &Self::Item, _config: &BenchmarkRunConfig) -> MemoryBatch {
-        let namespace = Self::namespace(item);
-        let mut episodes = Vec::with_capacity(item.sessions.len());
-        let mut observations = Vec::new();
-        for session in &item.sessions {
-            episodes.push(EpisodeInput {
-                external_id: session.session_id.clone(),
-                namespace: namespace.clone(),
-                summary: episode_summary(&session.session_id, &session.turns),
-                started_at: session.date.clone(),
-                ended_at: session.date.clone(),
-                participants: participants(&session.turns),
-                metadata: serde_json::json!({"source": "synthetic"}),
-            });
-            for (index, turn) in session.turns.iter().enumerate() {
-                observations.push(ObservationInput {
-                    external_id: format!("{}:turn:{}", session.session_id, index + 1),
-                    episode_external_id: session.session_id.clone(),
-                    namespace: namespace.clone(),
-                    speaker: turn.role.clone(),
-                    text: turn.content.clone(),
-                    observed_at: session.date.clone(),
-                    metadata: serde_json::json!({"source": "synthetic"}),
-                });
-            }
-        }
-        MemoryBatch {
-            episodes,
-            observations,
-            derived_memories: Vec::new(),
-        }
-    }
-
-    fn questions(item: &Self::Item) -> Vec<&Self::Question> {
-        vec![item]
-    }
-
-    fn question_id(question: &Self::Question) -> &str {
-        &question.question_id
-    }
-
-    fn question_type(_question: &Self::Question) -> Option<String> {
-        None
-    }
-
-    fn question_text(question: &Self::Question) -> &str {
-        &question.question
-    }
-
-    fn query_date(_question: &Self::Question) -> Option<String> {
-        None
-    }
-
-    fn gold_episode_ids(_item: &Self::Item, question: &Self::Question) -> Vec<String> {
-        question.gold_episode_ids.clone()
-    }
-
-    fn gold_observation_ids(_item: &Self::Item, question: &Self::Question) -> Vec<String> {
-        question.gold_observation_ids.clone()
-    }
-
-    fn score(
-        _item: &Self::Item,
-        question: &Self::Question,
-        items: &[RetrievedItem],
-        _config: &BenchmarkRunConfig,
-    ) -> Value {
-        Value::Object(score_basic(
-            items,
-            &question.gold_episode_ids,
-            &question.gold_observation_ids,
-        ))
-    }
-
-    fn full_history_text(item: &Self::Item) -> String {
-        synthetic_full_history_text(&item.sessions)
-    }
-
-    fn enrichment(
-        _item: &Self::Item,
-        _namespace: &str,
-        _derived_memories: Vec<cmem_eval_core::DerivedMemoryInput>,
-        _config: &BenchmarkRunConfig,
-        _configured: &HashMap<String, GraphEnrichmentInput>,
-        _snapshots: &HashMap<String, GraphSnapshotInput>,
-    ) -> Result<Option<GraphEnrichmentInput>> {
-        Ok(None)
-    }
-
-    fn ingest_progress_detail(batch: &MemoryBatch) -> String {
-        format!(
-            "sessions={} turns={}",
-            batch.episodes.len(),
-            batch.observations.len()
-        )
-    }
 }
 
 struct LongMemEvalSpec;
@@ -1453,60 +1231,6 @@ fn context_metrics_with_full_history(
     }
 }
 
-fn score_basic(
-    items: &[RetrievedItem],
-    gold_episode_ids: &[String],
-    gold_observation_ids: &[String],
-) -> Map<String, Value> {
-    let episode_ids = items
-        .iter()
-        .filter(|item| item.kind == ObjectType::Episode)
-        .filter_map(|item| item.external_id.clone())
-        .collect::<Vec<_>>();
-    let observation_ids = items
-        .iter()
-        .filter(|item| item.kind == ObjectType::Observation)
-        .filter_map(|item| item.external_id.clone())
-        .collect::<Vec<_>>();
-    let mut out = Map::new();
-    insert_retrieval_metrics(&mut out, "session", &episode_ids, gold_episode_ids, 5);
-    insert_retrieval_metrics(&mut out, "session", &episode_ids, gold_episode_ids, 10);
-    insert_retrieval_metrics(&mut out, "turn", &observation_ids, gold_observation_ids, 10);
-    insert_retrieval_metrics(&mut out, "turn", &observation_ids, gold_observation_ids, 50);
-    out
-}
-
-fn synthetic_full_history_text(sessions: &[SyntheticSession]) -> String {
-    sessions
-        .iter()
-        .flat_map(|session| {
-            session.turns.iter().map(|turn| {
-                format!(
-                    "{}: {}",
-                    turn.role.as_deref().unwrap_or("unknown"),
-                    turn.content
-                )
-            })
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn episode_summary(session_id: &str, turns: &[SyntheticTurn]) -> String {
-    let roles = participants(turns).join(", ");
-    format!("Conversation session {session_id} containing messages between {roles}.")
-}
-
-fn participants(turns: &[SyntheticTurn]) -> Vec<String> {
-    let mut roles = turns
-        .iter()
-        .filter_map(|turn| turn.role.clone())
-        .collect::<Vec<_>>();
-    roles.sort();
-    roles.dedup();
-    roles
-}
-
 async fn adapter(kind: AdapterKind, config: &BenchmarkRunConfig) -> Result<Box<dyn MemoryAdapter>> {
     match kind {
         AdapterKind::Mock => Ok(Box::<MockMemoryAdapter>::default()),
@@ -1539,6 +1263,7 @@ fn write_outputs(
     if let Some(parent) = args.summary_out.parent() {
         fs::create_dir_all(parent)?;
     }
+    cmem_eval_core::reject_empty_run(&rows)?;
     let summary = summarize_rows(
         config.run_id.clone(),
         config.dataset.clone(),
@@ -1552,13 +1277,6 @@ fn write_outputs(
     )?;
     write_jsonl(&args.out, &rows)?;
     write_summary(&args.summary_out, &summary)
-}
-
-fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
-    let content = fs::read_to_string(path)
-        .map_err(anyhow::Error::from)
-        .map_err(|error| anyhow::anyhow!("read {}: {error}", path.display()))?;
-    Ok(serde_json::from_str(&content)?)
 }
 
 struct RunProgress {
@@ -1709,33 +1427,6 @@ impl RunProgress {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct SyntheticFixture {
-    questions: Vec<SyntheticQuestion>,
-}
-
-#[derive(Debug, Deserialize)]
-struct SyntheticQuestion {
-    question_id: String,
-    question: String,
-    gold_episode_ids: Vec<String>,
-    gold_observation_ids: Vec<String>,
-    sessions: Vec<SyntheticSession>,
-}
-
-#[derive(Debug, Deserialize)]
-struct SyntheticSession {
-    session_id: String,
-    date: Option<String>,
-    turns: Vec<SyntheticTurn>,
-}
-
-#[derive(Debug, Deserialize)]
-struct SyntheticTurn {
-    role: Option<String>,
-    content: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1761,10 +1452,22 @@ mod tests {
         cmem_eval_continuity::read_continuity_traces(path).unwrap()
     }
 
+    fn current_continuity_config_text() -> String {
+        // The maintained, unsealed config is the one that tracks the live CLI
+        // schema; the sealed configs are cited by hash and never edited.
+        fs::read_to_string("../../configs/continuity_smoke.toml").unwrap()
+    }
+
+    fn current_continuity_config() -> BenchmarkRunConfig {
+        toml::from_str(&current_continuity_config_text()).unwrap()
+    }
+
     #[test]
     fn explicit_vector_size_allows_a_custom_live_embedding_model() {
-        let mut config: BenchmarkRunConfig =
-            toml::from_str(include_str!("../../../configs/synthetic_retrieval.toml")).unwrap();
+        let mut config: BenchmarkRunConfig = toml::from_str(include_str!(
+            "../../../configs/longmemeval_s_retrieval.toml"
+        ))
+        .unwrap();
         config.backend.embedding.provider = EmbeddingProviderConfig::OpenAi;
         config.backend.embedding.model = "future-custom-embedding-model".to_string();
         config.backend.embedding.vector_size = Some(2_048);
@@ -1780,7 +1483,7 @@ mod tests {
     }
 
     fn continuity_mock_args(directory: &Path) -> ContinuityRunArgs {
-        let source_config = fs::read_to_string("../../configs/continuity_retrieval.toml").unwrap();
+        let source_config = current_continuity_config_text();
         let store_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../cmem-eval-continuity/fixtures/embeddings/task22_real_store.json")
             .canonicalize()
@@ -1838,7 +1541,7 @@ mod tests {
         )
         .unwrap();
 
-        let source_config = fs::read_to_string("../../configs/continuity_retrieval.toml").unwrap();
+        let source_config = current_continuity_config_text();
         let store_path = store_path.display().to_string().replace('\\', "/");
         let config = source_config
             .replace(
@@ -1910,63 +1613,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn synthetic_command_writes_outputs() {
-        let dir = tempfile::tempdir().unwrap();
-        let out = dir.path().join("synthetic.jsonl");
-        let summary = dir.path().join("synthetic_summary.json");
-        let resummary = dir.path().join("synthetic_resummary.json");
-        let config = PathBuf::from("../../configs/synthetic_retrieval.toml");
-        run_synthetic(RunArgs {
-            dataset: PathBuf::from("../../fixtures/synthetic_small.json"),
-            config: config.clone(),
-            out: out.clone(),
-            summary_out: summary.clone(),
-            adapter: Some(AdapterKind::Mock),
-            allow_mock_benchmark: true,
-        })
-        .await
-        .unwrap();
-        assert!(out.exists());
-        assert!(summary.exists());
-
-        crate::commands::summarize(crate::commands::SummarizeArgs {
-            input: out.clone(),
-            config,
-            out: resummary.clone(),
-            dataset: None,
-            scenario: None,
-        })
-        .unwrap();
-        let original = cmem_eval_core::read_summary(&summary).unwrap();
-        let regenerated = cmem_eval_core::read_summary(&resummary).unwrap();
-        assert_eq!(regenerated.embedding_bindings, original.embedding_bindings);
-        assert_eq!(regenerated.config, original.config);
-        assert_eq!(regenerated.registry_coverage, original.registry_coverage);
-
-        let bad_input = dir.path().join("synthetic-mismatched.jsonl");
-        let bad_summary = dir.path().join("synthetic-mismatched-summary.json");
-        let mut mismatched_rows = read_v2_rows(&out);
-        mismatched_rows[0].run_id = "mismatched-run".to_string();
-        write_jsonl(&bad_input, &mismatched_rows).unwrap();
-        let error = crate::commands::summarize(crate::commands::SummarizeArgs {
-            input: bad_input,
-            config: PathBuf::from("../../configs/synthetic_retrieval.toml"),
-            out: bad_summary,
-            dataset: None,
-            scenario: None,
-        })
-        .unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<cmem_eval_core::SummaryIdentityError>(),
-            Some(&cmem_eval_core::SummaryIdentityError::RunIdMismatch {
-                row_index: 0,
-                expected: original.run_id,
-                found: "mismatched-run".to_string(),
-            })
-        );
-    }
-
-    #[tokio::test]
     async fn longmemeval_command_runs_through_generic_pipeline() {
         let dir = tempfile::tempdir().unwrap();
         let dataset = dir.path().join("longmemeval.json");
@@ -2021,17 +1667,15 @@ mod tests {
                     && outcome
                         .persisted_objects
                         .iter()
-                        .all(|object| object.object_type == ObjectType::Observation)
+                        .all(|object| object.object_type == cmem_eval_core::ObjectType::Observation)
             })
             .collect::<Vec<_>>();
         assert_eq!(observation_outcomes.len(), 1);
-        assert_eq!(observation_outcomes[0].attempt_index, 0);
-        assert_eq!(
-            cmem_eval_core::read_summary(&summary_output)
+        assert!(
+            !cmem_eval_core::read_summary(&summary_output)
                 .unwrap()
                 .degradation
-                .repair_attempt_count,
-            0
+                .any_degradation
         );
     }
 
@@ -2080,33 +1724,17 @@ mod tests {
         let second_args = continuity_mock_args(second_directory.path());
         let result_path = args.run.out.clone();
         let summary_path = args.run.summary_out.clone();
-        let resummary_path = directory.path().join("continuity-resummary.json");
         let trace_path = args.trace_out.clone();
         let report_path = args.report_out.clone();
-        let config_path = args.run.config.clone();
         let dataset_path = args.run.dataset.clone();
+        let config_path = args.run.config.clone();
 
         run_continuity(args).await.unwrap();
         run_continuity(second_args).await.unwrap();
 
         let rows = read_v2_rows(&result_path);
         let traces = read_v2_traces(&trace_path);
-        let wrong_scenario_error =
-            validate_continuity_summary_rows(&rows[..1], &dataset_path, Some("cross-store-stress"))
-                .unwrap_err()
-                .to_string();
-        assert!(wrong_scenario_error.contains("row/query mismatch"));
-        assert!(wrong_scenario_error.contains('0'));
-        crate::commands::summarize(crate::commands::SummarizeArgs {
-            input: result_path.clone(),
-            config: config_path.clone(),
-            out: resummary_path.clone(),
-            dataset: Some(dataset_path.clone()),
-            scenario: None,
-        })
-        .unwrap();
         let summary = cmem_eval_core::read_summary(&summary_path).unwrap();
-        let resummary = cmem_eval_core::read_summary(&resummary_path).unwrap();
         let report: cmem_eval_continuity::ContinuityReport =
             serde_json::from_slice(&fs::read(report_path).unwrap()).unwrap();
         let second_report: cmem_eval_continuity::ContinuityReport = serde_json::from_slice(
@@ -2116,10 +1744,6 @@ mod tests {
         assert_eq!(rows.len(), 23);
         assert_eq!(traces.len(), 23);
         assert_eq!(summary.num_questions, 23);
-        assert_eq!(resummary.config, summary.config);
-        assert_eq!(resummary.metrics, summary.metrics);
-        assert_eq!(resummary.metric_support, summary.metric_support);
-        assert_eq!(resummary.registry_coverage, summary.registry_coverage);
         assert_eq!(
             summary.metric_support["temporal_recall_fraction@5"].numeric_rows,
             4
@@ -2368,7 +1992,7 @@ mod tests {
         assert!(error.contains("lifecycle="), "{error}");
 
         let mut altered_kind_rows = read_v2_rows(&result_path);
-        altered_kind_rows[0].dataset_kind = DatasetKind::Synthetic;
+        altered_kind_rows[0].dataset_kind = DatasetKind::LoCoMo;
         let error = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
             fixture_schema_version: fixture.schema_version,
@@ -2388,7 +2012,7 @@ mod tests {
             error.contains("summary/result identity mismatch"),
             "{error}"
         );
-        assert!(error.contains("Synthetic"), "{error}");
+        assert!(error.contains("LoCoMo"), "{error}");
         assert!(error.contains("Continuity"), "{error}");
 
         let mut invented_traces = traces.clone();
@@ -2564,7 +2188,7 @@ mod tests {
         let original_rows = read_v2_rows(&result_path);
         assert_eq!(traces.len(), 1);
         assert_eq!(original_rows.len(), 1);
-        let (converged_retry, retried_operation_id) = {
+        let converged_retry = {
             let lifecycle = traces[0]
                 .lifecycle_outcomes
                 .first_mut()
@@ -2585,12 +2209,11 @@ mod tests {
                 }),
             };
             let mut retry = lifecycle.clone();
-            retry.attempt_index = 1;
             retry.stats_update_status = cmem_eval_core::StatsUpdateStatusRecord {
                 updated_object_internal_ids: vec![failed_internal_id],
                 failure: None,
             };
-            (retry, lifecycle.operation_id.clone())
+            retry
         };
         traces[0].lifecycle_outcomes.push(converged_retry);
 
@@ -2611,14 +2234,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(row.lifecycle_outcomes, traces[0].lifecycle_outcomes);
-        assert_eq!(
-            row.lifecycle_outcomes
-                .iter()
-                .filter(|outcome| outcome.operation_id == retried_operation_id)
-                .map(|outcome| outcome.attempt_index)
-                .collect::<Vec<_>>(),
-            vec![0, 1]
-        );
 
         let rows = vec![row];
         let config_value = serde_json::to_value(&config).unwrap();
@@ -2632,8 +2247,7 @@ mod tests {
             std::slice::from_ref(&metric_family),
         )
         .unwrap();
-        assert_eq!(summary.degradation.lifecycle_maintenance_failure_count, 1);
-        assert_eq!(summary.degradation.repair_attempt_count, 1);
+        assert!(summary.degradation.any_degradation);
 
         let report = assemble_continuity_report(ContinuityReportInput {
             generated_at: Utc::now(),
@@ -2649,28 +2263,19 @@ mod tests {
             restart_observations: &BTreeMap::new(),
         })
         .unwrap();
-        assert_eq!(
-            report
-                .metadata
-                .degradation
-                .lifecycle_maintenance_failure_count,
-            1
-        );
-        assert_eq!(report.metadata.degradation.repair_attempt_count, 1);
+        assert!(report.metadata.degradation.any_degradation);
     }
 
     #[test]
     fn continuity_spec_accepts_resource_provider_for_scenario_binding_resolution() {
-        let mut config =
-            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        let mut config = current_continuity_config();
         config.backend.embedding.provider = EmbeddingProviderConfig::OpenAi;
         ContinuitySpec::validate_config(&config).unwrap();
     }
 
     #[test]
     fn continuity_spec_requires_debug_rationale_for_mandatory_traces() {
-        let mut config =
-            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        let mut config = current_continuity_config();
         config.retrieval.surface_policy.include_debug_rationale = false;
 
         let error = ContinuitySpec::validate_config(&config)
@@ -2690,8 +2295,7 @@ mod tests {
             cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
                 .unwrap();
         let scenarios = &fixture.scenarios[..1];
-        let mut config =
-            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        let mut config = current_continuity_config();
         config.backend.embedding.provider = EmbeddingProviderConfig::ControllableSimilarity;
 
         config.backend.embedding.vector_size = None;
@@ -2741,8 +2345,7 @@ mod tests {
         scenario.embedding = cmem_eval_continuity::ContinuityScenarioEmbedding::frozen();
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../cmem-eval-continuity/fixtures/embeddings");
-        let mut config =
-            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        let mut config = current_continuity_config();
         config.backend.embedding.provider = EmbeddingProviderConfig::Frozen;
         config.backend.embedding.model = "task21-smoke-model".to_string();
         config.backend.embedding.vector_size = Some(3);
@@ -2801,8 +2404,7 @@ mod tests {
         )
         .unwrap();
         fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
-        let mut config =
-            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        let mut config = current_continuity_config();
         config.backend.embedding.provider = EmbeddingProviderConfig::Frozen;
         config.backend.embedding.model = "text-embedding-3-large".to_string();
         config.backend.embedding.vector_size = Some(1_024);
@@ -2925,8 +2527,7 @@ mod tests {
         let fixture =
             cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
                 .unwrap();
-        let mut config =
-            read_config(&PathBuf::from("../../configs/continuity_retrieval.toml")).unwrap();
+        let mut config = current_continuity_config();
         let configured_store = config.backend.embedding.store_path.as_deref().unwrap();
         let store_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../..")

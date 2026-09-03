@@ -58,7 +58,6 @@ impl<'de> Deserialize<'de> for DatasetId {
 pub enum DatasetKind {
     LongMemEvalS,
     LoCoMo,
-    Synthetic,
     Continuity,
 }
 

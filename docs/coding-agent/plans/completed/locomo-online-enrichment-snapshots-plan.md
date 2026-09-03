@@ -1,8 +1,8 @@
 # Plan: LoCoMo Online Enrichment Snapshots
 
-- status: in_progress
+- status: completed
 - generated: 2026-05-04
-- last_updated: 2026-05-04
+- last_updated: 2026-09-02
 - work_type: mixed
 
 ## Goal
@@ -66,7 +66,7 @@
 ### Task_1: Define LoCoMo Snapshot Contract
 - type: design
 - owns:
-  - `docs/coding-agent/plans/active/locomo-online-enrichment-snapshots-plan.md`
+  - `docs/coding-agent/plans/completed/locomo-online-enrichment-snapshots-plan.md`
   - `README.md`
   - `datasets/enrichment_source/README.md`
 - depends_on: []
@@ -202,7 +202,7 @@
   - `README.md`
   - `configs/*locomo*online*.toml`
   - `datasets/enrichment_source/README.md`
-  - `docs/coding-agent/plans/active/locomo-online-enrichment-snapshots-plan.md`
+  - `docs/coding-agent/plans/completed/locomo-online-enrichment-snapshots-plan.md`
 - depends_on: [Task_6, Task_7]
 - description: |
   Add LoCoMo user-facing docs and validate a small fixture or limited local run that exercises LoCoMo snapshot generation and eval consumption without requiring full benchmark regeneration.
@@ -271,3 +271,10 @@
 - Edge cases:
   - Source sessions with missing timestamps.
   - Superseded or suppressed memories that must remain exported because retrieval behavior depends on lifecycle state.
+
+## Closeout
+
+- 2026-09-02 Plan closeout
+  - Summary: Closed the stale active record after its logged implementation completed and archived it during the harness right-sizing audit.
+  - Validation evidence: The completed progress log above records the service-free and workspace validation used at delivery.
+  - Notes: Moved to `plans/completed/`; no generated dataset or evidence artifact changed.

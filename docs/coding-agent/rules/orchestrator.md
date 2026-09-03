@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "orchestrator"
-last_updated: "2026-07-23"
+last_updated: "2026-09-02"
 ---
 
 # Orchestrator Repository Rules
@@ -29,13 +29,13 @@ last_updated: "2026-07-23"
 
 ## Design-Consult Threshold (coordination/advice separation)
 
-- Escalation-ruling tiers and the blast-radius obligation are harness-owned (lifecycle-gates Escalation Ruling). Repo policy retained, stronger than the harness default: contract-shape escalations — public API surfaces, serialization schemas, cross-repo obligations, deferral-boundary questions — REQUIRE a design consult before ruling.
+- Escalation-ruling tiers and the blast-radius obligation are harness-owned (lifecycle-gates Escalation Ruling). Repo policy retained, stronger than the harness default: contract-shape escalations — public API surfaces, cross-repo obligations, deferral-boundary questions — REQUIRE a design consult before ruling.
 - The design consult is a dispatched Claude design/Tier-A agent holding the design doc and its amendments as resident context, asked what the proposed shape implies for the whole contract; when genuine urgency forbids the round trip, the orchestrator runs the full blast-radius checklist itself and records in the ruling that the consult was skipped and why.
 - Rationale: coordination runs at interrupt tempo and biases rulings toward the proposal's local elegance; the phase's defective rulings were all contract-shape decisions made at coordination tempo, while every altitude decision routed through a dedicated design agent held up.
 
 ## Repo-Specific Integration / Git Policy
 
-- PR titles describe the change contents; never use bare version numbers or milestone labels as titles.
+- PR titles state what the change achieves, not a list of its contents; the contents go in the body. Never use bare version numbers or milestone labels as titles.
 
 ## Rule Suite Refresh Notes
 

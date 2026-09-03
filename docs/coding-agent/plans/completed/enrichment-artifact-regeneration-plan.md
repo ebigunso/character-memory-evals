@@ -41,7 +41,7 @@
   - `crates/cmem-eval-locomo/src/ingest.rs`
 - Existing patterns or references:
   - `docs/coding-agent/plans/completed/longmemeval-s-online-enrichment-snapshots-plan.md`
-  - `docs/coding-agent/plans/active/locomo-online-enrichment-snapshots-plan.md`
+  - `docs/coding-agent/plans/completed/locomo-online-enrichment-snapshots-plan.md`
   - `docs/coding-agent/plans/active/eval-harness-architecture-revision-plan.md`
 - Repo reference docs consulted:
   - `docs/coding-agent/rules/common.md`

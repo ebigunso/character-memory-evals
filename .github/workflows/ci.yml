@@ -145,7 +145,7 @@ jobs:
         run: cargo test --workspace
 
   mock-smoke:
-    name: Mock smoke
+    name: Continuity smoke (service-free)
     needs: [resolve-sibling]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -180,16 +180,10 @@ jobs:
         with:
           workspaces: CharacterMemoryEvals
 
-      - name: Run mock synthetic smoke test
+      - name: Run the maintained continuity smoke twice and diff the rows
         run: |
-          smoke_dir="$RUNNER_TEMP/cmem-eval-smoke"
-          mkdir -p "$smoke_dir"
-          cargo run -p cmem-eval-runner -- run synthetic \
-            --dataset ./fixtures/synthetic_small.json \
-            --config ./configs/synthetic_retrieval.toml \
-            --out "$smoke_dir/synthetic.jsonl" \
-            --summary-out "$smoke_dir/synthetic_summary.json" \
-            --adapter mock \
-            --allow-mock-benchmark
-          test -s "$smoke_dir/synthetic.jsonl"
-          test -s "$smoke_dir/synthetic_summary.json"
+          set -euo pipefail
+          mkdir -p .agent-work/continuity-smoke/{a,b}
+          cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --adapter mock --allow-mock-benchmark --out ./.agent-work/continuity-smoke/a/results.jsonl --summary-out ./.agent-work/continuity-smoke/a/summary.json --trace-out ./.agent-work/continuity-smoke/a/traces.jsonl --report-out ./.agent-work/continuity-smoke/a/report.json
+          cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --adapter mock --allow-mock-benchmark --out ./.agent-work/continuity-smoke/b/results.jsonl --summary-out ./.agent-work/continuity-smoke/b/summary.json --trace-out ./.agent-work/continuity-smoke/b/traces.jsonl --report-out ./.agent-work/continuity-smoke/b/report.json
+          cargo run -p cmem-eval-runner -- diff ./.agent-work/continuity-smoke/a/results.jsonl ./.agent-work/continuity-smoke/b/results.jsonl

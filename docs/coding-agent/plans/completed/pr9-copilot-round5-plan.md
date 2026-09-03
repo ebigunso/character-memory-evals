@@ -1,8 +1,8 @@
 # Plan: PR #9 Copilot Round 5
 
-- status: in_progress
+- status: completed
 - generated: 2026-07-14
-- last_updated: 2026-07-14
+- last_updated: 2026-09-02
 - work_type: mixed
 
 ## Goal
@@ -182,3 +182,10 @@
 ## Notes
 - Risks: schema incompatibility, incomplete implicit-ID admission, scoped/full hash cardinality drift, and live evidence invalidation.
 - Edge cases: repeated threads, generated-ID collisions, invalid operation target kinds, memory-link endpoints, one-row JSON serialization.
+
+## Closeout
+
+- 2026-09-02 Plan closeout
+  - Summary: Closed the stale active record after its logged waves completed and archived it during the harness right-sizing audit.
+  - Validation evidence: The completed progress log above records the scoped, strict, mock, and live evidence used at delivery.
+  - Notes: Moved to `plans/completed/`; no implementation or evidence artifact changed.

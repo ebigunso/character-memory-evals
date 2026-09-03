@@ -3,7 +3,7 @@
 ## 2026-05-04 — Keep Generated Dataset Artifacts Out Of Commits Unless Explicitly Requested  [tags: git, datasets, artifacts, scope]
 
 Context:
-- Plan: `docs/coding-agent/plans/active/locomo-online-enrichment-snapshots-plan.md`
+- Plan: `docs/coding-agent/plans/completed/locomo-online-enrichment-snapshots-plan.md`
 - Task/Wave: LoCoMo enrichment artifact generation and commit prep
 - Roles involved: Orchestrator
 
@@ -204,28 +204,6 @@ Fix applied:
 Prevention:
 - For every mutation contract, inventory all provenance/reference fields established at admission, preserve them through driver state, and validate the live facade path; mock success alone is not contract evidence.
 
-## 2026-07-14 — Document Every Nondeterministic Artifact Source  [tags: review, determinism, reporting, latency]
-
-Context:
-- Plan: PR #9 Copilot review fixes
-- Task/Wave: Reviewer normalization-policy correction
-- Roles involved: Worker | Reviewer
-
-Symptom:
-- Live rows and summaries began carrying measured query latency, but report normalization metadata and README reproducibility guidance still named only generation and mutation timestamps, making raw cross-run hash differences look unexplained.
-
-Root cause:
-- The implementation preserved deterministic report content but did not update the cross-artifact normalization contract when a new nondeterministic source was added to rows and summaries.
-
-Fix applied:
-- Declare measured query latency as excluded from deterministic report content, document that raw rows and summaries vary, provide the canonical `latency_ms = 0` row-hashing recipe, and pin the policy metadata in a regression.
-
-Prevention:
-- When adding time-, randomness-, or service-derived output, update normalization metadata, artifact documentation, and a policy regression in the same change; specify whether canonicalization deletes or replaces the field, the serialization shape, encoding, and newline behavior.
-
-Evidence:
-- Independent reviewer runs reproduced different raw result/summary hashes but identical traces, latency-normalized rows, and report content.
-
 ## 2026-07-14 — Close Every Duplicate Contract And Admission Boundary  [tags: review, contracts, validation, reporting, metrics]
 
 Context:
@@ -297,51 +275,6 @@ Prevention:
 Evidence:
 - Focused regressions cover queryless fixtures, invalid relations, missing concepts, reserved concept collisions, invalid timestamps, disabled rationale, and unknown or missing restart observations; the canonical fixture remains byte-identical.
 - An accidental broad workspace invocation reproduced the known post-success Qdrant teardown timeout in `live_adapter_reattaches_with_external_ids`; the service-free workspace rerun excludes the two explicitly live adapter tests.
-
-## 2026-07-17 — Name Every Supplemental Canonicalization Literal  [tags: validation, determinism, hashing, evidence]
-
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: Task_3 baseline evidence intake
-- Roles involved: Worker | Orchestrator
-
-Symptom:
-- A draft findings-register entry gave exact identity-neutral row hashes but described the additional `run_id` replacement only as “one sentinel,” so the displayed hashes could not be independently reproduced from the written procedure.
-
-Root cause:
-- Pairwise semantic equality and exact canonical-byte reproducibility were treated as equivalent, omitting a replacement literal that changes the hashed bytes.
-
-Fix applied:
-- Name the literal sentinel `__RUN__`, recompute both regime hashes from that procedure, and rerun the structural and canonical-hash gate before committing the register.
-
-Prevention:
-- For any canonicalization beyond the repository's documented recipe, state every field, replacement literal, operation order, serialization shape, encoding, and newline policy, then rederive the displayed hash from those written instructions before commit.
-
-Evidence:
-- Both shipped runs reproduce identity-neutral row hash `A433391E23FA4EDC100515FC143DF7D8D3A7440EF9874FE0F53AB6FDDEF37EDB`, and both eval runs reproduce `87B537DFC216800CFA0932382919C373ED4C9140A9DD370B5E39D6B7CA11D30A` when `latency_ms` is set to numeric `0` and `run_id` to literal `__RUN__` before compact JSON-array serialization.
-
-## 2026-07-18 — Repeat Environment-Sensitive Live Evidence Before Canonicalizing It  [tags: review, validation, determinism, live-evidence, tie-breaking]
-
-Context:
-- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
-- Task/Wave: Task_15 reviewer bounce
-- Roles involved: Worker | Reviewer | Orchestrator
-
-Symptom:
-- One scoped `hub-scale` diagnostic was recorded as a canonical rank-17, 49-item result, while the reviewer reproduced a byte-stable rank-16, 51-item result; immediate back-to-back reruns in one healthy environment reproduced both output shapes.
-
-Root cause:
-- The original evidence intake treated one live run as deterministic without an immediate repeat, while equal-score candidates at the context-pack admission boundary lacked a stable total ordering and could produce two pack-composition attractors.
-
-Fix applied:
-- Preserve both attractors and their raw hashes, record the nondeterminism as an open major draft finding, retain only the qualitative conclusion common to both runs, and bound single-run matrix claims explicitly.
-
-Prevention:
-- Before canonicalizing environment-sensitive live evidence as deterministic, run the scoped case twice under the same controlled provenance and require byte-identical deterministic artifacts; if equal-score outputs diverge, report the complete observed set and open a tie-break finding instead of selecting one run.
-- Pin line endings for every tracked artifact whose raw hash is published, and verify the hash recipe from a fresh materialization under the platform's normal checkout conversion.
-
-Evidence:
-- Attractor A trace `EC71FACD3A7AC341252EDC5F9B05A82309E2A4A195B20FB1785C6492CE7FFA7F` returns 49 items and places the probe at rank 17; attractor B trace `C0FD93F6742DBAED4A9E8198B9E878504D9065E2C857F84FA3B8BA7A8F8705D9` returns 51 items and places it at rank 16. Both select all 48 roots and keep recall@5/@10 at `0`.
 
 ## 2026-07-19 — Cross-Repository Contract Mirrors Need Executable Seam Tests  [tags: review, contracts, cross-repository, drift, validation]
 
@@ -472,28 +405,6 @@ Prevention:
 Evidence:
 - The round-8 regressions admit a padded model only after canonicalization and assert trimmed serialized metadata, compare canonical frozen runtime inputs exactly with both manifest texts and store keys, and the attribution now carries the upstream LongMemEval MIT notice.
 
-## 2026-07-29 — Assert Canonical Writer Output Against Canonical Expectations  [tags: review, testing, serialization, determinism]
-
-Context:
-- Plan: `docs/coding-agent/plans/completed/legacy-1-0-0-reader-removal-plan.md`
-- Task/Wave: Task_2 / Wave 2
-- Roles involved: Worker
-
-Symptom:
-- A new continuity reader round-trip test failed because it compared decoded canonical writer output with the pre-canonical in-memory outcome ordering.
-
-Root cause:
-- The assertion ignored the existing writer contract that sorts outcome families before serialization.
-
-Fix applied:
-- Re-anchored the round-trip assertions to stable reader-owned fields instead of incidental pre-canonical ordering.
-
-Prevention:
-- When testing a reader through a canonicalizing writer, construct the canonical expected value or assert stable reader-owned fields; never assert incidental pre-canonical ordering.
-
-Evidence:
-- Worker Task_2 report 2026-07-28: initial continuity run 79/80, corrected run 80/80 with the focused regression executing 1/1.
-
 ## 2026-07-29 — Filtered Test Evidence Requires A Positive Executed Count  [tags: validation, testing, evidence]
 
 Context:
@@ -550,3 +461,162 @@ Prevention:
 
 Evidence:
 - Task_2 validation records three consecutive serialized live-test runs, before/after collection counts, and a throwaway-only pruning exercise while preserving the 15 user-owned continuity orphans.
+
+## 2026-09-02 — Confirm Decision Consumers Before Deleting Features  [tags: design-audit, scope, decisions, baselines]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md`
+- Task/Wave: Task_2 / Wave 2
+- Roles involved: Decider | Orchestrator | Worker
+
+Symptom:
+- The design-value audit classified the BM25 baseline for deletion because no findings-register entry cited it, and Task_2 initially removed it.
+
+Root cause:
+- The audit treated “no citation” as “no consumer” before the decider confirmed that BM25 is the lexical hurdle Character Memory recall must beat and the proof of improvement over prior versions.
+
+Fix applied:
+- Restore the BM25 code path and the LongMemEval-S and LoCoMo configs, keep the orphaned synthetic config deleted with its dataset, and record the override in the plan and audit.
+
+Prevention:
+- Treat a design-value audit's DELETE verdict as advisory until the decider has confirmed which decision each feature informs; a baseline claim is a durable decision consumer even without a register citation.
+
+Evidence:
+- Decider and orchestrator ruling on 2026-09-02 during harness-right-sizing Task_2.
+
+## 2026-09-02 — Census Every Consumer When Deleting Harness Features  [tags: deletion, review, validation, docs, compatibility]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md`
+- Task/Wave: Task_2 and Task_3 / Wave 2 review
+- Roles involved: Worker | Reviewer | Orchestrator
+
+Symptom:
+- Feature deletion removed implementation surfaces but left stale live documentation, no maintained continuity smoke input, broken inbound plan links, and a new diff reader that rejected prior row fields.
+
+Root cause:
+- The deletion census checked primary code and root documentation without tracing every executable consumer, live documentation surface, rule-mandated inner-loop recipe, config input, and inbound link; the new comparison command also reused strict artifact admission instead of projecting only comparable fields.
+
+Fix applied:
+- Remove stale command docs, add one maintained unsealed service-free smoke config and recipe, repair moved-plan links and reviewer guidance, and give `diff` a lenient projection that reports one-sided retired fields informationally.
+
+Prevention:
+- A deletion task must census executable consumers, every live documentation surface, maintained inner-loop recipes with their configs, and inbound links before handback; comparison readers for new artifact shapes must remain lenient toward prior artifacts because old artifacts are old, not an admission compatibility surface.
+
+Evidence:
+- Reviewer findings and orchestrator rulings during harness-right-sizing Task_2 and Task_3 review on 2026-09-02.
+
+## Archived lessons (2026-09-02)
+
+The harness right-sizing audit archived these historical canonicalization and repeated-run procedures. They remain here as incident history, not current operating rules.
+
+### 2026-07-14 — Document Every Nondeterministic Artifact Source  [tags: review, determinism, reporting, latency]
+
+Context:
+- Plan: PR #9 Copilot review fixes
+- Task/Wave: Reviewer normalization-policy correction
+- Roles involved: Worker | Reviewer
+
+Symptom:
+- Live rows and summaries began carrying measured query latency, but report normalization metadata and README reproducibility guidance still named only generation and mutation timestamps, making raw cross-run hash differences look unexplained.
+
+Root cause:
+- The implementation preserved deterministic report content but did not update the cross-artifact normalization contract when a new nondeterministic source was added to rows and summaries.
+
+Fix applied:
+- Declare measured query latency as excluded from deterministic report content, document that raw rows and summaries vary, provide the canonical `latency_ms = 0` row-hashing recipe, and pin the policy metadata in a regression.
+
+Prevention:
+- When adding time-, randomness-, or service-derived output, update normalization metadata, artifact documentation, and a policy regression in the same change; specify whether canonicalization deletes or replaces the field, the serialization shape, encoding, and newline behavior.
+
+Evidence:
+- Independent reviewer runs reproduced different raw result/summary hashes but identical traces, latency-normalized rows, and report content.
+
+### 2026-07-17 — Name Every Supplemental Canonicalization Literal  [tags: validation, determinism, hashing, evidence]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: Task_3 baseline evidence intake
+- Roles involved: Worker | Orchestrator
+
+Symptom:
+- A draft findings-register entry gave exact identity-neutral row hashes but described the additional `run_id` replacement only as “one sentinel,” so the displayed hashes could not be independently reproduced from the written procedure.
+
+Root cause:
+- Pairwise semantic equality and exact canonical-byte reproducibility were treated as equivalent, omitting a replacement literal that changes the hashed bytes.
+
+Fix applied:
+- Name the literal sentinel `__RUN__`, recompute both regime hashes from that procedure, and rerun the structural and canonical-hash gate before committing the register.
+
+Prevention:
+- For any canonicalization beyond the repository's documented recipe, state every field, replacement literal, operation order, serialization shape, encoding, and newline policy, then rederive the displayed hash from those written instructions before commit.
+
+Evidence:
+- Both shipped runs reproduce identity-neutral row hash `A433391E23FA4EDC100515FC143DF7D8D3A7440EF9874FE0F53AB6FDDEF37EDB`, and both eval runs reproduce `87B537DFC216800CFA0932382919C373ED4C9140A9DD370B5E39D6B7CA11D30A` when `latency_ms` is set to numeric `0` and `run_id` to literal `__RUN__` before compact JSON-array serialization.
+
+### 2026-07-18 — Repeat Environment-Sensitive Live Evidence Before Canonicalizing It  [tags: review, validation, determinism, live-evidence, tie-breaking]
+
+Context:
+- Plan: `../CharacterMemory/docs/coding-agent/plans/active/v0-1-5-eval-driven-closeout-plan.md`
+- Task/Wave: Task_15 reviewer bounce
+- Roles involved: Worker | Reviewer | Orchestrator
+
+Symptom:
+- One scoped `hub-scale` diagnostic was recorded as a canonical rank-17, 49-item result, while the reviewer reproduced a byte-stable rank-16, 51-item result; immediate back-to-back reruns in one healthy environment reproduced both output shapes.
+
+Root cause:
+- The original evidence intake treated one live run as deterministic without an immediate repeat, while equal-score candidates at the context-pack admission boundary lacked a stable total ordering and could produce two pack-composition attractors.
+
+Fix applied:
+- Preserve both attractors and their raw hashes, record the nondeterminism as an open major draft finding, retain only the qualitative conclusion common to both runs, and bound single-run matrix claims explicitly.
+
+Prevention:
+- Before canonicalizing environment-sensitive live evidence as deterministic, run the scoped case twice under the same controlled provenance and require byte-identical deterministic artifacts; if equal-score outputs diverge, report the complete observed set and open a tie-break finding instead of selecting one run.
+- Pin line endings for every tracked artifact whose raw hash is published, and verify the hash recipe from a fresh materialization under the platform's normal checkout conversion.
+
+Evidence:
+- Attractor A trace `EC71FACD3A7AC341252EDC5F9B05A82309E2A4A195B20FB1785C6492CE7FFA7F` returns 49 items and places the probe at rank 17; attractor B trace `C0FD93F6742DBAED4A9E8198B9E878504D9065E2C857F84FA3B8BA7A8F8705D9` returns 51 items and places it at rank 16. Both select all 48 roots and keep recall@5/@10 at `0`.
+
+### 2026-07-29 — Assert Canonical Writer Output Against Canonical Expectations  [tags: review, testing, serialization, determinism]
+
+Context:
+- Plan: `docs/coding-agent/plans/completed/legacy-1-0-0-reader-removal-plan.md`
+- Task/Wave: Task_2 / Wave 2
+- Roles involved: Worker
+
+Symptom:
+- A new continuity reader round-trip test failed because it compared decoded canonical writer output with the pre-canonical in-memory outcome ordering.
+
+Root cause:
+- The assertion ignored the existing writer contract that sorts outcome families before serialization.
+
+Fix applied:
+- Re-anchored the round-trip assertions to stable reader-owned fields instead of incidental pre-canonical ordering.
+
+Prevention:
+- When testing a reader through a canonicalizing writer, construct the canonical expected value or assert stable reader-owned fields; never assert incidental pre-canonical ordering.
+
+Evidence:
+- Worker Task_2 report 2026-07-28: initial continuity run 79/80, corrected run 80/80 with the focused regression executing 1/1.
+
+## 2026-09-03 — Gate Commits On The Tool's Exit Status, Never On Grep Of Its Output  [tags: workflow, validation, git, orchestrator]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md`
+- Task/Wave: Copilot review round 2 on the waves 1–2 PR
+- Roles involved: Orchestrator
+
+Symptom:
+- Two consecutive pushes to the PR carried a failing test: the first with a syntax error in a new diff test, the second with the same test still failing on its assertion.
+
+Root cause:
+- The one-line command chain gated the commit on `cargo test ... | grep -E "^test result|FAILED"` (grep succeeds when it matches FAILED) and joined a lint step to the commit with `;`, so neither a failing test nor a failing format run stopped the commit and push.
+
+Fix applied:
+- Repaired the test and re-pushed with the chain `cargo fmt --all && cargo test ... >/dev/null 2>&1 && cargo clippy ... >/dev/null 2>&1 && git commit && git push`, reading output in a separate step.
+
+Prevention:
+- A commit or push is gated only on the exit status of the validating command itself, joined with `&&`; output filtering for reading happens in a separate command. Never place `;` between a gate and a commit.
+
+Evidence:
+- Commits 1ec5991 (syntax error) and 683a6ca (failing assertion) on `chore/harness-right-sizing-w1`, corrected in 403d261.

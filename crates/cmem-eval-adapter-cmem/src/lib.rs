@@ -2950,7 +2950,6 @@ fn write_outcome_from_live(
     };
     WriteOutcomeRecord {
         operation_id,
-        attempt_index: 0,
         operation,
         persisted_objects: outcome
             .persisted_object_ids
@@ -4135,7 +4134,6 @@ fn lifecycle_result(
         .collect();
     let outcome_record = LifecycleOutcomeRecord {
         operation_id,
-        attempt_index: 0,
         operation,
         requested_targets,
         graph_mutated_objects,
@@ -4943,14 +4941,10 @@ mod tests {
         backend.openai_api_key_env = "CMEM_EVAL_UNUSED_OPENAI_KEY".to_string();
         BenchmarkRunConfig {
             run_id,
-            dataset: DatasetId::new("synthetic").unwrap(),
+            dataset: DatasetId::new("locomo").unwrap(),
             backend,
             retrieval: Default::default(),
-            ingest: cmem_eval_core::IngestConfig {
-                index_observations: true,
-                index_episode_summaries: true,
-                ..cmem_eval_core::IngestConfig::default()
-            },
+            ingest: cmem_eval_core::IngestConfig::default(),
             metrics: Default::default(),
         }
     }
@@ -5268,8 +5262,6 @@ mod tests {
         config.backend.embedding.model = "text-embedding-3-small".to_string();
         config.backend.embedding.vector_size = Some(1536);
         config.backend.embedding.store_path = Some(store_path.display().to_string());
-        config.ingest.index_observations = true;
-        config.ingest.index_episode_summaries = true;
         let provider =
             FrozenEmbeddingProvider::load(&store_path, "text-embedding-3-small", 1536).unwrap();
 
@@ -5917,8 +5909,6 @@ mod tests {
         );
         config.backend.embedding.model = "text-embedding-3-small".to_string();
         config.backend.embedding.vector_size = Some(1536);
-        config.ingest.index_observations = true;
-        config.ingest.index_episode_summaries = true;
         config.validate().unwrap();
 
         let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
@@ -5957,8 +5947,6 @@ mod tests {
             }))
             .unwrap(),
         );
-        overridden_config.ingest.index_observations = true;
-        overridden_config.ingest.index_episode_summaries = true;
         overridden_config.validate().unwrap();
         let overridden_adapter = CharacterMemoryAdapter::new(&overridden_config)
             .await
@@ -6059,8 +6047,6 @@ mod tests {
         );
         config.backend.embedding.provider = EmbeddingProviderConfig::ControllableSimilarity;
         config.backend.embedding.vector_size = Some(3);
-        config.ingest.index_observations = true;
-        config.ingest.index_episode_summaries = true;
         let fixture = ControllableSimilarityFixture {
             seed: 7,
             vector_size: 2,
@@ -6274,9 +6260,6 @@ mod tests {
         );
         config.backend.qdrant_connection_string = Some("http://127.0.0.1:1".to_string());
         config.backend.embedding.vector_size = Some(0);
-        config.ingest.index_observations = true;
-        config.ingest.index_episode_summaries = true;
-
         let error = match CharacterMemoryAdapter::reconstruct(&config, "never-opened").await {
             Ok(_) => panic!("invalid reconstruct config was accepted"),
             Err(error) => error.to_string(),
@@ -6331,9 +6314,6 @@ mod tests {
                 .to_string_lossy()
                 .into_owned(),
         );
-        config.ingest.index_observations = true;
-        config.ingest.index_episode_summaries = true;
-
         let mut qdrant_was_available = false;
         let adapter = live_call_or_skip!(
             qdrant_was_available,
@@ -6390,8 +6370,6 @@ mod tests {
         let prefix = format!("cmem_eval_task3_{token}");
         let namespace = "restart-round-trip";
         let mut config = adapter_config(run_id, prefix);
-        config.ingest.index_observations = true;
-        config.ingest.index_episode_summaries = true;
         config.backend.cleanup.enabled = false;
         config.backend.cleanup.require_collection_prefix = Some("unrelated:prefix".to_string());
         config.backend.identity_registry_dir = Some(

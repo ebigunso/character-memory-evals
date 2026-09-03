@@ -1,8 +1,8 @@
 # Plan: PR #9 Copilot Round 6
 
-- status: in_progress
+- status: completed
 - generated: 2026-07-14
-- last_updated: 2026-07-14
+- last_updated: 2026-09-02
 - work_type: mixed
 
 ## Goal
@@ -157,3 +157,10 @@
 ## Notes
 - Risks: accidental schema-version drift, retained validation-only surface, stale checked artifact, or README fallback ambiguity.
 - Edge cases: retired field rejection, duplicate namespaces remaining enforced, registry fallback when the optional root is absent.
+
+## Closeout
+
+- 2026-09-02 Plan closeout
+  - Summary: Closed the stale active record after its logged waves completed and archived it during the harness right-sizing audit.
+  - Validation evidence: The completed progress log above records the scoped, strict, mock, and live evidence used at delivery.
+  - Notes: Moved to `plans/completed/`; no implementation or evidence artifact changed.
