@@ -598,3 +598,25 @@ Prevention:
 
 Evidence:
 - Worker Task_2 report 2026-07-28: initial continuity run 79/80, corrected run 80/80 with the focused regression executing 1/1.
+
+## 2026-09-03 — Gate Commits On The Tool's Exit Status, Never On Grep Of Its Output  [tags: workflow, validation, git, orchestrator]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md`
+- Task/Wave: Copilot review round 2 on the waves 1–2 PR
+- Roles involved: Orchestrator
+
+Symptom:
+- Two consecutive pushes to the PR carried a failing test: the first with a syntax error in a new diff test, the second with the same test still failing on its assertion.
+
+Root cause:
+- The one-line command chain gated the commit on `cargo test ... | grep -E "^test result|FAILED"` (grep succeeds when it matches FAILED) and joined a lint step to the commit with `;`, so neither a failing test nor a failing format run stopped the commit and push.
+
+Fix applied:
+- Repaired the test and re-pushed with the chain `cargo fmt --all && cargo test ... >/dev/null 2>&1 && cargo clippy ... >/dev/null 2>&1 && git commit && git push`, reading output in a separate step.
+
+Prevention:
+- A commit or push is gated only on the exit status of the validating command itself, joined with `&&`; output filtering for reading happens in a separate command. Never place `;` between a gate and a commit.
+
+Evidence:
+- Commits 1ec5991 (syntax error) and 683a6ca (failing assertion) on `chore/harness-right-sizing-w1`, corrected in 403d261.
