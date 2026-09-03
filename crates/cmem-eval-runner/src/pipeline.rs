@@ -790,10 +790,10 @@ async fn run_continuity_pipeline(
     if let Some(parent) = args.report_out.parent() {
         fs::create_dir_all(parent)?;
     }
+    cmem_eval_core::reject_empty_run(&rows)?;
     progress.write_outputs_started(rows.len());
     write_continuity_traces(&args.trace_out, &traces)?;
     let config_value = serde_json::to_value(&config)?;
-    cmem_eval_core::reject_empty_run(&rows)?;
     let summary = summarize_rows(
         config.run_id.clone(),
         config.dataset.clone(),

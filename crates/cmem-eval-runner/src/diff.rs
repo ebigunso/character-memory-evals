@@ -21,6 +21,13 @@ pub(crate) fn run(args: DiffArgs) -> Result<()> {
         normalize(read_rows(&args.run_b)?),
     )?;
     print!("{}", report.render());
+    if report.differing_queries > 0 {
+        bail!(
+            "{} of {} queries differ semantically",
+            report.differing_queries,
+            report.queries
+        );
+    }
     Ok(())
 }
 
