@@ -238,6 +238,7 @@ impl RetrievedContextPack {
 #[serde(deny_unknown_fields)]
 pub struct RetrievalTelemetry {
     pub trace_available: bool,
+    pub vector_recall_completeness: Option<VectorRecallCompleteness>,
     #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub vector_candidate_count: Option<usize>,
     #[serde(deserialize_with = "crate::serde_contract::required_option")]
@@ -298,6 +299,15 @@ pub struct RetrievalTelemetry {
     #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub rationale_categories_by_internal_id:
         Option<BTreeMap<String, Vec<RetrievalRationaleCategory>>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VectorRecallCompleteness {
+    NotRequested,
+    Exhaustive { scanned: usize },
+    BoundaryTieClosed { fetched: usize },
+    BoundaryTieOpen { fetched: usize, fetch_bound: usize },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

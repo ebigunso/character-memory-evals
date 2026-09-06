@@ -25,7 +25,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Benchmark commands default to the live Character Memory adapter. Provide backend settings:
+Benchmark commands default to the live Character Memory adapter. OpenAI embeddings require `OPENAI_API_KEY`; service mode additionally requires `QDRANT_CONNECTION_STRING`:
 
 ```bash
 export QDRANT_CONNECTION_STRING=http://127.0.0.1:6334
@@ -34,6 +34,12 @@ export OPENAI_API_KEY=...
 
 For live runs that use deterministic embeddings instead of OpenAI, set
 `[backend.embedding] provider = "deterministic"` in the run config.
+
+### Vector store mode
+
+`[backend] vector_store_mode = "embedded"` is the default and needs no Qdrant service or connection string. The adapter creates and canonicalizes a `vectors-<namespace UUID>` directory beside the identity registry, under `backend.identity_registry_dir` (or `runs/<run_id>`). The path includes the prefix, run, and namespace identity so reset and cleanup remove only that namespace's embedded store. Reattach requires the embedded store alongside the registry and configured graph/stat stores.
+
+Set `[backend] vector_store_mode = "service"` to use Qdrant at `backend.qdrant_connection_string` or `QDRANT_CONNECTION_STRING`. The vector-only baseline uses a direct service client and requires this mode; hybrid retrieval supports both modes. For an older vector-only config, add `vector_store_mode = "service"` under `[backend]` in an unsealed working copy and pass that copy to `--config`. Rows record `telemetry.vector_recall_completeness` as diagnostic data, without changing metrics.
 
 ## Continuity Evaluation
 

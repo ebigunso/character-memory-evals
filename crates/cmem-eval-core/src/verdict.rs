@@ -355,6 +355,7 @@ pub struct CandidateCountRecord {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum VectorDatabaseErrorKind {
+    Engine,
     Response,
     ResourceExhausted,
     Conversion,
@@ -627,6 +628,7 @@ pub enum EmbeddingErrorRecord {
 )]
 pub enum VectorIndexingCauseRecord {
     Embedding(EmbeddingErrorRecord),
+    ZeroNormEmbedding { object: ObjectRefRecord },
     CardinalityMismatch { expected: usize, actual: usize },
     VectorDatabase(VectorDatabaseErrorRecord),
 }

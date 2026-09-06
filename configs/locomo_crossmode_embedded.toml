@@ -1,0 +1,44 @@
+run_id = "crossmode_locomo_embedded"
+dataset = "locomo"
+
+[backend]
+identity_registry_dir = ".agent-work/evals-worker/crossmode/locomo/embedded/stores/identities"
+vector_store_mode = "embedded"
+qdrant_connection_string = "http://localhost:6334"
+namespace_prefix = "cmem_eval_crossmode_locomo_embedded"
+
+[backend.cleanup]
+enabled = false
+require_collection_prefix = "cmem_eval_crossmode_locomo_embedded"
+
+[backend.embedding]
+provider = "openai"
+model = "text-embedding-3-large"
+
+[retrieval]
+
+[retrieval.surface_policy]
+object_types = ["episode", "observation", "derived_memory"]
+include_debug_rationale = true
+
+[retrieval.surface_policy.sections]
+active_threads = 0
+relevant_episodes = 8
+salient_observations = 16
+derived_memories = 12
+preferences = 8
+relationship_notes = 8
+open_loops = 8
+commitments = 8
+character_signals = 8
+
+[ingest]
+index_session_summaries = false
+index_generated_observations = false
+include_image_captions = false
+# Final per-sample graph snapshots produced from source-only chronological replay.
+enrichment_snapshot_path = "./datasets/enriched/locomo_online_snapshots.jsonl"
+
+[metrics]
+ks_dialog = [5, 10, 20, 50]
+ks_session = [1, 3, 5, 10]

@@ -95,16 +95,16 @@ impl Serialize for ContinuityScenarioEmbedding {
     {
         match self {
             Self::ControllableSimilarity(fixture) => {
-                let mut object = serde_json::to_value(fixture)
-                    .map_err(serde::ser::Error::custom)?
-                    .as_object()
-                    .cloned()
-                    .expect("controllable similarity fixture serializes as an object");
-                object.insert(
-                    "provider".to_string(),
-                    Value::String("controllable_similarity".to_string()),
-                );
-                object.serialize(serializer)
+                let mut value = serde_json::to_value(fixture).map_err(serde::ser::Error::custom)?;
+                value
+                    .as_object_mut()
+                    .expect("controllable similarity fixture serializes as an object")
+                    .insert(
+                        "provider".to_string(),
+                        Value::String("controllable_similarity".to_string()),
+                    );
+                value.sort_all_objects();
+                value.serialize(serializer)
             }
             Self::Frozen => {
                 Map::from_iter([("provider".to_string(), Value::String("frozen".to_string()))])

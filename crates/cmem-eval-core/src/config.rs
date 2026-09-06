@@ -11,6 +11,14 @@ pub enum RetrievalMode {
     VectorOnly,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VectorStoreMode {
+    #[default]
+    Embedded,
+    Service,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BenchmarkRunConfig {
@@ -57,6 +65,8 @@ impl BenchmarkRunConfig {
 #[serde(deny_unknown_fields)]
 pub struct BackendConfig {
     #[serde(default)]
+    pub vector_store_mode: VectorStoreMode,
+    #[serde(default)]
     pub namespace_prefix: Option<String>,
     #[serde(default)]
     pub qdrant_connection_string: Option<String>,
@@ -79,6 +89,7 @@ pub struct BackendConfig {
 impl Default for BackendConfig {
     fn default() -> Self {
         Self {
+            vector_store_mode: VectorStoreMode::default(),
             namespace_prefix: None,
             qdrant_connection_string: None,
             oxigraph_persistence_path: None,
