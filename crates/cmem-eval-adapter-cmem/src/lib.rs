@@ -914,8 +914,8 @@ impl CharacterMemoryAdapter {
         namespace: &str,
         required_prefix: &str,
     ) -> Result<()> {
+        let mut namespaces = self.namespaces.lock().await;
         let (collection_name, identity_registry_path) = {
-            let namespaces = self.namespaces.lock().await;
             namespaces
                 .get(namespace)
                 .map(|state| {
@@ -933,8 +933,13 @@ impl CharacterMemoryAdapter {
         };
         self.delete_collection_with_prefix(&collection_name, required_prefix)
             .await?;
-        let removed_state = self.namespaces.lock().await.remove(namespace);
-        drop(removed_state);
+        if let Some(state) = namespaces.remove(namespace) {
+            state
+                .memory
+                .close()
+                .await
+                .with_context(|| format!("close namespace {namespace} before removing stores"))?;
+        }
         if identity_registry_path.exists() {
             fs::remove_file(&identity_registry_path).with_context(|| {
                 format!(
@@ -5061,6 +5066,10 @@ mod tests {
         let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
         let vector_a = adapter.vector_store_path("a");
         let vector_b = adapter.vector_store_path("b");
+        let stores: Vec<_> = ["a", "b"]
+            .into_iter()
+            .flat_map(|namespace| adapter.configured_durable_store_paths(namespace))
+            .collect();
         assert_ne!(vector_a, vector_b);
         for namespace in ["a", "b"] {
             adapter.open_namespace(namespace).await.unwrap();
@@ -5090,6 +5099,9 @@ mod tests {
             before.telemetry().vector_recall_completeness,
             Some(VectorRecallCompleteness::Exhaustive { .. })
         ));
+        for (_, state) in adapter.namespaces.lock().await.drain() {
+            state.memory.close().await.unwrap();
+        }
         drop(adapter);
         let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
         adapter.reattach_namespace("b").await.unwrap();
@@ -5100,7 +5112,13 @@ mod tests {
         assert!(vector_b.exists());
         adapter.cleanup_namespace("b").await.unwrap();
         assert!(!vector_b.exists());
-        assert!(directory.path().exists());
+        for (store_name, path) in stores {
+            assert!(!path.exists(), "{store_name} remains: {}", path.display());
+        }
+        adapter.open_namespace("b").await.unwrap();
+        adapter.reset_namespace("b").await.unwrap();
+        assert!(!vector_b.exists());
+        directory.close().unwrap();
     }
 
     #[tokio::test]
