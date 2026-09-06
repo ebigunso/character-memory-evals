@@ -2,6 +2,7 @@ run_id = "crossmode_longmemeval_s_service_repeat"
 dataset = "longmemeval_s"
 
 [backend]
+retrieval_stats_path = ".agent-work/evals-worker/crossmode/longmemeval_s/service_repeat/stores/retrieval.sqlite"
 identity_registry_dir = ".agent-work/evals-worker/crossmode/longmemeval_s/service_repeat/stores/identities"
 vector_store_mode = "service"
 qdrant_connection_string = "http://localhost:6334"
