@@ -125,10 +125,12 @@ fn current_checked_in_configs_parse_under_the_strict_schema() {
         .filter(|path| {
             let name = path.file_name().unwrap().to_string_lossy();
             // Sealed continuity configs are cited by hash and may predate the
-            // current schema; the maintained smoke config must track it.
+            // current schema; maintained smoke and cross-mode configs must track it.
             path.extension()
                 .is_some_and(|extension| extension == "toml")
-                && (!name.starts_with("continuity_") || name == "continuity_smoke.toml")
+                && (!name.starts_with("continuity_")
+                    || name == "continuity_smoke.toml"
+                    || name.starts_with("continuity_crossmode_"))
         })
         .collect::<Vec<_>>();
     paths.sort();
