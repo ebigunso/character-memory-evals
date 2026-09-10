@@ -669,3 +669,17 @@ Prevention:
 
 Evidence:
 - Reviewer follow-up report `.agent-work/evals-reviewer/task8-followup-review.md` (2026-09-10).
+
+## 2026-09-10 — Re-run revision resolution after a companion pin changes
+
+Symptom:
+- After the library merge, re-running only failed jobs on CME #25 still validated the earlier companion revision.
+
+Root cause:
+- GitHub Actions reused the successful revision-resolution job's output when only failed jobs were re-run.
+
+Prevention:
+- After a companion pin changes on main, maintainers must re-run the entire workflow or push a new revision so revision resolution executes again. A failed-jobs-only rerun does not validate the new pin.
+
+Evidence:
+- CME #25 follow-up after the CharacterMemory v0.1.6 merge (2026-09-10).
