@@ -647,3 +647,25 @@ Prevention:
 
 Evidence:
 - Worker report `.agent-work/evals-worker/task8-step1-report.yaml` and `.agent-work/evals-worker/crossmode/REPORT.md` (2026-09-06); library fix commit af40e66 on the v0.1.6 stack.
+
+## 2026-09-10 — Source-Check The Exact Live-Gate Variable Before A Forced-Live Run  [tags: review, validation, environment, evidence]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md` (Task_8 step 1 follow-up review)
+- Task/Wave: Task_8 step 1 / Wave 6
+- Roles involved: Reviewer
+
+Symptom:
+- A reviewer's forced-live adapter run was executed with a similarly named but wrong environment variable; the live bodies still executed because the service was reachable, but the evidence could not prove forced mode and the run had to be repeated.
+
+Root cause:
+- The variable name was recalled from memory instead of read from the skip guard in source, and the run metadata recorded a generic "require live" flag rather than the exact environment map.
+
+Fix applied:
+- The run was repeated with the exact variable read from the skip guard, and the corrected command and environment map were saved beside the evidence.
+
+Prevention:
+- Before any forced-live run, read the exact skip-guard variable name from source and record the exact environment map with the evidence; a generic "require live" note is not evidence of forced mode.
+
+Evidence:
+- Reviewer follow-up report `.agent-work/evals-reviewer/task8-followup-review.md` (2026-09-10).
