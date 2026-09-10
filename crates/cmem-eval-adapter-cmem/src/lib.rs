@@ -57,8 +57,9 @@ use cmem_eval_core::{
     SupersessionResult, ThreadStatus as EvalThreadStatus, TransportStatus as EvalTransportStatus,
     VectorDatabaseErrorKind as EvalVectorDatabaseErrorKind, VectorDatabaseErrorRecord,
     VectorIndexingCauseRecord, VectorIndexingFailureRecord, VectorMaintenanceFailureItemRecord,
-    VectorMaintenanceOperation as EvalVectorMaintenanceOperation, WriteOperationKind,
-    WriteOutcomeRecord, WriteResult, deterministic_operation_id,
+    VectorMaintenanceOperation as EvalVectorMaintenanceOperation, VectorRecallCompleteness,
+    VectorStoreMode, WriteOperationKind, WriteOutcomeRecord, WriteResult,
+    deterministic_operation_id,
 };
 use qdrant_client::qdrant::{Condition, Filter, ScoredPoint, SearchPointsBuilder, value::Kind};
 use qdrant_client::{Qdrant, config::QdrantConfig};
@@ -81,7 +82,7 @@ const QDRANT_REQUEST_TIMEOUT_SECS: u64 = 30;
 pub struct CharacterMemoryAdapter {
     config: BenchmarkRunConfig,
     embedding_binding: EmbeddingRuntimeBinding,
-    qdrant: Qdrant,
+    qdrant: Option<Qdrant>,
     openai_embeddings: openai_embedding::OpenAiEmbeddingClient,
     namespaces: Arc<Mutex<HashMap<String, NamespaceState>>>,
 }
@@ -411,16 +412,25 @@ impl CharacterMemoryAdapter {
         config: &BenchmarkRunConfig,
         embedding_binding: EmbeddingRuntimeBinding,
     ) -> Result<Self> {
-        let qdrant_url = config
-            .backend
-            .qdrant_connection_string
-            .clone()
-            .or_else(|| env::var("QDRANT_CONNECTION_STRING").ok())
-            .context("QDRANT_CONNECTION_STRING is required for live Character Memory runs")?;
-        let qdrant = Qdrant::new(
-            QdrantConfig::from_url(&qdrant_url)
-                .timeout(Duration::from_secs(QDRANT_REQUEST_TIMEOUT_SECS)),
-        )?;
+        if config.retrieval.mode == RetrievalMode::VectorOnly
+            && config.backend.vector_store_mode != VectorStoreMode::Service
+        {
+            bail!("vector_only retrieval requires backend.vector_store_mode=service");
+        }
+        let qdrant = if config.backend.vector_store_mode == VectorStoreMode::Service {
+            let qdrant_url = config
+                .backend
+                .qdrant_connection_string
+                .clone()
+                .or_else(|| env::var("QDRANT_CONNECTION_STRING").ok())
+                .context("QDRANT_CONNECTION_STRING is required for live Character Memory runs")?;
+            Some(Qdrant::new(
+                QdrantConfig::from_url(&qdrant_url)
+                    .timeout(Duration::from_secs(QDRANT_REQUEST_TIMEOUT_SECS)),
+            )?)
+        } else {
+            None
+        };
         Ok(Self {
             config: config.clone(),
             embedding_binding,
@@ -500,6 +510,22 @@ impl CharacterMemoryAdapter {
         Ok(())
     }
 
+    /// Releases every namespace's stores without deleting their durable data.
+    pub async fn close(self) -> Result<()> {
+        let mut first_error = None;
+        for (namespace, state) in self.namespaces.lock().await.drain() {
+            if let Err(error) = state
+                .memory
+                .close()
+                .await
+                .with_context(|| format!("close namespace {namespace}"))
+            {
+                first_error.get_or_insert(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
     pub async fn reconstruct(
         config: &BenchmarkRunConfig,
         namespace: &str,
@@ -570,6 +596,11 @@ impl CharacterMemoryAdapter {
     ) -> Result<NamespaceState> {
         let collection_name = self.collection_name(namespace);
         let identity_registry_path = self.identity_registry_path(namespace);
+        // Embedded directories already isolate namespaces; do not repeat long collection names.
+        let vector_collection_name = match self.config.backend.vector_store_mode {
+            VectorStoreMode::Embedded => "memory",
+            VectorStoreMode::Service => &collection_name,
+        };
         let settings = self.settings(namespace)?;
         let memory = match &self.embedding_binding {
             EmbeddingRuntimeBinding::Live {
@@ -579,7 +610,7 @@ impl CharacterMemoryAdapter {
                 let vector_size = self.config.backend.embedding.vector_size.unwrap_or(3072);
                 CharacterMemory::new_with_embedding_provider(
                     settings,
-                    collection_name.clone(),
+                    vector_collection_name.to_owned(),
                     Box::new(CharacterMemoryEmbeddingProvider::new(vector_size)?),
                 )
                 .await?
@@ -588,7 +619,7 @@ impl CharacterMemoryAdapter {
                 let storage_vector_size = settings.get_embedding_vector_size()?;
                 CharacterMemory::new_with_embedding_provider(
                     settings,
-                    collection_name.clone(),
+                    vector_collection_name.to_owned(),
                     Box::new(CharacterMemoryControllableSimilarityEmbeddingProvider::new(
                         fixture.clone(),
                         storage_vector_size,
@@ -599,7 +630,7 @@ impl CharacterMemoryAdapter {
             EmbeddingRuntimeBinding::Frozen { store, .. } => {
                 CharacterMemory::new_with_embedding_provider(
                     settings,
-                    collection_name.clone(),
+                    vector_collection_name.to_owned(),
                     Box::new(CharacterMemoryFrozenEmbeddingProvider {
                         inner: store.clone(),
                     }),
@@ -609,7 +640,7 @@ impl CharacterMemoryAdapter {
             EmbeddingRuntimeBinding::Live {
                 provider: LiveEmbeddingProvider::OpenAi,
                 ..
-            } => CharacterMemory::new(settings, collection_name.clone()).await?,
+            } => CharacterMemory::new(settings, vector_collection_name.to_owned()).await?,
         };
 
         Ok(NamespaceState {
@@ -621,7 +652,6 @@ impl CharacterMemoryAdapter {
     }
 
     fn settings(&self, namespace: &str) -> Result<Settings> {
-        let qdrant = self.qdrant_connection_string()?;
         let openai_api_key = env::var(&self.config.backend.openai_api_key_env)
             .or_else(|_| env::var("OPENAI_API_KEY"))
             .unwrap_or_else(|_| {
@@ -645,13 +675,28 @@ impl CharacterMemoryAdapter {
         }
 
         let mut builder = config::Config::builder()
-            .set_override("qdrant_connection_string", qdrant)?
             .set_override("oxigraph_path", "unused-in-memory")?
             .set_override("openai_api_key", openai_api_key)?
             .set_override(
                 "embedding_model",
                 self.config.backend.embedding.model.clone(),
             )?;
+        builder = match self.config.backend.vector_store_mode {
+            VectorStoreMode::Embedded => {
+                let path = self.vector_store_path(namespace);
+                fs::create_dir_all(&path)
+                    .with_context(|| format!("create embedded vector store {}", path.display()))?;
+                builder
+                    .set_override("vector_store_mode", "embedded")?
+                    .set_override(
+                        "vector_store_path",
+                        path.canonicalize()?.to_string_lossy().into_owned(),
+                    )?
+            }
+            VectorStoreMode::Service => builder
+                .set_override("vector_store_mode", "service")?
+                .set_override("qdrant_connection_string", self.qdrant_connection_string()?)?,
+        };
         if let Some(path) = self.oxigraph_persistence_path(namespace) {
             builder = builder
                 .set_override("graph_store_mode", "persistent")?
@@ -836,6 +881,9 @@ impl CharacterMemoryAdapter {
 
     fn configured_durable_store_paths(&self, namespace: &str) -> Vec<(&'static str, PathBuf)> {
         let mut stores = Vec::new();
+        if self.config.backend.vector_store_mode == VectorStoreMode::Embedded {
+            stores.push(("embedded vector store", self.vector_store_path(namespace)));
+        }
         if let Some(path) = self.oxigraph_persistence_path(namespace) {
             stores.push(("Oxigraph store", path));
         }
@@ -845,19 +893,31 @@ impl CharacterMemoryAdapter {
         stores
     }
 
+    fn vector_store_path(&self, namespace: &str) -> PathBuf {
+        self.identity_registry_path(namespace)
+            .parent()
+            .expect("identity registry has a parent directory")
+            .join(format!(
+                "vectors-{}",
+                self.namespace_identity_suffix(namespace).simple()
+            ))
+    }
+
     async fn delete_collection_with_prefix(
         &self,
         collection_name: &str,
         required_prefix: &str,
     ) -> Result<()> {
         validate_cleanup_target(collection_name, Some(required_prefix))?;
-        if self
-            .qdrant
+        let Some(qdrant) = &self.qdrant else {
+            return Ok(());
+        };
+        if qdrant
             .collection_exists(collection_name)
             .await
             .with_context(|| format!("check Qdrant collection {collection_name}"))?
         {
-            self.qdrant
+            qdrant
                 .delete_collection(collection_name)
                 .await
                 .with_context(|| format!("delete Qdrant collection {collection_name}"))?;
@@ -870,8 +930,8 @@ impl CharacterMemoryAdapter {
         namespace: &str,
         required_prefix: &str,
     ) -> Result<()> {
+        let mut namespaces = self.namespaces.lock().await;
         let (collection_name, identity_registry_path) = {
-            let namespaces = self.namespaces.lock().await;
             namespaces
                 .get(namespace)
                 .map(|state| {
@@ -889,8 +949,13 @@ impl CharacterMemoryAdapter {
         };
         self.delete_collection_with_prefix(&collection_name, required_prefix)
             .await?;
-        let removed_state = self.namespaces.lock().await.remove(namespace);
-        drop(removed_state);
+        if let Some(state) = namespaces.remove(namespace) {
+            state
+                .memory
+                .close()
+                .await
+                .with_context(|| format!("close namespace {namespace} before removing stores"))?;
+        }
         if identity_registry_path.exists() {
             fs::remove_file(&identity_registry_path).with_context(|| {
                 format!(
@@ -956,10 +1021,13 @@ impl CharacterMemoryAdapter {
                     kind.to_string(),
                 )]))
                 .build();
-        let response =
-            self.qdrant.search_points(request).await.with_context(|| {
-                format!("vector_only Qdrant search {collection_name} kind={kind}")
-            })?;
+        let response = self
+            .qdrant
+            .as_ref()
+            .context("vector_only retrieval requires service mode")?
+            .search_points(request)
+            .await
+            .with_context(|| format!("vector_only Qdrant search {collection_name} kind={kind}"))?;
         response
             .result
             .into_iter()
@@ -1059,11 +1127,11 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             );
         }
         let collection_name = self.collection_name(namespace);
-        if self
-            .qdrant
-            .collection_exists(&collection_name)
-            .await
-            .with_context(|| format!("check Qdrant collection {collection_name}"))?
+        if let Some(qdrant) = &self.qdrant
+            && qdrant
+                .collection_exists(&collection_name)
+                .await
+                .with_context(|| format!("check Qdrant collection {collection_name}"))?
         {
             bail!(
                 "Qdrant collection already exists for namespace {namespace}; reset the namespace or use reattach_namespace"
@@ -1086,11 +1154,16 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         }
         let registry_path = self.identity_registry_path(namespace);
         let collection_name = self.collection_name(namespace);
-        let collection_exists = self
-            .qdrant
-            .collection_exists(&collection_name)
-            .await
-            .with_context(|| format!("check Qdrant collection {collection_name} for reattach"))?;
+        let collection_exists = if let Some(qdrant) = &self.qdrant {
+            qdrant
+                .collection_exists(&collection_name)
+                .await
+                .with_context(|| {
+                    format!("check Qdrant collection {collection_name} for reattach")
+                })?
+        } else {
+            true
+        };
         let mut missing_stores = Vec::new();
         if !registry_path.exists() {
             missing_stores.push(format!("identity registry {}", registry_path.display()));
@@ -1105,7 +1178,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         }
         if !missing_stores.is_empty() {
             bail!(
-                "cannot reattach namespace {namespace}; missing durable store(s): {}; reattach requires the identity registry, Qdrant collection, and every configured namespace-scoped store",
+                "cannot reattach namespace {namespace}; missing durable store(s): {}; reattach requires the identity registry and every configured namespace-scoped store",
                 missing_stores.join(", ")
             );
         }
@@ -2153,6 +2226,26 @@ fn telemetry_from_outcome(
     });
     RetrievalTelemetry {
         trace_available: trace.is_some(),
+        vector_recall_completeness: Some(
+            match outcome.rationale.telemetry.vector_recall_completeness {
+                character_memory::VectorRecallCompleteness::NotRequested => {
+                    VectorRecallCompleteness::NotRequested {}
+                }
+                character_memory::VectorRecallCompleteness::Exhaustive { scanned } => {
+                    VectorRecallCompleteness::Exhaustive { scanned }
+                }
+                character_memory::VectorRecallCompleteness::BoundaryTieClosed { fetched } => {
+                    VectorRecallCompleteness::BoundaryTieClosed { fetched }
+                }
+                character_memory::VectorRecallCompleteness::BoundaryTieOpen {
+                    fetched,
+                    fetch_bound,
+                } => VectorRecallCompleteness::BoundaryTieOpen {
+                    fetched,
+                    fetch_bound,
+                },
+            },
+        ),
         vector_candidate_count: Some(outcome.rationale.vector_candidate_count),
         configured_candidate_limits: Some(ConfiguredCandidateLimits {
             max_vector_candidates: outcome
@@ -3393,6 +3486,11 @@ fn vector_indexing_cause_from_live(
     cause: &character_memory::VectorIndexingCause,
 ) -> VectorIndexingCauseRecord {
     match cause {
+        character_memory::VectorIndexingCause::ZeroNormEmbedding { object } => {
+            VectorIndexingCauseRecord::ZeroNormEmbedding {
+                object: object_ref_from_live(*object, None),
+            }
+        }
         character_memory::VectorIndexingCause::Embedding(error) => {
             VectorIndexingCauseRecord::Embedding(embedding_error_from_live(error))
         }
@@ -3418,6 +3516,7 @@ fn vector_database_kind_from_live(
     kind: &character_memory::VectorDatabaseErrorKind,
 ) -> EvalVectorDatabaseErrorKind {
     match kind {
+        character_memory::VectorDatabaseErrorKind::Engine => EvalVectorDatabaseErrorKind::Engine,
         character_memory::VectorDatabaseErrorKind::Response => {
             EvalVectorDatabaseErrorKind::Response
         }
@@ -4922,6 +5021,7 @@ mod tests {
 
     fn adapter_config(run_id: String, namespace_prefix: String) -> BenchmarkRunConfig {
         let mut backend = cmem_eval_core::BackendConfig {
+            vector_store_mode: VectorStoreMode::Service,
             namespace_prefix: Some(namespace_prefix.clone()),
             qdrant_connection_string: Some(
                 env::var("QDRANT_CONNECTION_STRING")
@@ -4963,6 +5063,75 @@ mod tests {
             .unwrap();
 
         assert!(status.success());
+    }
+
+    #[tokio::test]
+    async fn embedded_namespace_survives_restart_and_cleanup_is_isolated() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agent-work/evals-worker");
+        fs::create_dir_all(&root).unwrap();
+        let directory = tempfile::tempdir_in(std::path::absolute(root).unwrap()).unwrap();
+        let mut config = adapter_config("embedded-lifecycle".into(), "cmem_eval_embedded".into());
+        config.backend.vector_store_mode = VectorStoreMode::Embedded;
+        config.backend.qdrant_connection_string = None;
+        config.backend.identity_registry_dir =
+            Some(directory.path().join("identities").display().to_string());
+        config.backend.oxigraph_persistence_path =
+            Some(directory.path().join("oxigraph").display().to_string());
+        config.backend.retrieval_stats_path =
+            Some(directory.path().join("stats.sqlite").display().to_string());
+        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let vector_a = adapter.vector_store_path("a");
+        let vector_b = adapter.vector_store_path("b");
+        let stores: Vec<_> = ["a", "b"]
+            .into_iter()
+            .flat_map(|namespace| adapter.configured_durable_store_paths(namespace))
+            .collect();
+        assert_ne!(vector_a, vector_b);
+        for namespace in ["a", "b"] {
+            adapter.open_namespace(namespace).await.unwrap();
+            adapter
+                .remember_episode(EpisodeInput {
+                    external_id: "episode".into(),
+                    namespace: namespace.into(),
+                    summary: "The notebook is blue.".into(),
+                    started_at: Some("2025-01-01T00:00:00Z".into()),
+                    ended_at: None,
+                    participants: Vec::new(),
+                    metadata: serde_json::json!({}),
+                })
+                .await
+                .unwrap();
+        }
+        let query = RetrieveInput {
+            mode: RetrievalMode::Hybrid,
+            namespace: "b".into(),
+            query: "The notebook is blue.".into(),
+            query_date: Some("2025-01-02T00:00:00Z".into()),
+            surface_policy: retrieval_surface_policy(8, 0, false, false, false, true),
+        };
+        let before = adapter.retrieve(query.clone()).await.unwrap();
+        assert!(!before.items().is_empty());
+        assert!(matches!(
+            before.telemetry().vector_recall_completeness,
+            Some(VectorRecallCompleteness::Exhaustive { .. })
+        ));
+        adapter.close().await.unwrap();
+        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        adapter.reattach_namespace("b").await.unwrap();
+        let after = adapter.retrieve(query).await.unwrap();
+        assert_eq!(before.items(), after.items());
+        adapter.cleanup_namespace("a").await.unwrap();
+        assert!(!vector_a.exists());
+        assert!(vector_b.exists());
+        adapter.cleanup_namespace("b").await.unwrap();
+        assert!(!vector_b.exists());
+        for (store_name, path) in stores {
+            assert!(!path.exists(), "{store_name} remains: {}", path.display());
+        }
+        adapter.open_namespace("b").await.unwrap();
+        adapter.reset_namespace("b").await.unwrap();
+        assert!(!vector_b.exists());
+        directory.close().unwrap();
     }
 
     #[tokio::test]
@@ -6831,6 +7000,8 @@ mod tests {
             true,
             adapter_restored_stores
                 .qdrant
+                .as_ref()
+                .unwrap()
                 .delete_collection(&collection_name)
                 .await
                 .with_context(|| format!("delete Qdrant collection {collection_name}"))
@@ -7069,6 +7240,8 @@ mod tests {
             true,
             resetter
                 .qdrant
+                .as_ref()
+                .unwrap()
                 .collection_exists(&collection_a)
                 .await
                 .with_context(|| format!("check sibling collection {collection_a}"))
@@ -7079,6 +7252,8 @@ mod tests {
             true,
             resetter
                 .qdrant
+                .as_ref()
+                .unwrap()
                 .collection_exists(&collection_b)
                 .await
                 .with_context(|| format!("check sibling collection {collection_b}"))
@@ -7539,6 +7714,11 @@ mod tests {
         rationale.telemetry.unique_graph_root_candidate_count = 9;
         rationale.telemetry.selected_graph_root_count = 4;
         rationale.telemetry.graph_root_omission_count = 5;
+        rationale.telemetry.vector_recall_completeness =
+            character_memory::VectorRecallCompleteness::BoundaryTieOpen {
+                fetched: 17,
+                fetch_bound: 17,
+            };
         let outcome = RetrieveOutcome {
             pack: ContinuityContextPack::empty(),
             rationale,
@@ -7549,6 +7729,13 @@ mod tests {
         assert_eq!(telemetry.unique_graph_root_candidate_count, Some(9));
         assert_eq!(telemetry.selected_graph_root_count, Some(4));
         assert_eq!(telemetry.graph_root_omission_count, Some(5));
+        assert_eq!(
+            telemetry.vector_recall_completeness,
+            Some(VectorRecallCompleteness::BoundaryTieOpen {
+                fetched: 17,
+                fetch_bound: 17
+            })
+        );
         let fanout = &telemetry.fanout_utilization.as_ref().unwrap()[0];
         assert_eq!(fanout.root_external_id.as_deref(), Some("entity-hub"));
         assert_eq!((fanout.configured_cap, fanout.selected_cap), (8, 4));

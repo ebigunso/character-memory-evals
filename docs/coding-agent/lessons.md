@@ -620,3 +620,52 @@ Prevention:
 
 Evidence:
 - Commits 1ec5991 (syntax error) and 683a6ca (failing assertion) on `chore/harness-right-sizing-w1`, corrected in 403d261.
+
+## 2026-09-06 — Cross-Mode Evaluation Against A Pre-Merge Library Tip  [tags: evaluation, environment, windows, serde, isolation, planning]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md` (Task_8 step 1, re-sequenced by decider ruling to run before the library's phase merge)
+- Task/Wave: Task_8 step 1 / Wave 6
+- Roles involved: Worker | Orchestrator | Reviewer
+
+Symptom:
+- Six deviations surfaced while adapting the harness to the pre-merge library and running the same datasets in service and embedded vector modes: nested relative embedded store paths failed at shard open on Windows; the sealed fixture generator's canonical-byte tests failed under workspace feature unification; the first continuity attempt rejected a provider value the README still documented; conventional configs silently shared one cwd-relative retrieval-statistics file across modes; debug-build and full-input probes projected many hours per run; service-mode write phases showed 30–70 second outliers with no failure telemetry to attribute them.
+
+Root cause:
+- Windows native stores accept different path forms: the embedded engine needs a canonical (verbatim) root while RocksDB rejects verbatim paths, so canonicalising every store root breaks the graph store.
+- `qdrant-edge` enables `serde_json/preserve_order`, and Cargo feature unification turns it on for the whole workspace, so `serde_json::Value` maps stop sorting keys and any serializer that relied on implicit ordering produces different bytes.
+- Stale README guidance plus a schema test that excluded historical continuity configs hid an invalid new config until runtime.
+- Omitting `retrieval_stats_path` inherits the library's cwd-relative default, which persists across runs with deterministic object ids.
+- Per-question graph ingestion dominates conventional runs; debug builds and full inputs are impractical for side-by-side batches.
+- Saved logs and rows carry no retry counters, so a write-phase delay cannot be attributed to retries, ties, or embedding noise.
+
+Fix applied:
+- The settings bridge creates and canonicalises only the embedded vector directory (the library adapter now canonicalises its root itself); the continuity embedding serializer sorts keys explicitly with sealed bytes untouched; comparison configs follow the maintained smoke config and every new config is parsed by the schema test; every comparative run and mode gets fresh per-namespace statistics and store paths; release builds and decider-approved deterministic subsets (first 100 LongMemEval-S questions, first two LoCoMo conversations) with retained manifests; outliers reported as phase timings and ids without a cause claim.
+
+Prevention:
+- Canonicalise only the store roots whose engine needs it and exercise restart plus isolated cleanup on Windows; serialize sealed bytes through explicit canonical ordering and validate in the workspace feature context; parse every current config in tests and keep documentation aligned with admitted values; give every comparative run and mode fresh statistics and store paths; measure release-build item throughput and agree common deterministic subsets before long batches; report timing outliers with phase and id evidence only.
+
+Evidence:
+- Worker report `.agent-work/evals-worker/task8-step1-report.yaml` and `.agent-work/evals-worker/crossmode/REPORT.md` (2026-09-06); library fix commit af40e66 on the v0.1.6 stack.
+
+## 2026-09-10 — Source-Check The Exact Live-Gate Variable Before A Forced-Live Run  [tags: review, validation, environment, evidence]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md` (Task_8 step 1 follow-up review)
+- Task/Wave: Task_8 step 1 / Wave 6
+- Roles involved: Reviewer
+
+Symptom:
+- A reviewer's forced-live adapter run was executed with a similarly named but wrong environment variable; the live bodies still executed because the service was reachable, but the evidence could not prove forced mode and the run had to be repeated.
+
+Root cause:
+- The variable name was recalled from memory instead of read from the skip guard in source, and the run metadata recorded a generic "require live" flag rather than the exact environment map.
+
+Fix applied:
+- The run was repeated with the exact variable read from the skip guard, and the corrected command and environment map were saved beside the evidence.
+
+Prevention:
+- Before any forced-live run, read the exact skip-guard variable name from source and record the exact environment map with the evidence; a generic "require live" note is not evidence of forced mode.
+
+Evidence:
+- Reviewer follow-up report `.agent-work/evals-reviewer/task8-followup-review.md` (2026-09-10).

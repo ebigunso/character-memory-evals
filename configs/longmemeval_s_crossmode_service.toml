@@ -1,0 +1,42 @@
+run_id = "crossmode_longmemeval_s_service"
+dataset = "longmemeval_s"
+
+[backend]
+retrieval_stats_path = ".agent-work/evals-worker/crossmode/longmemeval_s/service/stores/retrieval.sqlite"
+identity_registry_dir = ".agent-work/evals-worker/crossmode/longmemeval_s/service/stores/identities"
+vector_store_mode = "service"
+qdrant_connection_string = "http://localhost:6334"
+namespace_prefix = "cmem_eval_crossmode_longmemeval_s_service"
+
+[backend.cleanup]
+enabled = false
+require_collection_prefix = "cmem_eval_crossmode_longmemeval_s_service"
+
+[backend.embedding]
+provider = "openai"
+model = "text-embedding-3-large"
+
+[retrieval]
+
+[retrieval.surface_policy]
+object_types = ["episode", "observation", "derived_memory"]
+include_debug_rationale = true
+
+[retrieval.surface_policy.sections]
+active_threads = 0
+relevant_episodes = 8
+salient_observations = 16
+derived_memories = 12
+preferences = 8
+relationship_notes = 8
+open_loops = 8
+commitments = 8
+character_signals = 8
+
+[ingest]
+# Per-question graph snapshots produced from source-only chronological replay.
+enrichment_snapshot_path = "./datasets/enriched/longmemeval_s_online_snapshots.jsonl"
+
+[metrics]
+ks_session = [1, 3, 5, 10]
+ks_turn = [5, 10, 20, 50]

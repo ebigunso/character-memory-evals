@@ -243,6 +243,13 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 - 2026-09-02 Decision: BM25 baseline retained by decider ruling: it is the lexical hurdle recall must beat and the proof of improvement over prior versions; audit verdict DELETE overridden.
   - Plan delta: Task_2 retains the BM25 code path and the LongMemEval-S and LoCoMo configs; `synthetic_bm25.toml` stays deleted with the synthetic dataset because a config for a deleted dataset is not a usable baseline.
   - User approval: yes, 2026-09-02.
+- 2026-09-04 Decision: Task_8 is re-sequenced into per-step PRs and its first step runs BEFORE the library's phase merge, by decider ruling: the library's default vector store is finalized only after this repository's evaluations run against the library's stacked pre-merge tip (CM 21d9786, PR stack #76).
+  - Step 1 (this wave): compile adaptation to the pre-merge library (exhaustive conversion of the new vector-indexing failure kind; the completeness field on mirrored telemetry; the vector-store mode and path keys in the settings bridge with a per-run embedded store path); then the cross-mode evaluation: the continuity suite and the two conventional benchmarks run in service mode and in embedded mode against the same library tip, with `diff` between modes and against the last reference. The vector-only baseline stays on its direct search for this step; its trace migration and A/B proof are step 2.
+  - Trigger: the library phase's completion evidence for the embedded default is in-library parity; the decider requires behaviour-level evidence from this repository before the default is final.
+  - Tradeoffs: the mirror vocabulary is extended rather than deleted for this step (deletion remains Task_8's later step) so the evaluation runs on unchanged measurement code; the library pin is a pre-merge commit and the run is repeated on the merged tip only if the merge changes it.
+  - User approval: yes, 2026-09-04.
+
+- 2026-09-10 Decision: Task_8 step 1 closes on CME #25 with the schema advanced to 2.1.0 (telemetry's completeness field is required) and the vector-only-needs-service invariant enforced at config admission. Two low-severity review findings are deferred to step 2, where the full datasets run: embedded conventional runs retain one engine per namespace until the final cleanup pass (a resource ceiling for large datasets; remedy is a non-deleting namespace detach after each completed item), and the reattachment error message should name vector-store state in mode-neutral wording.
 
 ## Notes
 - Risks and mitigations: section 6 of the audit.

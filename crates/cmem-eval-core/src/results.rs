@@ -13,7 +13,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
-pub const RESULT_SCHEMA_VERSION: &str = "2.0.0";
+pub const RESULT_SCHEMA_VERSION: &str = "2.1.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -340,6 +340,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn not_requested_completeness_rejects_unknown_fields_like_every_other_variant() {
+        use crate::memory_adapter::VectorRecallCompleteness;
+        let valid = serde_json::from_value::<VectorRecallCompleteness>(
+            serde_json::json!({"kind": "not_requested"}),
+        )
+        .unwrap();
+        assert_eq!(valid, VectorRecallCompleteness::NotRequested {});
+        assert_eq!(
+            serde_json::to_value(valid).unwrap(),
+            serde_json::json!({"kind": "not_requested"})
+        );
+        for mut value in [
+            serde_json::json!({"kind": "not_requested"}),
+            serde_json::json!({"kind": "exhaustive", "scanned": 1}),
+            serde_json::json!({"kind": "boundary_tie_closed", "fetched": 1}),
+            serde_json::json!({"kind": "boundary_tie_open", "fetched": 1, "fetch_bound": 2}),
+        ] {
+            let valid = serde_json::from_value::<VectorRecallCompleteness>(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(valid).unwrap(), value);
+            value["unexpected"] = serde_json::json!(true);
+            assert!(
+                serde_json::from_value::<VectorRecallCompleteness>(value.clone()).is_err(),
+                "{value} accepted an unknown field"
+            );
+        }
+    }
+
+    #[test]
     fn empty_run_is_rejected_before_summary() {
         let error = reject_empty_run(&[]).unwrap_err().to_string();
         assert!(error.contains("produced no result rows"), "{error}");
@@ -633,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn read_jsonl_round_trips_v2_and_rejects_v1_at_schema_detection() {
+    fn read_jsonl_round_trips_current_and_rejects_superseded_schemas() {
         let path = temp_path("results", "jsonl");
         let result_row = row(serde_json::json!({"recall_any@1": 1.0}));
         let expected_bytes = format!(
@@ -647,19 +675,58 @@ mod tests {
         assert_eq!(rows[0].question_id, result_row.question_id);
 
         let mut legacy = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        legacy["schema_version"] = Value::String("1.0.0".into());
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&legacy).unwrap()),
-        )
-        .unwrap();
-        let error = read_jsonl(&path).unwrap_err().to_string();
-        assert!(
-            error.contains("unsupported result schema_version"),
-            "{error}"
+        for version in ["1.0.0", "2.0.0"] {
+            legacy["schema_version"] = Value::String(version.into());
+            std::fs::write(
+                &path,
+                format!("{}\n", serde_json::to_string(&legacy).unwrap()),
+            )
+            .unwrap();
+            let error = read_jsonl(&path).unwrap_err().to_string();
+            assert!(
+                error.contains("unsupported result schema_version"),
+                "{error}"
+            );
+            assert!(error.contains(version), "{error}");
+            assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn zero_norm_embedding_cause_round_trips_through_result_rows() {
+        let object = crate::ObjectRefRecord {
+            object_type: crate::ObjectType::Episode,
+            internal_id: "internal-episode".into(),
+            external_id: Some("external-episode".into()),
+        };
+        let mut outcome = WriteOutcomeRecord::clean(
+            "zero-norm-embedding",
+            crate::WriteOperationKind::ExplicitCommit,
         );
-        assert!(error.contains("1.0.0"), "{error}");
-        assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
+        outcome.vector_indexing_failure = Some(crate::VectorIndexingFailureRecord {
+            unindexed_objects: vec![object.clone()],
+            cause: crate::VectorIndexingCauseRecord::ZeroNormEmbedding { object },
+        });
+        let mut result_row = row(serde_json::json!({}));
+        result_row.write_outcomes.push(outcome);
+        let path = temp_path("zero-norm-embedding", "jsonl");
+        write_jsonl(&path, std::slice::from_ref(&result_row)).unwrap();
+        let wire: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            wire["write_outcomes"][0]["vector_indexing_failure"]["cause"],
+            serde_json::json!({
+                "cause": "zero_norm_embedding",
+                "detail": {"object": {
+                    "object_type": "episode",
+                    "internal_id": "internal-episode",
+                    "external_id": "external-episode"
+                }}
+            })
+        );
+        let decoded = read_jsonl(&path).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].write_outcomes, result_row.write_outcomes);
         std::fs::remove_file(path).unwrap();
     }
 
@@ -725,6 +792,20 @@ mod tests {
     #[test]
     fn v2_result_reader_rejects_shape_drift() {
         let path = temp_path("results-shape-drift", "jsonl");
+
+        let mut completeness = versioned_row_value(&row(serde_json::json!({}))).unwrap();
+        completeness["telemetry"]["vector_recall_completeness"] =
+            serde_json::json!({"kind": "exhaustive", "scanned": 3});
+        std::fs::write(&path, format!("{completeness}\n")).unwrap();
+        assert_eq!(read_jsonl(&path).unwrap().len(), 1);
+        completeness["telemetry"]["vector_recall_completeness"]["unexpected_field"] =
+            Value::Bool(true);
+        std::fs::write(&path, format!("{completeness}\n")).unwrap();
+        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
+        assert!(
+            error.contains("unknown field `unexpected_field`"),
+            "{error}"
+        );
 
         let current = serde_json::to_string(&row(serde_json::json!({}))).unwrap();
         let duplicate_root = current.replacen(r#""run_id":"r""#, r#""run_id":"r","run_id":"r""#, 1);
@@ -908,6 +989,10 @@ mod tests {
             ),
             (
                 serde_json::to_vec(&serde_json::json!({"schema_version": "0.9.0"})).unwrap(),
+                "unsupported summary schema_version",
+            ),
+            (
+                serde_json::to_vec(&serde_json::json!({"schema_version": "2.0.0"})).unwrap(),
                 "unsupported summary schema_version",
             ),
         ] {

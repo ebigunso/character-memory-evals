@@ -2,6 +2,8 @@ run_id = "longmemeval_s_v0_1_vector"
 dataset = "longmemeval_s"
 
 [backend]
+# The vector-only baseline reads the service collection directly; it needs service mode.
+vector_store_mode = "service"
 namespace_prefix = "bench:lme_vector"
 
 [backend.cleanup]

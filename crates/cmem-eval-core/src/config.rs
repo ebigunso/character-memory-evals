@@ -11,6 +11,14 @@ pub enum RetrievalMode {
     VectorOnly,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VectorStoreMode {
+    #[default]
+    Embedded,
+    Service,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BenchmarkRunConfig {
@@ -32,6 +40,11 @@ impl BenchmarkRunConfig {
         self.ingest.validate()?;
         self.retrieval.validate()?;
         self.backend.validate()?;
+        if self.retrieval.mode == RetrievalMode::VectorOnly
+            && self.backend.vector_store_mode != VectorStoreMode::Service
+        {
+            bail!("retrieval.mode=vector_only requires backend.vector_store_mode=service");
+        }
         Ok(())
     }
 
@@ -57,6 +70,8 @@ impl BenchmarkRunConfig {
 #[serde(deny_unknown_fields)]
 pub struct BackendConfig {
     #[serde(default)]
+    pub vector_store_mode: VectorStoreMode,
+    #[serde(default)]
     pub namespace_prefix: Option<String>,
     #[serde(default)]
     pub qdrant_connection_string: Option<String>,
@@ -79,6 +94,7 @@ pub struct BackendConfig {
 impl Default for BackendConfig {
     fn default() -> Self {
         Self {
+            vector_store_mode: VectorStoreMode::default(),
             namespace_prefix: None,
             qdrant_connection_string: None,
             oxigraph_persistence_path: None,
@@ -1084,7 +1100,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_vector_only_retrieval_mode() {
+    fn vector_only_retrieval_requires_service_backend_at_admission() {
         let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
             "dataset": "synthetic",
@@ -1097,6 +1113,11 @@ mod tests {
         assert_eq!(config.retrieval.mode, RetrievalMode::VectorOnly);
         config.retrieval.surface_policy.object_types =
             vec![crate::ObjectType::Episode, crate::ObjectType::Observation];
+        assert_eq!(config.backend.vector_store_mode, VectorStoreMode::Embedded);
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("retrieval.mode"), "{error}");
+        assert!(error.contains("backend.vector_store_mode"), "{error}");
+        config.backend.vector_store_mode = VectorStoreMode::Service;
         config.validate().unwrap();
     }
 

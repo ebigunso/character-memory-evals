@@ -35,7 +35,7 @@ last_updated: "2026-09-02"
 
 ## Repo-Specific Integration / Git Policy
 
-- PR titles state what the change achieves, not a list of its contents; the contents go in the body. Never use bare version numbers or milestone labels as titles.
+- PR titles state the point of the change in one short clause, not a list of its contents and not an explanation of the evidence; the contents and qualifications go in the body. Never use bare version numbers or milestone labels as titles.
 
 ## Rule Suite Refresh Notes
 

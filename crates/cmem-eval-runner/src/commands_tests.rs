@@ -118,26 +118,30 @@ selectivity_gamma = 0.5
 }
 
 #[test]
-fn current_checked_in_configs_parse_under_the_strict_schema() {
+fn current_checked_in_configs_parse_and_validate_under_the_strict_schema() {
     let mut paths = fs::read_dir("../../configs")
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| {
             let name = path.file_name().unwrap().to_string_lossy();
             // Sealed continuity configs are cited by hash and may predate the
-            // current schema; the maintained smoke config must track it.
+            // current schema; maintained smoke and cross-mode configs must track it.
             path.extension()
                 .is_some_and(|extension| extension == "toml")
-                && (!name.starts_with("continuity_") || name == "continuity_smoke.toml")
+                && (!name.starts_with("continuity_")
+                    || name == "continuity_smoke.toml"
+                    || name.starts_with("continuity_crossmode_"))
         })
         .collect::<Vec<_>>();
     paths.sort();
     assert!(!paths.is_empty());
 
     for path in paths {
-        read_config(&path).unwrap_or_else(|error| {
-            panic!("checked-in config {} failed: {error:#}", path.display())
-        });
+        read_config(&path)
+            .and_then(|config| config.validate())
+            .unwrap_or_else(|error| {
+                panic!("checked-in config {} failed: {error:#}", path.display())
+            });
     }
 }
 

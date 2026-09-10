@@ -25,7 +25,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Benchmark commands default to the live Character Memory adapter. Provide backend settings:
+Benchmark commands default to the live Character Memory adapter. OpenAI embeddings require `OPENAI_API_KEY`; service mode additionally requires `QDRANT_CONNECTION_STRING`:
 
 ```bash
 export QDRANT_CONNECTION_STRING=http://127.0.0.1:6334
@@ -35,13 +35,19 @@ export OPENAI_API_KEY=...
 For live runs that use deterministic embeddings instead of OpenAI, set
 `[backend.embedding] provider = "deterministic"` in the run config.
 
+### Vector store mode
+
+`[backend] vector_store_mode = "embedded"` is the default and needs no Qdrant service or connection string. The adapter creates and canonicalizes a `vectors-<namespace UUID>` directory beside the identity registry, under `backend.identity_registry_dir` (or `runs/<run_id>`). The path includes the prefix, run, and namespace identity so reset and cleanup remove only that namespace's embedded store. Reattach requires the embedded store alongside the registry and configured graph/stat stores.
+
+Set `[backend] vector_store_mode = "service"` to use Qdrant at `backend.qdrant_connection_string` or `QDRANT_CONNECTION_STRING`. The vector-only baseline uses a direct service client and requires this mode; hybrid retrieval supports both modes. For an older vector-only config, add `vector_store_mode = "service"` under `[backend]` in an unsealed working copy and pass that copy to `--config`. Rows record `telemetry.vector_recall_completeness` as diagnostic data, without changing metrics.
+
 ## Continuity Evaluation
 
 Continuity fixtures run an ordered, fixture-scripted lifecycle through remember, staged prepare/validate/commit, retrieve, correct, forget, link, and restart operations. The harness observes and reports retrieval and lifecycle measurements; it does not enforce metric thresholds as CI pass/fail gates.
 
 ### Configuration and prerequisites
 
-The 26 committed continuity configs cited by hash in the findings register are sealed evidence for cited validation and sweep regimes. Their bytes remain immutable and are not maintained as current CLI inputs after config-schema removals. Continuity validation accepts `controllable_similarity`, `frozen`, or `mixed` deterministic embeddings. The checked schema-v3 fixture is a mixed suite: its two semantic-geometry scenarios use the committed `text-embedding-3-large` frozen store, while its thirteen structural scenarios use controllable similarity and are zero-padded from eight dimensions to the store width. Schema-v3 fixtures declare a provider in every scenario embedding block, and frozen or mixed configs require `backend.embedding.store_path`. Persistent Oxigraph and retrieval-stat SQLite paths remain mandatory so restart scenarios can reconstruct those stores. The identity registry is always persistent: `identity_registry_dir` is optional and falls back deterministically to `runs/<run_id>`.
+The 26 committed continuity configs cited by hash in the findings register are sealed evidence for cited validation and sweep regimes. Their bytes remain immutable and are not maintained as current CLI inputs after config-schema removals. Continuity uses the deterministic embedding provider declared by each fixture scenario. The checked schema-v3 fixture is a mixed suite: its two semantic-geometry scenarios use the committed `text-embedding-3-large` frozen store, while its thirteen structural scenarios use controllable similarity and are zero-padded from eight dimensions to the store width. Schema-v3 fixtures declare a provider in every scenario embedding block, and frozen configs require `backend.embedding.store_path`. Persistent Oxigraph and retrieval-stat SQLite paths remain mandatory so restart scenarios can reconstruct those stores. The identity registry is always persistent: `identity_registry_dir` is optional and falls back deterministically to `runs/<run_id>`.
 
 ### Run a service-free continuity smoke
 
@@ -115,7 +121,7 @@ vector_size = 3072
 store_path = "crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json"
 ```
 
-Use `provider = "mixed"` when selected schema-v3 scenarios contain both explicit `controllable_similarity` and `frozen` embedding blocks. The committed `task21_smoke_manifest.json` and `task21_smoke_store.json` exercise format and validation machinery with a store that declares `source = "test_fixture"`. Frozen-store cache coverage is preflighted for both mock and live real-adapter runs. A mock run may use test-provenance vectors when they cover every selected runtime text; the mock adapter does not call an embedding service. Live real-adapter runs additionally require `source = "open_ai_api"`, so they reject the task21 smoke store rather than representing its hand-authored three-dimensional vectors as OpenAI output. Generated production stores record that production source and the requested model.
+Use `provider = "frozen"` when selected schema-v3 scenarios contain both explicit `controllable_similarity` and `frozen` embedding blocks; the runtime binds each scenario to its declared provider. The committed `task21_smoke_manifest.json` and `task21_smoke_store.json` exercise format and validation machinery with a store that declares `source = "test_fixture"`. Frozen-store cache coverage is preflighted for both mock and live real-adapter runs. A mock run may use test-provenance vectors when they cover every selected runtime text; the mock adapter does not call an embedding service. Live real-adapter runs additionally require `source = "open_ai_api"`, so they reject the task21 smoke store rather than representing its hand-authored three-dimensional vectors as OpenAI output. Generated production stores record that production source and the requested model.
 
 Set the live endpoint in the current shell before a live run:
 
@@ -241,7 +247,7 @@ The workspace separates shared evaluation contracts, dataset-specific behavior, 
 
 Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementation, but no `cmem-eval-core` change. Continuity-specific fixture parsing, ordered event execution, and query trace serialization remain in `crates/cmem-eval-continuity`.
 
-JSONL rows, continuity traces, summaries, and reports use report schema version `2.0.0`. Readers accept only schema `2.0.0` and fail closed on missing or unsupported versions; sealed evidence from superseded schemas remains immutable bytes verified by hash rather than input for the live readers. The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains first-class as per-row `latency_ms` and summary `latency.latency_ms` mean/median/p50/p95 values, but it is excluded from deterministic `metrics`. Each row records its typed per-scenario embedding binding, and summaries aggregate the sorted unique binding records rather than exposing a single embedding-provider field.
+JSONL rows, continuity traces, summaries, and reports use report schema version `2.1.0`. Readers accept only schema `2.1.0` and fail closed on missing or unsupported versions; sealed evidence from superseded schemas remains immutable bytes verified by hash rather than input for the live readers. The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains first-class as per-row `latency_ms` and summary `latency.latency_ms` mean/median/p50/p95 values, but it is excluded from deterministic `metrics`. Each row records its typed per-scenario embedding binding, and summaries aggregate the sorted unique binding records rather than exposing a single embedding-provider field.
 
 Live namespace lifecycle is explicit: `open_namespace` creates fresh run state, while `reattach_namespace` requires and restores the complete durable identity consisting of the external-ID registry, deterministic Qdrant collection, and every configured namespace-scoped Oxigraph and retrieval-stat store. Before ingesting a conventional dataset item, the runner resets and opens its namespace exactly once per `DatasetSpec::Item`; the item supplies the granularity (a question for LongMemEval-S or a sample for LoCoMo), and configuration does not alter it. Configured `oxigraph_persistence_path` values are shared roots whose namespace child directories use the same prefix/run/namespace UUID identity as Qdrant; configured `retrieval_stats_path` values are filename templates whose derived sibling files use that identity while preserving the configured extension. Cleanup remains guarded by the configured eval prefix and never deletes a configured shared root.
 

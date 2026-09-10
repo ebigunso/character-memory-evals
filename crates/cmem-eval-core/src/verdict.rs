@@ -355,6 +355,7 @@ pub struct CandidateCountRecord {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum VectorDatabaseErrorKind {
+    Engine,
     Response,
     ResourceExhausted,
     Conversion,
@@ -382,6 +383,7 @@ const VECTOR_DATABASE_ERROR_KIND_VARIANTS: &[&str] = &[
     "http",
     "json_to_payload",
     "payload_deserialization",
+    "engine",
 ];
 
 struct VectorDatabaseErrorKindVisitor;
@@ -438,6 +440,7 @@ impl<'de> Visitor<'de> for VectorDatabaseErrorKindVisitor {
             "http" => VectorDatabaseErrorKind::Http,
             "json_to_payload" => VectorDatabaseErrorKind::JsonToPayload,
             "payload_deserialization" => VectorDatabaseErrorKind::PayloadDeserialization,
+            "engine" => VectorDatabaseErrorKind::Engine,
             variant => {
                 return Err(A::Error::unknown_variant(
                     variant,
@@ -627,6 +630,7 @@ pub enum EmbeddingErrorRecord {
 )]
 pub enum VectorIndexingCauseRecord {
     Embedding(EmbeddingErrorRecord),
+    ZeroNormEmbedding { object: ObjectRefRecord },
     CardinalityMismatch { expected: usize, actual: usize },
     VectorDatabase(VectorDatabaseErrorRecord),
 }
@@ -965,6 +969,10 @@ mod tests {
             (
                 VectorDatabaseErrorKind::PayloadDeserialization,
                 serde_json::json!({ "kind": "payload_deserialization" }),
+            ),
+            (
+                VectorDatabaseErrorKind::Engine,
+                serde_json::json!({ "kind": "engine" }),
             ),
         ];
 

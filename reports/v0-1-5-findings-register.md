@@ -577,3 +577,7 @@ The service-free canonical mock covers all 15 scenarios and 23 queries with `con
 ## Addendum (2026-07-29): legacy reader resurrection pointer
 
 Per ADR-I-0002 (single-schema artifact contract), live reading capability for the superseded 1.0.0 artifact schema was removed; every artifact cited in this register remains sealed, byte-identical, and hash-verifiable. The readers for the 1.0.0 result-row and continuity-trace shapes were last present on `main` at commit `9997ccd8557f843a9a60141d19dab219b0cd6334`; resurrect from there (as a standalone offline tool, never live-path dispatch) if a decider-ruled archival readout need ever materializes.
+
+## Addendum (2026-09-10): 2.0.0 reader resurrection pointer
+
+Per ADR-I-0002, the artifact schema advanced to 2.1.0 when the retrieval telemetry's vector recall completeness field became required, and live reading capability for the 2.0.0 result-row, summary, continuity-trace, and continuity-report shapes was removed with it. No artifact cited in this register carries the 2.0.0 schema, and every cited artifact remains sealed, byte-identical, and hash-verifiable. The 2.0.0 readers were last present on `main` at commit `ef63d0e20c07293d3a91f9ec93a49ab62985f35c`; resurrect from there (as a standalone offline tool, never live-path dispatch) if a decider-ruled archival readout need ever materializes.
