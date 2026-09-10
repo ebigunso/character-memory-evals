@@ -726,6 +726,20 @@ mod tests {
     fn v2_result_reader_rejects_shape_drift() {
         let path = temp_path("results-shape-drift", "jsonl");
 
+        let mut completeness = versioned_row_value(&row(serde_json::json!({}))).unwrap();
+        completeness["telemetry"]["vector_recall_completeness"] =
+            serde_json::json!({"kind": "exhaustive", "scanned": 3});
+        std::fs::write(&path, format!("{completeness}\n")).unwrap();
+        assert_eq!(read_jsonl(&path).unwrap().len(), 1);
+        completeness["telemetry"]["vector_recall_completeness"]["unexpected_field"] =
+            Value::Bool(true);
+        std::fs::write(&path, format!("{completeness}\n")).unwrap();
+        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
+        assert!(
+            error.contains("unknown field `unexpected_field`"),
+            "{error}"
+        );
+
         let current = serde_json::to_string(&row(serde_json::json!({}))).unwrap();
         let duplicate_root = current.replacen(r#""run_id":"r""#, r#""run_id":"r","run_id":"r""#, 1);
         std::fs::write(&path, format!("{duplicate_root}\n")).unwrap();
