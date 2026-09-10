@@ -229,6 +229,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 - 2026-09-02 Plan authored from the design-value audit; direction approved by the decider with one correction: harness work is tracked here, not in the library repository.
 - 2026-09-02 Waves 1 and 2 done (Task_1, Task_2, Task_3) with review fixes: lenient diff reader with an empty parent-versus-candidate proof, the maintained unsealed continuity smoke config with its README recipe, the reviewer rule narrowed to run plus diff, inbound links to the moved plans, and the continuity-smoke gate rule restored after Task_2 dropped it. Reviewer approved at d260193 with no open findings. Waves 3 and later remain.
 
+- 2026-09-10 Task_8 step 2 done (CME #26, ec41de5, library main 7e6c898): the vector-only baseline reads scoped retrieval traces, the direct search and payload constants are deleted (service client kept for lifecycle only), telemetry carries one completeness verdict per retrieval at schema 2.2.0, vector-only is admitted in embedded mode, completed conventional namespaces are detached without deletion. Controlled evidence under deterministic vectors on the LoCoMo subset: trace reproduces the direct search exactly apart from per-kind cutoff ties, and service versus embedded is identical on every counter and score; the real-provider runs are retained with per-query explanations and make no parity claim of their own. Reviewer approved after independent regeneration and the forced-live suite.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.
