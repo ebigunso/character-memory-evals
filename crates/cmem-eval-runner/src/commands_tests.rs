@@ -118,7 +118,7 @@ selectivity_gamma = 0.5
 }
 
 #[test]
-fn current_checked_in_configs_parse_under_the_strict_schema() {
+fn current_checked_in_configs_parse_and_validate_under_the_strict_schema() {
     let mut paths = fs::read_dir("../../configs")
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -137,9 +137,11 @@ fn current_checked_in_configs_parse_under_the_strict_schema() {
     assert!(!paths.is_empty());
 
     for path in paths {
-        read_config(&path).unwrap_or_else(|error| {
-            panic!("checked-in config {} failed: {error:#}", path.display())
-        });
+        read_config(&path)
+            .and_then(|config| config.validate())
+            .unwrap_or_else(|error| {
+                panic!("checked-in config {} failed: {error:#}", path.display())
+            });
     }
 }
 

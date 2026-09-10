@@ -40,6 +40,11 @@ impl BenchmarkRunConfig {
         self.ingest.validate()?;
         self.retrieval.validate()?;
         self.backend.validate()?;
+        if self.retrieval.mode == RetrievalMode::VectorOnly
+            && self.backend.vector_store_mode != VectorStoreMode::Service
+        {
+            bail!("retrieval.mode=vector_only requires backend.vector_store_mode=service");
+        }
         Ok(())
     }
 
@@ -1095,7 +1100,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_vector_only_retrieval_mode() {
+    fn vector_only_retrieval_requires_service_backend_at_admission() {
         let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
             "dataset": "synthetic",
@@ -1108,6 +1113,11 @@ mod tests {
         assert_eq!(config.retrieval.mode, RetrievalMode::VectorOnly);
         config.retrieval.surface_policy.object_types =
             vec![crate::ObjectType::Episode, crate::ObjectType::Observation];
+        assert_eq!(config.backend.vector_store_mode, VectorStoreMode::Embedded);
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("retrieval.mode"), "{error}");
+        assert!(error.contains("backend.vector_store_mode"), "{error}");
+        config.backend.vector_store_mode = VectorStoreMode::Service;
         config.validate().unwrap();
     }
 
