@@ -351,18 +351,18 @@ mod tests {
             serde_json::to_value(valid).unwrap(),
             serde_json::json!({"kind": "not_requested"})
         );
-        for kind in [
-            "not_requested",
-            "exhaustive",
-            "boundary_tie_closed",
-            "boundary_tie_open",
+        for mut value in [
+            serde_json::json!({"kind": "not_requested"}),
+            serde_json::json!({"kind": "exhaustive", "scanned": 1}),
+            serde_json::json!({"kind": "boundary_tie_closed", "fetched": 1}),
+            serde_json::json!({"kind": "boundary_tie_open", "fetched": 1, "fetch_bound": 2}),
         ] {
-            let mut value =
-                serde_json::json!({"kind": kind, "scanned": 1, "fetched": 1, "fetch_bound": 2});
+            let valid = serde_json::from_value::<VectorRecallCompleteness>(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(valid).unwrap(), value);
             value["unexpected"] = serde_json::json!(true);
             assert!(
-                serde_json::from_value::<VectorRecallCompleteness>(value).is_err(),
-                "{kind} accepted an unknown field"
+                serde_json::from_value::<VectorRecallCompleteness>(value.clone()).is_err(),
+                "{value} accepted an unknown field"
             );
         }
     }
@@ -690,6 +690,43 @@ mod tests {
             assert!(error.contains(version), "{error}");
             assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
         }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn zero_norm_embedding_cause_round_trips_through_result_rows() {
+        let object = crate::ObjectRefRecord {
+            object_type: crate::ObjectType::Episode,
+            internal_id: "internal-episode".into(),
+            external_id: Some("external-episode".into()),
+        };
+        let mut outcome = WriteOutcomeRecord::clean(
+            "zero-norm-embedding",
+            crate::WriteOperationKind::ExplicitCommit,
+        );
+        outcome.vector_indexing_failure = Some(crate::VectorIndexingFailureRecord {
+            unindexed_objects: vec![object.clone()],
+            cause: crate::VectorIndexingCauseRecord::ZeroNormEmbedding { object },
+        });
+        let mut result_row = row(serde_json::json!({}));
+        result_row.write_outcomes.push(outcome);
+        let path = temp_path("zero-norm-embedding", "jsonl");
+        write_jsonl(&path, std::slice::from_ref(&result_row)).unwrap();
+        let wire: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            wire["write_outcomes"][0]["vector_indexing_failure"]["cause"],
+            serde_json::json!({
+                "cause": "zero_norm_embedding",
+                "detail": {"object": {
+                    "object_type": "episode",
+                    "internal_id": "internal-episode",
+                    "external_id": "external-episode"
+                }}
+            })
+        );
+        let decoded = read_jsonl(&path).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].write_outcomes, result_row.write_outcomes);
         std::fs::remove_file(path).unwrap();
     }
 
