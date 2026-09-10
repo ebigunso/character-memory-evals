@@ -305,7 +305,9 @@ pub struct RetrievalTelemetry {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum VectorRecallCompleteness {
-    NotRequested,
+    // An empty struct variant (not a unit variant) so that `deny_unknown_fields`
+    // also rejects extra keys on `not_requested`; the wire shape is unchanged.
+    NotRequested {},
     Exhaustive { scanned: usize },
     BoundaryTieClosed { fetched: usize },
     BoundaryTieOpen { fetched: usize, fetch_bound: usize },

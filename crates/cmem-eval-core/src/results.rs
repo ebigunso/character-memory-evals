@@ -340,6 +340,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn not_requested_completeness_rejects_unknown_fields_like_every_other_variant() {
+        use crate::memory_adapter::VectorRecallCompleteness;
+        let valid = serde_json::from_value::<VectorRecallCompleteness>(
+            serde_json::json!({"kind": "not_requested"}),
+        )
+        .unwrap();
+        assert_eq!(valid, VectorRecallCompleteness::NotRequested {});
+        assert_eq!(
+            serde_json::to_value(valid).unwrap(),
+            serde_json::json!({"kind": "not_requested"})
+        );
+        for kind in [
+            "not_requested",
+            "exhaustive",
+            "boundary_tie_closed",
+            "boundary_tie_open",
+        ] {
+            let mut value =
+                serde_json::json!({"kind": kind, "scanned": 1, "fetched": 1, "fetch_bound": 2});
+            value["unexpected"] = serde_json::json!(true);
+            assert!(
+                serde_json::from_value::<VectorRecallCompleteness>(value).is_err(),
+                "{kind} accepted an unknown field"
+            );
+        }
+    }
+
+    #[test]
     fn empty_run_is_rejected_before_summary() {
         let error = reject_empty_run(&[]).unwrap_err().to_string();
         assert!(error.contains("produced no result rows"), "{error}");

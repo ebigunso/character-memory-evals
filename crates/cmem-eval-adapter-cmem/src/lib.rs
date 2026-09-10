@@ -2229,7 +2229,7 @@ fn telemetry_from_outcome(
         vector_recall_completeness: Some(
             match outcome.rationale.telemetry.vector_recall_completeness {
                 character_memory::VectorRecallCompleteness::NotRequested => {
-                    VectorRecallCompleteness::NotRequested
+                    VectorRecallCompleteness::NotRequested {}
                 }
                 character_memory::VectorRecallCompleteness::Exhaustive { scanned } => {
                     VectorRecallCompleteness::Exhaustive { scanned }
