@@ -249,6 +249,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
   - Tradeoffs: the mirror vocabulary is extended rather than deleted for this step (deletion remains Task_8's later step) so the evaluation runs on unchanged measurement code; the library pin is a pre-merge commit and the run is repeated on the merged tip only if the merge changes it.
   - User approval: yes, 2026-09-04.
 
+- 2026-09-10 Decision: Task_8 step 1 closes on CME #25 with the schema advanced to 2.1.0 (telemetry's completeness field is required) and the vector-only-needs-service invariant enforced at config admission. Two low-severity review findings are deferred to step 2, where the full datasets run: embedded conventional runs retain one engine per namespace until the final cleanup pass (a resource ceiling for large datasets; remedy is a non-deleting namespace detach after each completed item), and the reattachment error message should name vector-store state in mode-neutral wording.
+
 ## Notes
 - Risks and mitigations: section 6 of the audit.
 - Edge cases: cited configs may become unparseable after key deletions; that is accepted, and re-runs are new evidence.
