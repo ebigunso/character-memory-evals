@@ -20,7 +20,7 @@ use crate::{
     RestartObservation, ScenarioPattern,
 };
 
-pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "2.0.0";
+pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "2.1.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -858,13 +858,20 @@ mod tests {
                 .contains("missing continuity report schema_version")
         );
 
-        std::fs::write(&path, br#"{"schema_version":"1.0.0"}"#).unwrap();
-        let legacy = read_continuity_report(&path).unwrap_err();
-        assert!(
-            legacy
-                .to_string()
-                .contains("unsupported continuity report schema_version")
-        );
+        for version in ["1.0.0", "2.0.0"] {
+            std::fs::write(
+                &path,
+                serde_json::to_vec(&serde_json::json!({"schema_version": version})).unwrap(),
+            )
+            .unwrap();
+            let error = read_continuity_report(&path).unwrap_err().to_string();
+            assert!(
+                error.contains("unsupported continuity report schema_version"),
+                "{error}"
+            );
+            assert!(error.contains(version), "{error}");
+            assert!(error.contains(CONTINUITY_REPORT_SCHEMA_VERSION), "{error}");
+        }
 
         let _ = std::fs::remove_file(path);
     }
@@ -938,8 +945,8 @@ mod tests {
 
         let raw = serde_json::to_string(&report).unwrap();
         let duplicate_root = raw.replacen(
-            r#""schema_version":"2.0.0""#,
-            r#""schema_version":"2.0.0","schema_version":"2.0.0""#,
+            r#""schema_version":"2.1.0""#,
+            r#""schema_version":"2.1.0","schema_version":"2.1.0""#,
             1,
         );
         assert_ne!(raw, duplicate_root);

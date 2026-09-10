@@ -26,7 +26,7 @@ use crate::{
     derived_external_id, observation_external_id,
 };
 
-pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "2.0.0";
+pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "2.1.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -1595,7 +1595,7 @@ mod tests {
             .append(true)
             .open(&path)
             .unwrap()
-            .write_all(b"{\"schema_version\":\"2.0.0\"")
+            .write_all(b"{\"schema_version\":\"2.1.0\"")
             .unwrap();
 
         let error = read_continuity_traces(&path).unwrap_err().to_string();
@@ -1620,7 +1620,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn trace_reader_round_trips_v2_and_rejects_v1_at_schema_detection() {
+    async fn trace_reader_round_trips_current_and_rejects_superseded_schemas() {
         let (traces, _, _) = run_all().await;
         let path = temporary_trace_path();
         write_continuity_traces(&path, &traces[..1]).unwrap();
@@ -1632,23 +1632,22 @@ mod tests {
 
         let mut legacy = serde_json::to_value(&traces[0]).unwrap();
         let object = legacy.as_object_mut().unwrap();
-        object.insert(
-            "schema_version".to_string(),
-            Value::String("1.0.0".to_string()),
-        );
         object.remove("write_outcomes");
         object.remove("lifecycle_outcomes");
 
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&legacy).unwrap()),
-        )
-        .unwrap();
-        let error = read_continuity_traces(&path).unwrap_err().to_string();
+        for version in ["1.0.0", "2.0.0"] {
+            legacy["schema_version"] = Value::String(version.to_string());
+            std::fs::write(
+                &path,
+                format!("{}\n", serde_json::to_string(&legacy).unwrap()),
+            )
+            .unwrap();
+            let error = read_continuity_traces(&path).unwrap_err().to_string();
+            assert!(error.contains("schema_version"), "{error}");
+            assert!(error.contains(version), "{error}");
+            assert!(error.contains(CONTINUITY_TRACE_SCHEMA_VERSION), "{error}");
+        }
         std::fs::remove_file(&path).unwrap();
-        assert!(error.contains("schema_version"), "{error}");
-        assert!(error.contains("1.0.0"), "{error}");
-        assert!(error.contains(CONTINUITY_TRACE_SCHEMA_VERSION), "{error}");
     }
 
     #[tokio::test]

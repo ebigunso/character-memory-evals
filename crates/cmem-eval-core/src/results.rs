@@ -13,7 +13,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
-pub const RESULT_SCHEMA_VERSION: &str = "2.0.0";
+pub const RESULT_SCHEMA_VERSION: &str = "2.1.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -661,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn read_jsonl_round_trips_v2_and_rejects_v1_at_schema_detection() {
+    fn read_jsonl_round_trips_current_and_rejects_superseded_schemas() {
         let path = temp_path("results", "jsonl");
         let result_row = row(serde_json::json!({"recall_any@1": 1.0}));
         let expected_bytes = format!(
@@ -675,19 +675,21 @@ mod tests {
         assert_eq!(rows[0].question_id, result_row.question_id);
 
         let mut legacy = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        legacy["schema_version"] = Value::String("1.0.0".into());
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&legacy).unwrap()),
-        )
-        .unwrap();
-        let error = read_jsonl(&path).unwrap_err().to_string();
-        assert!(
-            error.contains("unsupported result schema_version"),
-            "{error}"
-        );
-        assert!(error.contains("1.0.0"), "{error}");
-        assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
+        for version in ["1.0.0", "2.0.0"] {
+            legacy["schema_version"] = Value::String(version.into());
+            std::fs::write(
+                &path,
+                format!("{}\n", serde_json::to_string(&legacy).unwrap()),
+            )
+            .unwrap();
+            let error = read_jsonl(&path).unwrap_err().to_string();
+            assert!(
+                error.contains("unsupported result schema_version"),
+                "{error}"
+            );
+            assert!(error.contains(version), "{error}");
+            assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
+        }
         std::fs::remove_file(path).unwrap();
     }
 
@@ -950,6 +952,10 @@ mod tests {
             ),
             (
                 serde_json::to_vec(&serde_json::json!({"schema_version": "0.9.0"})).unwrap(),
+                "unsupported summary schema_version",
+            ),
+            (
+                serde_json::to_vec(&serde_json::json!({"schema_version": "2.0.0"})).unwrap(),
                 "unsupported summary schema_version",
             ),
         ] {
