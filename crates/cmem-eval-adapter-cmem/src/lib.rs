@@ -402,11 +402,6 @@ impl CharacterMemoryAdapter {
         config: &BenchmarkRunConfig,
         embedding_binding: EmbeddingRuntimeBinding,
     ) -> Result<Self> {
-        if config.retrieval.mode == RetrievalMode::VectorOnly
-            && config.backend.vector_store_mode != VectorStoreMode::Service
-        {
-            bail!("vector_only retrieval requires backend.vector_store_mode=service");
-        }
         let qdrant = if config.backend.vector_store_mode == VectorStoreMode::Service {
             let qdrant_url = config
                 .backend
@@ -4984,6 +4979,116 @@ mod tests {
             .unwrap();
 
         assert!(status.success());
+    }
+
+    #[tokio::test]
+    async fn embedded_vector_only_keeps_singleton_budgets_and_ingest_text() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agent-work/evals-worker");
+        fs::create_dir_all(&root).unwrap();
+        let directory = tempfile::tempdir_in(std::path::absolute(root).unwrap()).unwrap();
+        let mut config = adapter_config("vector-budgets".into(), "cmem_eval_budgets".into());
+        config.retrieval.mode = RetrievalMode::VectorOnly;
+        config.retrieval.surface_policy =
+            retrieval_surface_policy(1, 2, false, false, false, false);
+        config.backend.vector_store_mode = VectorStoreMode::Embedded;
+        config.backend.qdrant_connection_string = None;
+        config.backend.identity_registry_dir =
+            Some(directory.path().join("identities").display().to_string());
+        config.backend.retrieval_stats_path =
+            Some(directory.path().join("stats.sqlite").display().to_string());
+        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        adapter.open_namespace("n").await.unwrap();
+        for id in ["a", "b", "c"] {
+            let episode = adapter
+                .remember_episode(EpisodeInput {
+                    external_id: id.into(),
+                    namespace: "n".into(),
+                    summary: "same text".into(),
+                    started_at: None,
+                    ended_at: None,
+                    participants: Vec::new(),
+                    metadata: serde_json::json!({}),
+                })
+                .await
+                .unwrap();
+            assert!(episode.outcome.vector_indexing_failure.is_none());
+            let observation = adapter
+                .remember_observation(ObservationInput {
+                    external_id: id.into(),
+                    episode_external_id: id.into(),
+                    namespace: "n".into(),
+                    speaker: None,
+                    text: "same text".into(),
+                    observed_at: None,
+                    metadata: serde_json::json!({}),
+                })
+                .await
+                .unwrap();
+            assert!(observation.outcome.vector_indexing_failure.is_none());
+        }
+        let mut query = RetrieveInput {
+            mode: RetrievalMode::VectorOnly,
+            namespace: "n".into(),
+            query: "same text".into(),
+            query_date: None,
+            surface_policy: retrieval_surface_policy(1, 2, false, false, false, false),
+        };
+        let result = adapter.retrieve(query.clone()).await.unwrap();
+        assert_eq!(result.items().len(), 3);
+        assert!(
+            result
+                .items()
+                .iter()
+                .all(|item| item.text.as_deref() == Some("same text"))
+        );
+        assert_eq!(
+            result
+                .telemetry()
+                .vector_recall_completeness
+                .iter()
+                .map(|v| v.scope.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                vec![EvalObjectType::Episode],
+                vec![EvalObjectType::Observation]
+            ]
+        );
+        assert!(result.telemetry().trace_available);
+        assert_eq!(result.telemetry().selected_graph_root_count, None);
+        for (kind, budget) in [
+            (EvalObjectType::Episode, 1),
+            (EvalObjectType::Observation, 2),
+        ] {
+            let actual: Vec<_> = result
+                .items()
+                .iter()
+                .filter(|item| item.kind == kind)
+                .map(|item| item.internal_id.clone())
+                .collect();
+            let mut expected: Vec<_> = ["a", "b", "c"]
+                .iter()
+                .map(|id| {
+                    deterministic_id(
+                        "n",
+                        if kind == EvalObjectType::Episode {
+                            "episode"
+                        } else {
+                            "observation"
+                        },
+                        id,
+                    )
+                    .to_string()
+                })
+                .collect();
+            expected.sort();
+            expected.truncate(budget);
+            assert_eq!(actual, expected);
+        }
+        query.surface_policy.sections.relevant_episodes = 0;
+        query.surface_policy.sections.salient_observations = 0;
+        assert!(adapter.retrieve(query).await.is_err());
+        adapter.cleanup_namespace("n").await.unwrap();
+        directory.close().unwrap();
     }
 
     #[tokio::test]
