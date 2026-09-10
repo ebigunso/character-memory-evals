@@ -238,6 +238,7 @@ impl RetrievedContextPack {
 #[serde(deny_unknown_fields)]
 pub struct RetrievalTelemetry {
     pub trace_available: bool,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub vector_recall_completeness: Option<VectorRecallCompleteness>,
     #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub vector_candidate_count: Option<usize>,
