@@ -690,7 +690,7 @@ impl ContinuityRuntime for RunnerContinuityRuntime {
                 let previous = active
                     .take()
                     .context("real continuity runtime lost its active adapter")?;
-                drop(previous);
+                previous.close().await?;
                 let (replacement, lifecycle) = CharacterMemoryAdapter::reconstruct_with_binding(
                     config.as_ref(),
                     &scenario.namespace,
@@ -1460,6 +1460,56 @@ mod tests {
 
     fn current_continuity_config() -> BenchmarkRunConfig {
         toml::from_str(&current_continuity_config_text()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn embedded_runtime_restart_preserves_data_and_cleans_up() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agent-work/evals-worker");
+        fs::create_dir_all(&root).unwrap();
+        let directory = tempfile::tempdir_in(std::path::absolute(root).unwrap()).unwrap();
+        let mut config = current_continuity_config();
+        config.backend.vector_store_mode = cmem_eval_core::VectorStoreMode::Embedded;
+        config.backend.qdrant_connection_string = None;
+        config.backend.namespace_prefix = Some("cmem_eval_restart".into());
+        config.backend.cleanup.enabled = true;
+        config.backend.cleanup.require_collection_prefix = Some("cmem_eval_restart".into());
+        config.backend.identity_registry_dir =
+            Some(directory.path().join("identities").display().to_string());
+        config.backend.oxigraph_persistence_path =
+            Some(directory.path().join("oxigraph").display().to_string());
+        config.backend.retrieval_stats_path =
+            Some(directory.path().join("stats.sqlite").display().to_string());
+        let fixture =
+            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
+                .unwrap();
+        let scenario = fixture
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.fixture_id == "cross-store-stress")
+            .unwrap();
+        let (binding, _) = continuity_embedding_binding(&config, scenario, None).unwrap();
+        let mut runtime = RunnerContinuityRuntime::new(AdapterKind::Real, &config, binding)
+            .await
+            .unwrap();
+        let run = run_continuity_scenario(&mut runtime, scenario, &config.retrieval)
+            .await
+            .unwrap();
+        assert_eq!(run.restart_observations.len(), 1);
+        let restart = &run.restart_observations[0];
+        assert!(restart.lifecycle.restored_identity_count > 0);
+        assert!(!restart.before_restart.returned_object_ids.is_empty());
+        assert!(restart.delta.stable_returned_objects);
+        runtime
+            .adapter()
+            .cleanup_namespace(&scenario.namespace)
+            .await
+            .unwrap();
+        for entry in fs::read_dir(directory.path()).unwrap() {
+            let path = entry.unwrap().path();
+            assert!(path.is_dir(), "store file remains: {}", path.display());
+            assert!(fs::read_dir(path).unwrap().next().is_none());
+        }
+        directory.close().unwrap();
     }
 
     #[test]

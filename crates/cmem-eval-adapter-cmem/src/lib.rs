@@ -510,6 +510,22 @@ impl CharacterMemoryAdapter {
         Ok(())
     }
 
+    /// Releases every namespace's stores without deleting their durable data.
+    pub async fn close(self) -> Result<()> {
+        let mut first_error = None;
+        for (namespace, state) in self.namespaces.lock().await.drain() {
+            if let Err(error) = state
+                .memory
+                .close()
+                .await
+                .with_context(|| format!("close namespace {namespace}"))
+            {
+                first_error.get_or_insert(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
     pub async fn reconstruct(
         config: &BenchmarkRunConfig,
         namespace: &str,
@@ -5099,10 +5115,7 @@ mod tests {
             before.telemetry().vector_recall_completeness,
             Some(VectorRecallCompleteness::Exhaustive { .. })
         ));
-        for (_, state) in adapter.namespaces.lock().await.drain() {
-            state.memory.close().await.unwrap();
-        }
-        drop(adapter);
+        adapter.close().await.unwrap();
         let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
         adapter.reattach_namespace("b").await.unwrap();
         let after = adapter.retrieve(query).await.unwrap();
