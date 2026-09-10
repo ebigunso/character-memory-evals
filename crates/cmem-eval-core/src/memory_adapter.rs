@@ -813,6 +813,11 @@ pub trait MemoryAdapter: Send + Sync {
     /// Reconstruct a namespace against its durable stores and primary identity
     /// registry. Missing durable lifecycle state is an error.
     async fn reattach_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult>;
+    /// Release active store handles without deleting durable namespace state.
+    /// In-memory adapters without store handles may keep their state attached.
+    async fn detach_namespace(&self, _namespace: &str) -> Result<()> {
+        Ok(())
+    }
     /// Remove durable state before opening a fresh namespace identity. This is
     /// distinct from optional post-run cleanup policy.
     async fn reset_namespace(&self, namespace: &str) -> Result<()>;

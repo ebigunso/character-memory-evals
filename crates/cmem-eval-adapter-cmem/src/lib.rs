@@ -1131,7 +1131,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         }
         if !missing_stores.is_empty() {
             bail!(
-                "cannot reattach namespace {namespace}; missing durable store(s): {}; reattach requires the identity registry and every configured namespace-scoped store",
+                "cannot reattach namespace {namespace}; missing durable store(s): {}; reattach requires the identity registry, vector-store state, and every configured namespace-scoped store",
                 missing_stores.join(", ")
             );
         }
@@ -1143,6 +1143,18 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             namespace: namespace.to_string(),
             restored_identity_count,
         })
+    }
+
+    async fn detach_namespace(&self, namespace: &str) -> Result<()> {
+        let mut namespaces = self.namespaces.lock().await;
+        let state = namespaces
+            .remove(namespace)
+            .ok_or_else(|| explicit_lifecycle_error(namespace))?;
+        state
+            .memory
+            .close()
+            .await
+            .with_context(|| format!("close namespace {namespace} for detach"))
     }
 
     async fn reset_namespace(&self, namespace: &str) -> Result<()> {
@@ -5087,6 +5099,7 @@ mod tests {
         query.surface_policy.sections.relevant_episodes = 0;
         query.surface_policy.sections.salient_observations = 0;
         assert!(adapter.retrieve(query).await.is_err());
+        adapter.detach_namespace("n").await.unwrap();
         adapter.cleanup_namespace("n").await.unwrap();
         directory.close().unwrap();
     }
@@ -5115,6 +5128,7 @@ mod tests {
         assert_ne!(vector_a, vector_b);
         for namespace in ["a", "b"] {
             adapter.open_namespace(namespace).await.unwrap();
+            assert_eq!(adapter.namespaces.lock().await.len(), 1);
             adapter
                 .remember_episode(EpisodeInput {
                     external_id: "episode".into(),
@@ -5127,7 +5141,12 @@ mod tests {
                 })
                 .await
                 .unwrap();
+            adapter.detach_namespace(namespace).await.unwrap();
+            assert!(adapter.namespaces.lock().await.is_empty());
         }
+        assert!(vector_a.exists());
+        assert!(vector_b.exists());
+        adapter.reattach_namespace("b").await.unwrap();
         let query = RetrieveInput {
             mode: RetrievalMode::Hybrid,
             namespace: "b".into(),
@@ -5144,11 +5163,27 @@ mod tests {
                 ..
             }]
         ));
+        let mut vector_query = query.clone();
+        vector_query.mode = RetrievalMode::VectorOnly;
+        vector_query.surface_policy.object_types = vec![EvalObjectType::Episode];
+        let vector_before = adapter.retrieve(vector_query.clone()).await.unwrap();
+        assert_eq!(
+            vector_before.items()[0].text.as_deref(),
+            Some("The notebook is blue.")
+        );
+        adapter.detach_namespace("b").await.unwrap();
+        assert!(adapter.namespaces.lock().await.is_empty());
+        assert!(adapter.retrieve(query.clone()).await.is_err());
+        assert!(vector_b.exists());
         adapter.close().await.unwrap();
         let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
         adapter.reattach_namespace("b").await.unwrap();
         let after = adapter.retrieve(query).await.unwrap();
         assert_eq!(before.items(), after.items());
+        assert_eq!(
+            vector_before.items(),
+            adapter.retrieve(vector_query).await.unwrap().items()
+        );
         adapter.cleanup_namespace("a").await.unwrap();
         assert!(!vector_a.exists());
         assert!(vector_b.exists());
