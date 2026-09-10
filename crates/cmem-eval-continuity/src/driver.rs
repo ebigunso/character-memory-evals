@@ -26,7 +26,7 @@ use crate::{
     derived_external_id, observation_external_id,
 };
 
-pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "2.1.0";
+pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "2.2.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -1595,7 +1595,7 @@ mod tests {
             .append(true)
             .open(&path)
             .unwrap()
-            .write_all(b"{\"schema_version\":\"2.1.0\"")
+            .write_all(b"{\"schema_version\":\"2.2.0\"")
             .unwrap();
 
         let error = read_continuity_traces(&path).unwrap_err().to_string();

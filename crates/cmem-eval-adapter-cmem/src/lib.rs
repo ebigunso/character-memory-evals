@@ -49,7 +49,7 @@ use cmem_eval_core::{
     RetrievalFanoutUtilization, RetrievalMode, RetrievalRationaleCategory, RetrievalSectionBudgets,
     RetrievalSelectivityDecision, RetrievalStatsHealthCauseRecord, RetrievalStatsStoreErrorRecord,
     RetrievalSurfacePolicy, RetrievalTelemetry, RetrieveInput, RetrievedContextPack, RetrievedItem,
-    SectionPressureSummary as EvalSectionPressureSummary,
+    ScopedVectorRecallCompleteness, SectionPressureSummary as EvalSectionPressureSummary,
     SelectivityCountScope as EvalSelectivityCountScope,
     SelectivityDecision as EvalSelectivityDecision, SelectivitySummary, SourceProvenanceInput,
     Stability as EvalStability, StaleCandidateReason as EvalStaleCandidateReason,
@@ -61,7 +61,6 @@ use cmem_eval_core::{
     VectorStoreMode, WriteOperationKind, WriteOutcomeRecord, WriteResult,
     deterministic_operation_id,
 };
-use qdrant_client::qdrant::{Condition, Filter, ScoredPoint, SearchPointsBuilder, value::Kind};
 use qdrant_client::{Qdrant, config::QdrantConfig};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
@@ -74,16 +73,12 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 const UUID_NAMESPACE: Uuid = Uuid::from_u128(0x9b6af7a4_9076_49bb_9231_84d1ed632cf1);
-const QDRANT_OBJECT_ID_FIELD: &str = "object_id";
-const QDRANT_OBJECT_TYPE_FIELD: &str = "object_type";
-const QDRANT_CONTENT_TEXT_FIELD: &str = "content_text";
 const QDRANT_REQUEST_TIMEOUT_SECS: u64 = 30;
 
 pub struct CharacterMemoryAdapter {
     config: BenchmarkRunConfig,
     embedding_binding: EmbeddingRuntimeBinding,
     qdrant: Option<Qdrant>,
-    openai_embeddings: openai_embedding::OpenAiEmbeddingClient,
     namespaces: Arc<Mutex<HashMap<String, NamespaceState>>>,
 }
 
@@ -124,6 +119,8 @@ impl NamespaceState {
 struct ExternalIdRegistry {
     namespace: String,
     episode_ids: BTreeMap<String, MemoryId>,
+    episode_texts: BTreeMap<String, String>,
+    observation_texts: BTreeMap<String, String>,
     observation_ids: BTreeMap<String, MemoryId>,
     entity_ids: BTreeMap<String, MemoryId>,
     reverse_entity_ids: BTreeMap<MemoryId, String>,
@@ -185,13 +182,6 @@ impl ExternalIdRegistry {
             before_persist,
         )
     }
-}
-
-#[derive(Clone)]
-struct VectorNamespaceSnapshot {
-    collection_name: String,
-    reverse_episode_ids: BTreeMap<MemoryId, String>,
-    reverse_observation_ids: BTreeMap<MemoryId, (String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -435,7 +425,6 @@ impl CharacterMemoryAdapter {
             config: config.clone(),
             embedding_binding,
             qdrant,
-            openai_embeddings: openai_embedding::OpenAiEmbeddingClient::default(),
             namespaces: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -970,116 +959,85 @@ impl CharacterMemoryAdapter {
         Ok(())
     }
 
-    async fn vector_namespace_snapshot(&self, namespace: &str) -> Result<VectorNamespaceSnapshot> {
-        let namespaces = self.namespaces.lock().await;
-        let state = namespaces
-            .get(namespace)
-            .ok_or_else(|| explicit_lifecycle_error(namespace))?;
-        Ok(VectorNamespaceSnapshot {
-            collection_name: state.collection_name.clone(),
-            reverse_episode_ids: state.reverse_episode_ids.clone(),
-            reverse_observation_ids: state.reverse_observation_ids.clone(),
-        })
-    }
-
     async fn retrieve_vector_only(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
         let search_plan = vector_only_search_plan(&input.surface_policy)?;
-        let snapshot = self.vector_namespace_snapshot(&input.namespace).await?;
-        let query_embedding = self.query_embedding(&input.query).await?;
-
+        let mut namespaces = self.namespaces.lock().await;
+        let state = namespaces
+            .get_mut(&input.namespace)
+            .ok_or_else(|| explicit_lifecycle_error(&input.namespace))?;
         let mut hits = Vec::new();
-        for (kind, limit) in search_plan {
-            hits.extend(
-                self.search_vector_kind(&snapshot.collection_name, &query_embedding, kind, limit)
-                    .await?,
-            );
-        }
-
-        Ok(vector_hits_to_context_pack(
-            &snapshot,
-            hits,
-            query_embedding.len(),
-        ))
-    }
-
-    async fn search_vector_kind(
-        &self,
-        collection_name: &str,
-        query_embedding: &[f32],
-        kind: &'static str,
-        limit: usize,
-    ) -> Result<Vec<VectorHit>> {
-        if limit == 0 {
-            return Ok(Vec::new());
-        }
-        let request =
-            SearchPointsBuilder::new(collection_name, query_embedding.to_vec(), limit as u64)
-                .with_payload(true)
-                .with_vectors(false)
-                .filter(Filter::must([Condition::matches(
-                    QDRANT_OBJECT_TYPE_FIELD,
-                    kind.to_string(),
-                )]))
-                .build();
-        let response = self
-            .qdrant
-            .as_ref()
-            .context("vector_only retrieval requires service mode")?
-            .search_points(request)
-            .await
-            .with_context(|| format!("vector_only Qdrant search {collection_name} kind={kind}"))?;
-        response
-            .result
-            .into_iter()
-            .map(|point| scored_point_to_vector_hit(point, kind))
-            .collect()
-    }
-
-    async fn query_embedding(&self, query: &str) -> Result<Vec<f32>> {
-        match &self.embedding_binding {
-            EmbeddingRuntimeBinding::Live {
-                provider: LiveEmbeddingProvider::Deterministic,
-                ..
-            } => {
-                let vector_size = self.config.backend.embedding.vector_size.unwrap_or(3072);
-                Ok(DeterministicEmbeddingProvider::new(vector_size)?.vector_for_text(query))
+        let mut telemetry = RetrievalTelemetry {
+            configured_object_types: Some(input.surface_policy.object_types.clone()),
+            configured_section_limits: Some(input.surface_policy.sections),
+            vector_candidate_count: Some(0),
+            returned_vector_candidate_count: Some(0),
+            ..RetrievalTelemetry::default()
+        };
+        let mut verdicts = Vec::new();
+        for (kind, budget) in search_plan {
+            let object_type = match kind {
+                "episode" => ObjectType::Episode,
+                "observation" => ObjectType::Observation,
+                _ => unreachable!("validated vector-only object kind"),
+            };
+            let mut context = RetrievalContext::new(input.query.clone());
+            context.include_trace = true;
+            context.object_type_defaults = vec![object_type];
+            context.candidate_limits.max_vector_candidates = budget
+                .checked_mul(character_memory::max_embedding_surfaces(object_type))
+                .context("vector-only candidate limit overflow")?;
+            let outcome = state.memory.retrieve(context).await?;
+            let trace = outcome
+                .trace
+                .as_ref()
+                .context("vector-only retrieval omitted requested trace")?;
+            verdicts.push(scoped_completeness(&outcome.rationale.telemetry));
+            telemetry.trace_available = true;
+            telemetry.query_embedding_dimension =
+                Some(outcome.rationale.telemetry.query_embedding_dimension);
+            *telemetry.vector_candidate_count.as_mut().unwrap() += trace.vector_candidates.len();
+            *telemetry.returned_vector_candidate_count.as_mut().unwrap() +=
+                trace.vector_candidates.len();
+            // The library trace orders surfaces by score, then canonical identity.
+            let mut seen = HashSet::new();
+            for candidate in trace
+                .vector_candidates
+                .iter()
+                .filter(|candidate| seen.insert(candidate.object.id))
+                .take(budget)
+            {
+                if candidate.object.object_type != object_type {
+                    bail!("vector-only trace escaped its singleton object scope");
+                }
+                let object_id = candidate.object.id;
+                let text = match object_type {
+                    ObjectType::Episode => state
+                        .reverse_episode_ids
+                        .get(&object_id)
+                        .and_then(|id| state.episode_texts.get(id)),
+                    ObjectType::Observation => state
+                        .reverse_observation_ids
+                        .get(&object_id)
+                        .and_then(|(id, _)| state.observation_texts.get(id)),
+                    _ => unreachable!(),
+                }
+                .with_context(|| {
+                    format!("vector-only candidate {kind}/{object_id} has no ingested text")
+                })?;
+                hits.push(VectorHit {
+                    kind,
+                    object_id,
+                    score: candidate.score as f64,
+                    text: Some(text.clone()),
+                });
             }
-            EmbeddingRuntimeBinding::Live {
-                provider: LiveEmbeddingProvider::OpenAi,
-                ..
-            } => self.openai_query_embedding(query).await,
-            binding => bail!("unsupported vector_only embedding binding: {binding:?}"),
         }
-    }
-
-    async fn openai_query_embedding(&self, query: &str) -> Result<Vec<f32>> {
-        let api_key = env::var(&self.config.backend.openai_api_key_env)
-            .or_else(|_| env::var("OPENAI_API_KEY"))
-            .with_context(|| {
-                format!(
-                    "{} is required for vector_only OpenAI query embeddings",
-                    self.config.backend.openai_api_key_env
-                )
-            })?;
-        if api_key.trim().is_empty() {
-            bail!(
-                "{} is required for vector_only OpenAI query embeddings",
-                self.config.backend.openai_api_key_env
-            );
-        }
-
-        self.openai_embeddings
-            .embed_batch(
-                &api_key,
-                &self.config.backend.embedding.model,
-                &[query.to_string()],
-                self.config.backend.embedding.vector_size,
-                openai_embedding::EmbeddingRetryPolicy::no_retry(),
-            )
-            .await?
-            .into_iter()
-            .next()
-            .context("OpenAI query embedding response omitted the batch-of-one result")
+        telemetry.vector_recall_completeness = verdicts;
+        Ok(vector_hits_to_context_pack(
+            &state.identities,
+            hits,
+            telemetry,
+        ))
     }
 }
 
@@ -1249,7 +1207,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         let mut ids = Vec::with_capacity(inputs.len());
         for input in inputs {
             let id = deterministic_id(&input.namespace, "episode", &input.external_id);
-            let mut draft = EpisodeDraft::new(input.summary);
+            let mut draft = EpisodeDraft::new(input.summary.clone());
             draft.id = Some(id);
             draft.source_conversation_id = Some(input.external_id.clone());
             draft.raw_ref = Some(format!(
@@ -1259,18 +1217,21 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             draft.started_at = parse_timestamp(input.started_at.as_deref())?;
             draft.ended_at = parse_timestamp(input.ended_at.as_deref())?;
             objects.push(MemoryObjectDraft::Episode(draft));
-            ids.push((input.external_id, id));
+            ids.push((input.external_id, id, input.summary));
         }
 
         let outcome = commit_typed_drafts(&state.memory, &namespace, objects, Vec::new()).await?;
-        for (external_id, id) in &ids {
+        for (external_id, id, text) in &ids {
+            state
+                .episode_texts
+                .insert(external_id.clone(), text.clone());
             state.episode_ids.insert(external_id.clone(), *id);
             state.reverse_episode_ids.insert(*id, external_id.clone());
         }
         state.persist_identities()?;
 
         Ok(WriteResult {
-            value: ids.into_iter().map(|(_, id)| id.to_string()).collect(),
+            value: ids.into_iter().map(|(_, id, _)| id.to_string()).collect(),
             outcome,
         })
     }
@@ -1321,7 +1282,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                     )
                 })?;
             let id = deterministic_id(&input.namespace, "observation", &input.external_id);
-            let mut draft = ObservationDraft::new(episode_id, input.text);
+            let mut draft = ObservationDraft::new(episode_id, input.text.clone());
             draft.id = Some(id);
             draft.raw_ref = Some(format!(
                 "eval://{}/observation/{}",
@@ -1329,11 +1290,14 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             ));
             draft.observed_at = parse_timestamp(input.observed_at.as_deref())?;
             objects.push(MemoryObjectDraft::Observation(draft));
-            ids.push((input.external_id, input.episode_external_id, id));
+            ids.push((input.external_id, input.episode_external_id, id, input.text));
         }
 
         let outcome = commit_typed_drafts(&state.memory, &namespace, objects, Vec::new()).await?;
-        for (external_id, episode_external_id, id) in &ids {
+        for (external_id, episode_external_id, id, text) in &ids {
+            state
+                .observation_texts
+                .insert(external_id.clone(), text.clone());
             state.observation_ids.insert(external_id.clone(), *id);
             state
                 .reverse_observation_ids
@@ -1342,7 +1306,10 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         state.persist_identities()?;
 
         Ok(WriteResult {
-            value: ids.into_iter().map(|(_, _, id)| id.to_string()).collect(),
+            value: ids
+                .into_iter()
+                .map(|(_, _, id, _)| id.to_string())
+                .collect(),
             outcome,
         })
     }
@@ -1792,6 +1759,10 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             &plan.input.observation_external_id,
         );
         if outcome.persisted_object_ids.contains(&episode_id) {
+            state.episode_texts.insert(
+                plan.input.episode_external_id.clone(),
+                plan.input.content.clone(),
+            );
             state
                 .episode_ids
                 .insert(plan.input.episode_external_id.clone(), episode_id);
@@ -1800,6 +1771,10 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 .insert(episode_id, plan.input.episode_external_id.clone());
         }
         if outcome.persisted_object_ids.contains(&observation_id) {
+            state.observation_texts.insert(
+                plan.input.observation_external_id.clone(),
+                plan.input.content.clone(),
+            );
             state
                 .observation_ids
                 .insert(plan.input.observation_external_id.clone(), observation_id);
@@ -2012,11 +1987,10 @@ fn flatten_outcome(
 }
 
 fn vector_hits_to_context_pack(
-    snapshot: &VectorNamespaceSnapshot,
+    snapshot: &ExternalIdRegistry,
     hits: Vec<VectorHit>,
-    query_embedding_dimension: usize,
+    telemetry: RetrievalTelemetry,
 ) -> RetrievedContextPack {
-    let vector_candidate_count = hits.len();
     let mut best_by_key: HashMap<(&'static str, MemoryId), VectorHit> = HashMap::new();
     for hit in hits {
         let key = (hit.kind, hit.object_id);
@@ -2083,76 +2057,42 @@ fn vector_hits_to_context_pack(
         item.rank = idx + 1;
     }
 
-    RetrievedContextPack::from_ranked_items(
-        items,
-        RetrievalTelemetry {
-            trace_available: false,
-            vector_candidate_count: Some(vector_candidate_count),
-            query_embedding_dimension: Some(query_embedding_dimension),
-            returned_vector_candidate_count: Some(vector_candidate_count),
-            unique_graph_root_candidate_count: None,
-            selected_graph_root_count: None,
-            graph_root_omission_count: None,
-            graph_relation_count: None,
-            graph_verified_count: None,
-            stale_candidate_omission_count: None,
-            lifecycle_omission_count: None,
-            lifecycle_filter_decision_count: None,
-            suppressed_or_deleted_returned_count: None,
-            superseded_current_returned_count: None,
-            unsafe_lifecycle_returned_count: None,
-            graph_object_missing_omitted_count: None,
-            graph_object_missing_returned_count: None,
-            section_assignment_count: None,
-            section_assignment_counts: BTreeMap::new(),
-            stale_candidate_omission_reasons: BTreeMap::new(),
-            lifecycle_omission_reasons: BTreeMap::new(),
-            fanout_utilization: None,
-            selectivity_decisions: None,
-            rationale_categories_by_internal_id: None,
-            ..RetrievalTelemetry::default()
+    RetrievedContextPack::from_ranked_items(items, telemetry, ContextRenderer::WithIdentity)
+}
+
+fn scoped_completeness(
+    telemetry: &character_memory::RetrievalTelemetry,
+) -> ScopedVectorRecallCompleteness {
+    let completeness = match telemetry.vector_recall_completeness {
+        character_memory::VectorRecallCompleteness::NotRequested => {
+            VectorRecallCompleteness::NotRequested {}
+        }
+        character_memory::VectorRecallCompleteness::Exhaustive { scanned } => {
+            VectorRecallCompleteness::Exhaustive { scanned }
+        }
+        character_memory::VectorRecallCompleteness::BoundaryTieClosed { fetched } => {
+            VectorRecallCompleteness::BoundaryTieClosed { fetched }
+        }
+        character_memory::VectorRecallCompleteness::BoundaryTieOpen {
+            fetched,
+            fetch_bound,
+        } => VectorRecallCompleteness::BoundaryTieOpen {
+            fetched,
+            fetch_bound,
         },
-        ContextRenderer::WithIdentity,
-    )
-}
-
-fn scored_point_to_vector_hit(
-    point: ScoredPoint,
-    expected_kind: &'static str,
-) -> Result<VectorHit> {
-    let kind = payload_string(&point.payload, QDRANT_OBJECT_TYPE_FIELD)?;
-    if kind != expected_kind {
-        bail!("Qdrant returned object_type={kind} for vector_only {expected_kind} query");
-    }
-    let object_id = payload_string(&point.payload, QDRANT_OBJECT_ID_FIELD)?
-        .parse::<MemoryId>()
-        .with_context(|| format!("parse Qdrant payload {QDRANT_OBJECT_ID_FIELD}"))?;
-    let text = optional_payload_string(&point.payload, QDRANT_CONTENT_TEXT_FIELD);
-    Ok(VectorHit {
-        kind: expected_kind,
-        object_id,
-        score: point.score as f64,
-        text,
-    })
-}
-
-fn payload_string(
-    payload: &HashMap<String, qdrant_client::qdrant::Value>,
-    field: &str,
-) -> Result<String> {
-    match payload.get(field).and_then(|value| value.kind.as_ref()) {
-        Some(Kind::StringValue(value)) => Ok(value.clone()),
-        _ => bail!("missing or invalid Qdrant payload string field: {field}"),
-    }
-}
-
-fn optional_payload_string(
-    payload: &HashMap<String, qdrant_client::qdrant::Value>,
-    field: &str,
-) -> Option<String> {
-    match payload.get(field).and_then(|value| value.kind.as_ref()) {
-        Some(Kind::StringValue(value)) => Some(value.clone()),
-        _ => None,
+    };
+    ScopedVectorRecallCompleteness {
+        scope: if matches!(completeness, VectorRecallCompleteness::NotRequested {}) {
+            Vec::new()
+        } else {
+            telemetry
+                .configured_object_types
+                .iter()
+                .copied()
+                .map(object_type_from_live)
+                .collect()
+        },
+        completeness,
     }
 }
 
@@ -2226,26 +2166,7 @@ fn telemetry_from_outcome(
     });
     RetrievalTelemetry {
         trace_available: trace.is_some(),
-        vector_recall_completeness: Some(
-            match outcome.rationale.telemetry.vector_recall_completeness {
-                character_memory::VectorRecallCompleteness::NotRequested => {
-                    VectorRecallCompleteness::NotRequested {}
-                }
-                character_memory::VectorRecallCompleteness::Exhaustive { scanned } => {
-                    VectorRecallCompleteness::Exhaustive { scanned }
-                }
-                character_memory::VectorRecallCompleteness::BoundaryTieClosed { fetched } => {
-                    VectorRecallCompleteness::BoundaryTieClosed { fetched }
-                }
-                character_memory::VectorRecallCompleteness::BoundaryTieOpen {
-                    fetched,
-                    fetch_bound,
-                } => VectorRecallCompleteness::BoundaryTieOpen {
-                    fetched,
-                    fetch_bound,
-                },
-            },
-        ),
+        vector_recall_completeness: vec![scoped_completeness(&outcome.rationale.telemetry)],
         vector_candidate_count: Some(outcome.rationale.vector_candidate_count),
         configured_candidate_limits: Some(ConfiguredCandidateLimits {
             max_vector_candidates: outcome
@@ -5112,8 +5033,11 @@ mod tests {
         let before = adapter.retrieve(query.clone()).await.unwrap();
         assert!(!before.items().is_empty());
         assert!(matches!(
-            before.telemetry().vector_recall_completeness,
-            Some(VectorRecallCompleteness::Exhaustive { .. })
+            before.telemetry().vector_recall_completeness.as_slice(),
+            [ScopedVectorRecallCompleteness {
+                completeness: VectorRecallCompleteness::Exhaustive { .. },
+                ..
+            }]
         ));
         adapter.close().await.unwrap();
         let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
@@ -7423,13 +7347,13 @@ mod tests {
         let episode_id = deterministic_id("n", "episode", "s1");
         let observation_id = deterministic_id("n", "observation", "s1:turn:1");
         let unmapped_id = deterministic_id("n", "episode", "unmapped");
-        let snapshot = VectorNamespaceSnapshot {
-            collection_name: "collection".to_string(),
+        let snapshot = ExternalIdRegistry {
             reverse_episode_ids: BTreeMap::from([(episode_id, "s1".to_string())]),
             reverse_observation_ids: BTreeMap::from([(
                 observation_id,
                 ("s1:turn:1".to_string(), "s1".to_string()),
             )]),
+            ..ExternalIdRegistry::default()
         };
 
         let pack = vector_hits_to_context_pack(
@@ -7454,7 +7378,11 @@ mod tests {
                     text: Some("episode summary".to_string()),
                 },
             ],
-            3072,
+            RetrievalTelemetry {
+                vector_candidate_count: Some(3),
+                query_embedding_dimension: Some(3072),
+                ..RetrievalTelemetry::default()
+            },
         );
 
         assert_eq!(pack.items().len(), 2);
@@ -7480,13 +7408,13 @@ mod tests {
     #[test]
     fn vector_only_context_dedupes_duplicate_surfaces_to_best_score() {
         let observation_id = deterministic_id("n", "observation", "s1:turn:1");
-        let snapshot = VectorNamespaceSnapshot {
-            collection_name: "collection".to_string(),
+        let snapshot = ExternalIdRegistry {
             reverse_episode_ids: BTreeMap::new(),
             reverse_observation_ids: BTreeMap::from([(
                 observation_id,
                 ("s1:turn:1".to_string(), "s1".to_string()),
             )]),
+            ..ExternalIdRegistry::default()
         };
 
         let pack = vector_hits_to_context_pack(
@@ -7505,7 +7433,11 @@ mod tests {
                     text: Some("higher".to_string()),
                 },
             ],
-            3072,
+            RetrievalTelemetry {
+                vector_candidate_count: Some(3),
+                query_embedding_dimension: Some(3072),
+                ..RetrievalTelemetry::default()
+            },
         );
 
         assert_eq!(pack.items().len(), 1);
@@ -7711,6 +7643,7 @@ mod tests {
             rationale_categories: vec![RationaleCategory::Entity, RationaleCategory::Semantic],
         }];
         let mut rationale = RetrievalRationale::new("test");
+        rationale.telemetry.configured_object_types = vec![ObjectType::Episode];
         rationale.telemetry.unique_graph_root_candidate_count = 9;
         rationale.telemetry.selected_graph_root_count = 4;
         rationale.telemetry.graph_root_omission_count = 5;
@@ -7731,10 +7664,13 @@ mod tests {
         assert_eq!(telemetry.graph_root_omission_count, Some(5));
         assert_eq!(
             telemetry.vector_recall_completeness,
-            Some(VectorRecallCompleteness::BoundaryTieOpen {
-                fetched: 17,
-                fetch_bound: 17
-            })
+            vec![ScopedVectorRecallCompleteness {
+                scope: vec![EvalObjectType::Episode],
+                completeness: VectorRecallCompleteness::BoundaryTieOpen {
+                    fetched: 17,
+                    fetch_bound: 17
+                },
+            }]
         );
         let fanout = &telemetry.fanout_utilization.as_ref().unwrap()[0];
         assert_eq!(fanout.root_external_id.as_deref(), Some("entity-hub"));

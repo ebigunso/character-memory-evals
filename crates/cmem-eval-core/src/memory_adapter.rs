@@ -234,12 +234,12 @@ impl RetrievedContextPack {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct RetrievalTelemetry {
     pub trace_available: bool,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
-    pub vector_recall_completeness: Option<VectorRecallCompleteness>,
+    #[serde(deserialize_with = "deserialize_scoped_completeness")]
+    pub vector_recall_completeness: Vec<ScopedVectorRecallCompleteness>,
     #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub vector_candidate_count: Option<usize>,
     #[serde(deserialize_with = "crate::serde_contract::required_option")]
@@ -300,6 +300,87 @@ pub struct RetrievalTelemetry {
     #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub rationale_categories_by_internal_id:
         Option<BTreeMap<String, Vec<RetrievalRationaleCategory>>>,
+}
+
+impl Default for RetrievalTelemetry {
+    fn default() -> Self {
+        Self {
+            trace_available: Default::default(),
+            vector_recall_completeness: vec![ScopedVectorRecallCompleteness {
+                scope: Vec::new(),
+                completeness: VectorRecallCompleteness::NotRequested {},
+            }],
+            vector_candidate_count: Default::default(),
+            configured_candidate_limits: Default::default(),
+            configured_graph_limits: Default::default(),
+            configured_section_limits: Default::default(),
+            configured_object_types: Default::default(),
+            configured_lifecycle_policy: Default::default(),
+            query_embedding_dimension: Default::default(),
+            returned_vector_candidate_count: Default::default(),
+            unique_graph_root_candidate_count: Default::default(),
+            selected_graph_root_count: Default::default(),
+            graph_root_omission_count: Default::default(),
+            graph_relation_count: Default::default(),
+            graph_expansion: Default::default(),
+            selectivity_summary: Default::default(),
+            section_pressure: Default::default(),
+            graph_verified_count: Default::default(),
+            stale_candidate_omission_count: Default::default(),
+            lifecycle_omission_count: Default::default(),
+            lifecycle_filter_decision_count: Default::default(),
+            suppressed_or_deleted_returned_count: Default::default(),
+            superseded_current_returned_count: Default::default(),
+            unsafe_lifecycle_returned_count: Default::default(),
+            graph_object_missing_omitted_count: Default::default(),
+            graph_object_missing_returned_count: Default::default(),
+            section_assignment_count: Default::default(),
+            section_assignment_counts: Default::default(),
+            stale_candidate_omission_reasons: Default::default(),
+            lifecycle_omission_reasons: Default::default(),
+            fanout_utilization: Default::default(),
+            selectivity_decisions: Default::default(),
+            rationale_categories_by_internal_id: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ScopedVectorRecallCompleteness {
+    pub scope: Vec<ObjectType>,
+    pub completeness: VectorRecallCompleteness,
+}
+
+fn deserialize_scoped_completeness<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<ScopedVectorRecallCompleteness>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries = Vec::<ScopedVectorRecallCompleteness>::deserialize(deserializer)?;
+    if entries.is_empty() {
+        return Err(serde::de::Error::custom(
+            "vector recall completeness must not be empty",
+        ));
+    }
+    for entry in &entries {
+        if matches!(
+            entry.completeness,
+            VectorRecallCompleteness::NotRequested {}
+        ) {
+            if entries.len() != 1 || !entry.scope.is_empty() {
+                return Err(serde::de::Error::custom(
+                    "not_requested requires a single entry with empty scope",
+                ));
+            }
+        } else if entry.scope.is_empty() {
+            return Err(serde::de::Error::custom(
+                "vector recall verdict requires a nonempty scope",
+            ));
+        }
+    }
+    Ok(entries)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
