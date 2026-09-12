@@ -255,6 +255,10 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_5 review round: all JSONL, header and report writers create files atomically without overwrite, closing the gap after admission. Existing-byte preservation is asserted at each writer. The maintained embedded-smoke CI job uses only --out and compares merged artifacts; its command lines are replayed during validation. Task_6 inherits the fix and applies the same creation rule to seal files.
 
+- 2026-09-13 Task_6 worker implementation: explicit seal and verify commands preserve finished run files by SHA-256 under evidence/<run-id>, with the header as a JSON object and the original header file copied byte-for-byte. Existing evidence and source seals are never overwritten. The round-9 reference pair is promoted unchanged with promotion notes and one register addendum mapping raw and derived identities; an offline PowerShell derivation reproduces the cited short-gap recall@5 from the tracked rows. Evidence attributes disable checkout text conversion. Worker validation and independent reviewer reconciliation accompany the handoff.
+
+- 2026-09-13 Task_6 creation ruling: every seal writer uses create-new at the filesystem operation. Sealing removes nothing; a failed attempt preserves its partial destination and reports completed paths and the failed operation for inspection. This replaces the unreviewed rollback implementation and inherits Task_5's syscall-level no-overwrite contract.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.

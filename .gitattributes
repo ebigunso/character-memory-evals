@@ -1,3 +1,4 @@
 /crates/cmem-eval-continuity/fixtures/*.json text eol=lf
 /crates/cmem-eval-continuity/fixtures/embeddings/*.json text eol=lf
 /configs/*.toml text eol=lf
+/evidence/** -text

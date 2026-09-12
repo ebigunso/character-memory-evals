@@ -601,3 +601,44 @@ Live readers became derived serde with no schema version and no unknown-field re
 ## Addendum (2026-09-13): the tracked canonical configs are not the cited bytes
 
 This register cites the configs `canonical_a` and `canonical_b` by hash. The tracked files under `configs/` were edited as maintained configs in pull request #15 (commit `ea01f8e5b5f23b0f4a45a3c0895a4ff1a89e5cd7`, 2026-07-23: the embedding provider changed from mixed to OpenAI, and the flat retrieval flags were replaced by the retrieval surface policy and explicit section budgets). The bytes this register cites are the versions at commit `49984a5b3c20`'s tree, the parent of that change; from commit `ea01f8e5b5f23b0f4a45a3c0895a4ff1a89e5cd7` (the PR #15 edit) onward, the tracked files are maintained configs and are not the cited evidence. Commit `49984a5b3c20` itself still matches the cited hashes. Found by the Task_4 preservation audit; no file was rewritten.
+
+## Addendum (2026-09-13): tracked evidence for the round-9 reference pair
+
+The round-9 benchmark reference pair above is promoted byte-for-byte into tracked evidence. No run was repeated and no historical artifact was reshaped. The promotion seals omit a standalone header because these runs did not produce one. Future durable claims cite the seal hash as well as the measurement.
+
+| Reference | Evidence seal | Seal SHA-256 |
+|---|---|---|
+| round9-benchmark-a | [evidence/pr13r9ba/seal.json](../evidence/pr13r9ba/seal.json) | `6D45F223F49BDE336266D46458091001E300D2EAA57AE7263EF1623999668F3C` |
+| round9-benchmark-b | [evidence/pr13r9bb/seal.json](../evidence/pr13r9bb/seal.json) | `337137CA300B95093771FE8083C321C82E120353A14C0A861B1D78556DFD9721` |
+
+Each raw SHA-256 cited for that pair maps to the following unchanged file, covered by its run seal above.
+
+| Reference | Evidence file | Cited raw SHA-256 |
+|---|---|---|
+| round9-benchmark-a | [evidence/pr13r9ba/config.toml](../evidence/pr13r9ba/config.toml) | `BE9B036C0C7927BF29264B30F979B73B62AA202A89BF67E5681507CDA2925A1C` |
+| round9-benchmark-a | [evidence/pr13r9ba/results.jsonl](../evidence/pr13r9ba/results.jsonl) | `B5674298CFC9F02BE7EDC4B9860CBF6594D5959407C5F88F2691FEC914A2C9F8` |
+| round9-benchmark-a | [evidence/pr13r9ba/summary.json](../evidence/pr13r9ba/summary.json) | `3605F96DA2E5959ADF5A8C70BBC76FCF41F76179ED9DF82A5921CB4CB71672C6` |
+| round9-benchmark-a | [evidence/pr13r9ba/traces.jsonl](../evidence/pr13r9ba/traces.jsonl) | `62B2FCC253028C46343A81EAAED765D71FCA463FD95032399D7E0D449D0F6D68` |
+| round9-benchmark-a | [evidence/pr13r9ba/report.json](../evidence/pr13r9ba/report.json) | `E3732AB6274BD9AD4FFFAE47DE0076060C242038B4DF6B1D3A6D07128612D886` |
+| round9-benchmark-b | [evidence/pr13r9bb/config.toml](../evidence/pr13r9bb/config.toml) | `5DE97BF9AAFD8ACDD02D490DC90CEEB04A56714321C3B0829C7408A0771CF731` |
+| round9-benchmark-b | [evidence/pr13r9bb/results.jsonl](../evidence/pr13r9bb/results.jsonl) | `86281F8998EF4AC371EFCCD344D607BBBCB7577215FF588FB31C4B65801B5C98` |
+| round9-benchmark-b | [evidence/pr13r9bb/summary.json](../evidence/pr13r9bb/summary.json) | `DAD37D7633B276A84E303081AB009736F7D8EEDBB6DE714B0C16E615411E2D6D` |
+| round9-benchmark-b | [evidence/pr13r9bb/traces.jsonl](../evidence/pr13r9bb/traces.jsonl) | `62B2FCC253028C46343A81EAAED765D71FCA463FD95032399D7E0D449D0F6D68` |
+| round9-benchmark-b | [evidence/pr13r9bb/report.json](../evidence/pr13r9bb/report.json) | `E2DF5FD64D0356A40F593A738015854B2EBCE6FA2200E14EB948570F58A69E55` |
+
+The two derived identities are calculations over those same files, not additional historical artifacts. The offline [round-9 derivation](../evidence/derive-round9.ps1) preserves the README hash recipe at commit `45d96c7`: keep row/property order, set `latency_ms` to numeric zero and `run_id` to `__RUN__`, compact-serialize the row array, and hash UTF-8 without a BOM or trailing newline; for report content, compact-serialize only the top-level `content` value in its existing property order.
+
+| Derived identity (both runs) | Sealed source files | Cited SHA-256 |
+|---|---|---|
+| Normalized rows | [A results](../evidence/pr13r9ba/results.jsonl), [B results](../evidence/pr13r9bb/results.jsonl) | `4262058DFB0EC698BA66D772E84E052564BF1A942825AE31DDEDAB91478DA4FA` |
+| Report content | [A report](../evidence/pr13r9ba/report.json), [B report](../evidence/pr13r9bb/report.json) | `41535684AA2A20A7D26F852FB03221C3C2EC51E6B4B52C54259C4DB6EDB0274E` |
+
+Run `pwsh -NoProfile -File evidence/derive-round9.ps1` with PowerShell 7.2+ from a checkout to verify both sets of file hashes and reproduce both derived identities. From each tracked results file alone, the eight numeric `continuity_recall_fraction_gap_short@5` values are `[1, 0, 1, 1, 0.5, 0.3333333333333333, 0, 0.3333333333333333]`; their sum `4.166666666666667` divided by `8` gives the cited mean `0.5208333333333334`. Null rows are excluded, not converted to zero.
+
+The reference inputs were already tracked and remain unchanged; the promotion adds no copies of them.
+
+| Cited input | Existing tracked bytes | SHA-256 |
+|---|---|---|
+| Fixture | [crates/cmem-eval-continuity/fixtures/continuity_benchmarks_v1.json](../crates/cmem-eval-continuity/fixtures/continuity_benchmarks_v1.json) | `16C0EEF36FA0BCDE05A70B3A18B5C02D39D8169076BD3E60CF6DC4D47F7D9B49` |
+| Manifest | [crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_manifest.json](../crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_manifest.json) | `A63B35F0BA2EF4DEAC06DCF8805822765A0BB5FDCED8F43F91D0570A6D151714` |
+| Frozen store | [crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_store.json](../crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_store.json) | `C1F1EEAA45C1872E2284EC069FBD205ED3C1B1656EE89007ACCB3DD44657352B` |

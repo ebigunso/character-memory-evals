@@ -2,6 +2,7 @@ mod commands;
 mod diff;
 mod enrichment;
 mod frozen_embeddings;
+mod seal;
 
 use anyhow::Result;
 use clap::Parser;
