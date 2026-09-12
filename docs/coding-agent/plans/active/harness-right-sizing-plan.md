@@ -243,6 +243,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_8 step 4 P1C correction: every named output leaf is inspected without following links; live and dangling symlinks and non-file leaves are rejected by name. Ordinary file overwrite remains supported. Admission compares canonical created parents with the acquired stores root and has no canonicalize-NotFound fallback. The dangling-summary reproduction fails before artifact writes and removes only the newly acquired root.
 
+- 2026-09-13 Task_4 implementation: rows, traces, summaries and reports use ordinary derived serde, without output schema dispatch, duplicate-key policing, required-option strictness or artifact-owned unknown-field rejection. Removed report normalization metadata and cross-artifact congruence checks. A single RunHeader owns identity, exact config/hash, input hash, root/hash, retention and scenario-keyed embedding bindings with known frozen store hash/source; rows retain run ID and measurements. Input fixture/config/frozen-store admission remains unchanged. README names `diff` as the comparison instrument. The Orchestrator appends the strict-reader resurrection pointer to the findings register only at stack merge, when a main commit exists; this branch does not edit the register.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.
