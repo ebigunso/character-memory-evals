@@ -748,3 +748,18 @@ Fix applied and prevention:
 
 Evidence:
 - CME #27 Copilot round 2: `metrics::tests::context_validation_rate_accounts_for_lifecycle_leakage` and `commands::pipeline::tests::continuity_integrity_support_follows_retrieval_mode`. The pre-fix checks reproduced a validation rate of 0 instead of 0.5 and a vector-only graph-integrity value of 1.0 instead of null.
+
+## 2026-09-13 — Census dataset metrics when enforcing retrieval support [tags: review, metrics, validation]
+
+Symptom:
+- The common integrity fields correctly became null for raw retrieval, but continuity still emitted numeric graph-derived correction, hub-expansion and rationale metrics.
+
+Root cause:
+- The previous support-boundary fix and its regression covered common row fields without auditing the dataset-specific metric producers. Native traces existed even when they did not describe the returned raw candidates.
+
+Fix applied and prevention:
+- Gate native outcome inputs once at the continuity metric entry point. Preserve label/item-derived metrics and retain native evidence in traces and report samples.
+- Census every metric family through its actual input producer when changing retrieval support. Exercise representative scenarios for each producer and verify both unsupported nulls and supported numeric values; a generic scenario cannot establish coverage for conditional metric families.
+
+Evidence:
+- CME #27 Copilot round 2B: the extended mode regression reproduced `rationale_category_share_entity = 0.0` instead of null before the fix. Existing correction coverage now checks all 19 native-derived fields in hybrid, vector-only and BM25 modes; the embedded CLI regression covers recurring-hub and entrenched-correction scenarios.

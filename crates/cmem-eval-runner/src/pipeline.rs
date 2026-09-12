@@ -803,7 +803,13 @@ fn continuity_result_row(
         &integrity,
         std::slice::from_ref(metric_family),
     );
-    insert_continuity_metrics(&mut metrics, scenario, trace, &config.metrics);
+    insert_continuity_metrics(
+        &mut metrics,
+        scenario,
+        trace,
+        &config.metrics,
+        config.retrieval.mode,
+    );
     let question_type = serde_json::to_value(trace.pattern)?
         .as_str()
         .map(str::to_string);
@@ -1666,11 +1672,21 @@ mod tests {
         for mode in [RetrievalMode::VectorOnly, RetrievalMode::Hybrid] {
             let directory = tempfile::tempdir_in(&root).unwrap();
             let mut args = continuity_args(directory.path());
-            args.scenario = Some("recurring-hub-entity".into());
+            let mut fixture = parse_fixture_bytes(&fs::read(&args.run.dataset).unwrap()).unwrap();
+            fixture.scenarios.retain(|scenario| {
+                matches!(
+                    scenario.fixture_id.as_str(),
+                    "recurring-hub-entity" | "entrenched-correction"
+                )
+            });
+            args.run.dataset = directory.path().join("fixture.json");
+            fs::write(&args.run.dataset, serde_json::to_vec(&fixture).unwrap()).unwrap();
             let mut config = read_config(&args.run.config).unwrap();
             config.retrieval.mode = mode;
-            config.retrieval.surface_policy.object_types =
-                vec![ObjectType::Episode, ObjectType::Observation];
+            if mode == RetrievalMode::VectorOnly {
+                config.retrieval.surface_policy.object_types =
+                    vec![ObjectType::Episode, ObjectType::Observation];
+            }
             config.backend.cleanup.enabled = true;
             config.backend.cleanup.require_collection_prefix =
                 config.backend.namespace_prefix.clone();
@@ -1678,44 +1694,72 @@ mod tests {
             let output = args.run.out.clone();
             run_continuity(args).await.unwrap();
             let rows = read_rows(&output);
-            let [row] = rows.as_slice() else {
-                panic!("expected one continuity row")
-            };
-            assert!(!row.retrieved.is_empty());
-            let metrics = row.metrics.to_json_map();
-            let integrity = serde_json::to_value(&row.integrity).unwrap();
-            for (metric_key, detail_key) in [
-                (
-                    "context_validation_pass_rate",
-                    "context_validation_pass_rate",
-                ),
-                (
-                    "suppressed_memory_leakage_rate",
-                    "suppressed_memory_leakage_rate",
-                ),
-                ("orphan_vector_leakage_rate", "orphan_vector_leakage_rate"),
-                (
-                    "superseded_current_leakage_rate",
-                    "superseded_current_leakage_rate",
-                ),
-                (
-                    "suppressed_or_deleted_items_returned",
-                    "suppressed_or_deleted_returned_count",
-                ),
-                (
-                    "superseded_items_returned_as_current",
-                    "superseded_current_returned_count",
-                ),
-            ] {
-                for value in [&metrics[metric_key], &integrity[detail_key]] {
-                    if mode == RetrievalMode::Hybrid {
-                        assert!(value.is_number(), "{mode:?} {metric_key}: {value}");
-                    } else {
-                        assert!(value.is_null(), "{mode:?} {metric_key}: {value}");
+            assert_eq!(rows.len(), 4);
+            for row in &rows {
+                assert!(!row.retrieved.is_empty());
+                let metrics = row.metrics.to_json_map();
+                let integrity = serde_json::to_value(&row.integrity).unwrap();
+                for (metric_key, detail_key) in [
+                    (
+                        "context_validation_pass_rate",
+                        "context_validation_pass_rate",
+                    ),
+                    (
+                        "suppressed_memory_leakage_rate",
+                        "suppressed_memory_leakage_rate",
+                    ),
+                    ("orphan_vector_leakage_rate", "orphan_vector_leakage_rate"),
+                    (
+                        "superseded_current_leakage_rate",
+                        "superseded_current_leakage_rate",
+                    ),
+                    (
+                        "suppressed_or_deleted_items_returned",
+                        "suppressed_or_deleted_returned_count",
+                    ),
+                    (
+                        "superseded_items_returned_as_current",
+                        "superseded_current_returned_count",
+                    ),
+                ] {
+                    for value in [&metrics[metric_key], &integrity[detail_key]] {
+                        if mode == RetrievalMode::Hybrid {
+                            assert!(value.is_number(), "{mode:?} {metric_key}: {value}");
+                        } else {
+                            assert!(value.is_null(), "{mode:?} {metric_key}: {value}");
+                        }
                     }
                 }
+                assert!(metrics["returned_items_without_external_id"].is_number());
+                let native_metrics = metrics
+                    .iter()
+                    .filter(|(key, _)| {
+                        matches!(
+                            key.as_str(),
+                            "correction_lifecycle_safe_admission_rate"
+                                | "hub_expansion_relevant_hit_rate"
+                                | "typed_rationale_coverage"
+                        ) || key.starts_with("rationale_category_share_")
+                            || key.starts_with("sampled_pollution_rationale_share_")
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(native_metrics.len(), 19);
+                if mode == RetrievalMode::VectorOnly {
+                    for (key, value) in native_metrics {
+                        assert!(value.is_null(), "{} {key}: {value}", row.question_id);
+                    }
+                } else {
+                    assert!(metrics["typed_rationale_coverage"].is_number());
+                    if row.question_type.as_deref() == Some("entrenched_correction") {
+                        assert!(metrics["correction_lifecycle_safe_admission_rate"].is_number());
+                    }
+                    if row.question_type.as_deref() == Some("recurring_hub_entity") {
+                        assert!(metrics["hub_expansion_relevant_hit_rate"].is_number());
+                    }
+                }
+                assert!(metrics["sampled_context_pollution_rate"].is_number());
+                assert!(metrics["hub_context_share"].is_number());
             }
-            assert!(metrics["returned_items_without_external_id"].is_number());
         }
     }
 

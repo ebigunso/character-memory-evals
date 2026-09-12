@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use cmem_eval::{MetricFamily, MetricsConfig, RationaleCategory, RetrievedItem, retrieval_metrics};
+use cmem_eval::{
+    MetricFamily, MetricsConfig, RationaleCategory, RetrievalMode, RetrieveOutcome, RetrievedItem,
+    retrieval_metrics,
+};
 use serde_json::{Map, Value};
 
 use crate::{ContinuityQueryTrace, ContinuityScenario, InteractionEvent, ScenarioPattern};
@@ -59,9 +62,16 @@ pub fn insert_continuity_metrics(
     scenario: &ContinuityScenario,
     trace: &ContinuityQueryTrace,
     config: &MetricsConfig,
+    mode: RetrievalMode,
 ) {
+    // Raw baselines return candidate items, not the native graph-validated context pack.
+    let graph_outcomes = if mode == RetrievalMode::Hybrid {
+        trace.retrieval.outcomes()
+    } else {
+        &[]
+    };
     if trace.pattern == ScenarioPattern::Abstention {
-        insert_pollution_metrics(out, trace);
+        insert_pollution_metrics(out, trace, graph_outcomes);
         return;
     }
 
@@ -84,7 +94,7 @@ pub fn insert_continuity_metrics(
         }
     }
 
-    insert_hub_metrics(out, scenario, trace);
+    insert_hub_metrics(out, scenario, trace, graph_outcomes);
     if matches!(
         trace.pattern,
         ScenarioPattern::TemporalStructure | ScenarioPattern::TemporalPatterns
@@ -100,15 +110,16 @@ pub fn insert_continuity_metrics(
             }
         }
     }
-    insert_correction_metrics(out, scenario, trace, &retrieved_ids);
-    insert_rationale_metrics(out, trace);
-    insert_pollution_metrics(out, trace);
+    insert_correction_metrics(out, scenario, trace, &retrieved_ids, graph_outcomes);
+    insert_rationale_metrics(out, trace, graph_outcomes);
+    insert_pollution_metrics(out, trace, graph_outcomes);
 }
 
 fn insert_hub_metrics(
     out: &mut Map<String, Value>,
     scenario: &ContinuityScenario,
     trace: &ContinuityQueryTrace,
+    graph_outcomes: &[RetrieveOutcome],
 ) {
     let hub_ids = scenario
         .entities
@@ -149,7 +160,7 @@ fn insert_hub_metrics(
         ),
     );
 
-    if let Some(categories) = &rationale_categories(trace) {
+    if let Some(categories) = &rationale_categories(graph_outcomes) {
         let relevant = trace
             .expected
             .relevant_external_ids
@@ -192,6 +203,7 @@ fn insert_correction_metrics(
     scenario: &ContinuityScenario,
     trace: &ContinuityQueryTrace,
     retrieved_ids: &[String],
+    graph_outcomes: &[RetrieveOutcome],
 ) {
     if !matches!(
         scenario.pattern,
@@ -199,10 +211,9 @@ fn insert_correction_metrics(
     ) {
         return;
     }
-    if let Some(rate) = cmem_eval::lifecycle_safe_admission_rate(
-        trace.retrieval.items(),
-        trace.retrieval.outcomes(),
-    ) {
+    if let Some(rate) =
+        cmem_eval::lifecycle_safe_admission_rate(trace.retrieval.items(), graph_outcomes)
+    {
         out.insert(
             "correction_lifecycle_safe_admission_rate".to_string(),
             Value::from(rate),
@@ -242,8 +253,12 @@ fn insert_correction_metrics(
     }
 }
 
-fn insert_rationale_metrics(out: &mut Map<String, Value>, trace: &ContinuityQueryTrace) {
-    let Some(categories) = &rationale_categories(trace) else {
+fn insert_rationale_metrics(
+    out: &mut Map<String, Value>,
+    trace: &ContinuityQueryTrace,
+    graph_outcomes: &[RetrieveOutcome],
+) {
+    let Some(categories) = &rationale_categories(graph_outcomes) else {
         return;
     };
     let returned_categories = trace
@@ -272,7 +287,11 @@ fn insert_rationale_metrics(out: &mut Map<String, Value>, trace: &ContinuityQuer
     insert_category_distribution(out, "rationale_category_share", &returned_categories);
 }
 
-fn insert_pollution_metrics(out: &mut Map<String, Value>, trace: &ContinuityQueryTrace) {
+fn insert_pollution_metrics(
+    out: &mut Map<String, Value>,
+    trace: &ContinuityQueryTrace,
+    graph_outcomes: &[RetrieveOutcome],
+) {
     let relevant = trace
         .expected
         .relevant_external_ids
@@ -331,7 +350,7 @@ fn insert_pollution_metrics(out: &mut Map<String, Value>, trace: &ContinuityQuer
             labeled_event_roots.len(),
         ),
     );
-    if let Some(categories) = &rationale_categories(trace) {
+    if let Some(categories) = &rationale_categories(graph_outcomes) {
         let pollution_categories = pollution
             .iter()
             .map(|item| {
@@ -350,20 +369,13 @@ fn insert_pollution_metrics(out: &mut Map<String, Value>, trace: &ContinuityQuer
 }
 
 pub(crate) fn rationale_categories(
-    trace: &ContinuityQueryTrace,
+    outcomes: &[RetrieveOutcome],
 ) -> Option<BTreeMap<String, Vec<RationaleCategory>>> {
-    if !trace
-        .retrieval
-        .outcomes()
-        .iter()
-        .any(|outcome| outcome.trace.is_some())
-    {
+    if !outcomes.iter().any(|outcome| outcome.trace.is_some()) {
         return None;
     }
     let mut categories: BTreeMap<String, Vec<RationaleCategory>> = BTreeMap::new();
-    for assignment in trace
-        .retrieval
-        .outcomes()
+    for assignment in outcomes
         .iter()
         .filter_map(|outcome| outcome.trace.as_ref())
         .flat_map(|trace| &trace.section_assignments)
@@ -670,7 +682,13 @@ mod tests {
         let scenario = scenario(pattern);
         let trace = trace(pattern);
         let mut out = Map::new();
-        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+        insert_continuity_metrics(
+            &mut out,
+            &scenario,
+            &trace,
+            &MetricsConfig::default(),
+            RetrievalMode::Hybrid,
+        );
         out
     }
 
@@ -692,7 +710,13 @@ mod tests {
                 .push(RationaleCategory::Entity);
         });
         let mut out = Map::new();
-        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+        insert_continuity_metrics(
+            &mut out,
+            &scenario,
+            &trace,
+            &MetricsConfig::default(),
+            RetrievalMode::Hybrid,
+        );
         assert_eq!(out["hub_context_share"], 1.0);
         assert_eq!(out["hub_expansion_relevant_hit_rate"], 0.5);
     }
@@ -713,16 +737,56 @@ mod tests {
             .push("relevant-not-returned".to_string());
         let mut out = Map::new();
 
-        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+        insert_continuity_metrics(
+            &mut out,
+            &scenario,
+            &trace,
+            &MetricsConfig::default(),
+            RetrievalMode::Hybrid,
+        );
 
         assert_eq!(out["temporal_recall_fraction@5"], 0.5);
     }
 
     #[test]
     fn correction_safety_combines_lifecycle_telemetry_and_replacement_labels() {
-        let out = metrics(ScenarioPattern::CorrectionChains);
-        assert_eq!(out["correction_lifecycle_safe_admission_rate"], 1.0);
-        assert_eq!(out["supersession_replacement_recall"], 1.0);
+        let scenario = scenario(ScenarioPattern::CorrectionChains);
+        let trace = trace(ScenarioPattern::CorrectionChains);
+        let config = MetricsConfig::default();
+        let family = continuity_metric_family(&config, std::slice::from_ref(&scenario));
+        for mode in [
+            RetrievalMode::Hybrid,
+            RetrievalMode::VectorOnly,
+            RetrievalMode::Bm25Only,
+        ] {
+            let mut out = Map::new();
+            cmem_eval::initialize_registry_metrics_for(&mut out, std::slice::from_ref(&family));
+            insert_continuity_metrics(&mut out, &scenario, &trace, &config, mode);
+            let native = out
+                .iter()
+                .filter(|(key, _)| {
+                    matches!(
+                        key.as_str(),
+                        "correction_lifecycle_safe_admission_rate"
+                            | "hub_expansion_relevant_hit_rate"
+                            | "typed_rationale_coverage"
+                    ) || key.starts_with("rationale_category_share_")
+                        || key.starts_with("sampled_pollution_rationale_share_")
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(native.len(), 19);
+            for (key, value) in native {
+                if mode == RetrievalMode::Hybrid {
+                    assert!(value.is_number(), "{key}: {value}");
+                } else {
+                    assert!(value.is_null(), "{mode:?} {key}: {value}");
+                }
+            }
+            assert_eq!(out["supersession_replacement_recall"], 1.0);
+            assert_eq!(out["hub_context_share"], 1.0);
+            assert_eq!(out["sampled_context_pollution_rate"], 0.5);
+            assert_eq!(out["sampled_event_pollution_rate"], 0.5);
+        }
     }
 
     #[test]
@@ -738,7 +802,13 @@ mod tests {
         });
         let mut out = Map::new();
 
-        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+        insert_continuity_metrics(
+            &mut out,
+            &scenario,
+            &trace,
+            &MetricsConfig::default(),
+            RetrievalMode::Hybrid,
+        );
 
         assert_eq!(trace.retrieval.items().len(), 2);
         assert_eq!(out["correction_lifecycle_safe_admission_rate"], 0.5);
@@ -758,7 +828,13 @@ mod tests {
         });
         let mut out = Map::new();
 
-        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+        insert_continuity_metrics(
+            &mut out,
+            &scenario,
+            &trace,
+            &MetricsConfig::default(),
+            RetrievalMode::Hybrid,
+        );
 
         assert_eq!(trace.retrieval.items().len(), 2);
         assert_eq!(out["correction_lifecycle_safe_admission_rate"], 0.5);
@@ -773,7 +849,13 @@ mod tests {
         let mut out = Map::new();
         cmem_eval::initialize_registry_metrics_for(&mut out, std::slice::from_ref(&family));
 
-        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+        insert_continuity_metrics(
+            &mut out,
+            &scenario,
+            &trace,
+            &MetricsConfig::default(),
+            RetrievalMode::Hybrid,
+        );
 
         assert_eq!(out["correction_lifecycle_safe_admission_rate"], Value::Null);
         assert_eq!(out["supersession_replacement_recall"], Value::Null);
@@ -803,7 +885,13 @@ mod tests {
                 .push(assignment("unlabeled", vec![RationaleCategory::Salience]));
         });
         let mut out = Map::new();
-        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+        insert_continuity_metrics(
+            &mut out,
+            &scenario,
+            &trace,
+            &MetricsConfig::default(),
+            RetrievalMode::Hybrid,
+        );
         assert_eq!(out["sampled_context_pollution_rate"], 0.5);
         assert_eq!(out["sampled_event_pollution_rate"], 0.5);
         assert_eq!(out["sampled_pollution_rationale_share_semantic"], 1.0);
@@ -816,7 +904,13 @@ mod tests {
         trace.expected.relevant_external_ids.clear();
         let mut out = Map::new();
 
-        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+        insert_continuity_metrics(
+            &mut out,
+            &scenario,
+            &trace,
+            &MetricsConfig::default(),
+            RetrievalMode::Hybrid,
+        );
 
         assert_eq!(out["sampled_context_pollution_rate"], 1.0);
         assert_eq!(out["sampled_event_pollution_rate"], 1.0);
@@ -870,7 +964,13 @@ mod tests {
         });
         let mut out = Map::new();
 
-        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+        insert_continuity_metrics(
+            &mut out,
+            &scenario,
+            &trace,
+            &MetricsConfig::default(),
+            RetrievalMode::Hybrid,
+        );
 
         assert_eq!(out["sampled_context_pollution_rate"], 1.0 / 3.0);
         assert_eq!(out["sampled_event_pollution_rate"], 0.5);
@@ -898,7 +998,13 @@ mod tests {
         });
         let mut out = Map::new();
 
-        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+        insert_continuity_metrics(
+            &mut out,
+            &scenario,
+            &trace,
+            &MetricsConfig::default(),
+            RetrievalMode::Hybrid,
+        );
 
         assert_eq!(out["sampled_context_pollution_rate"], 0.0);
         assert_eq!(out["sampled_event_pollution_rate"], 0.0);
@@ -915,7 +1021,13 @@ mod tests {
             continuity_metric_family(&MetricsConfig::default(), std::slice::from_ref(&scenario));
         let mut out = Map::new();
         cmem_eval::initialize_registry_metrics_for(&mut out, std::slice::from_ref(&family));
-        insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
+        insert_continuity_metrics(
+            &mut out,
+            &scenario,
+            &trace,
+            &MetricsConfig::default(),
+            RetrievalMode::Hybrid,
+        );
         assert_eq!(out["typed_rationale_coverage"], Value::Null);
     }
 }

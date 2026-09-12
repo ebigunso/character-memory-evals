@@ -654,7 +654,7 @@ pub fn read_continuity_report(path: &Path) -> Result<ContinuityReport> {
 }
 
 fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
-    let categories = crate::metrics::rationale_categories(trace);
+    let categories = crate::metrics::rationale_categories(trace.retrieval.outcomes());
     QueryRationaleSample {
         query_id: trace.query_id.clone(),
         query: trace.query.clone(),
