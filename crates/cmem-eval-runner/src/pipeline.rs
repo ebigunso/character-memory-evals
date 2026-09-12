@@ -790,8 +790,11 @@ fn continuity_result_row(
     let full_history = full_history_context_metrics(Some(&trace.history_text));
     let context = context_metrics_with_full_history(&trace.retrieval, full_history);
     let composition = composition_metrics(trace.retrieval.items());
-    let integrity =
-        integrity_details_from_outcomes(trace.retrieval.items(), trace.retrieval.outcomes());
+    let integrity = if config.retrieval.mode == cmem_eval::RetrievalMode::Hybrid {
+        integrity_details_from_outcomes(trace.retrieval.items(), trace.retrieval.outcomes())
+    } else {
+        cmem_eval::integrity_details(trace.retrieval.items())
+    };
     let mut metrics = Map::new();
     insert_common_metrics(
         &mut metrics,
@@ -1653,6 +1656,67 @@ mod tests {
         assert_eq!(rows[1].question_id, "q2");
         assert_eq!(rows[0].gold_episode_ids, vec!["s1"]);
         assert_eq!(rows[0].gold_observation_ids, vec!["d1"]);
+    }
+
+    #[tokio::test]
+    async fn continuity_integrity_support_follows_retrieval_mode() {
+        use cmem_eval::{ObjectType, RetrievalMode};
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agent-work/evals-worker");
+        fs::create_dir_all(&root).unwrap();
+        for mode in [RetrievalMode::VectorOnly, RetrievalMode::Hybrid] {
+            let directory = tempfile::tempdir_in(&root).unwrap();
+            let mut args = continuity_args(directory.path());
+            args.scenario = Some("recurring-hub-entity".into());
+            let mut config = read_config(&args.run.config).unwrap();
+            config.retrieval.mode = mode;
+            config.retrieval.surface_policy.object_types =
+                vec![ObjectType::Episode, ObjectType::Observation];
+            config.backend.cleanup.enabled = true;
+            config.backend.cleanup.require_collection_prefix =
+                config.backend.namespace_prefix.clone();
+            fs::write(&args.run.config, toml::to_string(&config).unwrap()).unwrap();
+            let output = args.run.out.clone();
+            run_continuity(args).await.unwrap();
+            let rows = read_rows(&output);
+            let [row] = rows.as_slice() else {
+                panic!("expected one continuity row")
+            };
+            assert!(!row.retrieved.is_empty());
+            let metrics = row.metrics.to_json_map();
+            let integrity = serde_json::to_value(&row.integrity).unwrap();
+            for (metric_key, detail_key) in [
+                (
+                    "context_validation_pass_rate",
+                    "context_validation_pass_rate",
+                ),
+                (
+                    "suppressed_memory_leakage_rate",
+                    "suppressed_memory_leakage_rate",
+                ),
+                ("orphan_vector_leakage_rate", "orphan_vector_leakage_rate"),
+                (
+                    "superseded_current_leakage_rate",
+                    "superseded_current_leakage_rate",
+                ),
+                (
+                    "suppressed_or_deleted_items_returned",
+                    "suppressed_or_deleted_returned_count",
+                ),
+                (
+                    "superseded_items_returned_as_current",
+                    "superseded_current_returned_count",
+                ),
+            ] {
+                for value in [&metrics[metric_key], &integrity[detail_key]] {
+                    if mode == RetrievalMode::Hybrid {
+                        assert!(value.is_number(), "{mode:?} {metric_key}: {value}");
+                    } else {
+                        assert!(value.is_null(), "{mode:?} {metric_key}: {value}");
+                    }
+                }
+            }
+            assert!(metrics["returned_items_without_external_id"].is_number());
+        }
     }
 
     #[tokio::test]

@@ -733,3 +733,18 @@ Prevention:
 
 Evidence:
 - CME #27 Copilot round: `.agent-work/evals-worker/task8-step3-copilot/`; the embedded regression reproduced a count of 2 instead of 4 before the fix.
+
+## 2026-09-13 — Preserve measurement units and support when replacing telemetry [tags: review, metrics, validation]
+
+Symptom:
+- Native missing-object decisions were counted as objects, including the stale-omission and lifecycle entries emitted for the same missing candidate. Continuity also emitted numeric graph-integrity values for raw retrieval baselines that the conventional pipeline correctly marked unsupported.
+
+Root cause:
+- Replacing mirrored counters with native traces changed the source of measurements without retaining the object-identity unit and retrieval-mode support boundary. Trace presence alone did not establish graph validation of the returned baseline items.
+
+Fix applied and prevention:
+- Deduplicate both returned and omitted missing-object counts by stable ID. Gate continuity integrity on the same retrieval mode as conventional rows. The leakage regression repeats decisions within and across outcomes; an embedded CLI test checks numeric hybrid integrity and null vector-only integrity while preserving item-derived metrics.
+- When replacing telemetry projections, trace each count's identity unit and each metric's support condition through all row producers. Keep retry identity and canonical serialization order distinct from execution order in documentation.
+
+Evidence:
+- CME #27 Copilot round 2: `metrics::tests::context_validation_rate_accounts_for_lifecycle_leakage` and `commands::pipeline::tests::continuity_integrity_support_follows_retrieval_mode`. The pre-fix checks reproduced a validation rate of 0 instead of 0.5 and a vector-only graph-integrity value of 1.0 instead of null.

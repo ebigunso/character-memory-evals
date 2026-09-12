@@ -693,29 +693,34 @@ pub fn integrity_details_from_outcomes(
         .len();
     let missing_returned = returned_lifecycle_decisions(retrieved, outcomes)
         .filter(|decision| decision.reason == LifecycleFilterReason::GraphObjectMissing)
-        .count();
+        .map(|decision| decision.object.id)
+        .collect::<BTreeSet<_>>()
+        .len();
     let missing_omitted = outcomes
         .iter()
         .filter_map(|outcome| outcome.trace.as_ref())
-        .map(|trace| {
+        .flat_map(|trace| {
             trace
                 .stale_candidate_omissions
                 .iter()
                 .filter(|omission| omission.reason == StaleCandidateReason::GraphObjectMissing)
-                .count()
-                + trace
-                    .lifecycle_filter_decisions
-                    .iter()
-                    .filter(|decision| {
-                        decision.action == LifecycleFilterAction::Omitted
-                            && decision.reason == LifecycleFilterReason::GraphObjectMissing
-                            && !retrieved
-                                .iter()
-                                .any(|item| item.internal_id == decision.object.id.to_string())
-                    })
-                    .count()
+                .map(|omission| omission.candidate.id)
+                .chain(
+                    trace
+                        .lifecycle_filter_decisions
+                        .iter()
+                        .filter(|decision| {
+                            decision.action == LifecycleFilterAction::Omitted
+                                && decision.reason == LifecycleFilterReason::GraphObjectMissing
+                                && !retrieved
+                                    .iter()
+                                    .any(|item| item.internal_id == decision.object.id.to_string())
+                        })
+                        .map(|decision| decision.object.id),
+                )
         })
-        .sum::<usize>();
+        .collect::<BTreeSet<_>>()
+        .len();
     details.suppressed_or_deleted_returned_count = Some(suppressed_count);
     details.superseded_current_returned_count = Some(superseded_count);
     details.suppressed_memory_leakage_rate = Some(leakage_rate(suppressed_count, retrieved.len()));
@@ -971,10 +976,35 @@ mod tests {
                 reason: character_memory::LifecycleFilterReason::SuppressedIncludedByPolicy,
             });
 
-        let integrity = integrity_details_from_outcomes(&retrieved, &[outcome]);
+        let integrity = integrity_details_from_outcomes(&retrieved, std::slice::from_ref(&outcome));
 
         assert_eq!(integrity.context_validation_pass_rate, Some(0.5));
         assert_eq!(integrity.suppressed_memory_leakage_rate, Some(0.5));
+
+        let trace = outcome.trace.as_mut().unwrap();
+        let mut missing = trace.lifecycle_filter_decisions[0].clone();
+        missing.retention_state = Some(character_memory::RetentionState::Active);
+        missing.reason = character_memory::LifecycleFilterReason::GraphObjectMissing;
+        trace.lifecycle_filter_decisions = vec![missing.clone(), missing.clone()];
+        missing.object.id = uuid::Uuid::from_u128(1);
+        missing.action = character_memory::LifecycleFilterAction::Omitted;
+        trace
+            .lifecycle_filter_decisions
+            .extend([missing.clone(), missing.clone()]);
+        // Native missing-candidate handling emits both a stale omission and a lifecycle decision.
+        trace
+            .stale_candidate_omissions
+            .push(character_memory::StaleCandidateOmission {
+                candidate: missing.object,
+                vector_score: None,
+                reason: character_memory::StaleCandidateReason::GraphObjectMissing,
+                rationale_categories: Vec::new(),
+            });
+        for outcomes in [vec![outcome.clone()], vec![outcome.clone(), outcome]] {
+            let integrity = integrity_details_from_outcomes(&retrieved, &outcomes);
+            assert_eq!(integrity.context_validation_pass_rate, Some(0.5));
+            assert_eq!(integrity.orphan_vector_leakage_rate, Some(0.5));
+        }
     }
 
     #[test]
