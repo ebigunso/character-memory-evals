@@ -597,3 +597,7 @@ The artifact schema advanced to 3.1.0 when the shared run header began recording
 ## Addendum (2026-09-13): strict reader resurrection pointer
 
 Live readers became derived serde with no schema version and no unknown-field rejection (ADR-I-0005). The strict 3.1.0 result-row, summary, continuity-trace and continuity-report readers, with their schema constants and validators, were last present on `main` at the squash commit of pull request #28 (its hash is appended here by the Orchestrator once the stack merges). Resurrect them as a standalone offline tool, never live-path dispatch, if a decider-ruled archival readout need materializes. Every artifact cited in this register remains sealed, byte-identical and hash-verifiable.
+
+## Addendum (2026-09-13): the tracked canonical configs are not the cited bytes
+
+This register cites the configs `canonical_a` and `canonical_b` by hash. The tracked files under `configs/` were edited as maintained configs in pull request #15 (commit `ea01f8e5b5f23b0f4a45a3c0895a4ff1a89e5cd7`, 2026-07-23: the embedding provider changed from mixed to OpenAI, and the flat retrieval flags were replaced by the retrieval surface policy and explicit section budgets). The bytes this register cites are the versions at commit `49984a5b3c20`'s tree, the parent of that change; from that commit on, the tracked files are maintained configs and are not the cited evidence. Found by the Task_4 preservation audit; no file was rewritten.
