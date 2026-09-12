@@ -144,7 +144,7 @@ Schema v3 keeps backend persistence identities derived from config, stable names
 
 ### Read the continuity artifacts
 
-- `results.jsonl` contains one schema-versioned retrieval result per query. `summary.json` contains numeric aggregates, support counts, registry coverage, and latency. Live query latency is measured, so raw `results.jsonl` and `summary.json` bytes intentionally vary across repeat live runs.
+- `results.jsonl` contains one retrieval result per query, read through derived serde with no schema version. `summary.json` contains numeric aggregates, support counts, registry coverage, and latency. Live query latency is measured, so raw `results.jsonl` and `summary.json` bytes intentionally vary across repeat live runs.
 - `traces.jsonl` contains the deterministic query, expected labels, history text, complete retrieved context pack, rationales, and native library outcomes and traces used by continuity metrics.
 - `report.json` contains run metadata, aggregate and per-scenario metrics, and the complete native retrieval outcomes in each context sample. Library-generated timestamps in those outcomes are retained. Use the result-row `diff` command to compare returned identities, ranks, metrics, and degradation.
 - `content.aggregate` reports metrics, `metric_support`, and registry coverage across the selected run. `content.scenarios` repeats those views per fixture and includes full query/context/rationale samples, fanout/selectivity decisions, stats-health observations, and any restart observations.
@@ -153,7 +153,7 @@ Schema v3 keeps backend persistence identities derived from config, stable names
 
 ### Compare runs
 
-`diff` reads schema 3.1.0 result JSONL and compares by question after normalizing only `run_id` and `latency_ms`. Malformed native outcomes and older schemas fail admission; archival comparisons use an offline tool pinned to their reader version. It reports returned-identity, rank, metric, and degradation-flag changes plus a summary:
+`diff` reads result JSONL through derived serde and compares by question after normalizing only `run_id` and `latency_ms`. A row whose required fields are missing or mistyped fails to deserialize; an artifact from a superseded shape is old and is compared with an offline tool resurrected from the commit the findings register names, never by the live command. It reports returned-identity, rank, metric, and degradation-flag changes plus a summary:
 
 ```bash
 cargo run -p cmem-eval-runner -- diff \
