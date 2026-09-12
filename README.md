@@ -363,3 +363,7 @@ The workspace test suite runs with embedded stores, including restart, reattach,
 ```bash
 QDRANT_CONNECTION_STRING=http://127.0.0.1:6334 cargo test -p cmem-eval --features service-tests service_mode_ -- --nocapture
 ```
+
+## CI
+
+The `Tests` job executes the embedded workspace suite on Linux, including the file-symlink regression. The `Service-mode tests (Qdrant)` job starts Qdrant, waits for readiness and executes the service-mode tests with the command above. Both jobs use the same Character Memory revision from `Resolve Character Memory revision`. Service tests use deterministic embeddings and need no API key. CI does not report skipped or ignored test bodies as passing: the service job runs on every workflow invocation, and unavailable Qdrant makes it fail.

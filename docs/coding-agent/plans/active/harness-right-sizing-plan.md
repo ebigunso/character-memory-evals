@@ -168,21 +168,23 @@
     owner: evals-reviewer
     detail: "Hash reconciliation against the register"
 
-### Task_7: Honest CI for live tests
+### Task_7: Execute service-mode tests in CI
 - type: test
 - owns:
-  - crates/cmem-eval-adapter-cmem/src/lib.rs
   - .github/workflows/ci.yml
-- depends_on: [Task_2]
+  - README.md
+  - docs/coding-agent/plans/active/harness-right-sizing-plan.md
+- depends_on: [Task_6]
 - description: |
-  Mark the live adapter tests ignored so CI reports them honestly instead of passing by skip; keep the forced-live switch for local and service-backed runs.
+  Add a Qdrant service job that executes the feature-gated service-mode tests. Keep the default embedded job unchanged and use the same resolved library revision in both jobs. Document the CI split and record why ignoring live tests no longer applies.
 - acceptance:
-  - CI shows the live tests as ignored, not passed.
+  - The service job executes the service-mode tests and fails if Qdrant is unavailable; no skip or ignore attributes are added.
+  - The embedded suite, including the Linux file-symlink regression, remains unchanged.
 - validation:
   - kind: command
     required: true
     owner: evals-worker
-    detail: "cargo test --workspace output lists the live tests as ignored; forced-live run still executes them"
+    detail: "fmt, strict clippy and embedded workspace evidence; workflow syntax validation; the exact service-job command against Qdrant under the exclusive live window, with executed test names and counts"
   - kind: review
     required: true
     owner: evals-reviewer
@@ -261,6 +263,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_6 done (stacked on Task_5): `seal <run-dir>` writes `seal.json` (run header as an object, per-file SHA-256 hashes, sealing time) and copies the artifact, header, report and seal into the tracked `evidence/<run-id>/` directory, never overwriting; `verify <evidence-dir>` recomputes the hashes and fails on mismatch. The register's reference pair is promoted into `evidence/` as bytes with promotion-note seals; the register gains one dated addendum mapping each cited raw hash to its evidence file and each derived identity to its source file and offline derivation. Reviewer verdict recorded on the pull request.
 
+- 2026-09-13 Task_7 implementation: the dedicated `Service-mode tests (Qdrant)` job starts the library CI's Qdrant image, waits for readiness and executes the `service-tests` feature's `service_mode_` tests. It shares the resolved library revision with the unchanged embedded job, needs no embedding secret and fails on service unavailability. Worker evidence records the exact local command and executed test names under the exclusive Qdrant window.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.
@@ -299,6 +303,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 ADR-I-0005 accepted by the decider (ebigunso); status flipped from proposed to accepted before merge.
 - 2026-09-13 Decision (Task_5 contract): one artifact per run for every dataset kind, named by `--out` (which must end in `.jsonl`), with `header.json` and `report.json` derived beside it and no header embedded in any report; continuity rows merge into the trace records (one record per query, restart observations carried by their probe query, the report keeping only the aggregate restart count and dropping the details the traces carry); the frozen embedding store is a text-keyed cache with an ordering validator whose persisted policy and source fields are opaque descriptions, never enforcement. The register records that the tracked canonical configs stopped being the cited bytes in pull request #15 (found by the Task_4 preservation audit; no rewrite).
+
+- 2026-09-13 Decision (Task_7 reshape): execute service-mode tests in a dedicated Qdrant CI job rather than mark them ignored. Task_8 step 3 deleted the live skip guard and moved service-specific tests behind `service-tests`; an ignored-test job would leave their bodies untested. The default embedded suite remains service-free, while the new job requires service readiness and runs the existing feature filter without skip or ignore attributes. This follows the Task_7 dispatch ruling and replaces the original Task_7 wording.
 
 ## Notes
 - Risks and mitigations: section 6 of the audit.
