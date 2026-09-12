@@ -902,3 +902,17 @@ Prevention:
 
 Evidence:
 - Accepted Copilot findings on CME #30; trace_reader_accepts_additive_expected_fields and header_accepts_additive_controllable_policy_fields; Worker artifact-type census.
+
+## 2026-09-13 — Store retention intent once in derived artifacts [tags: review, artifacts, invariants]
+
+Symptom:
+- A persisted run header could pair a retention flag with a contradictory optional reason after artifact readers adopted ordinary serde. Independently named output files also allowed duplicate destinations.
+
+Fix applied:
+- Persist retention as one optional reason; its presence means retention. Configuration still validates its existing flag/reason pair. Derive header.json and report.json beside the sole .jsonl output, so the three names cannot collide; existing-leaf links remain rejected.
+
+Prevention:
+- When simplifying readers, remove redundant artifact fields that encode the same choice. Exercise both retained and non-retained headers and output-name collisions at the producer; do not rebuild a validator for contradictions the artifact need not represent.
+
+Evidence:
+- Accepted Copilot findings on CME #28 and the Task_5 design ruling; cli_rejects_non_jsonl_output_before_creating_directories and continuity_run_cleans_or_retains_stores_on_success_and_admission_failure.

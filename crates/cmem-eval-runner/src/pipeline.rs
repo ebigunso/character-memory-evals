@@ -1327,7 +1327,6 @@ fn run_header(
         adapter,
         storage_root: run_root.to_path_buf(),
         storage_root_sha256: cmem_eval::adapter::run_root_sha256(run_root)?,
-        retain_stores: config.backend.retain_stores,
         retain_reason: config.backend.retain_reason.clone(),
     })
 }
@@ -1735,7 +1734,13 @@ mod tests {
                             cmem_eval::adapter::run_root_sha256(&root).unwrap()
                         );
                     }
-                    assert_eq!(header.retain_stores, retain);
+                    assert_eq!(header.retain_reason.is_some(), retain);
+                    assert!(
+                        serde_json::to_value(&header)
+                            .unwrap()
+                            .get("retain_stores")
+                            .is_none()
+                    );
                     assert_eq!(header.retain_reason, config.backend.retain_reason);
                     assert_eq!(header.config, source);
                     assert_eq!(header.config_sha256, cmem_eval::text_sha256(&source));

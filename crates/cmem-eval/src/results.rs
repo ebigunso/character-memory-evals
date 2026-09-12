@@ -62,7 +62,7 @@ pub struct RunHeader {
     pub adapter: RunAdapterMetadata,
     pub storage_root: PathBuf,
     pub storage_root_sha256: String,
-    pub retain_stores: bool,
+    /// Stores are retained if and only if a reason is present.
     pub retain_reason: Option<String>,
 }
 
@@ -267,7 +267,6 @@ mod tests {
             adapter: RunAdapterMetadata::live(),
             storage_root: "stores".into(),
             storage_root_sha256: "test".into(),
-            retain_stores: false,
             retain_reason: None,
         };
         header.embedding_bindings.insert(
