@@ -82,7 +82,7 @@ min = 0
 max = 15
 ```
 
-Mock runs require Rust 1.97.0 and the checked fixture only; they do not connect to Qdrant, Oxigraph, SQLite, OpenAI, or another service. Live runs additionally require the sibling `../CharacterMemory` checkout, a local Qdrant gRPC endpoint such as `http://127.0.0.1:6334`, and writable paths under `runs/continuity/stores/`. Neither controllable-similarity nor frozen runtime providers require `OPENAI_API_KEY`; only the explicit offline frozen-store generation command uses it.
+Continuity runs require Rust 1.97.0, the sibling `../CharacterMemory` checkout, the checked fixture and writable paths for the configured stores. The embedded adapter is the service-free default. Qdrant is optional: select `backend.vector_store_mode = "service"` and provide a gRPC endpoint such as `http://127.0.0.1:6334` to use it. Controllable-similarity and frozen runtime providers require no `OPENAI_API_KEY`; generating a new OpenAI frozen store requires the key.
 
 ### Generate and validate frozen real embeddings
 

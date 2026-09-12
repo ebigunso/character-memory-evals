@@ -3123,11 +3123,9 @@ mod tests {
         let before = adapter.retrieve(query.clone()).await.unwrap();
         assert!(!before.items().is_empty());
         assert!(matches!(
-            before.outcomes()[0]
-                .rationale
-                .telemetry
-                .vector_recall_completeness,
-            character_memory::VectorRecallCompleteness::Exhaustive { .. }
+            before.outcomes(),
+            [outcome] if matches!(outcome.rationale.telemetry.vector_recall_completeness,
+                character_memory::VectorRecallCompleteness::Exhaustive { .. })
         ));
         let mut vector_query = query.clone();
         vector_query.mode = RetrievalMode::VectorOnly;

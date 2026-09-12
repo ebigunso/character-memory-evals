@@ -1656,6 +1656,158 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn vector_only_restart_and_report_include_every_kind_outcome() {
+        use cmem_eval::{ObjectType, RetrievalMode};
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agent-work/evals-worker");
+        fs::create_dir_all(&root).unwrap();
+        let directory = tempfile::tempdir_in(root).unwrap();
+        let mut args = continuity_args(directory.path());
+        let mut fixture = parse_fixture_bytes(&fs::read(&args.run.dataset).unwrap()).unwrap();
+        fixture
+            .scenarios
+            .retain(|scenario| scenario.fixture_id == "recurring-hub-entity");
+        let scenario = &mut fixture.scenarios[0];
+        let query_index = scenario
+            .events
+            .iter()
+            .position(|event| matches!(event, InteractionEvent::Query { .. }))
+            .unwrap();
+        let timestamp = scenario.events[query_index].timestamp();
+        let links = ["", ":observation"].map(|suffix| InteractionEvent::Link {
+            event_id: format!("link-kinds{suffix}"),
+            external_id: format!("link-kinds{suffix}"),
+            timestamp: timestamp - chrono::Duration::seconds(2),
+            from_external_id: format!("hub-memory-0{suffix}"),
+            relation: "associated_with".into(),
+            to_external_id: format!("hub-memory-5{suffix}"),
+        });
+        scenario.events.splice(
+            query_index..query_index,
+            links.into_iter().chain([InteractionEvent::Restart {
+                event_id: "restart-multiple-kinds".into(),
+                timestamp: timestamp - chrono::Duration::seconds(1),
+                reopen_graph: true,
+                reopen_stats: true,
+            }]),
+        );
+        args.run.dataset = directory.path().join("fixture.json");
+        fs::write(&args.run.dataset, serde_json::to_vec(&fixture).unwrap()).unwrap();
+        let mut config = read_config(&args.run.config).unwrap();
+        config.retrieval.mode = RetrievalMode::VectorOnly;
+        config.retrieval.surface_policy.object_types =
+            vec![ObjectType::Episode, ObjectType::Observation];
+        config.backend.cleanup.enabled = true;
+        config.backend.cleanup.require_collection_prefix = config.backend.namespace_prefix.clone();
+        fs::write(&args.run.config, toml::to_string(&config).unwrap()).unwrap();
+        let trace_path = args.trace_out.clone();
+        let report_path = args.report_out.clone();
+
+        run_continuity(args).await.unwrap();
+
+        let traces = read_traces(&trace_path);
+        assert_eq!(traces.len(), 1);
+        let outcomes = traces[0].retrieval.outcomes();
+        assert_eq!(
+            outcomes
+                .iter()
+                .map(|outcome| outcome.rationale.telemetry.configured_object_types.clone())
+                .collect::<Vec<_>>(),
+            vec![vec![ObjectType::Episode], vec![ObjectType::Observation]]
+        );
+        let native = outcomes
+            .iter()
+            .map(|outcome| outcome.trace.as_ref().unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            native
+                .iter()
+                .all(|trace| !trace.fanout_utilization.is_empty())
+        );
+        // The library scores selectivity only for Entity roots; these kinds emit fanout only.
+        assert!(
+            native
+                .iter()
+                .all(|trace| trace.selectivity_decisions.is_empty())
+        );
+        let fanout = native
+            .iter()
+            .flat_map(|trace| &trace.fanout_utilization)
+            .cloned()
+            .collect::<Vec<_>>();
+        let decisions = native
+            .iter()
+            .flat_map(|trace| &trace.selectivity_decisions)
+            .cloned()
+            .collect::<Vec<_>>();
+        let scored = decisions
+            .iter()
+            .filter(|decision| decision.score.is_some())
+            .count();
+        let fallback = decisions
+            .iter()
+            .filter(|decision| decision.fallback)
+            .count();
+        let report = cmem_eval_continuity::read_continuity_report(&report_path).unwrap();
+        let scenario_report = &report.content.scenarios["recurring-hub-entity"];
+        let restart = &scenario_report.restart_observations[0];
+        for snapshot in [&restart.before_restart, &restart.after_restart] {
+            assert_eq!(
+                snapshot.graph_relation_count,
+                Some(native.iter().map(|trace| trace.graph_relations.len()).sum())
+            );
+            assert_eq!(
+                snapshot.graph_verified_count,
+                Some(
+                    outcomes
+                        .iter()
+                        .map(|outcome| outcome.rationale.graph_verified_count)
+                        .sum()
+                )
+            );
+            assert_eq!(snapshot.fanout_decision_count, Some(fanout.len()));
+            assert_eq!(snapshot.selectivity_decision_count, Some(decisions.len()));
+            assert_eq!(snapshot.scored_selectivity_count, Some(scored));
+            assert_eq!(snapshot.fallback_selectivity_count, Some(fallback));
+        }
+        let reported = &scenario_report.fanout_decisions[0];
+        assert_eq!(reported.utilization.as_ref(), Some(&fanout));
+        assert_eq!(reported.selectivity.as_ref(), Some(&decisions));
+        let health = &scenario_report.stats_health_events[0];
+        assert_eq!(health.decision_count, Some(decisions.len()));
+        assert_eq!(health.scored_count, Some(scored));
+        assert_eq!(health.fallback_count, Some(fallback));
+        let observed = &report.content.tuning_observations[0].observed;
+        assert_eq!(observed["root_counter_query_count"], 1);
+        assert_eq!(
+            observed["unique_graph_root_candidate_count"],
+            outcomes
+                .iter()
+                .map(|outcome| outcome
+                    .rationale
+                    .telemetry
+                    .unique_graph_root_candidate_count)
+                .sum::<usize>()
+        );
+        assert_eq!(
+            observed["selected_graph_root_count"],
+            outcomes
+                .iter()
+                .map(|outcome| outcome.rationale.telemetry.selected_graph_root_count)
+                .sum::<usize>()
+        );
+        assert_eq!(
+            observed["graph_root_omission_count"],
+            outcomes
+                .iter()
+                .map(|outcome| outcome.rationale.telemetry.graph_root_omission_count)
+                .sum::<usize>()
+        );
+        assert_eq!(observed["selectivity_decision_count"], decisions.len());
+        assert_eq!(observed["scored_selectivity_count"], scored);
+        assert_eq!(observed["fallback_selectivity_count"], fallback);
+    }
+
+    #[tokio::test]
     async fn continuity_command_runs_scripted_scenarios_and_writes_full_traces() {
         let directory = tempfile::tempdir().unwrap();
         let second_directory = tempfile::tempdir().unwrap();

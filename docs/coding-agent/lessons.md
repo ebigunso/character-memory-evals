@@ -716,3 +716,20 @@ Decider ruling and prevention:
 
 Evidence:
 - Decider ruling relayed by the orchestrator on 2026-09-13, citing the manual removal of 222 collections left by the cross-mode and A/B runs.
+
+## 2026-09-13 — Audit every consumer when one outcome becomes a collection [tags: review, aggregation, validation]
+
+Symptom:
+- Vector-only retrieval retained one native outcome per selected kind, but restart snapshots and report aggregates read only the first outcome. Single-kind and hybrid checks did not reveal the omission.
+
+Root cause:
+- The native-type migration preserved singleton assumptions in downstream consumers; the review did not exercise two outcomes that both contributed trace data.
+
+Fix applied:
+- Summed all native outcomes, flattened their traces, and preserved query-level sample counts. Added an embedded episode-plus-observation restart/report regression with links that make both kinds emit fanout decisions; extended existing checks for selectivity and an absent first trace.
+
+Prevention:
+- When a result becomes a collection, census every first-element/index reader through the final report and test at least two contributing outcomes. Distinguish no trace from an empty trace, and retain the intended sample unit when summing counters. Derive test expectations from the producer's supported behavior: these vector-only kinds emit fanout, while native selectivity requires Entity roots.
+
+Evidence:
+- CME #27 Copilot round: `.agent-work/evals-worker/task8-step3-copilot/`; the embedded regression reproduced a count of 2 instead of 4 before the fix.

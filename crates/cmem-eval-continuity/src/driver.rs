@@ -898,29 +898,53 @@ fn restart_probe_snapshot(
         })
         .count();
     let expected_relevant_count = expected.relevant_external_ids.len();
-    let outcome = pack.outcomes().first();
-    let native_trace = outcome.and_then(|outcome| outcome.trace.as_ref());
+    let native_traces = pack
+        .outcomes()
+        .iter()
+        .filter_map(|outcome| outcome.trace.as_ref())
+        .collect::<Vec<_>>();
+    let has_trace = !native_traces.is_empty();
     RestartProbeSnapshot {
         returned_object_ids,
         relevant_returned_count,
         expected_relevant_count,
         recall: (expected_relevant_count > 0)
             .then_some(relevant_returned_count as f64 / expected_relevant_count as f64),
-        graph_relation_count: native_trace.map(|trace| trace.graph_relations.len()),
-        graph_verified_count: outcome.map(|outcome| outcome.rationale.graph_verified_count),
-        fanout_decision_count: native_trace.map(|trace| trace.fanout_utilization.len()),
-        selectivity_decision_count: native_trace.map(|trace| trace.selectivity_decisions.len()),
-        scored_selectivity_count: native_trace.map(|trace| {
-            trace
-                .selectivity_decisions
+        graph_relation_count: has_trace.then(|| {
+            native_traces
                 .iter()
+                .map(|trace| trace.graph_relations.len())
+                .sum()
+        }),
+        graph_verified_count: has_trace.then(|| {
+            pack.outcomes()
+                .iter()
+                .map(|outcome| outcome.rationale.graph_verified_count)
+                .sum()
+        }),
+        fanout_decision_count: has_trace.then(|| {
+            native_traces
+                .iter()
+                .map(|trace| trace.fanout_utilization.len())
+                .sum()
+        }),
+        selectivity_decision_count: has_trace.then(|| {
+            native_traces
+                .iter()
+                .map(|trace| trace.selectivity_decisions.len())
+                .sum()
+        }),
+        scored_selectivity_count: has_trace.then(|| {
+            native_traces
+                .iter()
+                .flat_map(|trace| &trace.selectivity_decisions)
                 .filter(|decision| decision.score.is_some())
                 .count()
         }),
-        fallback_selectivity_count: native_trace.map(|trace| {
-            trace
-                .selectivity_decisions
+        fallback_selectivity_count: has_trace.then(|| {
+            native_traces
                 .iter()
+                .flat_map(|trace| &trace.selectivity_decisions)
                 .filter(|decision| decision.fallback)
                 .count()
         }),
@@ -1298,6 +1322,30 @@ mod tests {
             snapshot.returned_object_ids,
             vec!["observation-external".to_string()]
         );
+        assert_eq!(snapshot.fanout_decision_count, None);
+        for native_trace in [None, Some(cmem_eval::RetrievalTrace::empty())] {
+            let outcome = cmem_eval::RetrieveOutcome {
+                pack: cmem_eval::character_memory::ContinuityContextPack::empty(),
+                rationale: cmem_eval::character_memory::RetrievalRationale::new("test"),
+                trace: None,
+            };
+            let mut second = outcome.clone();
+            second.rationale.graph_verified_count = 2;
+            second.trace = native_trace;
+            let has_trace = second.trace.is_some();
+            let pack = RetrievedContextPack::from_ranked_items(
+                Vec::new(),
+                vec![outcome, second],
+                cmem_eval::ContextRenderer::PlainText,
+            );
+            let snapshot = restart_probe_snapshot(&pack, &expected);
+            assert_eq!(snapshot.graph_verified_count, has_trace.then_some(2));
+            assert_eq!(snapshot.graph_relation_count, has_trace.then_some(0));
+            assert_eq!(snapshot.fanout_decision_count, has_trace.then_some(0));
+            assert_eq!(snapshot.selectivity_decision_count, has_trace.then_some(0));
+            assert_eq!(snapshot.scored_selectivity_count, has_trace.then_some(0));
+            assert_eq!(snapshot.fallback_selectivity_count, has_trace.then_some(0));
+        }
     }
 
     #[tokio::test]

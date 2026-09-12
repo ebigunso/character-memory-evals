@@ -436,20 +436,30 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             .collect();
         let fanout_decisions = scenario_traces
             .iter()
-            .map(|trace| QueryFanoutDecisions {
-                query_id: trace.query_id.clone(),
-                utilization: trace
+            .map(|trace| {
+                let native_traces = trace
                     .retrieval
                     .outcomes()
-                    .first()
-                    .and_then(|outcome| outcome.trace.as_ref())
-                    .map(|trace| trace.fanout_utilization.clone()),
-                selectivity: trace
-                    .retrieval
-                    .outcomes()
-                    .first()
-                    .and_then(|outcome| outcome.trace.as_ref())
-                    .map(|trace| trace.selectivity_decisions.clone()),
+                    .iter()
+                    .filter_map(|outcome| outcome.trace.as_ref())
+                    .collect::<Vec<_>>();
+                QueryFanoutDecisions {
+                    query_id: trace.query_id.clone(),
+                    utilization: (!native_traces.is_empty()).then(|| {
+                        native_traces
+                            .iter()
+                            .flat_map(|trace| &trace.fanout_utilization)
+                            .cloned()
+                            .collect()
+                    }),
+                    selectivity: (!native_traces.is_empty()).then(|| {
+                        native_traces
+                            .iter()
+                            .flat_map(|trace| &trace.selectivity_decisions)
+                            .cloned()
+                            .collect()
+                    }),
+                }
             })
             .collect();
         let stats_health_events = scenario_traces
@@ -671,21 +681,24 @@ fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
 }
 
 fn stats_health_event(trace: &ContinuityQueryTrace) -> StatsHealthEvent {
-    let decisions = trace
+    let native_traces = trace
         .retrieval
         .outcomes()
-        .first()
-        .and_then(|outcome| outcome.trace.as_ref())
-        .map(|trace| &trace.selectivity_decisions);
-    let decision_count = decisions.map(Vec::len);
-    let scored_count = decisions.map(|values| {
-        values
-            .iter()
+        .iter()
+        .filter_map(|outcome| outcome.trace.as_ref())
+        .collect::<Vec<_>>();
+    let has_trace = !native_traces.is_empty();
+    let decisions = native_traces
+        .iter()
+        .flat_map(|trace| &trace.selectivity_decisions);
+    let decision_count = has_trace.then(|| decisions.clone().count());
+    let scored_count = has_trace.then(|| {
+        decisions
+            .clone()
             .filter(|decision| decision.score.is_some())
             .count()
     });
-    let fallback_count =
-        decisions.map(|values| values.iter().filter(|decision| decision.fallback).count());
+    let fallback_count = has_trace.then(|| decisions.filter(|decision| decision.fallback).count());
     let status = match (decision_count, scored_count, fallback_count) {
         (None, _, _) => "unsupported",
         (Some(0), _, _) => "no_decisions",
@@ -713,12 +726,21 @@ fn tuning_observation(
     let root_counter_samples = hub_traces
         .iter()
         .filter_map(|trace| {
-            let telemetry = &trace.retrieval.outcomes().first()?.rationale.telemetry;
-            Some((
-                telemetry.unique_graph_root_candidate_count,
-                telemetry.selected_graph_root_count,
-                telemetry.graph_root_omission_count,
-            ))
+            trace
+                .retrieval
+                .outcomes()
+                .iter()
+                .map(|outcome| {
+                    let telemetry = &outcome.rationale.telemetry;
+                    (
+                        telemetry.unique_graph_root_candidate_count,
+                        telemetry.selected_graph_root_count,
+                        telemetry.graph_root_omission_count,
+                    )
+                })
+                .reduce(|(a, b, c), (unique, selected, omitted)| {
+                    (a + unique, b + selected, c + omitted)
+                })
         })
         .collect::<Vec<_>>();
     if root_counter_samples.is_empty() {
@@ -738,15 +760,9 @@ fn tuning_observation(
         .sum::<usize>();
     let decisions = hub_traces
         .iter()
-        .filter_map(|trace| {
-            trace
-                .retrieval
-                .outcomes()
-                .first()
-                .and_then(|outcome| outcome.trace.as_ref())
-                .map(|trace| &trace.selectivity_decisions)
-        })
-        .flatten()
+        .flat_map(|trace| trace.retrieval.outcomes())
+        .filter_map(|outcome| outcome.trace.as_ref())
+        .flat_map(|trace| &trace.selectivity_decisions)
         .collect::<Vec<_>>();
     let scored_count = decisions
         .iter()
@@ -831,6 +847,43 @@ mod tests {
 
     #[test]
     fn tuning_observation_uses_measured_root_counters() {
+        use cmem_eval::character_memory::{
+            MemoryObjectRef, ObjectType, RelationType, SelectivityCountScope, SelectivityDecision,
+            SelectivityTrace,
+        };
+        let mut trace = hub_trace(Some((21, 12, 9)));
+        let outcomes = [false, true].map(|fallback| {
+            let [mut outcome] = trace.retrieval.outcomes().to_vec().try_into().unwrap();
+            outcome
+                .trace
+                .as_mut()
+                .unwrap()
+                .selectivity_decisions
+                .push(SelectivityTrace {
+                    root: MemoryObjectRef::new(ObjectType::Entity, Uuid::nil()),
+                    relation: RelationType::Mentions,
+                    object_type: ObjectType::Episode,
+                    count_scope: SelectivityCountScope::Current,
+                    score: (!fallback).then_some(0.5),
+                    entity_count: Some(1),
+                    global_count: Some(2),
+                    support_factor: 1.0,
+                    chosen_fanout: 4,
+                    max_fanout: 16,
+                    decision: if fallback {
+                        SelectivityDecision::ConservativeFallback
+                    } else {
+                        SelectivityDecision::HighSelectivity
+                    },
+                    fallback,
+                });
+            outcome
+        });
+        trace.retrieval = RetrievedContextPack::from_ranked_items(
+            Vec::new(),
+            outcomes.to_vec(),
+            ContextRenderer::PlainText,
+        );
         let observation = tuning_observation(
             &serde_json::json!({
                 "retrieval": {
@@ -838,7 +891,7 @@ mod tests {
                     "max_graph_roots": 12
                 }
             }),
-            &[hub_trace(Some((21, 12, 9)))],
+            &[trace.clone()],
         )
         .unwrap();
 
@@ -847,14 +900,63 @@ mod tests {
             observation.observed,
             serde_json::json!({
                 "root_counter_query_count": 1,
-                "unique_graph_root_candidate_count": 21,
-                "selected_graph_root_count": 12,
-                "graph_root_omission_count": 9,
-                "selectivity_decision_count": 0,
-                "scored_selectivity_count": 0,
-                "fallback_selectivity_count": 0,
+                "unique_graph_root_candidate_count": 42,
+                "selected_graph_root_count": 24,
+                "graph_root_omission_count": 18,
+                "selectivity_decision_count": 2,
+                "scored_selectivity_count": 1,
+                "fallback_selectivity_count": 1,
             })
         );
+        let health = stats_health_event(&trace);
+        assert_eq!(
+            (
+                health.decision_count,
+                health.scored_count,
+                health.fallback_count
+            ),
+            (Some(2), Some(1), Some(1))
+        );
+        assert_eq!(health.status, "scored_with_fallback");
+
+        for (traces, counts, status) in [
+            (
+                [None, outcomes[1].trace.clone()],
+                (Some(1), Some(0), Some(1)),
+                "fallback_only",
+            ),
+            (
+                [None, Some(cmem_eval::RetrievalTrace::empty())],
+                (Some(0), Some(0), Some(0)),
+                "no_decisions",
+            ),
+            ([None, None], (None, None, None), "unsupported"),
+        ] {
+            let mut outcomes = outcomes.clone();
+            for (outcome, native_trace) in outcomes.iter_mut().zip(traces) {
+                outcome.trace = native_trace;
+            }
+            trace.retrieval = RetrievedContextPack::from_ranked_items(
+                Vec::new(),
+                outcomes.to_vec(),
+                ContextRenderer::PlainText,
+            );
+            let health = stats_health_event(&trace);
+            assert_eq!(
+                (
+                    health.decision_count,
+                    health.scored_count,
+                    health.fallback_count
+                ),
+                counts
+            );
+            assert_eq!(health.status, status);
+            let observation = tuning_observation(&serde_json::json!({}), &[trace.clone()]).unwrap();
+            assert_eq!(
+                observation.observed["selectivity_decision_count"],
+                counts.0.unwrap_or(0)
+            );
+        }
     }
 
     #[test]
