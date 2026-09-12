@@ -867,3 +867,21 @@ Prevention:
 
 Evidence:
 - Step 4 P1B reviewer finding on 13932a6 and unicode_case_alias_cannot_place_output_in_stores, with plain nested-output and existing-root ownership regressions.
+
+## 2026-09-13 — Inspect output leaves without following links [tags: review, paths, cleanup]
+
+Symptom:
+- A dangling summary-output symlink into the future stores root passed admission, then the writer followed it and cleanup deleted the artifact.
+
+Root cause:
+- A canonicalize NotFound result was treated as proof of a nonexistent output leaf. It also describes a dangling symlink, whose later write can target disposable state.
+
+Fix applied:
+- Inspect every named output leaf with symlink_metadata. Reject all links and non-file leaves by output name, preserve regular-file overwrite, and compare only canonical existing parents with the acquired root. Remove the leaf canonicalization fallback.
+
+Prevention:
+- Test absent leaves, regular files, live links and dangling links whenever write admission depends on the destination. A missing target does not mean the link itself is absent. The existing path-identity rule remains applicable; this lesson adds the leaf-state regression to its execution.
+- On Windows, the file-link regression requires Developer Mode or the symlink privilege; keep the test unconditional and report a missing privilege as an environment failure.
+
+Evidence:
+- Step 4 P1C reviewer finding on 9e9c0ae; output_leaf_links_are_rejected_before_writing_artifacts and existing_regular_output_files_remain_writable.

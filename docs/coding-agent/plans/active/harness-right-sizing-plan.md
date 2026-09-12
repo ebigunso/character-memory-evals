@@ -241,6 +241,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_8 step 4 P1B correction: output admission resolves filesystem identities after creating required parents and atomically acquiring the reserved root. Removed lexical normalization and ASCII case folding. Unicode-case and junction aliases are rejected before artifact writes; failed admission removes only the acquired root. Added both Windows regressions and the reviewer path-identity hotspot.
 
+- 2026-09-13 Task_8 step 4 P1C correction: every named output leaf is inspected without following links; live and dangling symlinks and non-file leaves are rejected by name. Ordinary file overwrite remains supported. Admission compares canonical created parents with the acquired stores root and has no canonicalize-NotFound fallback. The dangling-summary reproduction fails before artifact writes and removes only the newly acquired root.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.

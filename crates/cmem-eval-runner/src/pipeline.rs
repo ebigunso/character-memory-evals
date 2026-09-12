@@ -1262,15 +1262,21 @@ fn create_run_root(
                 .unwrap_or_else(|| Path::new("."));
             fs::create_dir_all(parent)?;
             let canonical_parent = fs::canonicalize(parent)?;
-            // Resolve existing leaves too: the leaf may be an alias of stores itself.
-            let canonical_path = match fs::canonicalize(path) {
-                Ok(path) => path,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    canonical_parent.join(path.file_name().context("output path must name a file")?)
+            match fs::symlink_metadata(path) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    bail!("{name} must not be a symbolic link: {}", path.display());
                 }
-                Err(error) => return Err(error.into()),
-            };
-            if canonical_path.starts_with(&canonical_root) {
+                Ok(metadata) if !metadata.is_file() => {
+                    bail!("{name} must name a regular file: {}", path.display());
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("inspect {name} {}", path.display()));
+                }
+            }
+            if canonical_parent.starts_with(&canonical_root) {
                 return Err(OutputPathInStores {
                     name,
                     path: path.to_path_buf(),
@@ -1716,7 +1722,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn continuity_run_cleans_or_retains_stores_on_success_and_output_failure() {
+    async fn continuity_run_cleans_or_retains_stores_on_success_and_admission_failure() {
         for retain in [false, true] {
             for fail_output in [false, true] {
                 let directory = tempfile::tempdir().unwrap();
@@ -1735,7 +1741,7 @@ mod tests {
                 assert_eq!(result.is_err(), fail_output, "{result:?}");
                 assert_eq!(
                     root.exists(),
-                    retain,
+                    retain && !fail_output,
                     "retain={retain}, fail_output={fail_output}"
                 );
                 if !fail_output {
@@ -1761,7 +1767,7 @@ mod tests {
                         cmem_eval_continuity::read_continuity_report(&args.report_out).unwrap();
                     assert_eq!(report.metadata.header, summary.header);
                 }
-                if retain {
+                if retain && !fail_output {
                     let sentinel = root.join("preserve-me");
                     fs::write(&sentinel, b"retained run").unwrap();
                     let error = run_continuity(args).await.unwrap_err();
@@ -1769,6 +1775,19 @@ mod tests {
                     assert_eq!(fs::read(sentinel).unwrap(), b"retained run");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn output_write_failure_respects_store_retention_after_admission() {
+        for retain in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let output = directory.path().join("results.jsonl");
+            let root = create_run_root(&output, &[]).unwrap();
+            fs::create_dir(&output).unwrap();
+            let write_result = fs::write(&output, b"result").map_err(Into::into);
+            assert!(finish_run(write_result, None, &root, retain).is_err());
+            assert_eq!(root.exists(), retain);
         }
     }
 
@@ -1839,10 +1858,18 @@ mod tests {
                 _ => unreachable!(),
             }
             let error = run_continuity(args).await.unwrap_err();
-            assert_eq!(
-                error.downcast_ref::<OutputPathInStores>().unwrap().name,
-                name
-            );
+            if name == "out" {
+                assert!(
+                    error
+                        .to_string()
+                        .starts_with("out must name a regular file:")
+                );
+            } else {
+                assert_eq!(
+                    error.downcast_ref::<OutputPathInStores>().unwrap().name,
+                    name
+                );
+            }
             assert!(!output_dir.join("stores").exists());
             assert!(fs::read_dir(&output_dir).unwrap().next().is_none());
         }
@@ -1861,13 +1888,106 @@ mod tests {
                 args.summary_out = output_dir.join("stores/summary.json");
             }
             let error = run_locomo(args).await.unwrap_err();
-            assert_eq!(
-                error.downcast_ref::<OutputPathInStores>().unwrap().name,
-                name
-            );
+            if name == "out" {
+                assert!(
+                    error
+                        .to_string()
+                        .starts_with("out must name a regular file:")
+                );
+            } else {
+                assert_eq!(
+                    error.downcast_ref::<OutputPathInStores>().unwrap().name,
+                    name
+                );
+            }
             assert!(!output_dir.join("stores").exists());
             assert!(fs::read_dir(&output_dir).unwrap().next().is_none());
         }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[tokio::test]
+    async fn output_leaf_links_are_rejected_before_writing_artifacts() {
+        #[cfg(unix)]
+        use std::os::unix::fs::symlink as symlink_file;
+        #[cfg(windows)]
+        use std::os::windows::fs::symlink_file;
+
+        let directory = tempfile::tempdir().unwrap();
+        let output_dir = directory.path().join("outputs");
+        fs::create_dir(&output_dir).unwrap();
+        let target = output_dir.join("stores/summary.json");
+        let mut args = continuity_args(directory.path());
+        args.run.out = output_dir.join("results.jsonl");
+        args.run.summary_out = output_dir.join("summary.json");
+        args.trace_out = output_dir.join("traces.jsonl");
+        args.report_out = output_dir.join("report.json");
+        symlink_file(&target, &args.run.summary_out).unwrap();
+        let error = run_continuity(args).await.unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with("summary-out must not be a symbolic link:")
+        );
+        assert!(!output_dir.join("stores").exists());
+        assert_eq!(fs::read_dir(&output_dir).unwrap().count(), 1);
+        fs::remove_file(output_dir.join("summary.json")).unwrap();
+
+        // All callers share the guard, including links to ordinary existing files.
+        for existing in [false, true] {
+            let target = directory.path().join("target.json");
+            if existing {
+                fs::write(&target, "original").unwrap();
+            }
+            for name in ["out", "summary-out", "trace-out", "report-out"] {
+                let leaf = output_dir.join("link.json");
+                symlink_file(&target, &leaf).unwrap();
+                let output = output_dir.join("results.jsonl");
+                let error = if name == "out" {
+                    create_run_root(&leaf, &[])
+                } else {
+                    create_run_root(&output, &[(name, &leaf)])
+                }
+                .unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .starts_with(&format!("{name} must not be a symbolic link:"))
+                );
+                assert!(!output_dir.join("stores").exists());
+                fs::remove_file(leaf).unwrap();
+            }
+            if existing {
+                assert_eq!(fs::read_to_string(target).unwrap(), "original");
+            }
+        }
+    }
+
+    #[test]
+    fn existing_regular_output_files_remain_writable() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("results.jsonl");
+        let summary = directory.path().join("summary.json");
+        let trace = directory.path().join("trace.jsonl");
+        let report = directory.path().join("report.json");
+        let outputs = [&output, &summary, &trace, &report];
+        for path in outputs {
+            fs::write(path, "original").unwrap();
+        }
+        let root = create_run_root(
+            &output,
+            &[
+                ("summary-out", &summary),
+                ("trace-out", &trace),
+                ("report-out", &report),
+            ],
+        )
+        .unwrap();
+        for path in outputs {
+            fs::write(path, "replacement").unwrap();
+            assert_eq!(fs::read_to_string(path).unwrap(), "replacement");
+        }
+        fs::remove_dir(root).unwrap();
     }
 
     #[cfg(windows)]
