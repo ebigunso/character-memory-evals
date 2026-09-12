@@ -247,6 +247,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_4 review round: trace expected labels use an artifact-side record with ordinary serde; the header's controllable dimension policy permits additive fields while runtime padding/admission stays unchanged. The nested-type census finds no other input DTO with unknown-field denial reachable from rows, traces, headers or reports. Fixture admission and persisted input bytes remain unchanged.
 
+- 2026-09-13 Task_5 worker implementation: continuity writes one JSONL trace with each query result flattened once, alongside header.json and report.json; conventional datasets keep row JSONL with the same standalone header/report layout. Restart observations belong to their probe trace, and the report retains only aggregate/per-scenario metrics and tuning observations with no positional pairing. Frozen stores retain their byte shape as model/text-hash caches; source and dimension policy are descriptive strings, while reuse merging, bijection and live-provenance rejection are deleted. Runtime controllable-vector padding/admission and the ordering validator remain. README documents the merged output and .jsonl admission rule. Final validation and reviewer acceptance are tracked in the Worker handoff.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.

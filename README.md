@@ -51,18 +51,17 @@ Archived continuity inputs are `continuity_retrieval.toml`, `continuity_baseline
 
 ### Run a service-free continuity smoke
 
-`configs/continuity_smoke.toml` is the maintained, unsealed inner-loop config and may change with the current CLI. Run its frozen `graded-similarity` scenario twice with the embedded adapter, then compare the rows:
+`configs/continuity_smoke.toml` is the maintained, unsealed inner-loop config and may change with the current CLI. Run its frozen `graded-similarity` scenario with the embedded adapter, then compare its merged traces with a previous run produced by the current artifact shape:
 
 ```bash
-mkdir -p .agent-work/continuity-smoke/{a,b}
-cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/a/results.jsonl --summary-out ./.agent-work/continuity-smoke/a/summary.json --trace-out ./.agent-work/continuity-smoke/a/traces.jsonl --report-out ./.agent-work/continuity-smoke/a/report.json
-cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/b/results.jsonl --summary-out ./.agent-work/continuity-smoke/b/summary.json --trace-out ./.agent-work/continuity-smoke/b/traces.jsonl --report-out ./.agent-work/continuity-smoke/b/report.json
-cargo run -p cmem-eval-runner -- diff ./.agent-work/continuity-smoke/a/results.jsonl ./.agent-work/continuity-smoke/b/results.jsonl
+mkdir -p .agent-work/continuity-smoke/candidate
+cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/candidate/traces.jsonl
+cargo run -p cmem-eval-runner -- diff ./.agent-work/continuity-smoke/baseline/traces.jsonl ./.agent-work/continuity-smoke/candidate/traces.jsonl
 ```
 
 The v3 catalog adds five purpose-built scenarios. `graded-similarity` uses frozen real-model geometry to require target > near miss > background. `combined-life` uses the same frozen store for a 62-event, year-spanning life history with two interleaved threads, correction chains, links, hubs, and varied salience. `temporal-patterns`, `entrenched-correction`, and `autobiographical` use controllable similarity so temporal structure, repeated-misinformation correction, and ordinary-person provider judgment remain deterministic and independently interpretable.
 
-The optional `[backend.character_memory]` table overrides Character Memory's selectivity controls for a run. `selectivity_smoothing_alpha` and `selectivity_gamma` are individually optional and must be finite positive numbers when present. The nested `retrieval.fanout` tables support exactly three relation/object paths: `about_entity.derived_memory`, `participant_entity.episode`, and `part_of_thread.derived_memory`; each leaf budget table is atomic, so a present table must contain both `min` and `max`, and its minimum must not exceed its maximum. The committed values pin the shipped Character Memory defaults (`1.0`, `1.0`, `0/20`, `0/5`, and `0/15`) so baseline reports are self-describing. Omitting `[backend.character_memory]`, either selectivity key, or an entire leaf budget table delegates those settings to the installed Character Memory defaults without adding an eval-side fallback. The exact configured table is preserved under `metadata.config.backend.character_memory` in continuity reports.
+The optional `[backend.character_memory]` table overrides Character Memory's selectivity controls for a run. `selectivity_smoothing_alpha` and `selectivity_gamma` are individually optional and must be finite positive numbers when present. The nested `retrieval.fanout` tables support exactly three relation/object paths: `about_entity.derived_memory`, `participant_entity.episode`, and `part_of_thread.derived_memory`; each leaf budget table is atomic, so a present table must contain both `min` and `max`, and its minimum must not exceed its maximum. The committed values pin the shipped Character Memory defaults (`1.0`, `1.0`, `0/20`, `0/5`, and `0/15`) so baseline reports are self-describing. Omitting `[backend.character_memory]`, either selectivity key, or an entire leaf budget table delegates those settings to the installed Character Memory defaults without adding an eval-side fallback. The exact TOML, including that table, is recorded once in `header.json` under `config`.
 
 ```toml
 [backend.character_memory]
@@ -86,7 +85,7 @@ Continuity runs require Rust 1.97.0, the sibling `../CharacterMemory` checkout, 
 
 ### Generate and validate frozen real embeddings
 
-A frozen store is schema-versioned, LF-stable JSON keyed by its model and the SHA-256 of each exact UTF-8 text. Store schema v2 records whether dimensions are model-native, explicitly nonstandard, or test-fixture supplied. Each entry retains the exact text beside its `f32` vector so hash collisions, stale authoring, and review diffs remain visible. Runtime loading verifies the schema, model, vector width, dimension policy, hash, ordering, finite components, and exact text bytes. A missing text fails before a live continuity run mutates a namespace and prints the `cmem-eval embeddings generate` command needed to regenerate the store; runtime never falls back to synthetic vectors or a network call.
+A frozen store is a JSON cache keyed by model and the SHA-256 of each exact UTF-8 text. The existing schema-v2 file shape stays unchanged: `source` and `dimension_policy` are descriptive strings, and historical labels load verbatim without admission policy. Entries retain exact text beside each `f32` vector. Loading checks schema, model, configured vector width, sorted unique hashes, exact text bytes and finite components. Extra cache entries are allowed. A missing text fails before continuity creates namespace resources and names the `cmem-eval embeddings generate` command; runtime never fills the cache through a network request.
 
 The generation manifest has stable text IDs plus optional `similarity_orderings`. Continuity manifests enumerate exact frozen-provider lookup text: CharacterMemory-normalized content for write events after the adapter removes the object-surface prefix, and byte-exact fixture text for queries. Fixture event text remains source-exact; normalization belongs only to the runtime embedding contract. Each ordering names an anchor and candidate IDs from most to least similar, with a non-negative minimum adjacent margin. This is the authoring gate for real-embedding scenarios: a target, same-domain near miss, and unrelated background can be declared in descending order, and generation fails before writing the store unless measured cosine similarities satisfy that order. Revise the embedded texts when the intended geometry fails; do not weaken the ordering to preserve placeholder prose.
 
@@ -99,9 +98,7 @@ cargo run -p cmem-eval-runner -- embeddings generate \
   --out ./crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json
 ```
 
-When a manifest changes, pass `--reuse-store <existing-store>` to reuse vectors only for byte-identical manifest texts and request embeddings only for missing texts. If `--dimensions` is omitted, generation inherits the existing store's vector width for new requests. The output contains exactly the manifest's unique lookup set, so entries removed from the manifest are not carried forward as unused cache data.
-
-Generation defaults to each supported model's canonical width. A differing explicit or inherited width requires `--allow-nonstandard-dimensions`, is recorded as `"dimension_policy": "explicit_nonstandard"`, and is intended only for test artifacts; real Character Memory continuity preflight rejects such a store before adapter construction because the live backend requires the model-native width.
+Generation requests every unique manifest text in one batch. Optional `--dimensions` is sent directly to the provider; otherwise the provider chooses its default width. New stores describe this as `requested_dimensions=<width>` or `provider_default`. The cache width must match the configured index width; provenance labels do not restrict runtime use.
 
 Recheck store integrity, coverage, and semantic orderings without a key or network:
 
@@ -111,7 +108,7 @@ cargo run -p cmem-eval-runner -- embeddings validate \
   --store ./crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json
 ```
 
-Use the resulting store with a schema-v3 frozen-only config. Production fixture stores are expected to be a strict bijection with their manifest's unique runtime lookup texts:
+Use the resulting store with a schema-v3 frozen-only config. Every manifest or runtime lookup must be cached; unrelated cached texts may remain:
 
 ```toml
 [backend.embedding]
@@ -121,7 +118,7 @@ vector_size = 3072
 store_path = "crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json"
 ```
 
-Use `provider = "frozen"` when selected schema-v3 scenarios contain both explicit `controllable_similarity` and `frozen` embedding blocks; the runtime binds each scenario to its declared provider. The committed `task21_smoke_manifest.json` and `task21_smoke_store.json` exercise format and validation machinery with a store that declares `source = "test_fixture"`. Frozen CLI runs preflight cache coverage and require `source = "open_ai_api"`; the task21 store is restricted to format and provider unit tests. Generated production stores record that production source and the requested model.
+Use `provider = "frozen"` when selected schema-v3 scenarios contain both explicit `controllable_similarity` and `frozen` embedding blocks; the runtime binds each scenario to its declared provider. The committed `task21_smoke_manifest.json` and `task21_smoke_store.json` exercise format and validation machinery with a store that declares `source = "test_fixture"`. Frozen CLI runs preflight cache coverage and model/width consistency. The source label describes how vectors were obtained; it does not decide admission. OpenAI generation records `source = "open_ai_api"` and the requested model.
 
 Set the live endpoint in the current shell before a live run:
 
@@ -142,23 +139,25 @@ cargo run -p cmem-eval-continuity --bin generate_continuity_fixtures -- \
 
 Schema v3 keeps backend persistence identities derived from config, stable namespaces, and external IDs and continues to reject the retired caller-supplied `collection_name`, `memory_id`, and `replacement_memory_id` fields. It requires every scenario to declare `provider = controllable_similarity` or `provider = frozen`; older fixture schema versions are rejected with the found and expected versions. Parse the candidate, inspect its semantic diff against `crates/cmem-eval-continuity/fixtures/continuity_v3.json`, validate the frozen store, and run the generator determinism tests before replacing the checked fixture.
 
-### Read the continuity artifacts
+### Read run artifacts
 
-- `results.jsonl` contains one retrieval result per query, read through derived serde with no schema version. `summary.json` contains numeric aggregates, support counts, registry coverage, and latency. Live query latency is measured, so raw `results.jsonl` and `summary.json` bytes intentionally vary across repeat live runs.
-- `traces.jsonl` contains the deterministic query, expected labels, history text, complete retrieved context pack, rationales, and native library outcomes and traces used by continuity metrics.
-- `report.json` contains run metadata, aggregate and per-scenario metrics, and the complete native retrieval outcomes in each context sample. Library-generated timestamps in those outcomes are retained. Use the result-row `diff` command to compare returned identities, ranks, metrics, and degradation.
-- `content.aggregate` reports metrics, `metric_support`, and registry coverage across the selected run. `content.scenarios` repeats those views per fixture and includes full query/context/rationale samples, fanout/selectivity decisions, stats-health observations, and any restart observations.
-- A restart observation records the lifecycle restoration count, before/after returned object IDs and recall, graph/fanout/selectivity snapshots, signed deltas, and whether the returned object set stayed stable.
-- `tuning_observations` records measured behavior together with the relevant config regime. These are tuning signals, not assertions that a Character Memory default passed or failed.
+Every run writes one JSONL artifact named by `--out`, plus adjacent `header.json` and `report.json`. The output filename must end in `.jsonl`. Give each run its own directory. Outputs are admitted outside that directory's disposable `stores` root before artifact writes.
+
+- Continuity `traces.jsonl` carries each query's result payload once at the top level: IDs, question/type, gold labels, retrieved items, context, metrics, measured latency and native outcomes. It also records fixture/namespace/event identity, timestamp, expected labels, history text and restart observations belonging to that probe query. There is no separate rows or summary file.
+- Conventional datasets keep one result row per query in their JSONL artifact.
+- `header.json` owns run identity, adapter, exact config and hashes, input hash, commits, storage root/retention, and scenario or dataset embedding bindings. Reports carry no second header.
+- Continuity `report.json` contains aggregate metrics, support/coverage, degradation, latency and restart count; per-scenario metrics/support/coverage; and measured tuning observations. Full rationale, fanout, health and restart payloads are read from traces. Conventional `report.json` contains the row aggregates, support/coverage, latency and degradation.
+
+These artifacts use ordinary derived serde without schema dispatch. Measured latency and native timestamps can vary; use `diff` to compare runs.
 
 ### Compare runs
 
-`diff` reads result JSONL through derived serde and compares by question after normalizing only `run_id` and `latency_ms`. A row whose required fields are missing or mistyped fails to deserialize; an artifact from a superseded shape is old and is compared with an offline tool resurrected from the commit the findings register names, never by the live command. It reports returned-identity, rank, metric, and degradation-flag changes plus a summary:
+`diff` reads conventional rows or merged continuity traces through the same derived result-row serde and compares by question after normalizing only `run_id` and `latency_ms`. A row whose required fields are missing or mistyped fails to deserialize; an artifact from a superseded shape is old and is compared with an offline tool resurrected from the commit the findings register names, never by the live command. It reports returned-identity, rank, metric, and degradation-flag changes plus a summary:
 
 ```bash
 cargo run -p cmem-eval-runner -- diff \
-  ./runs/continuity/baseline/results.jsonl \
-  ./runs/continuity/candidate/results.jsonl
+  ./runs/continuity/baseline/traces.jsonl \
+  ./runs/continuity/candidate/traces.jsonl
 ```
 
 Required registry keys are initialized to JSON `null` when a row cannot measure them. In `metric_support`, `numeric_rows` counts measured values, `null_rows` counts explicitly unsupported rows, and `unsupported = true` means every present row was null. A null is not zero and does not mean the evaluation failed. `registry_coverage.missing_required_metrics` instead identifies required keys that were absent entirely.
@@ -180,7 +179,7 @@ Fixture `irrelevant_external_ids` are sampled negatives, not an exhaustive compl
 1. Implement the measurement in `crates/cmem-eval-continuity/src/metrics.rs` using only fixture labels and backend-neutral trace telemetry. Keep entity handling type-neutral and preserve deterministic ordering.
 2. Register every required key in `continuity_metric_family`; add dynamic keys from the selected scenarios when the metric varies by fixture vocabulary.
 3. Initialize unsupported values as `null`, never a fabricated zero. Add hand-computed tests for measured values and an explicit missing-telemetry test for null support.
-4. Confirm the metric appears in the run summary and aggregate and per-scenario report sections with matching `metric_support` and `registry_coverage`.
+4. Confirm the metric appears in the merged trace and aggregate and per-scenario report sections with matching `metric_support` and `registry_coverage`.
 
 Continuity metrics are measurements for comparison and tuning. Adding a metric does not create a CI threshold or a pass/fail policy.
 
@@ -190,8 +189,7 @@ BM25 retrieval is the service-free lexical hurdle that Character Memory recall m
 cargo run -p cmem-eval-runner -- run longmemeval-s \
   --dataset ./datasets/longmemeval_s_cleaned.json \
   --config ./configs/longmemeval_s_bm25.toml \
-  --out ./runs/longmemeval_s_bm25.jsonl \
-  --summary-out ./runs/longmemeval_s_bm25_summary.json
+  --out ./runs/longmemeval_s_bm25/results.jsonl
 ```
 
 BM25 configs are available for LongMemEval-S and LoCoMo: `configs/longmemeval_s_bm25.toml` and `configs/locomo_bm25.toml`. Use baseline-specific run IDs and output paths so active benchmark artifacts are not overwritten.
@@ -202,8 +200,7 @@ Vector-only retrieval uses `[retrieval] mode = "vector_only"`. It ingests throug
 cargo run -p cmem-eval-runner -- run longmemeval-s \
   --dataset ./datasets/longmemeval_s_cleaned.json \
   --config ./configs/longmemeval_s_vector.toml \
-  --out ./runs/longmemeval_s_vector.jsonl \
-  --summary-out ./runs/longmemeval_s_vector_summary.json
+  --out ./runs/longmemeval_s_vector/results.jsonl
 ```
 
 Vector-only configs are available for LongMemEval-S and LoCoMo:
@@ -217,14 +214,12 @@ LongMemEval-S and LoCoMo expect local dataset files:
 cargo run -p cmem-eval-runner -- run longmemeval-s \
   --dataset ./datasets/longmemeval_s_cleaned.json \
   --config ./configs/longmemeval_s_retrieval.toml \
-  --out ./runs/longmemeval_s_v0_1.jsonl \
-  --summary-out ./runs/longmemeval_s_v0_1_summary.json
+  --out ./runs/longmemeval_s_v0_1/results.jsonl
 
 cargo run -p cmem-eval-runner -- run locomo \
   --dataset ./datasets/locomo10.json \
   --config ./configs/locomo_retrieval.toml \
-  --out ./runs/locomo_v0_1.jsonl \
-  --summary-out ./runs/locomo_v0_1_summary.json
+  --out ./runs/locomo_v0_1/results.jsonl
 ```
 
 Gold evidence labels are used only for scoring. They are not copied into `EpisodeInput`, `ObservationInput`, or adapter metadata.
@@ -239,9 +234,9 @@ The workspace separates shared evaluation contracts, dataset-specific behavior, 
 
 Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementation, but no `cmem-eval` change. Continuity-specific fixture parsing, ordered event execution, and query trace serialization remain in `crates/cmem-eval-continuity`.
 
-JSONL rows, continuity traces, summaries, and reports deserialize through ordinary derived serde. Output artifacts have no schema version or compatibility dispatch: unknown fields are ignored, optional fields may be absent, and required fields and field types follow their serde definitions. Sealed evidence remains immutable bytes verified by hash. Use `cmem-eval diff` to compare result rows; summaries and reports contain measurements without normalization metadata or cross-artifact congruence checks.
+JSONL rows or continuity traces, headers, and reports deserialize through ordinary derived serde. Output artifacts have no schema version or compatibility dispatch: unknown fields are ignored, optional fields may be absent, and required fields and field types follow their serde definitions. Sealed evidence remains immutable bytes verified by hash. Use `cmem-eval diff` to compare query results; reports contain measurements without normalization metadata or cross-artifact congruence checks.
 
-The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains per-row `latency_ms` and summary `latency.latency_ms` mean/median/p50/p95 values, separate from deterministic `metrics`. Rows carry a run ID with their query and result data; run provenance lives in the header.
+The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains per-row `latency_ms` and report mean/median/p50/p95 values (`aggregate.latency.latency_ms` for continuity, `latency.latency_ms` for conventional datasets), separate from deterministic `metrics`. Rows carry a run ID with their query and result data; run provenance lives in the header.
 
 Rows embed native `RetrieveOutcome` values and `RecordedOutcome<T> { operation_id, outcome }` envelopes for `RememberOutcome`, `LinkOutcome`, and `LifecycleMutationOutcome`. The harness operation ID is a deterministic idempotency identity shared by retries. Writers sort outcome arrays by this ID for canonical serialization; that order does not represent execution order. The library outcome is serialized without field projection. The degradation summary reads native vector failures, stats-update failures, and repair markers.
 
@@ -341,7 +336,7 @@ being guessed at the backend boundary.
 
 Runs delete their owned namespace stores and service collections on success or failure, then remove `OUT_DIR/stores`. Retention requires `[backend] retain_stores = true` and a nonblank `retain_reason`; without retention, a reason is rejected.
 
-The summary and continuity report carry the same `header`: run and dataset identity, harness and library checkout commits, generation time, exact config TOML and its SHA-256, adapter mode, input fixture or dataset SHA-256, storage root and its full SHA-256, retention flag and reason. `embedding_bindings` maps each continuity scenario ID to its runtime binding; conventional runs have one entry keyed by dataset ID. Bindings retain the controllable fixture hash or frozen store hash and source, plus the model, provider and dimension policy where applicable. Summaries aggregate metrics, coverage, latency and degradation; they do not repeat header provenance.
+`header.json` carries run provenance once: run and dataset identity, harness and library checkout commits, generation time, exact config TOML and its SHA-256, adapter mode, input fixture or dataset SHA-256, storage root and its full SHA-256, retention flag and reason. `embedding_bindings` maps each continuity scenario ID to its runtime binding; conventional runs have one entry keyed by dataset ID. Bindings retain the controllable fixture hash or frozen store hash and source, plus the model, provider and dimension policy where applicable. Reports aggregate metrics, coverage, latency and degradation without repeating header provenance.
 
 A run deletes only what it created. Retained roots and collections from interrupted runs must be inspected and deliberately removed before reusing that output directory/run identity, or use a fresh output directory and run ID. Cleanup failures are reported and preserve the root for inspection. The retired `namespace_prefix`, `identity_registry_dir`, `oxigraph_persistence_path`, `retrieval_stats_path` and `[backend.cleanup]` keys are rejected. On Windows, use a short checkout such as `C:/w/cme` with `C:/w/CharacterMemory` pointing to the pinned library checkout; RocksDB rejects long and verbatim paths.
 

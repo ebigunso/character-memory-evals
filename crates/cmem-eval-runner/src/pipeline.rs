@@ -8,17 +8,16 @@ use cmem_eval::CharacterMemoryAdapter;
 use cmem_eval::{
     BenchmarkRunConfig, ControllableDimensionPolicy, DatasetId, DatasetKind,
     EmbeddingBindingRecord, EmbeddingProviderConfig, EmbeddingRuntimeBinding, EpisodeInput,
-    FrozenEmbeddingProvider, FrozenEmbeddingSource, GraphEnrichmentInput, GraphSnapshotInput,
-    LiveEmbeddingProvider, MetricFamily, MetricsConfig, MetricsRecord, ObservationInput,
-    PerQuestionResult, ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem,
-    RunAdapterMetadata, Timer, classify_frozen_embedding_dimensions, composition_metrics,
-    count_tokens, estimate_word_count, initialize_registry_metrics_for, insert_composition_metrics,
-    insert_context_metrics, insert_integrity_detail_metrics, integrity_details_from_outcomes,
-    summarize_rows, write_jsonl, write_summary,
+    FrozenEmbeddingProvider, GraphEnrichmentInput, GraphSnapshotInput, LiveEmbeddingProvider,
+    MetricFamily, MetricsConfig, MetricsRecord, ObservationInput, PerQuestionResult,
+    ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem, RunAdapterMetadata,
+    Timer, composition_metrics, count_tokens, estimate_word_count, initialize_registry_metrics_for,
+    insert_composition_metrics, insert_context_metrics, insert_integrity_detail_metrics,
+    integrity_details_from_outcomes, summarize_rows, write_jsonl, write_summary,
 };
 use cmem_eval_continuity::{
-    ContinuityQueryTrace, ContinuityReportInput, ContinuityRuntime, ContinuityScenario,
-    InteractionEvent, RestartObservation, assemble_continuity_report, continuity_metric_family,
+    ContinuityQueryObservation, ContinuityQueryTrace, ContinuityReportInput, ContinuityRuntime,
+    ContinuityScenario, InteractionEvent, assemble_continuity_report, continuity_metric_family,
     insert_continuity_metrics, parse_fixture_bytes, run_continuity_scenario,
     write_continuity_report, write_continuity_traces,
 };
@@ -144,16 +143,6 @@ fn validate_continuity_embedding_sizes(
             &config.backend.embedding.model,
             configured_size,
         )?;
-        {
-            if provider.source() != FrozenEmbeddingSource::OpenAiApi {
-                bail!(
-                    "frozen continuity evaluations require a store with source=open_ai_api; {} declares source={:?}",
-                    store_path.display(),
-                    provider.source()
-                );
-            }
-            classify_frozen_embedding_dimensions(provider.model(), provider.vector_size(), false)?;
-        }
         for scenario in scenarios
             .iter()
             .filter(|scenario| scenario.embedding.provider_name() == "frozen")
@@ -205,21 +194,15 @@ fn continuity_embedding_binding(
     }
 
     let store = frozen_store.context("frozen continuity runtime is missing its preflight store")?;
-    let dimension_policy = store.dimension_policy();
+    let dimension_policy = store.dimension_policy().to_string();
     let record = EmbeddingBindingRecord::Frozen {
         store_sha256: store.store_sha256()?,
-        source: store.source(),
+        source: store.source().to_string(),
         model: store.model().to_string(),
         vector_size: store.vector_size(),
         dimension_policy,
     };
-    Ok((
-        EmbeddingRuntimeBinding::Frozen {
-            store,
-            dimension_policy,
-        },
-        record,
-    ))
+    Ok((EmbeddingRuntimeBinding::Frozen { store }, record))
 }
 
 fn select_continuity_scenarios(
@@ -311,7 +294,13 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
     } else {
         RunAdapterMetadata::live()
     };
-    let run_root = create_run_root(&args.out, &[("summary-out", &args.summary_out)])?;
+    let run_root = create_run_root(
+        &args.out,
+        &[
+            ("header", &sibling_output(&args.out, "header.json")),
+            ("report", &sibling_output(&args.out, "report.json")),
+        ],
+    )?;
     let mut adapter = None;
     let namespaces_to_cleanup = source_items.iter().map(S::namespace).collect::<Vec<_>>();
     let result = async {
@@ -488,7 +477,9 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                     link_outcomes: Vec::new(),
                     lifecycle_outcomes: Vec::new(),
                     metrics,
-                    latency_ms,
+                    latency_ms: latency_ms
+                        .try_into()
+                        .context("query latency exceeds u64 milliseconds")?,
                     context_char_count: context.retrieved_context_chars,
                     context_word_count: context.retrieved_context_words,
                     context,
@@ -680,16 +671,13 @@ async fn run_continuity_pipeline(
     let metric_family = continuity_metric_family(&config.metrics, &scenarios);
     let total_queries = ContinuitySpec::total_questions(&scenarios);
     let progress = RunProgress::new(&config.dataset, scenarios.len(), Some(total_queries));
-    let mut rows = Vec::with_capacity(total_queries);
     let mut traces = Vec::with_capacity(total_queries);
     let mut operation_counts: BTreeMap<String, usize> = BTreeMap::new();
-    let mut restart_observations: BTreeMap<String, Vec<RestartObservation>> = BTreeMap::new();
     let run_root = create_run_root(
         &args.run.out,
         &[
-            ("summary-out", &args.run.summary_out),
-            ("trace-out", &args.trace_out),
-            ("report-out", &args.report_out),
+            ("header", &sibling_output(&args.run.out, "header.json")),
+            ("report", &sibling_output(&args.run.out, "report.json")),
         ],
     )?;
     let mut runtimes = Vec::with_capacity(scenarios.len());
@@ -728,7 +716,6 @@ async fn run_continuity_pipeline(
             runtimes.push((scenario.namespace.clone(), runtime));
             let runtime = &mut runtimes.last_mut().expect("just stored runtime").1;
             let run = run_continuity_scenario(runtime, scenario, &config.retrieval).await?;
-            restart_observations.insert(scenario.fixture_id.clone(), run.restart_observations);
             for (operation, count) in run.operation_counts {
                 *operation_counts.entry(operation).or_default() += count;
             }
@@ -743,14 +730,24 @@ async fn run_continuity_pipeline(
                             trace.query_id
                         )
                     })?;
-                rows.push(continuity_result_row(
-                    &config,
-                    &metric_family,
-                    scenario,
-                    &trace,
-                    latency_ms,
-                )?);
-                traces.push(trace);
+                let result =
+                    continuity_result_row(&config, &metric_family, scenario, &trace, latency_ms)?;
+                let restart_observations = run
+                    .restart_observations
+                    .iter()
+                    .filter(|observation| observation.probe_query_id == trace.query_id)
+                    .cloned()
+                    .collect();
+                traces.push(ContinuityQueryTrace {
+                    result,
+                    fixture_id: trace.fixture_id,
+                    namespace: trace.namespace,
+                    event_id: trace.event_id,
+                    timestamp: trace.timestamp,
+                    expected: trace.expected,
+                    history_text: trace.history_text,
+                    restart_observations,
+                });
             }
             progress.item_finished(item_number, &scenario.fixture_id, 0);
             runtime
@@ -759,28 +756,18 @@ async fn run_continuity_pipeline(
                 .await?;
         }
 
-        if let Some(parent) = args.trace_out.parent() {
-            fs::create_dir_all(parent)?;
+        if traces.is_empty() {
+            bail!("continuity evaluation produced no result traces");
         }
-        if let Some(parent) = args.report_out.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        cmem_eval::reject_empty_run(&rows)?;
-        progress.write_outputs_started(rows.len());
-        write_continuity_traces(&args.trace_out, &traces)?;
-        let config_value = serde_json::to_value(&config)?;
-        let summary = summarize_rows(header.clone(), &rows, std::slice::from_ref(&metric_family))?;
+        progress.write_outputs_started(traces.len());
+        write_continuity_traces(&args.run.out, &traces)?;
+        write_run_header(&args.run.out, &header)?;
         let report = assemble_continuity_report(ContinuityReportInput {
-            config: config_value,
-            scenarios: &scenarios,
+            config: serde_json::to_value(&config)?,
             traces: &traces,
-            rows: &rows,
-            summary: &summary,
             metric_family: &metric_family,
-            restart_observations: &restart_observations,
         })?;
-        write_continuity_report(&args.report_out, &report)?;
-        write_outputs(args.run, rows, std::slice::from_ref(&metric_family), header)?;
+        write_continuity_report(&sibling_output(&args.run.out, "report.json"), &report)?;
         eprintln!(
             "[cmem-eval][continuity][operations] {}",
             serde_json::to_string(&operation_counts)?
@@ -808,7 +795,7 @@ fn continuity_result_row(
     config: &BenchmarkRunConfig,
     metric_family: &MetricFamily,
     scenario: &ContinuityScenario,
-    trace: &ContinuityQueryTrace,
+    trace: &ContinuityQueryObservation,
     latency_ms: u128,
 ) -> Result<PerQuestionResult> {
     let full_history = full_history_context_metrics(Some(&trace.history_text));
@@ -850,7 +837,9 @@ fn continuity_result_row(
         link_outcomes: trace.link_outcomes.clone(),
         lifecycle_outcomes: trace.lifecycle_outcomes.clone(),
         metrics: MetricsRecord::try_from(metrics)?,
-        latency_ms,
+        latency_ms: latency_ms
+            .try_into()
+            .context("query latency exceeds u64 milliseconds")?,
         context_char_count: context.retrieved_context_chars,
         context_word_count: context.retrieved_context_words,
         context,
@@ -1223,6 +1212,9 @@ fn create_run_root(
     results_path: &Path,
     other_outputs: &[(&'static str, &Path)],
 ) -> Result<PathBuf> {
+    if results_path.extension() != Some(std::ffi::OsStr::new("jsonl")) {
+        bail!("out must end in .jsonl: {}", results_path.display());
+    }
     let output_dir = results_path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -1346,16 +1338,22 @@ fn write_outputs(
     metric_families: &[MetricFamily],
     header: cmem_eval::RunHeader,
 ) -> Result<()> {
-    if let Some(parent) = args.out.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    if let Some(parent) = args.summary_out.parent() {
-        fs::create_dir_all(parent)?;
-    }
     cmem_eval::reject_empty_run(&rows)?;
-    let summary = summarize_rows(header, &rows, metric_families)?;
+    let summary = summarize_rows(&rows, metric_families)?;
     write_jsonl(&args.out, &rows)?;
-    write_summary(&args.summary_out, &summary)
+    write_run_header(&args.out, &header)?;
+    write_summary(&sibling_output(&args.out, "report.json"), &summary)
+}
+
+fn sibling_output(artifact: &Path, name: &str) -> PathBuf {
+    artifact.with_file_name(name)
+}
+
+fn write_run_header(artifact: &Path, header: &cmem_eval::RunHeader) -> Result<()> {
+    let path = sibling_output(artifact, "header.json");
+    let mut bytes = serde_json::to_vec_pretty(header)?;
+    bytes.push(b'\n');
+    fs::write(&path, bytes).with_context(|| format!("write run header {}", path.display()))
 }
 
 struct RunProgress {
@@ -1516,12 +1514,15 @@ mod tests {
             dataset,
             config,
             out: directory.join("results.jsonl"),
-            summary_out: directory.join("summary.json"),
         }
     }
 
     fn read_rows(path: &Path) -> Vec<PerQuestionResult> {
         cmem_eval::read_jsonl(path).unwrap()
+    }
+
+    fn read_header(path: &Path) -> cmem_eval::RunHeader {
+        serde_json::from_slice(&fs::read(sibling_output(path, "header.json")).unwrap()).unwrap()
     }
 
     fn read_traces(path: &Path) -> Vec<ContinuityQueryTrace> {
@@ -1621,10 +1622,8 @@ mod tests {
                 dataset: PathBuf::from("../cmem-eval-continuity/fixtures/continuity_v3.json"),
                 config: config_path,
                 out: directory.join("continuity.jsonl"),
-                summary_out: directory.join("continuity-summary.json"),
             },
-            trace_out: directory.join("continuity-traces.jsonl"),
-            report_out: directory.join("continuity-report.json"),
+
             scenario: None,
         }
     }
@@ -1707,7 +1706,7 @@ mod tests {
                 let source = toml::to_string(&config).unwrap();
                 fs::write(&args.run.config, &source).unwrap();
                 if fail_output {
-                    args.report_out = directory.path().to_path_buf();
+                    fs::create_dir(sibling_output(&args.run.out, "report.json")).unwrap();
                 }
                 let root = directory.path().join("stores");
                 let result = run_continuity(args.clone()).await;
@@ -1718,41 +1717,42 @@ mod tests {
                     "retain={retain}, fail_output={fail_output}"
                 );
                 if !fail_output {
-                    let summary = cmem_eval::read_summary(&args.run.summary_out).unwrap();
-                    assert_eq!(summary.header.run_id, config.run_id);
-                    assert_eq!(summary.header.dataset, config.dataset);
-                    assert_eq!(summary.header.dataset_kind, DatasetKind::Continuity);
+                    let header = read_header(&args.run.out);
+                    assert_eq!(header.run_id, config.run_id);
+                    assert_eq!(header.dataset, config.dataset);
+                    assert_eq!(header.dataset_kind, DatasetKind::Continuity);
                     assert_eq!(
-                        summary.header.input_sha256,
+                        header.input_sha256,
                         cmem_eval::text_sha256(&fs::read_to_string(&args.run.dataset).unwrap())
                     );
-                    assert_eq!(summary.header.embedding_bindings.len(), 1);
-                    assert!(
-                        summary
-                            .header
-                            .embedding_bindings
-                            .contains_key("graded-similarity")
-                    );
-                    assert_eq!(summary.header.storage_root, root);
-                    assert_eq!(summary.header.storage_root_sha256.len(), 64);
+                    assert_eq!(header.embedding_bindings.len(), 1);
+                    assert!(header.embedding_bindings.contains_key("graded-similarity"));
+                    assert_eq!(header.storage_root, root);
+                    assert_eq!(header.storage_root_sha256.len(), 64);
                     if retain {
                         assert_eq!(
-                            summary.header.storage_root_sha256,
+                            header.storage_root_sha256,
                             cmem_eval::adapter::run_root_sha256(&root).unwrap()
                         );
                     }
-                    assert_eq!(summary.header.retain_stores, retain);
-                    assert_eq!(summary.header.retain_reason, config.backend.retain_reason);
-                    assert_eq!(summary.header.config, source);
-                    assert_eq!(
-                        summary.header.config_sha256,
-                        cmem_eval::text_sha256(&source)
+                    assert_eq!(header.retain_stores, retain);
+                    assert_eq!(header.retain_reason, config.backend.retain_reason);
+                    assert_eq!(header.config, source);
+                    assert_eq!(header.config_sha256, cmem_eval::text_sha256(&source));
+                    assert_eq!(header.harness_commit.len(), 40);
+                    assert_eq!(header.library_commit.len(), 40);
+                    let report = cmem_eval_continuity::read_continuity_report(&sibling_output(
+                        &args.run.out,
+                        "report.json",
+                    ))
+                    .unwrap();
+                    assert_eq!(report.aggregate.query_count, 1);
+                    assert!(
+                        serde_json::to_value(report)
+                            .unwrap()
+                            .get("header")
+                            .is_none()
                     );
-                    assert_eq!(summary.header.harness_commit.len(), 40);
-                    assert_eq!(summary.header.library_commit.len(), 40);
-                    let report =
-                        cmem_eval_continuity::read_continuity_report(&args.report_out).unwrap();
-                    assert_eq!(report.header, summary.header);
                 }
                 if retain && !fail_output {
                     let sentinel = root.join("preserve-me");
@@ -1826,69 +1826,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn every_output_is_admitted_before_writing_artifacts() {
+    async fn cli_rejects_non_jsonl_output_before_creating_directories() {
         let directory = tempfile::tempdir().unwrap();
-        for name in ["out", "summary-out", "trace-out", "report-out"] {
-            let mut args = continuity_args(directory.path());
-            args.scenario = Some("correction-chains".into());
-            let output_dir = directory.path().join(name);
-            args.run.out = output_dir.join("rows.jsonl");
-            args.run.summary_out = output_dir.join("summary.json");
-            args.trace_out = output_dir.join("traces.jsonl");
-            args.report_out = output_dir.join("report.json");
-            let forbidden = output_dir.join("stores/artifact.json");
-            match name {
-                "out" => args.run.out = output_dir.join("stores"),
-                "summary-out" => args.run.summary_out = forbidden,
-                "trace-out" => args.trace_out = forbidden,
-                "report-out" => args.report_out = forbidden,
-                _ => unreachable!(),
-            }
-            let error = run_continuity(args).await.unwrap_err();
-            if name == "out" {
-                assert!(
-                    error
-                        .to_string()
-                        .starts_with("out must name a regular file:")
-                );
-            } else {
-                assert_eq!(
-                    error.downcast_ref::<OutputPathInStores>().unwrap().name,
-                    name
-                );
-            }
-            assert!(!output_dir.join("stores").exists());
-            assert!(fs::read_dir(&output_dir).unwrap().next().is_none());
-        }
         let dataset = directory.path().join("locomo.json");
         fs::write(&dataset, "[]").unwrap();
-        for name in ["out", "summary-out"] {
-            let output_dir = directory.path().join(format!("locomo-{name}"));
+        for filename in ["header.json", "HEADER.JSON", "report.json", "results"] {
+            let output_dir = directory.path().join(filename).join("run");
+            let mut args = continuity_args(directory.path());
+            args.scenario = Some("correction-chains".into());
+            args.run.out = output_dir.join(filename);
+            assert!(
+                run_continuity(args)
+                    .await
+                    .unwrap_err()
+                    .to_string()
+                    .contains("out must end in .jsonl")
+            );
+            assert!(!output_dir.exists());
             let mut args = run_args(
                 dataset.clone(),
                 service_free_config("../../configs/locomo_retrieval.toml", directory.path()),
                 &output_dir,
             );
-            if name == "out" {
-                args.out = output_dir.join("stores");
-            } else {
-                args.summary_out = output_dir.join("stores/summary.json");
-            }
-            let error = run_locomo(args).await.unwrap_err();
-            if name == "out" {
-                assert!(
-                    error
-                        .to_string()
-                        .starts_with("out must name a regular file:")
-                );
-            } else {
-                assert_eq!(
-                    error.downcast_ref::<OutputPathInStores>().unwrap().name,
-                    name
-                );
-            }
-            assert!(!output_dir.join("stores").exists());
-            assert!(fs::read_dir(&output_dir).unwrap().next().is_none());
+            args.out = output_dir.join(filename);
+            assert!(
+                run_locomo(args)
+                    .await
+                    .unwrap_err()
+                    .to_string()
+                    .contains("out must end in .jsonl")
+            );
+            assert!(!output_dir.exists());
         }
     }
 
@@ -1903,22 +1871,20 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let output_dir = directory.path().join("outputs");
         fs::create_dir(&output_dir).unwrap();
-        let target = output_dir.join("stores/summary.json");
+        let target = output_dir.join("stores/header.json");
         let mut args = continuity_args(directory.path());
         args.run.out = output_dir.join("results.jsonl");
-        args.run.summary_out = output_dir.join("summary.json");
-        args.trace_out = output_dir.join("traces.jsonl");
-        args.report_out = output_dir.join("report.json");
-        symlink_file(&target, &args.run.summary_out).unwrap();
+        let header = sibling_output(&args.run.out, "header.json");
+        symlink_file(&target, &header).unwrap();
         let error = run_continuity(args).await.unwrap_err();
         assert!(
             error
                 .to_string()
-                .starts_with("summary-out must not be a symbolic link:")
+                .starts_with("header must not be a symbolic link:")
         );
         assert!(!output_dir.join("stores").exists());
         assert_eq!(fs::read_dir(&output_dir).unwrap().count(), 1);
-        fs::remove_file(output_dir.join("summary.json")).unwrap();
+        fs::remove_file(header).unwrap();
 
         // All callers share the guard, including links to ordinary existing files.
         for existing in [false, true] {
@@ -1926,8 +1892,8 @@ mod tests {
             if existing {
                 fs::write(&target, "original").unwrap();
             }
-            for name in ["out", "summary-out", "trace-out", "report-out"] {
-                let leaf = output_dir.join("link.json");
+            for name in ["out", "header", "report"] {
+                let leaf = output_dir.join("link.jsonl");
                 symlink_file(&target, &leaf).unwrap();
                 let output = output_dir.join("results.jsonl");
                 let error = if name == "out" {
@@ -1954,22 +1920,13 @@ mod tests {
     fn existing_regular_output_files_remain_writable() {
         let directory = tempfile::tempdir().unwrap();
         let output = directory.path().join("results.jsonl");
-        let summary = directory.path().join("summary.json");
-        let trace = directory.path().join("trace.jsonl");
+        let header = directory.path().join("header.json");
         let report = directory.path().join("report.json");
-        let outputs = [&output, &summary, &trace, &report];
+        let outputs = [&output, &header, &report];
         for path in outputs {
             fs::write(path, "original").unwrap();
         }
-        let root = create_run_root(
-            &output,
-            &[
-                ("summary-out", &summary),
-                ("trace-out", &trace),
-                ("report-out", &report),
-            ],
-        )
-        .unwrap();
+        let root = create_run_root(&output, &[("header", &header), ("report", &report)]).unwrap();
         for path in outputs {
             fs::write(path, "replacement").unwrap();
             assert_eq!(fs::read_to_string(path).unwrap(), "replacement");
@@ -1978,30 +1935,24 @@ mod tests {
     }
 
     #[cfg(windows)]
-    #[tokio::test]
-    async fn unicode_case_alias_cannot_place_output_in_stores() {
+    #[test]
+    fn unicode_case_alias_cannot_place_output_in_stores() {
         let directory = tempfile::tempdir().unwrap();
-        let mut args = continuity_args(directory.path());
-        args.scenario = Some("correction-chains".into());
         let output_dir = directory.path().join("\u{e9}valuation");
-        args.run.out = output_dir.join("results.jsonl");
-        args.run.summary_out = directory.path().join("\u{c9}valuation/stores/summary.json");
-        args.trace_out = output_dir.join("traces.jsonl");
-        args.report_out = output_dir.join("report.json");
-        let error = run_continuity(args).await.unwrap_err();
+        let output = output_dir.join("traces.jsonl");
+        let header = directory.path().join("\u{c9}valuation/stores/header.json");
+        let error = create_run_root(&output, &[("header", &header)]).unwrap_err();
         assert_eq!(
             error.downcast_ref::<OutputPathInStores>().unwrap().name,
-            "summary-out"
+            "header"
         );
         assert!(fs::read_dir(output_dir).unwrap().next().is_none());
     }
 
     #[cfg(windows)]
-    #[tokio::test]
-    async fn junction_alias_cannot_place_output_in_stores() {
+    #[test]
+    fn junction_alias_cannot_place_output_in_stores() {
         let directory = tempfile::tempdir().unwrap();
-        let mut args = continuity_args(directory.path());
-        args.scenario = Some("correction-chains".into());
         let output_dir = directory.path().join("real-output");
         let alias = directory.path().join("output-alias");
         fs::create_dir(&output_dir).unwrap();
@@ -2014,20 +1965,20 @@ mod tests {
         assert!(created.status.success(), "{created:?}");
         let same_identity =
             fs::canonicalize(&alias).unwrap() == fs::canonicalize(&output_dir).unwrap();
-        args.run.out = output_dir.join("results.jsonl");
-        args.run.summary_out = alias.join("stores/summary.json");
-        args.trace_out = output_dir.join("traces.jsonl");
-        args.report_out = output_dir.join("report.json");
-        let result = run_continuity(args).await;
+        let result = create_run_root(
+            &output_dir.join("traces.jsonl"),
+            &[("header", &alias.join("stores/header.json"))],
+        );
         fs::remove_dir(&alias).unwrap();
         assert!(same_identity);
         let error = result.unwrap_err();
         assert_eq!(
             error.downcast_ref::<OutputPathInStores>().unwrap().name,
-            "summary-out"
+            "header"
         );
         assert!(fs::read_dir(output_dir).unwrap().next().is_none());
     }
+
     #[test]
     fn run_root_admission_preserves_an_existing_directory() {
         let directory = tempfile::tempdir().unwrap();
@@ -2092,7 +2043,7 @@ mod tests {
             dir.path(),
         );
         let output = args.out.clone();
-        let summary_output = args.summary_out.clone();
+        let summary_output = sibling_output(&args.out, "report.json").clone();
         let input_sha256 = cmem_eval::text_sha256(&fs::read_to_string(&args.dataset).unwrap());
         let config = read_config(&args.config).unwrap();
 
@@ -2119,10 +2070,11 @@ mod tests {
         );
         let summary = cmem_eval::read_summary(&summary_output).unwrap();
         assert!(!summary.degradation.any_degradation);
-        assert_eq!(summary.header.input_sha256, input_sha256);
-        assert_eq!(summary.header.dataset_kind, DatasetKind::LongMemEvalS);
+        let header = read_header(&output);
+        assert_eq!(header.input_sha256, input_sha256);
+        assert_eq!(header.dataset_kind, DatasetKind::LongMemEvalS);
         assert_eq!(
-            summary.header.embedding_bindings,
+            header.embedding_bindings,
             BTreeMap::from([(
                 "longmemeval_s".into(),
                 live_embedding_binding(&config).unwrap()
@@ -2305,14 +2257,14 @@ mod tests {
         config.retrieval.surface_policy.object_types =
             vec![ObjectType::Episode, ObjectType::Observation];
         fs::write(&args.run.config, toml::to_string(&config).unwrap()).unwrap();
-        let trace_path = args.trace_out.clone();
-        let report_path = args.report_out.clone();
+        let trace_path = args.run.out.clone();
+        let report_path = sibling_output(&args.run.out, "report.json").clone();
 
         run_continuity(args).await.unwrap();
 
         let traces = read_traces(&trace_path);
         assert_eq!(traces.len(), 1);
-        let outcomes = traces[0].retrieval.outcomes();
+        let outcomes = &traces[0].result.retrieval_outcomes;
         assert_eq!(
             outcomes
                 .iter()
@@ -2354,8 +2306,8 @@ mod tests {
             .filter(|decision| decision.fallback)
             .count();
         let report = cmem_eval_continuity::read_continuity_report(&report_path).unwrap();
-        let scenario_report = &report.content.scenarios["recurring-hub-entity"];
-        let restart = &scenario_report.restart_observations[0];
+        let restart = &traces[0].restart_observations[0];
+        assert_eq!(restart.probe_query_id, traces[0].result.question_id);
         for snapshot in [&restart.before_restart, &restart.after_restart] {
             assert_eq!(
                 snapshot.graph_relation_count,
@@ -2375,14 +2327,7 @@ mod tests {
             assert_eq!(snapshot.scored_selectivity_count, Some(scored));
             assert_eq!(snapshot.fallback_selectivity_count, Some(fallback));
         }
-        let reported = &scenario_report.fanout_decisions[0];
-        assert_eq!(reported.utilization.as_ref(), Some(&fanout));
-        assert_eq!(reported.selectivity.as_ref(), Some(&decisions));
-        let health = &scenario_report.stats_health_events[0];
-        assert_eq!(health.decision_count, Some(decisions.len()));
-        assert_eq!(health.scored_count, Some(scored));
-        assert_eq!(health.fallback_count, Some(fallback));
-        let observed = &report.content.tuning_observations[0].observed;
+        let observed = &report.tuning_observations[0].observed;
         assert_eq!(observed["root_counter_query_count"], 1);
         assert_eq!(
             observed["unique_graph_root_candidate_count"],
@@ -2419,198 +2364,142 @@ mod tests {
         let second_directory = tempfile::tempdir().unwrap();
         let args = continuity_args(directory.path());
         let second_args = continuity_args(second_directory.path());
-        let result_path = args.run.out.clone();
-        let summary_path = args.run.summary_out.clone();
-        let trace_path = args.trace_out.clone();
-        let report_path = args.report_out.clone();
-        let dataset_path = args.run.dataset.clone();
-        let config_path = args.run.config.clone();
-
+        let artifact = args.run.out.clone();
+        let second_artifact = second_args.run.out.clone();
+        let fixture = parse_fixture_bytes(&fs::read(&args.run.dataset).unwrap()).unwrap();
         run_continuity(args).await.unwrap();
         run_continuity(second_args).await.unwrap();
 
-        let rows = read_rows(&result_path);
-        let traces = read_traces(&trace_path);
-        let summary = cmem_eval::read_summary(&summary_path).unwrap();
-        let report: cmem_eval_continuity::ContinuityReport =
-            serde_json::from_slice(&fs::read(report_path).unwrap()).unwrap();
-        let second_report: cmem_eval_continuity::ContinuityReport = serde_json::from_slice(
-            &fs::read(second_directory.path().join("continuity-report.json")).unwrap(),
-        )
+        let rows = read_rows(&artifact);
+        let traces = read_traces(&artifact);
+        let report =
+            cmem_eval_continuity::read_continuity_report(&sibling_output(&artifact, "report.json"))
+                .unwrap();
+        let second_report = cmem_eval_continuity::read_continuity_report(&sibling_output(
+            &second_artifact,
+            "report.json",
+        ))
         .unwrap();
+        let header = read_header(&artifact);
         assert_eq!(rows.len(), 23);
         assert_eq!(traces.len(), 23);
-        assert_eq!(summary.num_questions, 23);
+        assert_eq!(report.aggregate.query_count, 23);
+        assert_eq!(report.aggregate.restart_count, 1);
         assert_eq!(
-            summary.metric_support["temporal_recall_fraction@5"].numeric_rows,
+            report.aggregate.metric_support["temporal_recall_fraction@5"].numeric_rows,
             4
         );
         assert_eq!(
-            summary.metric_support["supersession_replacement_recall"].numeric_rows,
+            report.aggregate.metric_support["supersession_replacement_recall"].numeric_rows,
             2
         );
         assert!(
-            summary
+            report
+                .aggregate
                 .registry_coverage
                 .missing_required_metrics
                 .is_empty()
         );
-        assert_eq!(report.content.aggregate.query_count, 23);
-        assert_eq!(report.content.aggregate.restart_count, 1);
         crate::diff::run(crate::diff::DiffArgs {
-            run_a: result_path.clone(),
-            run_b: second_directory.path().join("continuity.jsonl"),
+            run_a: artifact.clone(),
+            run_b: second_artifact,
         })
         .unwrap();
-        assert_eq!(report.content.aggregate, second_report.content.aggregate);
-        assert_eq!(report.header.embedding_bindings.len(), 15);
+        assert_eq!(report.aggregate.metrics, second_report.aggregate.metrics);
         assert_eq!(
-            toml::from_str::<BenchmarkRunConfig>(&report.header.config)
-                .unwrap()
-                .retrieval
-                .surface_policy
-                .max_graph_roots,
-            Some(48)
+            report.aggregate.degradation,
+            second_report.aggregate.degradation
         );
-        assert_eq!(report.content.scenarios.len(), 15);
-        assert!(report.content.scenarios.values().all(|scenario| {
-            scenario.query_count >= 1
-                && scenario.rationale_samples.len() == scenario.query_count
-                && scenario.fanout_decisions.len() == scenario.query_count
-                && scenario.stats_health_events.len() == scenario.query_count
-                && scenario
-                    .registry_coverage
-                    .missing_required_metrics
-                    .is_empty()
-        }));
-        assert_eq!(report.content.tuning_observations.len(), 1);
+        assert_eq!(report.scenarios, second_report.scenarios);
         assert_eq!(
-            report.content.tuning_observations[0].id,
-            "entity_root_candidate_limit"
+            report.tuning_observations,
+            second_report.tuning_observations
         );
-        assert!(
-            report.content.scenarios["cross-store-stress"].restart_observations[0]
-                .delta
-                .stable_returned_objects
-        );
-        let sample = &report.content.scenarios["cross-store-stress"].rationale_samples[0];
-        assert_eq!(sample.query, "What marker must survive the restart?");
-        assert!(!sample.context_pack.items().is_empty());
-        let sample_value = serde_json::to_value(sample).unwrap();
-        assert!(sample_value.pointer("/context_pack/items/0/kind").is_some());
-        assert!(sample_value.pointer("/context_pack/items/0/text").is_some());
-        assert!(
-            sample_value
-                .pointer("/context_pack/items/0/score")
-                .is_some()
-        );
-        assert!(
-            sample_value
-                .pointer("/context_pack/outcomes/0/trace/selectivity_decisions")
-                .is_some()
-        );
-        let fixture = parse_fixture_bytes(&fs::read(dataset_path).unwrap()).unwrap();
-        let report_config = read_config(&config_path).unwrap();
         assert_eq!(
-            report
-                .header
-                .embedding_bindings
-                .keys()
-                .collect::<BTreeSet<_>>(),
+            header.embedding_bindings.keys().collect::<BTreeSet<_>>(),
             fixture
                 .scenarios
                 .iter()
                 .map(|scenario| &scenario.fixture_id)
                 .collect()
         );
-        let report_metric_family =
-            continuity_metric_family(&report_config.metrics, &fixture.scenarios);
-        let valid_restart_observations = report
-            .content
-            .scenarios
-            .iter()
-            .filter(|(_, scenario)| !scenario.restart_observations.is_empty())
-            .map(|(fixture_id, scenario)| {
-                (fixture_id.clone(), scenario.restart_observations.clone())
-            })
-            .collect::<BTreeMap<_, _>>();
-        let measured_row = continuity_result_row(
-            &report_config,
-            &report_metric_family,
-            &fixture.scenarios[0],
-            &traces[0],
-            37,
-        )
-        .unwrap();
-        assert_eq!(measured_row.latency_ms, 37);
-        let mut unknown_restart_observations = valid_restart_observations.clone();
-        unknown_restart_observations.insert("unknown-fixture".to_string(), Vec::new());
-        let error = assemble_continuity_report(ContinuityReportInput {
-            config: serde_json::to_value(&report_config).unwrap(),
-            scenarios: &fixture.scenarios,
-            traces: &traces,
-            rows: &rows,
-            summary: &summary,
-            metric_family: &report_metric_family,
-            restart_observations: &unknown_restart_observations,
-        })
-        .unwrap_err()
-        .to_string();
-        assert!(error.contains("unknown-fixture"), "{error}");
-        assert!(error.contains("unknown or unselected"), "{error}");
-
-        let error = assemble_continuity_report(ContinuityReportInput {
-            config: serde_json::to_value(&report_config).unwrap(),
-            scenarios: &fixture.scenarios,
-            traces: &traces,
-            rows: &rows,
-            summary: &summary,
-            metric_family: &report_metric_family,
-            restart_observations: &BTreeMap::new(),
-        })
-        .unwrap_err()
-        .to_string();
-        assert!(error.contains("cross-store-stress"), "{error}");
-        for token in ["restart observations", "restart events", "0", "1"] {
-            assert!(error.contains(token), "missing {token:?} in {error}");
-        }
-
-        assert!(
-            summary
-                .registry_coverage
-                .missing_required_metrics
-                .is_empty()
+        assert_eq!(report.scenarios.len(), 15);
+        assert!(report.scenarios.values().all(|scenario| {
+            scenario.query_count > 0
+                && scenario
+                    .registry_coverage
+                    .missing_required_metrics
+                    .is_empty()
+        }));
+        assert_eq!(report.tuning_observations.len(), 1);
+        assert_eq!(
+            report.tuning_observations[0].id,
+            "entity_root_candidate_limit"
         );
-        assert!(rows.iter().any(|row| {
-            matches!(
-                row.metrics.get("typed_rationale_coverage"),
-                Some(cmem_eval::MetricValue::Number(_))
-            )
-        }));
-        assert!(rows.iter().any(|row| {
-            row.metrics.iter().any(|(key, value)| {
-                key.starts_with("continuity_recall_fraction_gap_")
-                    && matches!(value, cmem_eval::MetricValue::Number(_))
-            })
-        }));
+        let probe = traces
+            .iter()
+            .find(|trace| !trace.restart_observations.is_empty())
+            .unwrap();
+        let restart = &probe.restart_observations[0];
+        assert_eq!(probe.fixture_id, "cross-store-stress");
+        assert_eq!(restart.probe_query_id, probe.result.question_id);
+        assert!(restart.delta.stable_returned_objects);
+        assert!(!probe.result.retrieved.is_empty());
         assert!(traces.iter().all(|trace| {
             !trace.history_text.is_empty()
                 && trace
-                    .retrieval
-                    .items()
+                    .result
+                    .retrieved
                     .iter()
                     .all(|item| !item.rationale.is_empty())
         }));
+        for (row, trace) in rows.iter().zip(&traces) {
+            assert_eq!(row, &trace.result);
+        }
+        let encoded = serde_json::to_value(probe).unwrap();
+        assert!(encoded.get("result").is_none());
+        assert!(encoded.get("retrieval").is_none());
+        assert!(
+            encoded
+                .pointer("/retrieval_outcomes/0/trace/selectivity_decisions")
+                .is_some()
+        );
+        assert!(
+            serde_json::to_value(&report)
+                .unwrap()
+                .get("header")
+                .is_none()
+        );
+        assert!(!directory.path().join("summary.json").exists());
+        assert!(!directory.path().join("stores").exists());
+
+        // Persisted merged records keep the native operation order canonical.
+        let mut reordered = traces[0].clone();
+        reordered.result.write_outcomes.reverse();
+        let round_trip = directory.path().join("round-trip.jsonl");
+        write_continuity_traces(&round_trip, &[reordered]).unwrap();
+        let decoded = read_traces(&round_trip);
+        assert_eq!(decoded, traces[..1]);
+
+        let mut additive = serde_json::to_value(&traces[0]).unwrap();
+        additive["expected"]["future_annotation"] = serde_json::json!(true);
+        assert!(
+            serde_json::from_value::<cmem_eval_continuity::ExpectedRelevance>(
+                additive["expected"].clone()
+            )
+            .is_err()
+        );
+        fs::write(&round_trip, serde_json::to_vec(&additive).unwrap()).unwrap();
+        assert_eq!(read_traces(&round_trip), traces[..1]);
     }
 
     #[tokio::test]
-    async fn continuity_lifecycle_retry_reaches_row_summary_and_report() {
+    async fn continuity_lifecycle_retry_reaches_merged_trace_and_report() {
         let directory = tempfile::tempdir().unwrap();
         let mut args = continuity_args(directory.path());
         args.scenario = Some("correction-chains".to_string());
         let result_path = args.run.out.clone();
-        let summary_path = args.run.summary_out.clone();
-        let trace_path = args.trace_out.clone();
+        let trace_path = args.run.out.clone();
         let config_path = args.run.config.clone();
         let dataset_path = args.run.dataset.clone();
 
@@ -2622,6 +2511,7 @@ mod tests {
         assert_eq!(original_rows.len(), 1);
         let converged_retry = {
             let lifecycle = traces[0]
+                .result
                 .lifecycle_outcomes
                 .first_mut()
                 .expect("correction scenario should emit lifecycle outcomes");
@@ -2645,44 +2535,24 @@ mod tests {
                 cmem_eval::character_memory::StatsUpdateStatus::succeeded([failed_internal_id]);
             retry
         };
-        traces[0].lifecycle_outcomes.push(converged_retry);
+        traces[0].result.lifecycle_outcomes.push(converged_retry);
 
         let fixture = parse_fixture_bytes(&fs::read(dataset_path).unwrap()).unwrap();
         let scenarios =
             select_continuity_scenarios(fixture.scenarios, Some("correction-chains")).unwrap();
         let config = read_config(&config_path).unwrap();
         let metric_family = continuity_metric_family(&config.metrics, &scenarios);
-        let row = continuity_result_row(
-            &config,
-            &metric_family,
-            &scenarios[0],
-            &traces[0],
-            original_rows[0].latency_ms,
-        )
-        .unwrap();
-        assert_eq!(row.lifecycle_outcomes, traces[0].lifecycle_outcomes);
-
-        let rows = vec![row];
-        let config_value = serde_json::to_value(&config).unwrap();
-        let summary = summarize_rows(
-            cmem_eval::read_summary(&summary_path).unwrap().header,
-            &rows,
-            std::slice::from_ref(&metric_family),
-        )
-        .unwrap();
+        let rows = vec![traces[0].result.clone()];
+        let summary = summarize_rows(&rows, std::slice::from_ref(&metric_family)).unwrap();
         assert!(summary.degradation.any_degradation);
 
         let report = assemble_continuity_report(ContinuityReportInput {
-            config: config_value,
-            scenarios: &scenarios,
+            config: serde_json::to_value(&config).unwrap(),
             traces: &traces,
-            rows: &rows,
-            summary: &summary,
             metric_family: &metric_family,
-            restart_observations: &BTreeMap::new(),
         })
         .unwrap();
-        assert!(report.content.aggregate.degradation.any_degradation);
+        assert!(report.aggregate.degradation.any_degradation);
     }
 
     #[test]
@@ -2756,34 +2626,7 @@ mod tests {
     }
 
     #[test]
-    fn frozen_scenario_preflight_rejects_test_provenance() {
-        let fixture =
-            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
-                .unwrap();
-        let mut scenario = fixture.scenarios[0].clone();
-        scenario.embedding = cmem_eval_continuity::ContinuityScenarioEmbedding::frozen();
-        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../cmem-eval-continuity/fixtures/embeddings");
-        let mut config = current_continuity_config();
-        config.backend.embedding.provider = EmbeddingProviderConfig::Frozen;
-        config.backend.embedding.model = "task21-smoke-model".to_string();
-        config.backend.embedding.vector_size = Some(3);
-        config.backend.embedding.store_path = Some(
-            fixtures
-                .join("task21_smoke_store.json")
-                .display()
-                .to_string(),
-        );
-
-        let error = validate_continuity_embedding_sizes(&config, &[scenario.clone()])
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("source=open_ai_api"), "{error}");
-        assert!(error.contains("TestFixture"), "{error}");
-    }
-
-    #[test]
-    fn real_preflight_rejects_explicit_nonstandard_store_width() {
+    fn frozen_preflight_accepts_matching_width_and_descriptive_provenance() {
         let fixture =
             cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
                 .unwrap();
@@ -2791,10 +2634,9 @@ mod tests {
         scenario.embedding = cmem_eval_continuity::ContinuityScenarioEmbedding::frozen();
         let directory = tempfile::tempdir().unwrap();
         let store_path = directory.path().join("nonstandard-openai-store.json");
-        let store = cmem_eval::FrozenEmbeddingStore::new_with_dimension_policy(
+        let store = cmem_eval::FrozenEmbeddingStore::new(
             "text-embedding-3-large",
-            FrozenEmbeddingSource::OpenAiApi,
-            cmem_eval::FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
+            "test_fixture",
             scenario
                 .runtime_embedding_inputs()
                 .into_iter()
@@ -2808,23 +2650,20 @@ mod tests {
         config.backend.embedding.vector_size = Some(1_024);
         config.backend.embedding.store_path = Some(store_path.display().to_string());
 
-        let error = validate_continuity_embedding_sizes(&config, &[scenario])
-            .unwrap_err()
-            .to_string();
-
-        for token in [
-            "text-embedding-3-large",
-            "1024",
-            "3072",
-            "--allow-nonstandard-dimensions",
-        ] {
-            assert!(error.contains(token), "missing {token:?} in {error}");
-        }
-        assert!(error.contains("live Character Memory"), "{error}");
+        let providers = validate_continuity_embedding_sizes(&config, &[scenario.clone()]).unwrap();
+        assert_eq!(providers[&store_path].vector_size(), 1_024);
+        assert_eq!(providers[&store_path].source(), "test_fixture");
+        config.backend.embedding.vector_size = Some(512);
+        assert!(
+            validate_continuity_embedding_sizes(&config, &[scenario])
+                .unwrap_err()
+                .to_string()
+                .contains("vector_size")
+        );
     }
 
     #[test]
-    fn committed_benchmark_store_is_exactly_the_runtime_lookup_set() {
+    fn committed_benchmark_store_covers_runtime_lookups() {
         let fixture_root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmem-eval-continuity/fixtures");
         let fixture = parse_fixture_bytes(
@@ -2856,12 +2695,12 @@ mod tests {
             .collect::<BTreeSet<_>>();
 
         assert_eq!(runtime_texts.len(), 646);
-        assert_eq!(runtime_texts, manifest_texts);
-        assert_eq!(runtime_texts, store_texts);
+        assert!(runtime_texts.is_subset(&manifest_texts));
+        assert!(runtime_texts.is_subset(&store_texts));
     }
 
     #[test]
-    fn committed_canonical_store_is_exactly_the_frozen_runtime_lookup_set() {
+    fn committed_canonical_store_covers_frozen_runtime_lookups() {
         let fixture_root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmem-eval-continuity/fixtures");
         let fixture =
@@ -2893,8 +2732,8 @@ mod tests {
             .collect::<BTreeSet<_>>();
 
         assert!(!runtime_texts.is_empty());
-        assert_eq!(runtime_texts, manifest_texts);
-        assert_eq!(runtime_texts, store_texts);
+        assert!(runtime_texts.is_subset(&manifest_texts));
+        assert!(runtime_texts.is_subset(&store_texts));
     }
 
     #[test]

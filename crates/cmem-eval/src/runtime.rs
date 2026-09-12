@@ -1,7 +1,4 @@
-use crate::{
-    ControllableSimilarityFixture, FrozenEmbeddingDimensionPolicy, FrozenEmbeddingProvider,
-    ObjectType,
-};
+use crate::{ControllableSimilarityFixture, FrozenEmbeddingProvider, ObjectType};
 use anyhow::{Result, bail};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::fmt;
@@ -79,7 +76,6 @@ pub enum EmbeddingRuntimeBinding {
     },
     Frozen {
         store: FrozenEmbeddingProvider,
-        dimension_policy: FrozenEmbeddingDimensionPolicy,
     },
     Live {
         provider: LiveEmbeddingProvider,
@@ -105,10 +101,10 @@ pub enum EmbeddingBindingRecord {
     },
     Frozen {
         store_sha256: String,
-        source: crate::FrozenEmbeddingSource,
+        source: String,
         model: String,
         vector_size: usize,
-        dimension_policy: FrozenEmbeddingDimensionPolicy,
+        dimension_policy: String,
     },
     Live {
         provider: LiveEmbeddingProvider,

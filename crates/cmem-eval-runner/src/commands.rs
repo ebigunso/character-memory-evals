@@ -59,10 +59,6 @@ enum RunDataset {
 pub(crate) struct ContinuityRunArgs {
     #[command(flatten)]
     pub(crate) run: RunArgs,
-    #[arg(long = "trace-out")]
-    pub(crate) trace_out: PathBuf,
-    #[arg(long = "report-out")]
-    pub(crate) report_out: PathBuf,
     #[arg(long)]
     pub(crate) scenario: Option<String>,
 }
@@ -75,8 +71,6 @@ pub(crate) struct RunArgs {
     pub(crate) config: PathBuf,
     #[arg(long)]
     pub(crate) out: PathBuf,
-    #[arg(long = "summary-out")]
-    pub(crate) summary_out: PathBuf,
 }
 
 #[cfg(test)]
