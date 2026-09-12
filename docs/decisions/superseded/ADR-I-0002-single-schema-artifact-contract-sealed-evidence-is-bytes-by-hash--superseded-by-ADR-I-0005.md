@@ -10,7 +10,7 @@ warrant:
   detected_signals: "cross-boundary contract and evidence-ownership shape; rejected alternatives likely to be re-proposed; a decider's ruling setting a durable governance default"
   cost_of_violation: "a re-added legacy dispatch recreates the remediated live-path exception one justified case at a time; a sealed-byte migration silently converts hash-cited evidence into new evidence wearing sealed run identities, corrupting the findings register's evidentiary meaning"
 supersedes: []
-superseded_by: "implementation/ADR-I-0005-sealed-evidence-is-bytes-by-hash-and-live-readers-read-only-the-current-shape.md"
+superseded_by: "../implementation/ADR-I-0005-sealed-evidence-is-bytes-by-hash-and-live-readers-read-only-the-current-shape.md"
 supersession_scope: full
 ---
 

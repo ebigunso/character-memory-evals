@@ -10,7 +10,7 @@ warrant:
   detected_signals: "cross-boundary evidence-ownership shape; rejected alternatives likely to be re-proposed; a decider's ruling setting a durable governance default"
   cost_of_violation: "a re-added version ritual taxes every shape change while serving no decision; a sealed-byte migration silently turns cited evidence into new evidence"
   cost_of_over_extension: "treating input contracts (fixture, config, frozen-store admission) as artifact readers would strip the fail-closed checks that protect measurement inputs"
-supersedes: ["superseded/ADR-I-0002-single-schema-artifact-contract-sealed-evidence-is-bytes-by-hash--superseded-by-ADR-I-0005.md"]
+supersedes: ["../superseded/ADR-I-0002-single-schema-artifact-contract-sealed-evidence-is-bytes-by-hash--superseded-by-ADR-I-0005.md"]
 superseded_by: null
 supersession_scope: full
 ---
