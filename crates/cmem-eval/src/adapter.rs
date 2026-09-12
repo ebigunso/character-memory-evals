@@ -30,6 +30,7 @@ use character_memory::{
 };
 use chrono::{DateTime, Utc};
 use qdrant_client::{Qdrant, config::QdrantConfig};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fs;
@@ -43,9 +44,21 @@ use uuid::Uuid;
 const UUID_NAMESPACE: Uuid = Uuid::from_u128(0x9b6af7a4_9076_49bb_9231_84d1ed632cf1);
 const QDRANT_REQUEST_TIMEOUT_SECS: u64 = 30;
 
+/// Hash the existing run root after resolving relative paths and filesystem aliases.
+pub fn run_root_sha256(run_root: &Path) -> Result<String> {
+    let canonical = run_root
+        .canonicalize()
+        .with_context(|| format!("resolve run stores {}", run_root.display()))?;
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(canonical.as_os_str().as_encoded_bytes())
+    ))
+}
+
 pub struct CharacterMemoryAdapter {
     config: BenchmarkRunConfig,
     run_root: PathBuf,
+    run_root_sha256: String,
     embedding_binding: EmbeddingRuntimeBinding,
     qdrant: Option<Qdrant>,
     namespaces: Arc<Mutex<HashMap<String, NamespaceState>>>,
@@ -410,6 +423,7 @@ impl CharacterMemoryAdapter {
         Ok(Self {
             config: config.clone(),
             run_root: std::path::absolute(run_root)?,
+            run_root_sha256: run_root_sha256(run_root)?,
             embedding_binding,
             qdrant,
             namespaces: Arc::new(Mutex::new(HashMap::new())),
@@ -781,7 +795,8 @@ impl CharacterMemoryAdapter {
 
     fn collection_name(&self, namespace: &str) -> String {
         format!(
-            "cmem_eval_{}",
+            "cmem_eval_{}_{}",
+            &self.run_root_sha256[..16],
             self.namespace_identity_suffix(namespace).simple()
         )
     }
@@ -951,7 +966,8 @@ impl CharacterMemoryAdapter {
                 "Qdrant collection {collection_name} already exists for namespace {namespace}; reset the namespace or use reattach_namespace"
             );
         }
-        // Mark ownership before initialization, including a partially created service collection.
+        // The runner acquired the run root atomically; its hash also isolates service collections.
+        // Acquire this namespace directory before initializing stores so partial setup is removable.
         fs::create_dir(&namespace_path)
             .with_context(|| format!("create namespace stores {}", namespace_path.display()))?;
         let state = self
@@ -3406,6 +3422,15 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(first.collection_name("n"), same.collection_name("n"));
+        assert_eq!(
+            run_root_sha256(run_root).unwrap(),
+            run_root_sha256(&run_root.join(".")).unwrap()
+        );
+        let other_root = tempdir().unwrap();
+        let isolated = CharacterMemoryAdapter::new(other_root.path(), &config)
+            .await
+            .unwrap();
+        assert_ne!(first.collection_name("n"), isolated.collection_name("n"));
         assert_ne!(first.collection_name("n"), other.collection_name("n"));
         assert_ne!(first.collection_name("n"), first.collection_name("sibling"));
         let namespace_path = first.namespace_path("n");
@@ -3833,6 +3858,43 @@ mod tests {
     #[tokio::test]
     async fn embedded_adapter_reattaches_with_external_ids() {
         reattach_with_external_ids(VectorStoreMode::Embedded).await;
+    }
+
+    #[cfg(feature = "service-tests")]
+    #[tokio::test]
+    async fn service_mode_concurrent_runs_with_same_identity_preserve_each_other() {
+        let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
+        let first_root = tempdir().unwrap();
+        let second_root = tempdir().unwrap();
+        let mut config = adapter_config(format!("root-isolation-{}", unique_test_token()));
+        config.backend.vector_store_mode = VectorStoreMode::Service;
+        let first = CharacterMemoryAdapter::new(first_root.path(), &config)
+            .await
+            .unwrap();
+        let second = CharacterMemoryAdapter::new(second_root.path(), &config)
+            .await
+            .unwrap();
+        let namespace = "shared";
+        let first_collection = first.collection_name(namespace);
+        let second_collection = second.collection_name(namespace);
+        assert_ne!(first_collection, second_collection);
+        let (first_open, second_open) = tokio::join!(
+            first.open_namespace(namespace),
+            second.open_namespace(namespace)
+        );
+        first_open.unwrap();
+        second_open.unwrap();
+        let client = first.qdrant.as_ref().unwrap();
+        assert!(client.collection_exists(&first_collection).await.unwrap());
+        assert!(client.collection_exists(&second_collection).await.unwrap());
+        first.cleanup_namespace(namespace).await.unwrap();
+        assert!(!client.collection_exists(&first_collection).await.unwrap());
+        assert!(client.collection_exists(&second_collection).await.unwrap());
+        assert!(second.namespace_path(namespace).exists());
+        second.cleanup_namespace(namespace).await.unwrap();
+        assert!(!client.collection_exists(&second_collection).await.unwrap());
+        first.close().await.unwrap();
+        second.close().await.unwrap();
     }
 
     #[cfg(feature = "service-tests")]
@@ -4383,8 +4445,8 @@ mod tests {
             let stranger = CharacterMemoryAdapter::new(foreign_run.path(), &config)
                 .await
                 .unwrap();
-            let error = stranger.open_namespace(namespace_a).await.unwrap_err();
-            assert!(error.to_string().contains(&collection_a), "{error:#}");
+            assert_ne!(stranger.collection_name(namespace_a), collection_a);
+            stranger.open_namespace(namespace_a).await.unwrap();
             stranger.cleanup_namespace(namespace_a).await.unwrap();
             assert!(
                 stranger

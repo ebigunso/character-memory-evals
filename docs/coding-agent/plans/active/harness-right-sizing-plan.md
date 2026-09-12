@@ -235,6 +235,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_8 step 3 done (CME #27, f687ed3, library main 7e6c898; audit steps 10, 11, 15): the mock memory adapter is deleted (BM25 stays as the harness's own ingest-text baseline selected by retrieval mode, configs byte-identical); the live-skip guard is deleted and the adapter suite runs unconditionally in embedded mode with two explicit service-mode tests that fail rather than skip; rows embed the library's native outcome and telemetry types in a minimal operation-id envelope, the mirror vocabulary and all projections are deleted, schema 3.0.0 with the 2.2.0 resurrection pointer at 89bc0a8; 34 telemetry-derived diagnostic keys leave `metrics` and the 60 retained metrics are proven unchanged; core and adapter collapse into `crates/cmem-eval`. Production −4,397 lines, tests −2,395. Reviewer approved with no revision requests.
 
+- 2026-09-13 Task_8 step 4 P1 correction: service collection identities include the canonical run-root hash, recorded in the run header. Atomic run-root acquisition remains the ownership gate; different-root concurrent runs no longer share collections, and same-root duplicate admission fails before namespace setup. The library retains collection construction. Added concurrent service isolation and atomic root-admission regressions; validation evidence accompanies the Worker handoff.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.

@@ -1278,6 +1278,7 @@ fn run_header(
         config: config_source,
         adapter,
         storage_root: run_root.to_path_buf(),
+        storage_root_sha256: cmem_eval::adapter::run_root_sha256(run_root)?,
         retain_stores: config.backend.retain_stores,
         retain_reason: config.backend.retain_reason.clone(),
     })
@@ -1675,6 +1676,13 @@ mod tests {
                 if !fail_output {
                     let summary = cmem_eval::read_summary(&args.run.summary_out).unwrap();
                     assert_eq!(summary.header.storage_root, root);
+                    assert_eq!(summary.header.storage_root_sha256.len(), 64);
+                    if retain {
+                        assert_eq!(
+                            summary.header.storage_root_sha256,
+                            cmem_eval::adapter::run_root_sha256(&root).unwrap()
+                        );
+                    }
                     assert_eq!(summary.header.retain_stores, retain);
                     assert_eq!(summary.header.retain_reason, config.backend.retain_reason);
                     assert_eq!(summary.header.config, source);
@@ -1721,7 +1729,19 @@ mod tests {
     fn run_root_admission_preserves_an_existing_directory() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("stores");
-        fs::create_dir(&root).unwrap();
+        let results_path = directory.path().join("results.jsonl");
+        let barrier = std::sync::Barrier::new(2);
+        let admissions = std::thread::scope(|scope| {
+            let acquire = || {
+                barrier.wait();
+                create_run_root(&results_path)
+            };
+            let first = scope.spawn(acquire);
+            let second = scope.spawn(acquire);
+            [first.join().unwrap(), second.join().unwrap()]
+        });
+        assert_eq!(admissions.iter().filter(|result| result.is_ok()).count(), 1);
+        assert!(fs::read_dir(&root).unwrap().next().is_none());
         fs::write(root.join("sentinel"), b"earlier run").unwrap();
         let error = create_run_root(&directory.path().join("results.jsonl")).unwrap_err();
         assert!(

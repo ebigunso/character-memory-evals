@@ -76,6 +76,7 @@ pub struct RunHeader {
     pub config_sha256: String,
     pub adapter: RunAdapterMetadata,
     pub storage_root: PathBuf,
+    pub storage_root_sha256: String,
     pub retain_stores: bool,
     #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub retain_reason: Option<String>,
@@ -367,6 +368,7 @@ mod tests {
             config_sha256: crate::text_sha256(""),
             adapter: RunAdapterMetadata::live(),
             storage_root: "stores".into(),
+            storage_root_sha256: "test".into(),
             retain_stores: false,
             retain_reason: None,
         }

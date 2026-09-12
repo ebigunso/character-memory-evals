@@ -814,3 +814,21 @@ Fix applied and prevention:
 
 Evidence:
 - Task_8 step 3 reviewer validation used the short-worktree and sibling-junction arrangement. Step 4 retains that arrangement for embedded and service validation.
+
+## 2026-09-13 — Use the acquired run root to isolate service resources [tags: review, lifecycle, concurrency, ownership]
+
+Symptom:
+- Two runs with the same run ID and namespace but different fresh output roots raced through Qdrant collection admission; the rejected run's cleanup deleted the successful run's collection.
+
+Root cause:
+- The local namespace directory was treated as ownership of a service collection whose name omitted the acquired run root. A preceding existence check could not establish ownership across concurrent runs.
+
+Fix applied:
+- Keep atomic `create_dir` admission of `OUT_DIR/stores` as the ownership boundary. Include a short hash of its canonical absolute path in every service collection name and record the full hash in the run header. Different roots own different collections; a second admission to the same root fails before creating namespace resources. The library continues to own collection creation and schema details.
+
+Prevention:
+- When cleanup authority follows a local token, derive every remote resource identity from that token and test simultaneous acquisition as well as sequential reuse. The regression opens the same run ID and namespace concurrently in two roots and checks that each cleanup preserves the other collection; the runner regression proves exactly one same-root admission succeeds.
+- No new rule candidate: this is the executable application of the existing owned-state lifecycle rule; keep the regression with the admission and cleanup code.
+
+Evidence:
+- Step 4 reviewer public-adapter race probe at parent `0581b79`; Orchestrator design ruling 2026-09-13; `service_mode_concurrent_runs_with_same_identity_preserve_each_other` and `run_root_admission_preserves_an_existing_directory`.

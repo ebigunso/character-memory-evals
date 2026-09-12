@@ -1032,6 +1032,7 @@ mod tests {
                     config_sha256: cmem_eval::text_sha256(""),
                     adapter: RunAdapterMetadata::live(),
                     storage_root: "stores".into(),
+                    storage_root_sha256: "test".into(),
                     retain_stores: false,
                     retain_reason: None,
                 },
