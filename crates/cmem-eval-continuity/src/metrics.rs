@@ -634,7 +634,6 @@ mod tests {
             assignment("sampled-negative", vec![RationaleCategory::Semantic]),
         ];
         ContinuityQueryTrace {
-            schema_version: crate::CONTINUITY_TRACE_SCHEMA_VERSION.to_string(),
             fixture_id: "fixture".to_string(),
             namespace: "namespace".to_string(),
             pattern,

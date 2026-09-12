@@ -3,15 +3,10 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct NumericMetricAggregate {
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub mean: Option<f64>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub median: Option<f64>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub p50: Option<f64>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub p95: Option<f64>,
 }
 
@@ -27,11 +22,10 @@ impl NumericMetricAggregate {
 }
 
 /// Metric names are registry-defined and therefore dynamic, while every
-/// aggregate has the closed shape enforced by `NumericMetricAggregate`.
+/// aggregate is represented by `NumericMetricAggregate`.
 pub type NumericMetricSummary = BTreeMap<String, NumericMetricAggregate>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct MetricSupportEntry {
     pub rows_present: usize,
     pub numeric_rows: usize,
@@ -40,11 +34,10 @@ pub struct MetricSupportEntry {
 }
 
 /// Metric names are registry-defined and therefore dynamic, while every
-/// support entry has the closed shape enforced by `MetricSupportEntry`.
+/// support entry is represented by `MetricSupportEntry`.
 pub type MetricSupportSummary = BTreeMap<String, MetricSupportEntry>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct RegistryCoverageSummary {
     pub required_metrics_total: usize,
     pub required_metrics_present: usize,

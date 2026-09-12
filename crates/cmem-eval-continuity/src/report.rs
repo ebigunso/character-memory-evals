@@ -16,22 +16,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::{
-    CONTINUITY_TRACE_SCHEMA_VERSION, ContinuityQueryTrace, ContinuityScenario, InteractionEvent,
-    RestartObservation, ScenarioPattern,
+    ContinuityQueryTrace, ContinuityScenario, InteractionEvent, RestartObservation, ScenarioPattern,
 };
 
-pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "3.1.0";
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ContinuityReport {
-    pub schema_version: String,
     pub metadata: ContinuityReportMetadata,
     pub content: ContinuityReportContent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ContinuityReportMetadata {
     pub generated_at: DateTime<Utc>,
     pub run_id: String,
@@ -47,12 +41,10 @@ pub struct ContinuityReportMetadata {
     /// Dynamic-by-design snapshot of the selected runner and backend configuration.
     pub config: Value,
     pub header: cmem_eval::RunHeader,
-    pub schema_versions: BTreeMap<String, String>,
     pub normalization: ReportNormalization,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct ReportNormalization {
     /// Paths containing retained time-dependent values; native outcomes are not normalized.
     pub nondeterministic_paths: Vec<String>,
@@ -60,7 +52,6 @@ pub struct ReportNormalization {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ContinuityReportContent {
     pub aggregate: AggregateContinuityReport,
     pub scenarios: BTreeMap<String, ScenarioContinuityReport>,
@@ -68,7 +59,6 @@ pub struct ContinuityReportContent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct AggregateContinuityReport {
     pub query_count: usize,
     pub restart_count: usize,
@@ -78,7 +68,6 @@ pub struct AggregateContinuityReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ScenarioContinuityReport {
     pub pattern: String,
     pub query_count: usize,
@@ -92,7 +81,6 @@ pub struct ScenarioContinuityReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct QueryRationaleSample {
     pub query_id: String,
     pub query: String,
@@ -101,7 +89,6 @@ pub struct QueryRationaleSample {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct RationaleSampleItem {
     pub rank: usize,
     pub object_id: String,
@@ -110,30 +97,22 @@ pub struct RationaleSampleItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct QueryFanoutDecisions {
     pub query_id: String,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub utilization: Option<Vec<FanoutUtilizationTrace>>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub selectivity: Option<Vec<SelectivityTrace>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct StatsHealthEvent {
     pub query_id: String,
     pub status: String,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub decision_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub scored_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub fallback_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct TuningObservation {
     pub id: String,
     pub finding: String,
@@ -238,21 +217,6 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
                 .map(|embedding| (scenario.fixture_id.clone(), embedding.seed))
         })
         .collect::<BTreeMap<_, _>>();
-    let mut schema_versions = BTreeMap::new();
-    schema_versions.insert(
-        "continuity_fixture".to_string(),
-        input.fixture_schema_version.to_string(),
-    );
-    schema_versions.insert(
-        "continuity_report".to_string(),
-        CONTINUITY_REPORT_SCHEMA_VERSION.to_string(),
-    );
-    schema_versions.insert(
-        "continuity_trace".to_string(),
-        CONTINUITY_TRACE_SCHEMA_VERSION.to_string(),
-    );
-    schema_versions.insert("result".to_string(), input.summary.schema_version.clone());
-
     let expected_queries = input
         .scenarios
         .iter()
@@ -378,20 +342,17 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         input.rows,
         std::slice::from_ref(input.metric_family),
     )?;
-    if input.summary.schema_version != recomputed_summary.schema_version
-        || input.summary.dataset_kind != recomputed_summary.dataset_kind
+    if input.summary.dataset_kind != recomputed_summary.dataset_kind
         || input.summary.embedding_bindings != recomputed_summary.embedding_bindings
         || input.summary.degradation != recomputed_summary.degradation
         || input.summary.num_questions != recomputed_summary.num_questions
     {
         bail!(
-            "continuity report summary identity/count does not match result rows: summary schema/kind/bindings/degradation/count ({:?}, {:?}, {:?}, {:?}, {}), recomputed ({:?}, {:?}, {:?}, {:?}, {})",
-            input.summary.schema_version,
+            "continuity report summary identity/count does not match result rows: summary kind/bindings/degradation/count ({:?}, {:?}, {:?}, {}), recomputed ({:?}, {:?}, {:?}, {})",
             input.summary.dataset_kind,
             input.summary.embedding_bindings,
             input.summary.degradation,
             input.summary.num_questions,
-            recomputed_summary.schema_version,
             recomputed_summary.dataset_kind,
             recomputed_summary.embedding_bindings,
             recomputed_summary.degradation,
@@ -510,7 +471,6 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         .into_iter()
         .collect();
     Ok(ContinuityReport {
-        schema_version: CONTINUITY_REPORT_SCHEMA_VERSION.to_string(),
         metadata: ContinuityReportMetadata {
             generated_at: input.generated_at,
             run_id: input.summary.run_id.clone(),
@@ -525,7 +485,6 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             fixture_ids,
             config: input.config.clone(),
             header: input.summary.header.clone(),
-            schema_versions,
             normalization: ReportNormalization {
                 nondeterministic_paths: vec![
                     "metadata.generated_at".to_string(),
@@ -623,13 +582,6 @@ fn validate_restart_observations(
 }
 
 pub fn write_continuity_report(path: &Path, report: &ContinuityReport) -> Result<()> {
-    if report.schema_version != CONTINUITY_REPORT_SCHEMA_VERSION {
-        bail!(
-            "continuity report has schema_version {:?}; expected {:?}",
-            report.schema_version,
-            CONTINUITY_REPORT_SCHEMA_VERSION
-        );
-    }
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     serde_json::to_writer_pretty(&mut file, report)?;
     file.write_all(b"\n")?;
@@ -639,19 +591,6 @@ pub fn write_continuity_report(path: &Path, report: &ContinuityReport) -> Result
 pub fn read_continuity_report(path: &Path) -> Result<ContinuityReport> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("deserialize continuity report {}", path.display()))?;
-    let schema_version = cmem_eval::serde_contract::schema_version_from_str(&raw)
-        .with_context(|| format!("deserialize continuity report {}", path.display()))?;
-    match schema_version.as_deref() {
-        Some(CONTINUITY_REPORT_SCHEMA_VERSION) => {}
-        Some(version) => bail!(
-            "unsupported continuity report schema_version {version:?}; expected {CONTINUITY_REPORT_SCHEMA_VERSION:?}"
-        ),
-        None => bail!(
-            "missing continuity report schema_version; expected {CONTINUITY_REPORT_SCHEMA_VERSION:?}"
-        ),
-    }
-    cmem_eval::serde_contract::reject_duplicate_json_keys(&raw)
-        .with_context(|| format!("decode continuity report {}", path.display()))?;
     serde_json::from_str(&raw)
         .with_context(|| format!("decode continuity report {}", path.display()))
 }
@@ -824,7 +763,6 @@ mod tests {
             .into_iter()
             .collect();
         ContinuityQueryTrace {
-            schema_version: CONTINUITY_TRACE_SCHEMA_VERSION.to_string(),
             fixture_id: "recurring-hub-entity".to_string(),
             namespace: "continuity:hub".to_string(),
             pattern: ScenarioPattern::RecurringHubEntity,
@@ -971,46 +909,12 @@ mod tests {
     }
 
     #[test]
-    fn report_reader_rejects_missing_and_legacy_schema_versions() {
-        let path = std::env::temp_dir().join(format!(
-            "cmem-continuity-report-schema-{}.json",
-            Uuid::new_v4()
-        ));
-
-        std::fs::write(&path, br#"{}"#).unwrap();
-        let missing = read_continuity_report(&path).unwrap_err();
-        assert!(
-            missing
-                .to_string()
-                .contains("missing continuity report schema_version")
-        );
-
-        for version in ["1.0.0", "2.0.0"] {
-            std::fs::write(
-                &path,
-                serde_json::to_vec(&serde_json::json!({"schema_version": version})).unwrap(),
-            )
-            .unwrap();
-            let error = read_continuity_report(&path).unwrap_err().to_string();
-            assert!(
-                error.contains("unsupported continuity report schema_version"),
-                "{error}"
-            );
-            assert!(error.contains(version), "{error}");
-            assert!(error.contains(CONTINUITY_REPORT_SCHEMA_VERSION), "{error}");
-        }
-
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[test]
-    fn report_reader_rejects_root_and_nested_v2_shape_drift() {
+    fn report_reader_round_trips_report() {
         let path = std::env::temp_dir().join(format!(
             "cmem-continuity-report-shape-drift-{}.json",
             Uuid::new_v4()
         ));
         let report = ContinuityReport {
-            schema_version: CONTINUITY_REPORT_SCHEMA_VERSION.to_string(),
             metadata: ContinuityReportMetadata {
                 generated_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
                 run_id: "shape-drift".to_string(),
@@ -1036,7 +940,6 @@ mod tests {
                     retain_stores: false,
                     retain_reason: None,
                 },
-                schema_versions: BTreeMap::new(),
                 normalization: ReportNormalization {
                     nondeterministic_paths: Vec::new(),
                     excluded_nondeterministic_sources: Vec::new(),
@@ -1072,109 +975,8 @@ mod tests {
             },
         };
 
-        let mut invalid_report = report.clone();
-        invalid_report.schema_version = "9.9.9".to_string();
-        std::fs::write(&path, "preserved\n").unwrap();
-        let error = write_continuity_report(&path, &invalid_report)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("9.9.9"), "{error}");
-        assert!(error.contains(CONTINUITY_REPORT_SCHEMA_VERSION), "{error}");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "preserved\n");
-
-        let raw = serde_json::to_string(&report).unwrap();
-        let duplicate_root = raw.replacen(
-            r#""schema_version":"3.1.0""#,
-            r#""schema_version":"3.1.0","schema_version":"3.1.0""#,
-            1,
-        );
-        assert_ne!(raw, duplicate_root);
-        std::fs::write(&path, duplicate_root).unwrap();
-        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
-        assert!(error.contains("duplicate"), "{error}");
-
-        let mut report_with_dynamic_config = report.clone();
-        report_with_dynamic_config.metadata.config =
-            serde_json::json!({"nested": {"mode": "strict"}});
-        let raw = serde_json::to_string(&report_with_dynamic_config).unwrap();
-        let duplicate_dynamic_value = raw.replacen(
-            r#""mode":"strict""#,
-            r#""mode":"strict","mode":"strict""#,
-            1,
-        );
-        assert_ne!(raw, duplicate_dynamic_value);
-        std::fs::write(&path, duplicate_dynamic_value).unwrap();
-        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
-        assert!(error.contains("duplicate JSON object key"), "{error}");
-
-        let mut drifted = serde_json::to_value(&report).unwrap();
-        drifted["unexpected_v2_field"] = Value::Bool(true);
-        std::fs::write(&path, serde_json::to_vec(&drifted).unwrap()).unwrap();
-        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut aggregate_metric_drift = serde_json::to_value(&report).unwrap();
-        aggregate_metric_drift["content"]["aggregate"]["metrics"]["probe"] = serde_json::json!({
-            "mean": null,
-            "median": null,
-            "p50": null,
-            "p95": null,
-            "unexpected_v2_field": true,
-        });
-        std::fs::write(&path, serde_json::to_vec(&aggregate_metric_drift).unwrap()).unwrap();
-        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut shared_nested_drift = serde_json::to_value(&report).unwrap();
-        shared_nested_drift["metadata"]["degradation"]["unexpected_v2_field"] = Value::Bool(true);
-        std::fs::write(&path, serde_json::to_vec(&shared_nested_drift).unwrap()).unwrap();
-        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut aggregate_coverage_drift = serde_json::to_value(&report).unwrap();
-        aggregate_coverage_drift["content"]["aggregate"]["registry_coverage"]["unexpected_v2_field"] =
-            Value::Bool(true);
-        std::fs::write(
-            &path,
-            serde_json::to_vec(&aggregate_coverage_drift).unwrap(),
-        )
-        .unwrap();
-        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut scenario_support_drift = serde_json::to_value(&report).unwrap();
-        scenario_support_drift["content"]["scenarios"]["shape-drift"]["metric_support"]["probe"] = serde_json::json!({
-            "rows_present": 0,
-            "numeric_rows": 0,
-            "null_rows": 0,
-            "unsupported": false,
-            "unexpected_v2_field": true,
-        });
-        std::fs::write(&path, serde_json::to_vec(&scenario_support_drift).unwrap()).unwrap();
-        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut nullable_omission = serde_json::to_value(&report).unwrap();
-        nullable_omission["content"]["scenarios"]["shape-drift"]["fanout_decisions"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("utilization");
-        std::fs::write(&path, serde_json::to_vec(&nullable_omission).unwrap()).unwrap();
-        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
-        assert!(error.contains("missing field `utilization`"), "{error}");
-
-        let mut nested_drift = serde_json::to_value(&report).unwrap();
-        nested_drift["metadata"]["normalization"]["unexpected_v2_field"] = Value::Bool(true);
-        std::fs::write(&path, serde_json::to_vec(&nested_drift).unwrap()).unwrap();
-        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut incomplete = serde_json::to_value(&report).unwrap();
-        incomplete.as_object_mut().unwrap().remove("content");
-        std::fs::write(&path, serde_json::to_vec(&incomplete).unwrap()).unwrap();
-        let error = format!("{:#}", read_continuity_report(&path).unwrap_err());
-        assert!(error.contains("missing field `content`"), "{error}");
-
+        write_continuity_report(&path, &report).unwrap();
+        assert_eq!(read_continuity_report(&path).unwrap(), report);
         std::fs::remove_file(path).unwrap();
     }
 }

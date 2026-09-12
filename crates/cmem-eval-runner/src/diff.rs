@@ -206,7 +206,6 @@ mod tests {
         edit: impl FnOnce(&mut Value),
     ) -> PerQuestionResult {
         let result = PerQuestionResult {
-            schema_version: cmem_eval::RESULT_SCHEMA_VERSION.into(),
             run_id: run_id.into(),
             question_id: "q1".into(),
             dataset: cmem_eval::DatasetId::new("continuity").unwrap(),

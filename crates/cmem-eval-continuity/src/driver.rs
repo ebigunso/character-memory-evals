@@ -24,12 +24,8 @@ use crate::{
     derived_external_id, observation_external_id,
 };
 
-pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "3.1.0";
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ContinuityQueryTrace {
-    pub schema_version: String,
     pub fixture_id: String,
     pub namespace: String,
     pub pattern: ScenarioPattern,
@@ -54,51 +50,34 @@ pub struct ContinuityScenarioRun {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct RestartProbeSnapshot {
     pub returned_object_ids: Vec<String>,
     pub relevant_returned_count: usize,
     pub expected_relevant_count: usize,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub recall: Option<f64>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub graph_relation_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub graph_verified_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub fanout_decision_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub selectivity_decision_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub scored_selectivity_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub fallback_selectivity_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct RestartProbeDelta {
     pub returned_object_count: i64,
     pub relevant_returned_count: i64,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub recall: Option<f64>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub graph_relation_count: Option<i64>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub graph_verified_count: Option<i64>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub fanout_decision_count: Option<i64>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub selectivity_decision_count: Option<i64>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub scored_selectivity_count: Option<i64>,
-    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub fallback_selectivity_count: Option<i64>,
     pub stable_returned_objects: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct RestartObservation {
     pub event_id: String,
     pub timestamp: chrono::DateTime<Utc>,
@@ -112,15 +91,6 @@ pub struct RestartObservation {
 }
 
 pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> Result<()> {
-    for (index, trace) in traces.iter().enumerate() {
-        if trace.schema_version != CONTINUITY_TRACE_SCHEMA_VERSION {
-            bail!(
-                "continuity trace at index {index} has schema_version {:?}; expected {:?}",
-                trace.schema_version,
-                CONTINUITY_TRACE_SCHEMA_VERSION
-            );
-        }
-    }
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     for trace in traces {
         let mut canonical = trace.clone();
@@ -153,28 +123,12 @@ pub fn read_continuity_traces(path: &Path) -> Result<Vec<ContinuityQueryTrace>> 
         if line.trim().is_empty() {
             continue;
         }
-        let schema_version = cmem_eval::serde_contract::schema_version_from_str(&line)
-            .with_context(|| {
-                format!(
-                    "parse continuity trace line {line_number} from {}",
-                    path.display()
-                )
-            })?;
-        let trace = match schema_version.as_deref() {
-            Some(CONTINUITY_TRACE_SCHEMA_VERSION) => {
-                cmem_eval::serde_contract::reject_duplicate_json_keys(&line)?;
-                serde_json::from_str(&line)?
-            }
-            Some(version) => bail!(
-                "continuity trace line {line_number} in {} has schema_version {version:?}; expected {:?}",
-                path.display(),
-                CONTINUITY_TRACE_SCHEMA_VERSION
-            ),
-            None => bail!(
-                "continuity trace line {line_number} in {} is missing schema_version",
+        let trace = serde_json::from_str(&line).with_context(|| {
+            format!(
+                "parse continuity trace line {line_number} from {}",
                 path.display()
-            ),
-        };
+            )
+        })?;
         traces.push(trace);
     }
     Ok(traces)
@@ -846,7 +800,6 @@ pub async fn run_continuity_scenario(
                 increment(&mut run.operation_counts, "retrieve");
                 run.query_latencies_ms.insert(query_id.clone(), latency_ms);
                 run.traces.push(ContinuityQueryTrace {
-                    schema_version: CONTINUITY_TRACE_SCHEMA_VERSION.to_string(),
                     fixture_id: scenario.fixture_id.clone(),
                     namespace: scenario.namespace.clone(),
                     pattern: scenario.pattern,
@@ -1562,7 +1515,7 @@ mod tests {
             .append(true)
             .open(&path)
             .unwrap()
-            .write_all(b"{\"schema_version\":\"2.2.0\"")
+            .write_all(b"{")
             .unwrap();
 
         let error = read_continuity_traces(&path).unwrap_err().to_string();
@@ -1571,88 +1524,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn trace_reader_rejects_an_incompatible_schema_version() {
-        let (mut traces, _, _) = run_all().await;
-        traces[0].schema_version = "9.9.9".to_string();
-        let path = temporary_trace_path();
-        std::fs::write(&path, "preserved\n").unwrap();
-        let error = write_continuity_traces(&path, &[traces[1].clone(), traces[0].clone()])
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("index 1"), "{error}");
-        assert!(error.contains("9.9.9"), "{error}");
-        assert!(error.contains(CONTINUITY_TRACE_SCHEMA_VERSION), "{error}");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "preserved\n");
-        std::fs::remove_file(&path).unwrap();
-    }
-
-    #[tokio::test]
-    async fn trace_reader_round_trips_current_and_rejects_superseded_schemas() {
+    async fn trace_reader_round_trips_traces() {
         let (traces, _, _) = run_all().await;
         let path = temporary_trace_path();
         write_continuity_traces(&path, &traces[..1]).unwrap();
         let decoded = read_continuity_traces(&path).unwrap();
         assert_eq!(decoded.len(), 1);
-        assert_eq!(decoded[0].schema_version, CONTINUITY_TRACE_SCHEMA_VERSION);
         assert_eq!(decoded[0].fixture_id, traces[0].fixture_id);
         assert_eq!(decoded[0].query_id, traces[0].query_id);
 
-        let mut legacy = serde_json::to_value(&traces[0]).unwrap();
-        let object = legacy.as_object_mut().unwrap();
-        object.remove("write_outcomes");
-        object.remove("lifecycle_outcomes");
-
-        for version in ["1.0.0", "2.0.0"] {
-            legacy["schema_version"] = Value::String(version.to_string());
-            std::fs::write(
-                &path,
-                format!("{}\n", serde_json::to_string(&legacy).unwrap()),
-            )
-            .unwrap();
-            let error = read_continuity_traces(&path).unwrap_err().to_string();
-            assert!(error.contains("schema_version"), "{error}");
-            assert!(error.contains(version), "{error}");
-            assert!(error.contains(CONTINUITY_TRACE_SCHEMA_VERSION), "{error}");
-        }
         std::fs::remove_file(&path).unwrap();
-    }
-
-    #[tokio::test]
-    async fn trace_reader_rejects_owned_shape_drift() {
-        let (traces, _, _) = run_all().await;
-        let path = temporary_trace_path();
-        let value = serde_json::to_value(&traces[0]).unwrap();
-        for field in [
-            "write_outcomes",
-            "link_outcomes",
-            "lifecycle_outcomes",
-            "retrieval",
-        ] {
-            let mut missing = value.clone();
-            missing.as_object_mut().unwrap().remove(field);
-            std::fs::write(&path, serde_json::to_vec(&missing).unwrap()).unwrap();
-            assert!(read_continuity_traces(&path).is_err());
-        }
-        let mut unknown = value;
-        unknown["retrieval"]["unexpected_field"] = Value::Bool(true);
-        std::fs::write(&path, serde_json::to_vec(&unknown).unwrap()).unwrap();
-        assert!(read_continuity_traces(&path).is_err());
-        std::fs::write(
-            &path,
-            r#"{"schema_version":"3.1.0","schema_version":"3.1.0"}"#,
-        )
-        .unwrap();
-        assert!(format!("{:#}", read_continuity_traces(&path).unwrap_err()).contains("duplicate"));
-        std::fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn trace_reader_rejects_missing_schema_version() {
-        let path = temporary_trace_path();
-        std::fs::write(&path, "{}\n").unwrap();
-        let error = read_continuity_traces(&path).unwrap_err().to_string();
-        std::fs::remove_file(&path).unwrap();
-        assert!(error.contains("missing schema_version"), "{error}");
     }
 
     #[test]

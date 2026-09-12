@@ -470,7 +470,6 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                 let metrics = MetricsRecord::try_from(metrics)?;
                 let (retrieved, context_text, _, _, retrieval_outcomes) = pack.into_parts();
                 rows.push(PerQuestionResult {
-                    schema_version: cmem_eval::RESULT_SCHEMA_VERSION.to_string(),
                     run_id: config.run_id.clone(),
                     dataset: config.dataset.clone(),
                     dataset_kind: dataset.kind,
@@ -854,7 +853,6 @@ fn continuity_result_row(
         .as_str()
         .map(str::to_string);
     Ok(PerQuestionResult {
-        schema_version: cmem_eval::RESULT_SCHEMA_VERSION.to_string(),
         run_id: config.run_id.clone(),
         dataset: config.dataset.clone(),
         dataset_kind: DatasetKind::Continuity,
@@ -2469,10 +2467,6 @@ mod tests {
         })
         .unwrap();
         assert_eq!(report.content.aggregate, second_report.content.aggregate);
-        assert_eq!(
-            report.schema_version,
-            cmem_eval_continuity::CONTINUITY_REPORT_SCHEMA_VERSION
-        );
         assert_eq!(report.metadata.embedding_seeds.len(), 13);
         assert_eq!(
             report.metadata.normalization.nondeterministic_paths,
@@ -2491,10 +2485,6 @@ mod tests {
         assert_eq!(
             report.metadata.config["retrieval"]["surface_policy"]["max_graph_roots"],
             serde_json::json!(48)
-        );
-        assert_eq!(
-            report.metadata.schema_versions["continuity_report"],
-            cmem_eval_continuity::CONTINUITY_REPORT_SCHEMA_VERSION
         );
         assert_eq!(report.content.scenarios.len(), 15);
         assert!(report.content.scenarios.values().all(|scenario| {

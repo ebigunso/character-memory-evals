@@ -134,24 +134,18 @@ pub struct RetrieveInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct RetrievedItem {
     pub kind: ObjectType,
     pub internal_id: String,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub external_id: Option<String>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub episode_external_id: Option<String>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub score: Option<f64>,
     pub rank: usize,
     pub rationale: Vec<String>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct RetrievedContextPack {
     items: Vec<RetrievedItem>,
     context_text: String,
@@ -480,7 +474,6 @@ pub struct CommitWriteResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct NamespaceLifecycleResult {
     pub namespace: String,
     pub restored_identity_count: usize,

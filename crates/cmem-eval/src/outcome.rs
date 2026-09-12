@@ -9,7 +9,6 @@ pub use character_memory::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct RecordedOutcome<T> {
     pub operation_id: String,
     pub outcome: T,
@@ -22,7 +21,6 @@ pub struct WriteResult<T, O = RememberOutcome> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(deny_unknown_fields)]
 pub struct DegradationSummary {
     pub any_degradation: bool,
 }
