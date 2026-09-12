@@ -1234,13 +1234,12 @@ fn create_run_root(
             fs::create_dir_all(parent)?;
             let canonical_parent = fs::canonicalize(parent)?;
             match fs::symlink_metadata(path) {
-                Ok(metadata) if metadata.file_type().is_symlink() => {
-                    bail!("{name} must not be a symbolic link: {}", path.display());
+                Ok(_) => {
+                    bail!(
+                        "{name} already exists; choose a new output directory or remove it: {}",
+                        path.display()
+                    );
                 }
-                Ok(metadata) if !metadata.is_file() => {
-                    bail!("{name} must name a regular file: {}", path.display());
-                }
-                Ok(_) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => {
                     return Err(error)
@@ -1882,11 +1881,7 @@ mod tests {
         let header = sibling_output(&args.run.out, "header.json");
         symlink_file(&target, &header).unwrap();
         let error = run_continuity(args).await.unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .starts_with("header must not be a symbolic link:")
-        );
+        assert!(error.to_string().starts_with("header already exists;"));
         assert!(!output_dir.join("stores").exists());
         assert_eq!(fs::read_dir(&output_dir).unwrap().count(), 1);
         fs::remove_file(header).unwrap();
@@ -1910,7 +1905,7 @@ mod tests {
                 assert!(
                     error
                         .to_string()
-                        .starts_with(&format!("{name} must not be a symbolic link:"))
+                        .starts_with(&format!("{name} already exists;"))
                 );
                 assert!(!output_dir.join("stores").exists());
                 fs::remove_file(leaf).unwrap();
@@ -1922,21 +1917,58 @@ mod tests {
     }
 
     #[test]
-    fn existing_regular_output_files_remain_writable() {
+    fn existing_output_files_and_directories_fail_admission() {
         let directory = tempfile::tempdir().unwrap();
         let output = directory.path().join("results.jsonl");
         let header = directory.path().join("header.json");
         let report = directory.path().join("report.json");
-        let outputs = [&output, &header, &report];
-        for path in outputs {
-            fs::write(path, "original").unwrap();
+        for is_directory in [false, true] {
+            for (name, path) in [("out", &output), ("header", &header), ("report", &report)] {
+                if is_directory {
+                    fs::create_dir(path).unwrap();
+                } else {
+                    fs::write(path, "original").unwrap();
+                }
+                let error = create_run_root(&output, &[("header", &header), ("report", &report)])
+                    .unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .starts_with(&format!("{name} already exists;"))
+                );
+                assert!(!directory.path().join("stores").exists());
+                assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+                if is_directory {
+                    assert!(fs::read_dir(path).unwrap().next().is_none());
+                    fs::remove_dir(path).unwrap();
+                } else {
+                    assert_eq!(fs::read_to_string(path).unwrap(), "original");
+                    fs::remove_file(path).unwrap();
+                }
+            }
         }
-        let root = create_run_root(&output, &[("header", &header), ("report", &report)]).unwrap();
-        for path in outputs {
-            fs::write(path, "replacement").unwrap();
-            assert_eq!(fs::read_to_string(path).unwrap(), "replacement");
-        }
-        fs::remove_dir(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn hard_linked_outputs_fail_before_writing_artifacts() {
+        let directory = tempfile::tempdir().unwrap();
+        let output_dir = directory.path().join("outputs");
+        fs::create_dir(&output_dir).unwrap();
+        let mut args = continuity_args(directory.path());
+        args.run.out = output_dir.join("traces.jsonl");
+        let header = sibling_output(&args.run.out, "header.json");
+        fs::write(&args.run.out, b"original").unwrap();
+        fs::hard_link(&args.run.out, &header).unwrap();
+        let artifact = args.run.out.clone();
+
+        let error = run_continuity(args).await.unwrap_err();
+        assert!(error.to_string().starts_with("out already exists;"));
+        assert_eq!(fs::read(&artifact).unwrap(), b"original");
+        assert_eq!(fs::read(&header).unwrap(), b"original");
+        assert_eq!(fs::read_dir(&output_dir).unwrap().count(), 2);
+        // Both names still point to the original file after rejected admission.
+        fs::write(&artifact, b"still linked").unwrap();
+        assert_eq!(fs::read(&header).unwrap(), b"still linked");
     }
 
     #[cfg(windows)]

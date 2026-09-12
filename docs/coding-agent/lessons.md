@@ -916,3 +916,20 @@ Prevention:
 
 Evidence:
 - Accepted Copilot findings on CME #28 and the Task_5 design ruling; cli_rejects_non_jsonl_output_before_creating_directories and continuity_run_cleans_or_retains_stores_on_success_and_admission_failure.
+
+## 2026-09-13 — Require fresh output names instead of permitting overwrite [tags: review, filesystem, artifacts]
+
+Symptom:
+- Two existing hard links named traces.jsonl and header.json passed output admission; writing the header then destroyed the trace while the run reported success.
+
+Root cause:
+- Admission rejected symbolic links but permitted regular-file overwrite. Hard links are regular files, so distinct names did not establish distinct writable objects.
+
+Fix applied:
+- Reject every existing output leaf by name before artifact writes, including regular files, links and directories. A caller chooses a fresh output directory or deliberately removes prior outputs.
+
+Prevention:
+- Treat fresh output names as the run contract; do not reintroduce overwrite admission. Keep the hard-link preservation regression and exercise each artifact name independently. The durable review hotspot is output ownership, including hard links as well as symbolic links.
+
+Evidence:
+- Reviewer P1 at 77cab7b and the Task_5 design ruling; hard_linked_outputs_fail_before_writing_artifacts and existing_output_files_and_directories_fail_admission.

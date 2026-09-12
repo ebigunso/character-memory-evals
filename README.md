@@ -141,7 +141,7 @@ Schema v3 keeps backend persistence identities derived from config, stable names
 
 ### Read run artifacts
 
-Every run writes one JSONL artifact named by `--out`, plus adjacent `header.json` and `report.json`. The output filename must end in `.jsonl`. Give each run its own directory. Outputs are admitted outside that directory's disposable `stores` root before artifact writes.
+Every run writes one JSONL artifact named by `--out`, plus adjacent `header.json` and `report.json`. The output filename must end in `.jsonl`. Outputs are always new files: if any of these three names already exists as a file, link or directory, admission fails before writing artifacts. Choose a new output directory or deliberately remove the existing outputs before running again. Outputs are admitted outside that directory's disposable `stores` root before artifact writes.
 
 - Continuity `traces.jsonl` carries each query's result payload once at the top level: IDs, question/type, gold labels, retrieved items, context, metrics, measured latency and native outcomes. It also records fixture/namespace/event identity, timestamp, expected labels, history text and restart observations belonging to that probe query. There is no separate rows or summary file.
 - Conventional datasets keep one result row per query in their JSONL artifact.

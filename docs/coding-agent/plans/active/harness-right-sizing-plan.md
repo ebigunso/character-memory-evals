@@ -251,6 +251,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_5 accepted Copilot follow-up: the sole .jsonl output plus fixed sibling header/report names prevents duplicate destinations; the existing CLI regression covers header.json and report.json collisions. RunHeader now carries retention only as optional retain_reason, so the artifact has no contradictory flag/reason pair; configuration retains its two validated keys.
 
+- 2026-09-13 Task_5 P1 correction: shared output admission rejects every existing artifact, header or report name, including regular files, hard links, symbolic links and directories. This replaces the earlier overwrite allowance. The hard-linked trace/header regression verifies rejection before any artifact write and preservation of both links; existing-file coverage now requires rejection. Task_6 follows this priority fix.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.
