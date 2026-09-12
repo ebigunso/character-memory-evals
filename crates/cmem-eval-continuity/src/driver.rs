@@ -24,7 +24,7 @@ use crate::{
     derived_external_id, observation_external_id,
 };
 
-pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "3.0.0";
+pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "3.1.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -184,19 +184,23 @@ pub struct ContinuityRuntime {
     active: Option<Box<CharacterMemoryAdapter>>,
     config: Box<BenchmarkRunConfig>,
     embedding_binding: EmbeddingRuntimeBinding,
+    run_root: std::path::PathBuf,
 }
 
 impl ContinuityRuntime {
     pub async fn new(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         embedding_binding: EmbeddingRuntimeBinding,
     ) -> Result<Self> {
         let adapter =
-            CharacterMemoryAdapter::new_with_binding(config, embedding_binding.clone()).await?;
+            CharacterMemoryAdapter::new_with_binding(run_root, config, embedding_binding.clone())
+                .await?;
         Ok(Self {
             active: Some(Box::new(adapter)),
             config: Box::new(config.clone()),
             embedding_binding,
+            run_root: run_root.to_path_buf(),
         })
     }
 
@@ -217,6 +221,7 @@ impl ContinuityRuntime {
             .context("continuity runtime lost its active adapter")?;
         previous.close().await?;
         let (replacement, lifecycle) = CharacterMemoryAdapter::reconstruct_with_binding(
+            &self.run_root,
             self.config.as_ref(),
             &scenario.namespace,
             self.embedding_binding.clone(),
@@ -224,6 +229,23 @@ impl ContinuityRuntime {
         .await?;
         self.active = Some(Box::new(replacement));
         Ok(lifecycle)
+    }
+
+    pub async fn cleanup(&self, namespace: &str) -> Result<()> {
+        if let Some(adapter) = &self.active {
+            adapter.cleanup_namespace(namespace).await
+        } else {
+            // A failed restart has already closed the old handles; reconstruct only the
+            // adapter configuration so its owned partial stores can still be removed.
+            CharacterMemoryAdapter::new_with_binding(
+                &self.run_root,
+                &self.config,
+                self.embedding_binding.clone(),
+            )
+            .await?
+            .cleanup_namespace(namespace)
+            .await
+        }
     }
 }
 
@@ -241,10 +263,6 @@ pub async fn run_continuity_scenario(
     retrieval: &RetrievalConfig,
 ) -> Result<ContinuityScenarioRun> {
     scenario.validate()?;
-    runtime
-        .adapter()
-        .reset_namespace(&scenario.namespace)
-        .await?;
     runtime
         .adapter()
         .open_namespace(&scenario.namespace)
@@ -1088,14 +1106,6 @@ mod tests {
             ingest: Default::default(),
             metrics: Default::default(),
         };
-        config.backend.namespace_prefix = Some("cmem_eval_driver_test".into());
-        config.backend.cleanup.require_collection_prefix = Some("cmem_eval_driver_test".into());
-        config.backend.identity_registry_dir =
-            Some(directory.path().join("identities").display().to_string());
-        config.backend.oxigraph_persistence_path =
-            Some(directory.path().join("graph").display().to_string());
-        config.backend.retrieval_stats_path =
-            Some(directory.path().join("stats.sqlite").display().to_string());
         let binding = if let Some(fixture) = scenario.embedding.controllable_similarity() {
             config.backend.embedding.provider =
                 cmem_eval::EmbeddingProviderConfig::ControllableSimilarity;
@@ -1123,7 +1133,9 @@ mod tests {
                 store,
             }
         };
-        let mut runtime = ContinuityRuntime::new(&config, binding).await.unwrap();
+        let mut runtime = ContinuityRuntime::new(directory.path(), &config, binding)
+            .await
+            .unwrap();
         let run = run_continuity_scenario(&mut runtime, scenario, &config.retrieval)
             .await
             .unwrap();
@@ -1627,7 +1639,7 @@ mod tests {
         assert!(read_continuity_traces(&path).is_err());
         std::fs::write(
             &path,
-            r#"{"schema_version":"3.0.0","schema_version":"3.0.0"}"#,
+            r#"{"schema_version":"3.1.0","schema_version":"3.1.0"}"#,
         )
         .unwrap();
         assert!(format!("{:#}", read_continuity_traces(&path).unwrap_err()).contains("duplicate"));

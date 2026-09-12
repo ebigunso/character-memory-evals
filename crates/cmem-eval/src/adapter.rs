@@ -24,7 +24,7 @@ use character_memory::{
     ForgetLifecyclePolicy, ForgetMemoryDraft, LifecycleMutationOutcome, LifecycleTargetRef,
     MemoryCandidate, MemoryId, MemoryLinkCandidate, MemoryLinkDraft, MemoryObjectDraft,
     MemoryObjectRef, MemoryThreadCandidate, MemoryThreadDraft, ObjectType, ObservationCandidate,
-    ObservationDraft, PrepareOptions, RememberInput, RememberOutcome, RememberWritePlan,
+    ObservationDraft, RememberInput, RememberOutcome, RememberPlanDefaults, RememberWritePlan,
     ReplacementDerivedMemoryDraft, RetrievalContext, Settings, SourceObjectCorrectionTarget,
     SourceProvenanceReference, SuppressionPolicy, VectorIndexCandidate,
 };
@@ -45,6 +45,7 @@ const QDRANT_REQUEST_TIMEOUT_SECS: u64 = 30;
 
 pub struct CharacterMemoryAdapter {
     config: BenchmarkRunConfig,
+    run_root: PathBuf,
     embedding_binding: EmbeddingRuntimeBinding,
     qdrant: Option<Qdrant>,
     namespaces: Arc<Mutex<HashMap<String, NamespaceState>>>,
@@ -52,7 +53,6 @@ pub struct CharacterMemoryAdapter {
 
 struct NamespaceState {
     memory: CharacterMemory,
-    collection_name: String,
     identity_registry_path: PathBuf,
     identities: ExternalIdRegistry,
 }
@@ -161,7 +161,7 @@ struct VectorHit {
 }
 
 impl CharacterMemoryAdapter {
-    pub async fn new(config: &BenchmarkRunConfig) -> Result<Self> {
+    pub async fn new(run_root: &Path, config: &BenchmarkRunConfig) -> Result<Self> {
         let provider = match config.backend.embedding.provider {
             EmbeddingProviderConfig::Deterministic => LiveEmbeddingProvider::Deterministic,
             EmbeddingProviderConfig::OpenAi => LiveEmbeddingProvider::OpenAi,
@@ -170,6 +170,7 @@ impl CharacterMemoryAdapter {
             }
         };
         Self::new_with_binding(
+            run_root,
             config,
             EmbeddingRuntimeBinding::Live {
                 provider,
@@ -180,28 +181,32 @@ impl CharacterMemoryAdapter {
     }
 
     pub async fn new_with_binding(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         binding: EmbeddingRuntimeBinding,
     ) -> Result<Self> {
         Self::validate_runtime_binding(config, &binding, false)?;
-        Self::new_internal(config, binding).await
+        Self::new_internal(run_root, config, binding).await
     }
 
     pub async fn new_with_controllable_similarity(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         fixture: ControllableSimilarityFixture,
     ) -> Result<Self> {
-        Self::new_with_controllable_similarity_internal(config, fixture, false).await
+        Self::new_with_controllable_similarity_internal(run_root, config, fixture, false).await
     }
 
     pub async fn new_with_padded_controllable_similarity(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         fixture: ControllableSimilarityFixture,
     ) -> Result<Self> {
-        Self::new_with_controllable_similarity_internal(config, fixture, true).await
+        Self::new_with_controllable_similarity_internal(run_root, config, fixture, true).await
     }
 
     async fn new_with_controllable_similarity_internal(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         fixture: ControllableSimilarityFixture,
         allow_storage_padding: bool,
@@ -239,6 +244,7 @@ impl CharacterMemoryAdapter {
             ControllableDimensionPolicy::FixtureDeclared
         };
         Self::new_with_binding(
+            run_root,
             config,
             EmbeddingRuntimeBinding::Controllable {
                 fixture,
@@ -248,31 +254,40 @@ impl CharacterMemoryAdapter {
         .await
     }
 
-    pub async fn new_with_frozen_embeddings(config: &BenchmarkRunConfig) -> Result<Self> {
-        Self::new_with_frozen_embeddings_internal(config, false).await
+    pub async fn new_with_frozen_embeddings(
+        run_root: &Path,
+        config: &BenchmarkRunConfig,
+    ) -> Result<Self> {
+        Self::new_with_frozen_embeddings_internal(run_root, config, false).await
     }
 
     pub async fn new_with_frozen_embedding_provider(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         provider: FrozenEmbeddingProvider,
     ) -> Result<Self> {
-        Self::new_with_frozen_embedding_provider_internal(config, provider, false).await
+        Self::new_with_frozen_embedding_provider_internal(run_root, config, provider, false).await
     }
 
     #[cfg(test)]
-    async fn new_with_test_frozen_embeddings(config: &BenchmarkRunConfig) -> Result<Self> {
-        Self::new_with_frozen_embeddings_internal(config, true).await
+    async fn new_with_test_frozen_embeddings(
+        run_root: &Path,
+        config: &BenchmarkRunConfig,
+    ) -> Result<Self> {
+        Self::new_with_frozen_embeddings_internal(run_root, config, true).await
     }
 
     #[cfg(test)]
     async fn new_with_test_frozen_embedding_provider(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         provider: FrozenEmbeddingProvider,
     ) -> Result<Self> {
-        Self::new_with_frozen_embedding_provider_internal(config, provider, true).await
+        Self::new_with_frozen_embedding_provider_internal(run_root, config, provider, true).await
     }
 
     async fn new_with_frozen_embeddings_internal(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         allow_test_fixture: bool,
     ) -> Result<Self> {
@@ -296,11 +311,17 @@ impl CharacterMemoryAdapter {
             &config.backend.embedding.model,
             vector_size,
         )?;
-        Self::new_with_frozen_embedding_provider_internal(config, provider, allow_test_fixture)
-            .await
+        Self::new_with_frozen_embedding_provider_internal(
+            run_root,
+            config,
+            provider,
+            allow_test_fixture,
+        )
+        .await
     }
 
     async fn new_with_frozen_embedding_provider_internal(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         provider: FrozenEmbeddingProvider,
         allow_test_fixture: bool,
@@ -357,6 +378,7 @@ impl CharacterMemoryAdapter {
             allow_test_fixture,
         )?;
         Self::new_internal(
+            run_root,
             config,
             EmbeddingRuntimeBinding::Frozen {
                 store: provider,
@@ -367,6 +389,7 @@ impl CharacterMemoryAdapter {
     }
 
     async fn new_internal(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         embedding_binding: EmbeddingRuntimeBinding,
     ) -> Result<Self> {
@@ -386,6 +409,7 @@ impl CharacterMemoryAdapter {
         };
         Ok(Self {
             config: config.clone(),
+            run_root: std::path::absolute(run_root)?,
             embedding_binding,
             qdrant,
             namespaces: Arc::new(Mutex::new(HashMap::new())),
@@ -462,6 +486,10 @@ impl CharacterMemoryAdapter {
 
     /// Releases every namespace's stores without deleting their durable data.
     pub async fn close(self) -> Result<()> {
+        self.release_namespaces().await
+    }
+
+    pub async fn release_namespaces(&self) -> Result<()> {
         let mut first_error = None;
         for (namespace, state) in self.namespaces.lock().await.drain() {
             if let Err(error) = state
@@ -477,64 +505,71 @@ impl CharacterMemoryAdapter {
     }
 
     pub async fn reconstruct(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         namespace: &str,
     ) -> Result<(Self, NamespaceLifecycleResult)> {
         config.validate()?;
-        let adapter = Self::new(config).await?;
+        let adapter = Self::new(run_root, config).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
     }
 
     pub async fn reconstruct_with_binding(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         namespace: &str,
         binding: EmbeddingRuntimeBinding,
     ) -> Result<(Self, NamespaceLifecycleResult)> {
-        let adapter = Self::new_with_binding(config, binding).await?;
+        let adapter = Self::new_with_binding(run_root, config, binding).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
     }
 
     pub async fn reconstruct_with_controllable_similarity(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         namespace: &str,
         fixture: ControllableSimilarityFixture,
     ) -> Result<(Self, NamespaceLifecycleResult)> {
         config.validate()?;
-        let adapter = Self::new_with_controllable_similarity(config, fixture).await?;
+        let adapter = Self::new_with_controllable_similarity(run_root, config, fixture).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
     }
 
     pub async fn reconstruct_with_padded_controllable_similarity(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         namespace: &str,
         fixture: ControllableSimilarityFixture,
     ) -> Result<(Self, NamespaceLifecycleResult)> {
         config.validate()?;
-        let adapter = Self::new_with_padded_controllable_similarity(config, fixture).await?;
+        let adapter =
+            Self::new_with_padded_controllable_similarity(run_root, config, fixture).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
     }
 
     pub async fn reconstruct_with_frozen_embeddings(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         namespace: &str,
     ) -> Result<(Self, NamespaceLifecycleResult)> {
         config.validate()?;
-        let adapter = Self::new_with_frozen_embeddings(config).await?;
+        let adapter = Self::new_with_frozen_embeddings(run_root, config).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
     }
 
     pub async fn reconstruct_with_frozen_embedding_provider(
+        run_root: &Path,
         config: &BenchmarkRunConfig,
         namespace: &str,
         provider: FrozenEmbeddingProvider,
     ) -> Result<(Self, NamespaceLifecycleResult)> {
         config.validate()?;
-        let adapter = Self::new_with_frozen_embedding_provider(config, provider).await?;
+        let adapter = Self::new_with_frozen_embedding_provider(run_root, config, provider).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
     }
@@ -566,7 +601,12 @@ impl CharacterMemoryAdapter {
                 .await?
             }
             EmbeddingRuntimeBinding::Controllable { fixture, .. } => {
-                let storage_vector_size = settings.get_embedding_vector_size()?;
+                let storage_vector_size = self
+                    .config
+                    .backend
+                    .embedding
+                    .vector_size
+                    .expect("validated controllable storage size");
                 CharacterMemory::new_with_embedding_provider(
                     settings,
                     vector_collection_name.to_owned(),
@@ -595,42 +635,39 @@ impl CharacterMemoryAdapter {
 
         Ok(NamespaceState {
             memory,
-            collection_name,
             identity_registry_path,
             identities,
         })
     }
 
     fn settings(&self, namespace: &str) -> Result<Settings> {
-        let openai_api_key = env::var(&self.config.backend.openai_api_key_env)
-            .or_else(|_| env::var("OPENAI_API_KEY"))
-            .unwrap_or_else(|_| {
-                if !matches!(
-                    &self.embedding_binding,
-                    EmbeddingRuntimeBinding::Live {
-                        provider: LiveEmbeddingProvider::OpenAi,
-                        ..
-                    }
-                ) {
-                    "deterministic-unused".to_string()
-                } else {
-                    String::new()
-                }
-            });
-        if openai_api_key.is_empty() {
-            bail!(
-                "{} is required for OpenAI live embeddings",
-                self.config.backend.openai_api_key_env
-            );
-        }
-
-        let mut builder = config::Config::builder()
-            .set_override("oxigraph_path", "unused-in-memory")?
-            .set_override("openai_api_key", openai_api_key)?
-            .set_override(
+        let mut builder = config::Config::builder();
+        if matches!(
+            &self.embedding_binding,
+            EmbeddingRuntimeBinding::Live {
+                provider: LiveEmbeddingProvider::OpenAi,
+                ..
+            }
+        ) {
+            let key = env::var(&self.config.backend.openai_api_key_env)
+                .or_else(|_| env::var("OPENAI_API_KEY"))
+                .with_context(|| {
+                    format!(
+                        "{} is required for OpenAI live embeddings",
+                        self.config.backend.openai_api_key_env
+                    )
+                })?;
+            if key.trim().is_empty() {
+                bail!(
+                    "{} is required for OpenAI live embeddings",
+                    self.config.backend.openai_api_key_env
+                );
+            }
+            builder = builder.set_override("openai_api_key", key)?.set_override(
                 "embedding_model",
                 self.config.backend.embedding.model.clone(),
             )?;
+        }
         builder = match self.config.backend.vector_store_mode {
             VectorStoreMode::Embedded => {
                 let path = self.vector_store_path(namespace);
@@ -647,18 +684,21 @@ impl CharacterMemoryAdapter {
                 .set_override("vector_store_mode", "service")?
                 .set_override("qdrant_connection_string", self.qdrant_connection_string()?)?,
         };
-        if let Some(path) = self.oxigraph_persistence_path(namespace) {
-            builder = builder
-                .set_override("graph_store_mode", "persistent")?
-                .set_override("oxigraph_path", path.to_string_lossy().into_owned())?;
-        } else {
-            builder = builder.set_override("graph_store_mode", "in_memory")?;
-        }
-        if let Some(path) = self.retrieval_stats_path(namespace) {
-            builder = builder
-                .set_override("retrieval_stats_store_mode", "sqlite")?
-                .set_override("retrieval_stats_path", path.to_string_lossy().into_owned())?;
-        }
+        builder = builder
+            .set_override("graph_store_mode", "persistent")?
+            .set_override(
+                "oxigraph_path",
+                self.oxigraph_persistence_path(namespace)
+                    .to_string_lossy()
+                    .into_owned(),
+            )?
+            .set_override("retrieval_stats_store_mode", "sqlite")?
+            .set_override(
+                "retrieval_stats_path",
+                self.retrieval_stats_path(namespace)
+                    .to_string_lossy()
+                    .into_owned(),
+            )?;
         if let Some(overrides) = &self.config.backend.character_memory {
             if let Some(alpha) = overrides.selectivity_smoothing_alpha {
                 builder = builder.set_override("selectivity_smoothing_alpha", alpha)?;
@@ -732,133 +772,59 @@ impl CharacterMemoryAdapter {
             .context("QDRANT_CONNECTION_STRING is required for live Character Memory runs")
     }
 
-    fn namespace_prefix(&self) -> &str {
-        self.config
-            .backend
-            .namespace_prefix
-            .as_deref()
-            .unwrap_or("cmem_eval")
-    }
-
     fn namespace_identity_suffix(&self, namespace: &str) -> Uuid {
-        let identity = format!(
-            "{}\0{}\0{namespace}",
-            self.namespace_prefix(),
-            self.config.run_id
-        );
-        Uuid::new_v5(&UUID_NAMESPACE, identity.as_bytes())
-    }
-
-    fn collection_name(&self, namespace: &str) -> String {
-        let prefix = self.namespace_prefix();
-        let suffix = self.namespace_identity_suffix(namespace);
-        format!(
-            "{}_{}_{}_{}",
-            sanitize_collection_segment(prefix),
-            sanitize_collection_segment(&self.config.run_id),
-            sanitize_collection_segment(namespace),
-            suffix.simple()
+        Uuid::new_v5(
+            &UUID_NAMESPACE,
+            format!("{}\0{namespace}", self.config.run_id).as_bytes(),
         )
     }
 
-    /// Registry filenames share the collection's prefix/run/namespace identity. Legacy
-    /// prefix-less registry files are ephemeral eval artifacts and are intentionally not migrated.
-    fn identity_registry_path(&self, namespace: &str) -> PathBuf {
-        let root = self
-            .config
-            .backend
-            .identity_registry_dir
-            .as_deref()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("runs").join(&self.config.run_id));
-        let prefix = self.namespace_prefix();
-        let suffix = self.namespace_identity_suffix(namespace);
-        root.join(format!(
-            "identity-{}-{}-{}.json",
-            sanitize_collection_segment(prefix),
-            sanitize_collection_segment(namespace),
-            suffix.simple()
-        ))
-    }
-
-    /// Configured durable-store paths are roots/templates, never deletion targets. Each
-    /// namespace gets a child path derived from the same prefix/run/namespace identity used by
-    /// Qdrant and the external-ID registry, so reset cannot erase another namespace's state.
-    fn durable_store_identity(&self, namespace: &str) -> String {
+    fn collection_name(&self, namespace: &str) -> String {
         format!(
-            "{}-{}-{}",
-            sanitize_collection_segment(self.namespace_prefix()),
-            sanitize_collection_segment(namespace),
+            "cmem_eval_{}",
             self.namespace_identity_suffix(namespace).simple()
         )
     }
 
-    fn oxigraph_persistence_path(&self, namespace: &str) -> Option<PathBuf> {
-        self.config
-            .backend
-            .oxigraph_persistence_path
-            .as_deref()
-            .map(Path::new)
-            .map(|root| {
-                root.join(format!(
-                    "oxigraph-{}",
-                    self.durable_store_identity(namespace)
-                ))
-            })
+    fn namespace_path(&self, namespace: &str) -> PathBuf {
+        self.run_root.join(
+            self.namespace_identity_suffix(namespace)
+                .simple()
+                .to_string(),
+        )
     }
 
-    fn retrieval_stats_path(&self, namespace: &str) -> Option<PathBuf> {
-        self.config
-            .backend
-            .retrieval_stats_path
-            .as_deref()
-            .map(Path::new)
-            .map(|template| {
-                let parent = template.parent().unwrap_or_else(|| Path::new(""));
-                let stem = template
-                    .file_stem()
-                    .filter(|stem| !stem.is_empty())
-                    .unwrap_or_else(|| std::ffi::OsStr::new("retrieval-stats"));
-                let mut filename = stem.to_os_string();
-                filename.push(format!("-{}", self.durable_store_identity(namespace)));
-                if let Some(extension) = template.extension() {
-                    filename.push(".");
-                    filename.push(extension);
-                }
-                parent.join(filename)
-            })
+    fn identity_registry_path(&self, namespace: &str) -> PathBuf {
+        self.namespace_path(namespace).join("identities.json")
+    }
+
+    fn oxigraph_persistence_path(&self, namespace: &str) -> PathBuf {
+        self.namespace_path(namespace).join("graph")
+    }
+
+    fn retrieval_stats_path(&self, namespace: &str) -> PathBuf {
+        self.namespace_path(namespace).join("stats.sqlite")
     }
 
     fn configured_durable_store_paths(&self, namespace: &str) -> Vec<(&'static str, PathBuf)> {
-        let mut stores = Vec::new();
+        let mut stores = vec![
+            ("Oxigraph store", self.oxigraph_persistence_path(namespace)),
+            (
+                "retrieval stats store",
+                self.retrieval_stats_path(namespace),
+            ),
+        ];
         if self.config.backend.vector_store_mode == VectorStoreMode::Embedded {
             stores.push(("embedded vector store", self.vector_store_path(namespace)));
-        }
-        if let Some(path) = self.oxigraph_persistence_path(namespace) {
-            stores.push(("Oxigraph store", path));
-        }
-        if let Some(path) = self.retrieval_stats_path(namespace) {
-            stores.push(("retrieval stats store", path));
         }
         stores
     }
 
     fn vector_store_path(&self, namespace: &str) -> PathBuf {
-        self.identity_registry_path(namespace)
-            .parent()
-            .expect("identity registry has a parent directory")
-            .join(format!(
-                "vectors-{}",
-                self.namespace_identity_suffix(namespace).simple()
-            ))
+        self.namespace_path(namespace).join("vectors")
     }
 
-    async fn delete_collection_with_prefix(
-        &self,
-        collection_name: &str,
-        required_prefix: &str,
-    ) -> Result<()> {
-        validate_cleanup_target(collection_name, Some(required_prefix))?;
+    async fn delete_collection(&self, collection_name: &str) -> Result<()> {
         let Some(qdrant) = &self.qdrant else {
             return Ok(());
         };
@@ -871,51 +837,6 @@ impl CharacterMemoryAdapter {
                 .delete_collection(collection_name)
                 .await
                 .with_context(|| format!("delete Qdrant collection {collection_name}"))?;
-        }
-        Ok(())
-    }
-
-    async fn reset_namespace_with_prefix(
-        &self,
-        namespace: &str,
-        required_prefix: &str,
-    ) -> Result<()> {
-        let mut namespaces = self.namespaces.lock().await;
-        let (collection_name, identity_registry_path) = {
-            namespaces
-                .get(namespace)
-                .map(|state| {
-                    (
-                        state.collection_name.clone(),
-                        state.identity_registry_path.clone(),
-                    )
-                })
-                .unwrap_or_else(|| {
-                    (
-                        self.collection_name(namespace),
-                        self.identity_registry_path(namespace),
-                    )
-                })
-        };
-        self.delete_collection_with_prefix(&collection_name, required_prefix)
-            .await?;
-        if let Some(state) = namespaces.remove(namespace) {
-            state
-                .memory
-                .close()
-                .await
-                .with_context(|| format!("close namespace {namespace} before removing stores"))?;
-        }
-        if identity_registry_path.exists() {
-            fs::remove_file(&identity_registry_path).with_context(|| {
-                format!(
-                    "remove identity registry {}",
-                    identity_registry_path.display()
-                )
-            })?;
-        }
-        for (store_name, path) in self.configured_durable_store_paths(namespace) {
-            remove_namespace_store(&path, store_name)?;
         }
         Ok(())
     }
@@ -1012,20 +933,11 @@ impl CharacterMemoryAdapter {
         if namespaces.contains_key(namespace) {
             bail!("namespace is already open: {namespace}");
         }
-        let registry_path = self.identity_registry_path(namespace);
-        if registry_path.exists() {
+        let namespace_path = self.namespace_path(namespace);
+        if namespace_path.exists() {
             bail!(
-                "identity registry already exists for namespace {namespace}; use reattach_namespace"
-            );
-        }
-        if let Some((store_name, path)) = self
-            .configured_durable_store_paths(namespace)
-            .into_iter()
-            .find(|(_, path)| path.exists())
-        {
-            bail!(
-                "{store_name} {} already exists for namespace {namespace}; reset the namespace or use reattach_namespace",
-                path.display()
+                "namespace stores {} already exist for {namespace}; use reattach_namespace",
+                namespace_path.display()
             );
         }
         let collection_name = self.collection_name(namespace);
@@ -1036,9 +948,12 @@ impl CharacterMemoryAdapter {
                 .with_context(|| format!("check Qdrant collection {collection_name}"))?
         {
             bail!(
-                "Qdrant collection already exists for namespace {namespace}; reset the namespace or use reattach_namespace"
+                "Qdrant collection {collection_name} already exists for namespace {namespace}; reset the namespace or use reattach_namespace"
             );
         }
+        // Mark ownership before initialization, including a partially created service collection.
+        fs::create_dir(&namespace_path)
+            .with_context(|| format!("create namespace stores {}", namespace_path.display()))?;
         let state = self
             .create_namespace_state(namespace, ExternalIdRegistry::new(namespace))
             .await?;
@@ -1107,24 +1022,28 @@ impl CharacterMemoryAdapter {
     }
 
     pub async fn reset_namespace(&self, namespace: &str) -> Result<()> {
-        let namespace_prefix = self.namespace_prefix();
-        self.reset_namespace_with_prefix(namespace, namespace_prefix)
-            .await
+        if let Some(state) = self.namespaces.lock().await.remove(namespace) {
+            state
+                .memory
+                .close()
+                .await
+                .with_context(|| format!("close namespace {namespace} before removing stores"))?;
+        }
+        let path = self.namespace_path(namespace);
+        if path.exists() {
+            self.delete_collection(&self.collection_name(namespace))
+                .await?;
+            fs::remove_dir_all(&path)
+                .with_context(|| format!("remove namespace stores {}", path.display()))?;
+        }
+        Ok(())
     }
 
     pub async fn cleanup_namespace(&self, namespace: &str) -> Result<()> {
-        if !self.config.backend.cleanup.enabled {
-            return Ok(());
+        if self.config.backend.retain_stores {
+            return self.release_namespaces().await;
         }
-        let cleanup_prefix = self
-            .config
-            .backend
-            .cleanup
-            .require_collection_prefix
-            .as_deref()
-            .context("post-run cleanup requires a collection prefix")?;
-        self.reset_namespace_with_prefix(namespace, cleanup_prefix)
-            .await
+        self.reset_namespace(namespace).await
     }
 
     pub async fn remember_episode(&self, input: EpisodeInput) -> Result<WriteResult<String>> {
@@ -1587,10 +1506,10 @@ impl CharacterMemoryAdapter {
     }
 
     pub async fn prepare(&self, input: PrepareWriteInput) -> Result<PreparedWritePlan> {
-        let mut namespaces = self.namespaces.lock().await;
-        let state = namespaces
-            .get_mut(&input.namespace)
-            .ok_or_else(|| explicit_lifecycle_error(&input.namespace))?;
+        let namespaces = self.namespaces.lock().await;
+        if !namespaces.contains_key(&input.namespace) {
+            return Err(explicit_lifecycle_error(&input.namespace));
+        }
         let episode_id = deterministic_id(&input.namespace, "episode", &input.episode_external_id);
         let observation_id = deterministic_id(
             &input.namespace,
@@ -1598,21 +1517,29 @@ impl CharacterMemoryAdapter {
             &input.observation_external_id,
         );
         let (episode, observation) = staged_source_drafts(&input, episode_id, observation_id)?;
+        let defaults = RememberPlanDefaults::fixed(
+            serde_json::to_string(&(
+                &input.namespace,
+                &input.episode_external_id,
+                &input.observation_external_id,
+            ))?,
+            observation
+                .observed_at
+                .or(episode.started_at)
+                .unwrap_or(DateTime::<Utc>::UNIX_EPOCH),
+        );
         let mut remember_input = RememberInput::new(input.content.clone());
         remember_input.raw_refs = input.raw_refs.clone();
         remember_input.episode_drafts.push(episode);
         remember_input.observation_drafts.push(observation);
-        let backend_plan = state
-            .memory
-            .prepare(
-                remember_input,
-                PrepareOptions {
-                    idempotency_key: input.idempotency_key.clone(),
-                    include_vector_index_candidates: input.include_vector_index_candidates,
-                    include_stats_update_candidates: input.include_stats_update_candidates,
-                },
-            )
-            .await?;
+        let mut backend_plan = remember_input.prepare_write_plan_with_options(
+            &defaults,
+            input.include_vector_index_candidates,
+            input.include_stats_update_candidates,
+        );
+        if let Some(key) = &input.idempotency_key {
+            backend_plan.idempotency_key.clone_from(key);
+        }
         Ok(PreparedWritePlan {
             namespace: input.namespace.clone(),
             input,
@@ -2606,61 +2533,6 @@ fn external_endpoint_from_reverse_maps(
     })
 }
 
-fn validate_cleanup_target(collection_name: &str, required_prefix: Option<&str>) -> Result<()> {
-    let Some(required_prefix) = required_prefix
-        .map(str::trim)
-        .filter(|prefix| !prefix.is_empty())
-    else {
-        bail!("cleanup is enabled but no required collection prefix was configured");
-    };
-    let sanitized_prefix = sanitize_collection_segment(required_prefix);
-    if sanitized_prefix.len() < 3 {
-        bail!("cleanup required collection prefix is too broad");
-    }
-    if !collection_name.starts_with(&sanitized_prefix) {
-        bail!(
-            "refusing to cleanup collection {collection_name}; it does not start with required eval prefix {sanitized_prefix}"
-        );
-    }
-    Ok(())
-}
-
-fn sanitize_collection_segment(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-fn remove_namespace_store(path: &Path, store_name: &str) -> Result<()> {
-    if path.is_dir() {
-        fs::remove_dir_all(path)
-            .with_context(|| format!("remove {store_name} directory {}", path.display()))?;
-    } else if path.exists() {
-        fs::remove_file(path)
-            .with_context(|| format!("remove {store_name} file {}", path.display()))?;
-    }
-    if store_name == "retrieval stats store" {
-        for suffix in ["-wal", "-shm"] {
-            let mut sidecar = path.as_os_str().to_os_string();
-            sidecar.push(suffix);
-            let sidecar = PathBuf::from(sidecar);
-            if sidecar.exists() {
-                fs::remove_file(&sidecar).with_context(|| {
-                    format!("remove retrieval stats store sidecar {}", sidecar.display())
-                })?;
-            }
-        }
-    }
-    Ok(())
-}
-
 struct CharacterMemoryEmbeddingProvider {
     inner: DeterministicEmbeddingProvider,
 }
@@ -2832,16 +2704,16 @@ impl EmbeddingProvider for CharacterMemoryFrozenEmbeddingProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RetrievalSectionBudgets;
     use crate::{
-        CleanupConfig, DatasetId, DerivedMemoryInput, EmbeddingConfig, EntityInput,
-        FrozenEmbeddingStore, MemoryLinkInput, RetrievalSurfacePolicy,
+        DatasetId, DerivedMemoryInput, EmbeddingConfig, EntityInput, FrozenEmbeddingStore,
+        MemoryLinkInput, RetrievalSurfacePolicy,
     };
+    use crate::{DerivedType, RetrievalSectionBudgets};
     use character_memory::{
-        CURRENT_SCHEMA_VERSION, ContinuityContextPack, DerivedType, EntityType, Episode,
-        LifecycleFilterAction, LifecycleFilterDecision, LifecycleFilterReason, MemoryObjectRef,
-        Modality, RelationType, RetentionState, RetrievalRationale, RetrievalTrace,
-        RetrieveOutcome, Stability, VectorCandidateTrace, VectorSurface,
+        CURRENT_SCHEMA_VERSION, ContinuityContextPack, EntityType, Episode, LifecycleFilterAction,
+        LifecycleFilterDecision, LifecycleFilterReason, MemoryObjectRef, Modality, RelationType,
+        RetentionState, RetrievalRationale, RetrievalTrace, RetrieveOutcome, Stability,
+        VectorCandidateTrace, VectorSurface,
     };
     use std::io::Write;
     use std::process::Command;
@@ -2849,18 +2721,14 @@ mod tests {
 
     static LIVE_QDRANT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    fn adapter_config(run_id: String, namespace_prefix: String) -> BenchmarkRunConfig {
-        let mut backend = crate::BackendConfig {
+    fn adapter_config(run_id: String) -> BenchmarkRunConfig {
+        let backend = crate::BackendConfig {
             vector_store_mode: VectorStoreMode::Embedded,
-            namespace_prefix: Some(namespace_prefix.clone()),
             qdrant_connection_string: Some(
                 env::var("QDRANT_CONNECTION_STRING")
                     .unwrap_or_else(|_| "http://127.0.0.1:6334".to_string()),
             ),
-            cleanup: CleanupConfig {
-                enabled: true,
-                require_collection_prefix: Some(namespace_prefix),
-            },
+            openai_api_key_env: "CMEM_EVAL_UNUSED_OPENAI_KEY".into(),
             embedding: EmbeddingConfig {
                 provider: EmbeddingProviderConfig::Deterministic,
                 vector_size: Some(3072),
@@ -2868,13 +2736,12 @@ mod tests {
             },
             ..crate::BackendConfig::default()
         };
-        backend.openai_api_key_env = "CMEM_EVAL_UNUSED_OPENAI_KEY".to_string();
         BenchmarkRunConfig {
             run_id,
             dataset: DatasetId::new("locomo").unwrap(),
             backend,
             retrieval: Default::default(),
-            ingest: crate::IngestConfig::default(),
+            ingest: Default::default(),
             metrics: Default::default(),
         }
     }
@@ -2902,20 +2769,20 @@ mod tests {
 
     #[tokio::test]
     async fn embedded_vector_only_keeps_singleton_budgets_and_ingest_text() {
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agent-work/evals-worker");
         fs::create_dir_all(&root).unwrap();
         let directory = tempfile::tempdir_in(std::path::absolute(root).unwrap()).unwrap();
-        let mut config = adapter_config("vector-budgets".into(), "cmem_eval_budgets".into());
+        let mut config = adapter_config("vector-budgets".into());
         config.retrieval.mode = RetrievalMode::VectorOnly;
         config.retrieval.surface_policy =
             retrieval_surface_policy(1, 2, false, false, false, false);
         config.backend.vector_store_mode = VectorStoreMode::Embedded;
         config.backend.qdrant_connection_string = None;
-        config.backend.identity_registry_dir =
-            Some(directory.path().join("identities").display().to_string());
-        config.backend.retrieval_stats_path =
-            Some(directory.path().join("stats.sqlite").display().to_string());
-        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let adapter = CharacterMemoryAdapter::new(run_root, &config)
+            .await
+            .unwrap();
         adapter.open_namespace("n").await.unwrap();
         for id in ["a", "b", "c"] {
             let episode = adapter
@@ -3016,19 +2883,17 @@ mod tests {
 
     #[tokio::test]
     async fn embedded_namespace_survives_restart_and_cleanup_is_isolated() {
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agent-work/evals-worker");
         fs::create_dir_all(&root).unwrap();
         let directory = tempfile::tempdir_in(std::path::absolute(root).unwrap()).unwrap();
-        let mut config = adapter_config("embedded-lifecycle".into(), "cmem_eval_embedded".into());
+        let mut config = adapter_config("embedded-lifecycle".into());
         config.backend.vector_store_mode = VectorStoreMode::Embedded;
         config.backend.qdrant_connection_string = None;
-        config.backend.identity_registry_dir =
-            Some(directory.path().join("identities").display().to_string());
-        config.backend.oxigraph_persistence_path =
-            Some(directory.path().join("oxigraph").display().to_string());
-        config.backend.retrieval_stats_path =
-            Some(directory.path().join("stats.sqlite").display().to_string());
-        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let adapter = CharacterMemoryAdapter::new(run_root, &config)
+            .await
+            .unwrap();
         let vector_a = adapter.vector_store_path("a");
         let vector_b = adapter.vector_store_path("b");
         let stores: Vec<_> = ["a", "b"]
@@ -3084,7 +2949,9 @@ mod tests {
         assert!(adapter.retrieve(query.clone()).await.is_err());
         assert!(vector_b.exists());
         adapter.close().await.unwrap();
-        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let adapter = CharacterMemoryAdapter::new(run_root, &config)
+            .await
+            .unwrap();
         adapter.reattach_namespace("b").await.unwrap();
         let after = adapter.retrieve(query).await.unwrap();
         assert_eq!(before.items(), after.items());
@@ -3108,11 +2975,15 @@ mod tests {
 
     #[tokio::test]
     async fn oxigraph_env_cannot_redirect_graph_path_probe() {
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
         if env::var_os("CMEM_EVAL_OXIGRAPH_REDIRECT_PROBE").is_none() {
             return;
         }
-        let config = adapter_config("env-probe".into(), "bench:env-probe".into());
-        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let config = adapter_config("env-probe".into());
+        let adapter = CharacterMemoryAdapter::new(run_root, &config)
+            .await
+            .unwrap();
 
         assert_eq!(
             adapter
@@ -3120,7 +2991,7 @@ mod tests {
                 .unwrap()
                 .get_oxigraph_path()
                 .unwrap(),
-            PathBuf::from("unused-in-memory")
+            adapter.oxigraph_persistence_path("namespace")
         );
     }
 
@@ -3169,10 +3040,7 @@ mod tests {
 
     #[test]
     fn explicit_vector_size_skips_model_width_lookup_for_runtime_bindings() {
-        let mut config = adapter_config(
-            "custom-embedding-model".to_string(),
-            "cmem_eval_custom_embedding_model".to_string(),
-        );
+        let mut config = adapter_config("custom-embedding-model".to_string());
         config.backend.embedding.provider = EmbeddingProviderConfig::OpenAi;
         config.backend.embedding.model = "future-custom-embedding-model".to_string();
         config.backend.embedding.vector_size = Some(2_048);
@@ -3241,6 +3109,8 @@ mod tests {
 
     #[tokio::test]
     async fn live_frozen_construction_and_reconstruction_reject_test_fixture_provenance() {
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
         let directory = tempdir().unwrap();
         let store_path = directory.path().join("test-fixture-store.json");
         let store = FrozenEmbeddingStore::new(
@@ -3250,10 +3120,7 @@ mod tests {
         )
         .unwrap();
         fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
-        let mut config = adapter_config(
-            "frozen-provenance".to_string(),
-            "cmem_eval_frozen_provenance".to_string(),
-        );
+        let mut config = adapter_config("frozen-provenance".to_string());
         config.backend.embedding.provider = EmbeddingProviderConfig::Frozen;
         config.backend.embedding.model = "text-embedding-3-small".to_string();
         config.backend.embedding.vector_size = Some(1536);
@@ -3261,15 +3128,17 @@ mod tests {
         let provider =
             FrozenEmbeddingProvider::load(&store_path, "text-embedding-3-small", 1536).unwrap();
 
-        let error = match CharacterMemoryAdapter::new_with_frozen_embeddings(&config).await {
-            Ok(_) => panic!("live construction admitted test-fixture provenance"),
-            Err(error) => error.to_string(),
-        };
+        let error =
+            match CharacterMemoryAdapter::new_with_frozen_embeddings(run_root, &config).await {
+                Ok(_) => panic!("live construction admitted test-fixture provenance"),
+                Err(error) => error.to_string(),
+            };
         assert!(error.contains("source=open_ai_api"), "{error}");
         assert!(error.contains("TestFixture"), "{error}");
         assert!(error.contains(&store_path.display().to_string()), "{error}");
 
         let error = match CharacterMemoryAdapter::reconstruct_with_frozen_embeddings(
+            run_root,
             &config,
             "continuity-frozen-provenance",
         )
@@ -3283,6 +3152,7 @@ mod tests {
         assert!(error.contains(&store_path.display().to_string()), "{error}");
 
         let error = match CharacterMemoryAdapter::new_with_frozen_embedding_provider(
+            run_root,
             &config,
             provider.clone(),
         )
@@ -3296,6 +3166,7 @@ mod tests {
         assert!(error.contains(&store_path.display().to_string()), "{error}");
 
         let error = match CharacterMemoryAdapter::reconstruct_with_frozen_embedding_provider(
+            run_root,
             &config,
             "continuity-frozen-provider-provenance",
             provider.clone(),
@@ -3309,14 +3180,14 @@ mod tests {
         assert!(error.contains("TestFixture"), "{error}");
         assert!(error.contains(&store_path.display().to_string()), "{error}");
 
-        CharacterMemoryAdapter::new_with_test_frozen_embeddings(&config)
+        CharacterMemoryAdapter::new_with_test_frozen_embeddings(run_root, &config)
             .await
             .expect("the cfg(test)-only constructor should admit explicit test provenance");
-        CharacterMemoryAdapter::new_with_test_frozen_embedding_provider(&config, provider)
-            .await
-            .expect(
-                "the cfg(test)-only provider constructor should admit explicit test provenance",
-            );
+        CharacterMemoryAdapter::new_with_test_frozen_embedding_provider(
+            run_root, &config, provider,
+        )
+        .await
+        .expect("the cfg(test)-only provider constructor should admit explicit test provenance");
     }
 
     fn file_contains(path: &Path, needle: &[u8]) -> bool {
@@ -3349,7 +3220,7 @@ mod tests {
     }
 
     #[test]
-    fn typed_plan_preserves_batch_enrichment_commit_topology_and_surfaces() {
+    fn typed_plan_preserves_batch_enrichment_commit_topology() {
         let namespace = "typed-plan-equivalence";
         let committed_at = DateTime::parse_from_rfc3339("2026-07-21T00:00:00Z")
             .unwrap()
@@ -3521,137 +3392,74 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn collection_names_are_deterministic_and_run_scoped() {
-        let first = CharacterMemoryAdapter::new(&adapter_config(
-            "run-a".to_string(),
-            "cmem_eval_task3".to_string(),
-        ))
-        .await
-        .unwrap();
-        let same = CharacterMemoryAdapter::new(&adapter_config(
-            "run-a".to_string(),
-            "cmem_eval_task3".to_string(),
-        ))
-        .await
-        .unwrap();
-        let parallel = CharacterMemoryAdapter::new(&adapter_config(
-            "run-b".to_string(),
-            "cmem_eval_task3".to_string(),
-        ))
-        .await
-        .unwrap();
-        let other_prefix = CharacterMemoryAdapter::new(&adapter_config(
-            "run-a".to_string(),
-            "cmem_eval_other".to_string(),
-        ))
-        .await
-        .unwrap();
-
-        assert_eq!(
-            first.collection_name("namespace"),
-            same.collection_name("namespace")
-        );
-        assert_ne!(
-            first.collection_name("namespace"),
-            parallel.collection_name("namespace")
-        );
-        assert_ne!(
-            first.collection_name("namespace"),
-            other_prefix.collection_name("namespace")
-        );
-        assert_eq!(
-            first.identity_registry_path("namespace"),
-            same.identity_registry_path("namespace")
-        );
-        assert_ne!(
-            first.identity_registry_path("namespace"),
-            parallel.identity_registry_path("namespace")
-        );
-        assert_ne!(
-            first.identity_registry_path("namespace"),
-            other_prefix.identity_registry_path("namespace")
-        );
-        let shared_suffix = first
-            .namespace_identity_suffix("namespace")
-            .simple()
-            .to_string();
-        assert!(first.collection_name("namespace").ends_with(&shared_suffix));
-        assert!(
-            first
-                .identity_registry_path("namespace")
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .ends_with(&format!("{shared_suffix}.json"))
-        );
-        let directory = tempdir().unwrap();
-        let mut first_config = adapter_config("run-a".to_string(), "cmem_eval_task3".to_string());
-        first_config.backend.oxigraph_persistence_path = Some(
-            directory
-                .path()
-                .join("oxigraph-root")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        first_config.backend.retrieval_stats_path = Some(
-            directory
-                .path()
-                .join("retrieval.sqlite")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        let first_with_stores = CharacterMemoryAdapter::new(&first_config).await.unwrap();
-        let oxigraph_path = first_with_stores
-            .oxigraph_persistence_path("namespace")
+    async fn stores_are_namespace_children_and_collections_follow_run_identity() {
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
+        let config = adapter_config("run-a".into());
+        let first = CharacterMemoryAdapter::new(run_root, &config)
+            .await
             .unwrap();
-        let stats_path = first_with_stores.retrieval_stats_path("namespace").unwrap();
-        assert_eq!(
-            oxigraph_path.parent(),
-            Some(directory.path().join("oxigraph-root").as_path())
-        );
-        assert!(oxigraph_path.to_string_lossy().contains(&shared_suffix));
-        assert_eq!(stats_path.parent(), Some(directory.path()));
-        assert!(stats_path.to_string_lossy().contains(&shared_suffix));
-        assert_eq!(
-            stats_path.extension().and_then(|value| value.to_str()),
-            Some("sqlite")
-        );
-        validate_cleanup_target(&first.collection_name("namespace"), Some("cmem_eval_task3"))
+        let same = CharacterMemoryAdapter::new(run_root, &config)
+            .await
             .unwrap();
+        let other = CharacterMemoryAdapter::new(run_root, &adapter_config("run-b".into()))
+            .await
+            .unwrap();
+        assert_eq!(first.collection_name("n"), same.collection_name("n"));
+        assert_ne!(first.collection_name("n"), other.collection_name("n"));
+        assert_ne!(first.collection_name("n"), first.collection_name("sibling"));
+        let namespace_path = first.namespace_path("n");
+        assert_eq!(namespace_path.parent(), Some(run_root));
+        for path in [
+            first.vector_store_path("n"),
+            first.oxigraph_persistence_path("n"),
+            first.retrieval_stats_path("n"),
+            first.identity_registry_path("n"),
+        ] {
+            assert_eq!(path.parent(), Some(namespace_path.as_path()));
+        }
+        fs::create_dir(&namespace_path).unwrap();
+        fs::write(namespace_path.join("sentinel"), b"existing namespace").unwrap();
+        let error = first.open_namespace("n").await.unwrap_err();
+        assert!(format!("{error:#}").contains(&namespace_path.display().to_string()));
+        assert_eq!(
+            fs::read(namespace_path.join("sentinel")).unwrap(),
+            b"existing namespace"
+        );
     }
 
     #[tokio::test]
     async fn matched_deterministic_dimension_satisfies_construction_contract() {
-        let mut config = adapter_config(
-            "dimension-contract".to_string(),
-            "cmem_eval_dimension".to_string(),
-        );
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
+        let mut config = adapter_config("dimension-contract".to_string());
         config.backend.embedding.model = "text-embedding-3-small".to_string();
         config.backend.embedding.vector_size = Some(1536);
         config.validate().unwrap();
 
-        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let adapter = CharacterMemoryAdapter::new(run_root, &config)
+            .await
+            .unwrap();
         let settings = adapter.settings("namespace").unwrap();
         let provider = CharacterMemoryEmbeddingProvider::new(1536).unwrap();
-        assert_eq!(settings.get_embedding_vector_size().unwrap(), 1536);
+        assert!(settings.get_embedding_vector_size().is_err());
+        assert!(settings.get_openai_api_key().is_empty());
         assert_eq!(provider.vector_size(), 1536);
     }
 
     #[tokio::test]
     async fn character_memory_run_overrides_reach_settings_and_absence_preserves_defaults() {
-        let default_config = adapter_config(
-            "settings-defaults".to_string(),
-            "cmem_eval_settings_defaults".to_string(),
-        );
-        let default_adapter = CharacterMemoryAdapter::new(&default_config).await.unwrap();
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
+        let default_config = adapter_config("settings-defaults".to_string());
+        let default_adapter = CharacterMemoryAdapter::new(run_root, &default_config)
+            .await
+            .unwrap();
         let default_settings = default_adapter.settings("namespace").unwrap();
         assert_eq!(default_settings.get_selectivity_smoothing_alpha(), 1.0);
         assert_eq!(default_settings.get_selectivity_gamma(), 1.0);
 
-        let mut overridden_config = adapter_config(
-            "settings-overrides".to_string(),
-            "cmem_eval_settings_overrides".to_string(),
-        );
+        let mut overridden_config = adapter_config("settings-overrides".to_string());
         overridden_config.backend.character_memory = Some(
             serde_json::from_value(serde_json::json!({
                 "selectivity_smoothing_alpha": 2.0,
@@ -3667,7 +3475,7 @@ mod tests {
             .unwrap(),
         );
         overridden_config.validate().unwrap();
-        let overridden_adapter = CharacterMemoryAdapter::new(&overridden_config)
+        let overridden_adapter = CharacterMemoryAdapter::new(run_root, &overridden_config)
             .await
             .unwrap();
         let overridden_settings = overridden_adapter.settings("namespace").unwrap();
@@ -3700,13 +3508,10 @@ mod tests {
                 }),
             ),
         ] {
-            let mut invalid_config = adapter_config(
-                "settings-invalid".to_string(),
-                "cmem_eval_settings_invalid".to_string(),
-            );
+            let mut invalid_config = adapter_config("settings-invalid".to_string());
             invalid_config.backend.character_memory =
                 Some(serde_json::from_value(overrides).unwrap());
-            let error = match CharacterMemoryAdapter::new(&invalid_config).await {
+            let error = match CharacterMemoryAdapter::new(run_root, &invalid_config).await {
                 Ok(_) => panic!("invalid fanout range was admitted for {field}"),
                 Err(error) => error.to_string(),
             };
@@ -3736,13 +3541,7 @@ mod tests {
         assert_eq!(provider.vector_size(), 1536);
         assert_eq!(&vector[..2], &[1.0, -1.0]);
         assert!(vector[2..].iter().all(|component| *component == 0.0));
-        for surface_text in [
-            "Episode summary: fixture text",
-            "Observation excerpt: fixture text",
-            "Reflection: fixture text",
-            "Entity: fixture text",
-            "Thread summary: fixture text",
-        ] {
+        for surface_text in ["Episode summary: fixture text"] {
             assert_eq!(
                 provider.generate_embedding(surface_text).await.unwrap(),
                 vector
@@ -3760,10 +3559,9 @@ mod tests {
 
     #[tokio::test]
     async fn controllable_similarity_construction_requires_matching_fixture_dimension() {
-        let mut config = adapter_config(
-            "controllable-contract".to_string(),
-            "cmem_eval_controllable".to_string(),
-        );
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
+        let mut config = adapter_config("controllable-contract".to_string());
         config.backend.embedding.provider = EmbeddingProviderConfig::ControllableSimilarity;
         config.backend.embedding.vector_size = Some(3);
         let fixture = ControllableSimilarityFixture {
@@ -3781,6 +3579,7 @@ mod tests {
         };
 
         let error = match CharacterMemoryAdapter::new_with_controllable_similarity(
+            run_root,
             &config,
             fixture.clone(),
         )
@@ -3792,7 +3591,7 @@ mod tests {
         assert!(error.contains("fixture vector_size 2"));
         assert!(error.contains("Some(3)"));
 
-        CharacterMemoryAdapter::new_with_padded_controllable_similarity(&config, fixture)
+        CharacterMemoryAdapter::new_with_padded_controllable_similarity(run_root, &config, fixture)
             .await
             .expect("mixed-provider storage padding should be accepted explicitly");
     }
@@ -3887,20 +3686,13 @@ mod tests {
 
     #[tokio::test]
     async fn operational_calls_require_explicit_lifecycle_with_surviving_registry() {
-        let directory = tempdir().unwrap();
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
         let namespace = "explicit-lifecycle";
-        let mut config = adapter_config(
-            "explicit-lifecycle-run".to_string(),
-            "cmem_eval_explicit_lifecycle".to_string(),
-        );
-        config.backend.identity_registry_dir = Some(
-            directory
-                .path()
-                .join("identities")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let config = adapter_config("explicit-lifecycle-run".to_string());
+        let adapter = CharacterMemoryAdapter::new(run_root, &config)
+            .await
+            .unwrap();
         let registry_path = adapter.identity_registry_path(namespace);
         let mut registry = ExternalIdRegistry::new(namespace);
         let existing_id = deterministic_id(namespace, "episode", "existing");
@@ -3973,16 +3765,16 @@ mod tests {
 
     #[tokio::test]
     async fn reconstruct_validates_config_before_qdrant_or_store_io() {
-        let mut config = adapter_config(
-            "invalid-reconstruct".to_string(),
-            "cmem_eval_invalid_reconstruct".to_string(),
-        );
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
+        let mut config = adapter_config("invalid-reconstruct".to_string());
         config.backend.qdrant_connection_string = Some("http://127.0.0.1:1".to_string());
         config.backend.embedding.vector_size = Some(0);
-        let error = match CharacterMemoryAdapter::reconstruct(&config, "never-opened").await {
-            Ok(_) => panic!("invalid reconstruct config was accepted"),
-            Err(error) => error.to_string(),
-        };
+        let error =
+            match CharacterMemoryAdapter::reconstruct(run_root, &config, "never-opened").await {
+                Ok(_) => panic!("invalid reconstruct config was accepted"),
+                Err(error) => error.to_string(),
+            };
 
         assert!(error.contains("backend.embedding.vector_size"));
         assert!(!error.contains("QDRANT_CONNECTION_STRING"));
@@ -3991,10 +3783,11 @@ mod tests {
 
     #[tokio::test]
     async fn embedded_frozen_write_surface_matches_continuity_runtime_normalization() {
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
         let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
         let directory = tempdir().unwrap();
         let token = unique_test_token();
-        let prefix = format!("cmem_eval_frozen_drift_{token}");
         let namespace = "frozen-runtime-normalization";
         let content = "  The  cobalt\tnotebook\nis in   the east cabinet.  ";
         let runtime_lookup_text = cmem_eval_continuity::runtime_memory_embedding_text(content);
@@ -4007,33 +3800,13 @@ mod tests {
         .unwrap();
         fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
 
-        let mut config = adapter_config(format!("frozen-drift-{token}"), prefix.clone());
+        let mut config = adapter_config(format!("frozen-drift-{token}"));
         config.backend.embedding.provider = EmbeddingProviderConfig::Frozen;
         config.backend.embedding.model = "text-embedding-3-small".to_string();
         config.backend.embedding.vector_size = Some(1_536);
         config.backend.embedding.store_path = Some(store_path.display().to_string());
-        config.backend.identity_registry_dir = Some(
-            directory
-                .path()
-                .join("identities")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        config.backend.oxigraph_persistence_path = Some(
-            directory
-                .path()
-                .join("oxigraph")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        config.backend.retrieval_stats_path = Some(
-            directory
-                .path()
-                .join("retrieval-stats.sqlite")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        let adapter = (CharacterMemoryAdapter::new_with_test_frozen_embeddings(&config).await)
+        let adapter = (CharacterMemoryAdapter::new_with_test_frozen_embeddings(run_root, &config)
+            .await)
             .expect("frozen drift-guard adapter construction");
         (adapter.open_namespace(namespace).await).expect("frozen drift-guard namespace open");
         let plan = (adapter
@@ -4069,45 +3842,24 @@ mod tests {
     }
 
     async fn reattach_with_external_ids(mode: VectorStoreMode) {
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
         let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
-        let directory = tempdir().unwrap();
         let token = unique_test_token();
         let run_id = format!("task3-{token}");
-        let prefix = format!("cmem_eval_task3_{token}");
         let namespace = "restart-round-trip";
-        let mut config = adapter_config(run_id, prefix);
+        let mut config = adapter_config(run_id);
         config.backend.vector_store_mode = mode;
-        config.backend.cleanup.enabled = false;
-        config.backend.cleanup.require_collection_prefix = Some("unrelated:prefix".to_string());
-        config.backend.identity_registry_dir = Some(
-            directory
-                .path()
-                .join("identities")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        config.backend.oxigraph_persistence_path = Some(
-            directory
-                .path()
-                .join("oxigraph")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        config.backend.retrieval_stats_path = Some(
-            directory
-                .path()
-                .join("retrieval-stats.sqlite")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        let path_adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let path_adapter = CharacterMemoryAdapter::new(run_root, &config)
+            .await
+            .unwrap();
         let identity_registry_path = path_adapter.identity_registry_path(namespace);
-        let oxigraph_path = path_adapter.oxigraph_persistence_path(namespace).unwrap();
-        let retrieval_stats_path = path_adapter.retrieval_stats_path(namespace).unwrap();
+        let oxigraph_path = path_adapter.oxigraph_persistence_path(namespace);
+        let retrieval_stats_path = path_adapter.retrieval_stats_path(namespace);
         drop(path_adapter);
 
-        let adapter_a =
-            (CharacterMemoryAdapter::new(&config).await).expect("initial adapter construction");
+        let adapter_a = (CharacterMemoryAdapter::new(run_root, &config).await)
+            .expect("initial adapter construction");
         (adapter_a.open_namespace(namespace).await).expect("initial fresh namespace open");
         let staged_plan = (adapter_a
             .prepare(PrepareWriteInput {
@@ -4343,9 +4095,9 @@ mod tests {
             persisted_entity_id.as_bytes()
         ));
 
-        let (adapter_b, lifecycle) = (CharacterMemoryAdapter::reconstruct(&config, namespace)
-            .await)
-            .expect("public adapter reconstruction");
+        let (adapter_b, lifecycle) =
+            (CharacterMemoryAdapter::reconstruct(run_root, &config, namespace).await)
+                .expect("public adapter reconstruction");
         assert_eq!(lifecycle.restored_identity_count, 6);
         {
             let namespaces = adapter_b.namespaces.lock().await;
@@ -4424,7 +4176,7 @@ mod tests {
 
         let oxigraph_backup = oxigraph_path.with_extension("missing-test-backup");
         fs::rename(&oxigraph_path, &oxigraph_backup).unwrap();
-        let adapter_missing_oxigraph = (CharacterMemoryAdapter::new(&config).await)
+        let adapter_missing_oxigraph = (CharacterMemoryAdapter::new(run_root, &config).await)
             .expect("missing-Oxigraph adapter construction");
         let missing_oxigraph_error = (adapter_missing_oxigraph.reattach_namespace(namespace).await)
             .expect_err("expected operation failure");
@@ -4436,7 +4188,7 @@ mod tests {
 
         let retrieval_stats_backup = retrieval_stats_path.with_extension("missing-test-backup");
         fs::rename(&retrieval_stats_path, &retrieval_stats_backup).unwrap();
-        let adapter_missing_stats = (CharacterMemoryAdapter::new(&config).await)
+        let adapter_missing_stats = (CharacterMemoryAdapter::new(run_root, &config).await)
             .expect("missing-stats adapter construction");
         let missing_stats_error = (adapter_missing_stats.reattach_namespace(namespace).await)
             .expect_err("expected operation failure");
@@ -4448,7 +4200,7 @@ mod tests {
 
         let identity_registry_backup = identity_registry_path.with_extension("missing-test-backup");
         fs::rename(&identity_registry_path, &identity_registry_backup).unwrap();
-        let adapter_missing_registry = (CharacterMemoryAdapter::new(&config).await)
+        let adapter_missing_registry = (CharacterMemoryAdapter::new(run_root, &config).await)
             .expect("missing-registry adapter construction");
         let missing_registry_error = (adapter_missing_registry.reattach_namespace(namespace).await)
             .expect_err("expected operation failure");
@@ -4459,8 +4211,8 @@ mod tests {
         drop(adapter_missing_registry);
         fs::rename(&identity_registry_backup, &identity_registry_path).unwrap();
 
-        let adapter_restored_stores =
-            (CharacterMemoryAdapter::new(&config).await).expect("all-stores adapter construction");
+        let adapter_restored_stores = (CharacterMemoryAdapter::new(run_root, &config).await)
+            .expect("all-stores adapter construction");
         let restored_stores = (adapter_restored_stores.reattach_namespace(namespace).await)
             .expect("all-stores namespace reattach");
         assert_eq!(restored_stores.restored_identity_count, 6);
@@ -4476,10 +4228,10 @@ mod tests {
         } else {
             let vector_path = adapter_restored_stores.vector_store_path(namespace);
             adapter_restored_stores.close().await.unwrap();
-            remove_namespace_store(&vector_path, "embedded vector").unwrap();
+            fs::remove_dir_all(&vector_path).unwrap();
         }
 
-        let adapter_missing_collection = (CharacterMemoryAdapter::new(&config).await)
+        let adapter_missing_collection = (CharacterMemoryAdapter::new(run_root, &config).await)
             .expect("missing-collection adapter construction");
         let missing_collection_error = (adapter_missing_collection
             .reattach_namespace(namespace)
@@ -4505,15 +4257,11 @@ mod tests {
         println!("verified reattach rejects a surviving registry without its Qdrant collection");
         drop(adapter_missing_collection);
 
-        let adapter_c =
-            (CharacterMemoryAdapter::new(&config).await).expect("fresh adapter construction");
+        let adapter_c = (CharacterMemoryAdapter::new(run_root, &config).await)
+            .expect("fresh adapter construction");
         let stale_open_error =
             (adapter_c.open_namespace(namespace).await).expect_err("expected operation failure");
-        assert!(
-            stale_open_error
-                .to_string()
-                .contains("identity registry already exists")
-        );
+        assert!(stale_open_error.to_string().contains("namespace stores"));
         (adapter_c.reset_namespace(namespace).await).expect("fresh adapter durable reset");
         assert!(!oxigraph_path.exists());
         assert!(!retrieval_stats_path.exists());
@@ -4552,31 +4300,18 @@ mod tests {
     }
 
     async fn reset_preserves_sibling_stores(mode: VectorStoreMode) {
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
         let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
-        let directory = tempdir().unwrap();
         let token = unique_test_token();
         let run_id = format!("sibling-isolation-{token}");
-        let prefix = format!("cmem_eval_sibling_{token}");
         let namespace_a = "namespace-a";
         let namespace_b = "namespace-b";
-        let oxigraph_root = directory.path().join("shared-oxigraph-root");
-        let stats_template = directory.path().join("shared-retrieval-stats.sqlite");
-        let mut config = adapter_config(run_id, prefix);
+        let mut config = adapter_config(run_id);
         config.backend.vector_store_mode = mode;
-        config.backend.cleanup.enabled = false;
-        config.backend.identity_registry_dir = Some(
-            directory
-                .path()
-                .join("identities")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        config.backend.oxigraph_persistence_path =
-            Some(oxigraph_root.to_string_lossy().into_owned());
-        config.backend.retrieval_stats_path = Some(stats_template.to_string_lossy().into_owned());
 
-        let writer =
-            (CharacterMemoryAdapter::new(&config).await).expect("sibling writer construction");
+        let writer = (CharacterMemoryAdapter::new(run_root, &config).await)
+            .expect("sibling writer construction");
         (writer.open_namespace(namespace_a).await).expect("namespace A fresh open");
         (writer.open_namespace(namespace_b).await).expect("namespace B fresh open");
         for (namespace, label) in [(namespace_a, "a"), (namespace_b, "b")] {
@@ -4625,19 +4360,44 @@ mod tests {
 
         let registry_a = writer.identity_registry_path(namespace_a);
         let registry_b = writer.identity_registry_path(namespace_b);
-        let oxigraph_a = writer.oxigraph_persistence_path(namespace_a).unwrap();
-        let oxigraph_b = writer.oxigraph_persistence_path(namespace_b).unwrap();
-        let stats_a = writer.retrieval_stats_path(namespace_a).unwrap();
-        let stats_b = writer.retrieval_stats_path(namespace_b).unwrap();
+        let oxigraph_a = writer.oxigraph_persistence_path(namespace_a);
+        let oxigraph_b = writer.oxigraph_persistence_path(namespace_b);
+        let stats_a = writer.retrieval_stats_path(namespace_a);
+        let stats_b = writer.retrieval_stats_path(namespace_b);
         let collection_a = writer.collection_name(namespace_a);
         let collection_b = writer.collection_name(namespace_b);
-        assert_eq!(oxigraph_a.parent(), Some(oxigraph_root.as_path()));
-        assert_eq!(oxigraph_b.parent(), Some(oxigraph_root.as_path()));
-        assert_eq!(stats_a.parent(), stats_template.parent());
-        assert_eq!(stats_b.parent(), stats_template.parent());
+        assert_eq!(
+            oxigraph_a.parent(),
+            Some(writer.namespace_path(namespace_a).as_path())
+        );
+        assert_eq!(
+            oxigraph_b.parent(),
+            Some(writer.namespace_path(namespace_b).as_path())
+        );
+        assert_eq!(stats_a.parent(), oxigraph_a.parent());
+        assert_eq!(stats_b.parent(), oxigraph_b.parent());
         assert_ne!(oxigraph_a, oxigraph_b);
         assert_ne!(stats_a, stats_b);
-        assert!(!stats_template.exists());
+        if mode == VectorStoreMode::Service {
+            let foreign_run = tempdir().unwrap();
+            let stranger = CharacterMemoryAdapter::new(foreign_run.path(), &config)
+                .await
+                .unwrap();
+            let error = stranger.open_namespace(namespace_a).await.unwrap_err();
+            assert!(error.to_string().contains(&collection_a), "{error:#}");
+            stranger.cleanup_namespace(namespace_a).await.unwrap();
+            assert!(
+                stranger
+                    .qdrant
+                    .as_ref()
+                    .unwrap()
+                    .collection_exists(&collection_a)
+                    .await
+                    .unwrap()
+            );
+            assert!(fs::read_dir(foreign_run.path()).unwrap().next().is_none());
+            stranger.close().await.unwrap();
+        }
         writer.close().await.unwrap();
 
         let stats_a_wal = path_with_appended_suffix(&stats_a, "-wal");
@@ -4649,8 +4409,8 @@ mod tests {
         let entity_b_id = deterministic_id(namespace_b, "entity", "entity-b").to_string();
         assert!(file_contains(&stats_b, entity_b_id.as_bytes()));
 
-        let resetter =
-            (CharacterMemoryAdapter::new(&config).await).expect("sibling resetter construction");
+        let resetter = (CharacterMemoryAdapter::new(run_root, &config).await)
+            .expect("sibling resetter construction");
         (resetter.reset_namespace(namespace_a).await).expect("namespace A production reset");
 
         assert!(!registry_a.exists());
@@ -4658,7 +4418,7 @@ mod tests {
         assert!(!stats_a.exists());
         assert!(!stats_a_wal.exists());
         assert!(!stats_a_shm.exists());
-        assert!(oxigraph_root.exists());
+        assert!(run_root.exists());
         assert!(registry_b.exists());
         assert!(oxigraph_b.exists());
         assert!(stats_b.exists());
@@ -4711,16 +4471,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn construction_rejects_cleanup_prefix_that_differs_from_namespace_prefix() {
-        let mut config = adapter_config("post-run-cleanup".to_string(), "bench:review".to_string());
-        config.backend.cleanup.require_collection_prefix = Some("unrelated:prefix".to_string());
-        let error = match CharacterMemoryAdapter::new(&config).await {
-            Ok(_) => panic!("mismatched cleanup and namespace prefixes were admitted"),
+    async fn construction_rejects_retention_without_a_reason() {
+        let run_directory = tempdir().unwrap();
+        let run_root = run_directory.path();
+        let mut config = adapter_config("post-run-cleanup".to_string());
+        config.backend.retain_stores = true;
+        let error = match CharacterMemoryAdapter::new(run_root, &config).await {
+            Ok(_) => panic!("retention without a reason was admitted"),
             Err(error) => error.to_string(),
         };
 
-        assert!(error.contains("cleanup.require_collection_prefix"));
-        assert!(error.contains("namespace_prefix"));
+        assert!(error.contains("retain_reason"));
     }
 
     #[test]
@@ -5033,9 +4794,9 @@ mod tests {
         assert_eq!(integrity.superseded_current_leakage_rate, Some(1.0));
     }
 
-    #[test]
-    fn staged_source_drafts_preserve_scripted_timestamps() {
-        let input = PrepareWriteInput {
+    #[tokio::test]
+    async fn staged_native_plan_is_deterministic_and_preserves_scripted_timestamps() {
+        let mut input = PrepareWriteInput {
             namespace: "continuity:test".to_string(),
             content: "scripted memory".to_string(),
             episode_external_id: "episode".to_string(),
@@ -5066,6 +4827,33 @@ mod tests {
             observation.observed_at.unwrap().to_rfc3339(),
             "2025-02-03T04:05:06+00:00"
         );
+        let directory = tempdir().unwrap();
+        let adapter =
+            CharacterMemoryAdapter::new(directory.path(), &adapter_config("staged-plan".into()))
+                .await
+                .unwrap();
+        adapter.open_namespace(&input.namespace).await.unwrap();
+        let first = adapter.prepare(input.clone()).await.unwrap();
+        let second = adapter.prepare(input.clone()).await.unwrap();
+        assert_eq!(first.plan, second.plan);
+        assert!(
+            adapter
+                .validate_plan(&first)
+                .await
+                .unwrap()
+                .iter()
+                .all(|validation| validation.status != CandidateValidationStatus::Invalid)
+        );
+        input.idempotency_key = Some("caller-key".into());
+        input.include_vector_index_candidates = false;
+        input.include_stats_update_candidates = false;
+        let explicit = adapter.prepare(input.clone()).await.unwrap();
+        assert_eq!(explicit.plan.idempotency_key, "caller-key");
+        assert!(!explicit.plan.candidates.iter().any(|candidate| matches!(
+            candidate,
+            MemoryCandidate::VectorIndex(_) | MemoryCandidate::StatsUpdate(_)
+        )));
+        adapter.cleanup_namespace(&input.namespace).await.unwrap();
     }
 
     #[test]
@@ -5088,26 +4876,6 @@ mod tests {
             .to_string();
         assert!(err.contains("dataset loaders should normalize"));
     }
-
-    #[test]
-    fn cleanup_target_requires_eval_prefix_match() {
-        validate_cleanup_target("bench_lme_longmemeval_s_v0_1_lme_q1_abc", Some("bench:lme"))
-            .unwrap();
-
-        let err = validate_cleanup_target("prod_collection", Some("bench:lme"))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("refusing to cleanup"));
-    }
-
-    #[test]
-    fn cleanup_target_rejects_missing_prefix() {
-        let err = validate_cleanup_target("bench_lme_q1", None)
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("no required collection prefix"));
-    }
-
     fn episode(id: MemoryId) -> Episode {
         let now = Utc::now();
         Episode {

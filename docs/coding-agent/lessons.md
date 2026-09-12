@@ -802,3 +802,15 @@ Prevention:
 
 Evidence:
 - Stack-wide CI failure after library #82; the five VectorIndexCandidate constructor calls and the old candidate-text assertion in the Task_8 step 3 typed batch builder.
+
+## 2026-09-13 — Keep Windows engine paths short and dependency checkouts pinned [tags: windows, validation, persistence]
+
+Symptom:
+- RocksDB-backed validation failed in a deeply nested reviewer worktree, and concurrent library edits changed the dependency source seen by the evaluation checkout.
+
+Fix applied and prevention:
+- Use a short evaluation worktree such as `C:/w/cme`, with `C:/w/CharacterMemory` pointing to an isolated sibling checkout pinned at the reviewed library commit. Keep run output paths short too: the stores live beside their result artifacts under `OUT_DIR/stores`.
+- Pass ordinary absolute filesystem paths to the engine; a verbatim Windows path does not remove the engine's path restrictions. Record both commits in validation evidence. Isolate the checkout and dependency before Cargo starts; do not redirect the dependency in the working manifest while another agent edits the sibling repository.
+
+Evidence:
+- Task_8 step 3 reviewer validation used the short-worktree and sibling-junction arrangement. Step 4 retains that arrangement for embedded and service validation.

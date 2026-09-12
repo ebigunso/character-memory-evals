@@ -4,10 +4,6 @@ dataset = "continuity"
 [backend]
 vector_store_mode = "embedded"
 qdrant_connection_string = "http://localhost:6334"
-namespace_prefix = "cmem_eval_xc_e"
-oxigraph_persistence_path = ".agent-work/evals-worker/crossmode/continuity/embedded/stores/oxigraph"
-retrieval_stats_path = ".agent-work/evals-worker/crossmode/continuity/embedded/stores/retrieval.sqlite"
-identity_registry_dir = ".agent-work/evals-worker/crossmode/continuity/embedded/stores/identities"
 
 [backend.character_memory]
 selectivity_smoothing_alpha = 1.0
@@ -25,9 +21,6 @@ max = 5
 min = 0
 max = 15
 
-[backend.cleanup]
-enabled = false
-require_collection_prefix = "cmem_eval_xc_e"
 
 [backend.embedding]
 provider = "frozen"

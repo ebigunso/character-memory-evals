@@ -2,10 +2,6 @@ run_id = "continuity_smoke"
 dataset = "continuity"
 
 [backend]
-namespace_prefix = "cmem_eval_continuity_smoke"
-oxigraph_persistence_path = ".agent-work/continuity-smoke/stores/oxigraph"
-retrieval_stats_path = ".agent-work/continuity-smoke/stores/retrieval.sqlite"
-identity_registry_dir = ".agent-work/continuity-smoke/stores/identities"
 
 [backend.embedding]
 provider = "frozen"

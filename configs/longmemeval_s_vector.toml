@@ -3,11 +3,7 @@ dataset = "longmemeval_s"
 
 [backend]
 vector_store_mode = "embedded"
-namespace_prefix = "bench:lme_vector"
 
-[backend.cleanup]
-enabled = false
-require_collection_prefix = "bench:lme_vector"
 
 [backend.embedding]
 provider = "openai"
