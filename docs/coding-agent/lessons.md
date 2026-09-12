@@ -933,3 +933,37 @@ Prevention:
 
 Evidence:
 - Reviewer P1 at 77cab7b and the Task_5 design ruling; hard_linked_outputs_fail_before_writing_artifacts and existing_output_files_and_directories_fail_admission.
+
+## 2026-09-13 — Enforce no-overwrite at file creation [tags: review, filesystem, artifacts]
+
+Symptom:
+- An output appearing after admission could still be truncated by an artifact writer.
+
+Root cause:
+- The absence check established a point-in-time observation, while File::create and fs::write still allowed replacement.
+
+Fix applied:
+- Every artifact writer uses File::create_new; writer regressions assert that existing bytes survive a failed write. Seal destination writers follow the same rule.
+
+Prevention:
+- Enforce ownership invariants in the filesystem operation itself as well as early admission; verify every concrete writer, including dataset-specific and seal writers.
+
+Evidence:
+- Accepted Copilot finding on CME #31; native-outcome, summary, report and merged-trace round trips plus the header retention regression.
+
+## 2026-09-13 — Update CI consumers when removing CLI flags [tags: review, cli, ci]
+
+Symptom:
+- The embedded smoke job still supplied three removed output flags and failed in clap before comparing results.
+
+Root cause:
+- The CLI and README changed without auditing the invocation inside the hidden .github directory.
+
+Fix applied:
+- The maintained CI smoke uses only --out and compares the merged JSONL artifacts.
+
+Prevention:
+- Search tracked workflow invocations alongside source and README when removing CLI arguments, then execute the changed workflow command lines locally.
+
+Evidence:
+- Accepted Copilot finding on CME #31; embedded-smoke job command replay and removed-flag census.

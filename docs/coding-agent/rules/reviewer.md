@@ -14,7 +14,7 @@ last_updated: "2026-09-13"
 
 ## Review Risk Hotspots
 
-- path_identity: any admission or cleanup decision that compares paths must canonicalize both sides through the filesystem and compare by components; spelling and case folding do not establish identity. A run writes only new output files: any existing destination fails admission by name. Review output ownership with hard-link aliases as well as symbolic links; different names do not prove different writable objects.
+- path_identity: any admission or cleanup decision that compares paths must canonicalize both sides through the filesystem and compare by components; spelling and case folding do not establish identity. A run writes only new output files: any existing destination fails admission by name, and every writer enforces no-overwrite at the create-new syscall, never by an absence check alone. Review output ownership with hard-link aliases as well as symbolic links; different names do not prove different writable objects.
 
 - Optional-diagnostics metric staging: every emitted metric binds to exactly one named stage of the chained limiter pipeline (eligible -> hub cap -> fanout cap); enumerate per-stage producer cardinality before approving optional diagnostics.
 

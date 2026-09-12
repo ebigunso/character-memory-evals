@@ -118,7 +118,7 @@ pub struct RestartObservation {
 }
 
 pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> Result<()> {
-    let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let mut file = File::create_new(path).with_context(|| format!("create {}", path.display()))?;
     for trace in traces {
         let mut canonical = trace.clone();
         canonical

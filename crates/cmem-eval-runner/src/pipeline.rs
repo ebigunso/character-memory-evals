@@ -24,6 +24,7 @@ use cmem_eval_continuity::{
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -1351,7 +1352,10 @@ fn write_run_header(artifact: &Path, header: &cmem_eval::RunHeader) -> Result<()
     let path = sibling_output(artifact, "header.json");
     let mut bytes = serde_json::to_vec_pretty(header)?;
     bytes.push(b'\n');
-    fs::write(&path, bytes).with_context(|| format!("write run header {}", path.display()))
+    let mut file = fs::File::create_new(&path)
+        .with_context(|| format!("create run header {}", path.display()))?;
+    file.write_all(&bytes)
+        .with_context(|| format!("write run header {}", path.display()))
 }
 
 struct RunProgress {
@@ -1716,6 +1720,10 @@ mod tests {
                 );
                 if !fail_output {
                     let header = read_header(&args.run.out);
+                    let header_path = sibling_output(&args.run.out, "header.json");
+                    let existing = fs::read(&header_path).unwrap();
+                    assert!(write_run_header(&args.run.out, &header).is_err());
+                    assert_eq!(fs::read(&header_path).unwrap(), existing);
                     assert_eq!(header.run_id, config.run_id);
                     assert_eq!(header.dataset, config.dataset);
                     assert_eq!(header.dataset_kind, DatasetKind::Continuity);
@@ -1776,7 +1784,7 @@ mod tests {
             let output = directory.path().join("results.jsonl");
             let root = create_run_root(&output, &[]).unwrap();
             fs::create_dir(&output).unwrap();
-            let write_result = fs::write(&output, b"result").map_err(Into::into);
+            let write_result = write_continuity_traces(&output, &[]);
             assert!(finish_run(write_result, None, &root, retain).is_err());
             assert_eq!(root.exists(), retain);
         }
@@ -2515,6 +2523,9 @@ mod tests {
         reordered.result.write_outcomes.reverse();
         let round_trip = directory.path().join("round-trip.jsonl");
         write_continuity_traces(&round_trip, &[reordered]).unwrap();
+        let existing = fs::read(&round_trip).unwrap();
+        assert!(write_continuity_traces(&round_trip, &[]).is_err());
+        assert_eq!(fs::read(&round_trip).unwrap(), existing);
         let decoded = read_traces(&round_trip);
         assert_eq!(decoded, traces[..1]);
 

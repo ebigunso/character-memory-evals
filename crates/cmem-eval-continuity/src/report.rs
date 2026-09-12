@@ -108,7 +108,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
 }
 
 pub fn write_continuity_report(path: &Path, report: &ContinuityReport) -> Result<()> {
-    let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let mut file = File::create_new(path).with_context(|| format!("create {}", path.display()))?;
     serde_json::to_writer_pretty(&mut file, report)?;
     file.write_all(b"\n")?;
     Ok(())
@@ -347,6 +347,9 @@ mod tests {
         .unwrap();
 
         write_continuity_report(&path, &report).unwrap();
+        let existing = std::fs::read(&path).unwrap();
+        assert!(write_continuity_report(&path, &report).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), existing);
         assert_eq!(read_continuity_report(&path).unwrap(), report);
         std::fs::remove_file(path).unwrap();
     }

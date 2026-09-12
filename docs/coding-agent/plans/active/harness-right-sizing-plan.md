@@ -253,6 +253,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_5 P1 correction: shared output admission rejects every existing artifact, header or report name, including regular files, hard links, symbolic links and directories. This replaces the earlier overwrite allowance. The hard-linked trace/header regression verifies rejection before any artifact write and preservation of both links; existing-file coverage now requires rejection. Task_6 follows this priority fix.
 
+- 2026-09-13 Task_5 review round: all JSONL, header and report writers create files atomically without overwrite, closing the gap after admission. Existing-byte preservation is asserted at each writer. The maintained embedded-smoke CI job uses only --out and compares merged artifacts; its command lines are replayed during validation. Task_6 inherits the fix and applies the same creation rule to seal files.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.

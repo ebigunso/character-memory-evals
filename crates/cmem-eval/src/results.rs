@@ -141,7 +141,7 @@ impl Default for RunAdapterMetadata {
 }
 
 pub fn write_jsonl(path: &Path, rows: &[PerQuestionResult]) -> Result<()> {
-    let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let mut file = File::create_new(path).with_context(|| format!("create {}", path.display()))?;
     for row in rows {
         serde_json::to_writer(&mut file, &canonical_row_value(row)?)?;
         file.write_all(b"\n")?;
@@ -164,7 +164,7 @@ fn canonical_row_value(row: &PerQuestionResult) -> serde_json::Result<Value> {
 }
 
 pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
-    let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let mut file = File::create_new(path).with_context(|| format!("create {}", path.display()))?;
     serde_json::to_writer_pretty(&mut file, summary)?;
     file.write_all(b"\n")?;
     Ok(())
@@ -427,6 +427,10 @@ mod tests {
             character_memory::StatsUpdateStatus::failed([], [], Vec::new());
         result.link_outcomes.push(link);
         assert!(summarize_degradation(&[result.clone()]).any_degradation);
+        let existing = std::fs::read(&path).unwrap();
+        assert!(write_jsonl(&path, &[result.clone()]).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), existing);
+        std::fs::remove_file(&path).unwrap();
         write_jsonl(&path, &[result.clone()]).unwrap();
         assert_eq!(
             read_jsonl(&path).unwrap()[0].link_outcomes,
@@ -526,6 +530,9 @@ mod tests {
         let summary =
             summarize_rows(&[row(serde_json::json!({"fixed_metric": 1.0}))], &[]).unwrap();
         write_summary(&path, &summary).unwrap();
+        let existing = std::fs::read(&path).unwrap();
+        assert!(write_summary(&path, &summary).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), existing);
         assert_eq!(
             serde_json::to_value(read_summary(&path).unwrap()).unwrap(),
             serde_json::to_value(summary).unwrap()
