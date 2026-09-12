@@ -1240,20 +1240,6 @@ impl std::fmt::Display for OutputPathInStores {
 
 impl std::error::Error for OutputPathInStores {}
 
-fn absolute_output_path(path: &Path) -> Result<PathBuf> {
-    let mut normalized = PathBuf::new();
-    for component in std::path::absolute(path)?.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            std::path::Component::CurDir => {}
-            component => normalized.push(component.as_os_str()),
-        }
-    }
-    Ok(normalized)
-}
-
 fn create_run_root(
     results_path: &Path,
     other_outputs: &[(&'static str, &Path)],
@@ -1262,35 +1248,43 @@ fn create_run_root(
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let root = output_dir.join("stores");
-    let absolute_root = absolute_output_path(&root)?;
-    for (name, path) in std::iter::once(("out", results_path)).chain(other_outputs.iter().copied())
-    {
-        let absolute_path = absolute_output_path(path)?;
-        let mut components = absolute_path.components();
-        let in_root = absolute_root.components().all(|root_component| {
-            components.next().is_some_and(|component| {
-                if cfg!(windows) {
-                    component
-                        .as_os_str()
-                        .as_encoded_bytes()
-                        .eq_ignore_ascii_case(root_component.as_os_str().as_encoded_bytes())
-                } else {
-                    component == root_component
-                }
-            })
-        });
-        if in_root {
-            return Err(OutputPathInStores {
-                name,
-                path: path.to_path_buf(),
-                root,
-            }
-            .into());
-        }
-    }
     fs::create_dir_all(output_dir)?;
+    let root = output_dir.join("stores");
     fs::create_dir(&root).with_context(|| format!("create run stores {}; existing retained or crashed stores must be inspected before choosing a new output directory", root.display()))?;
+    let admission = (|| -> Result<()> {
+        let canonical_root = fs::canonicalize(&root)?;
+        for (name, path) in
+            std::iter::once(("out", results_path)).chain(other_outputs.iter().copied())
+        {
+            let parent = path
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            fs::create_dir_all(parent)?;
+            let canonical_parent = fs::canonicalize(parent)?;
+            // Resolve existing leaves too: the leaf may be an alias of stores itself.
+            let canonical_path = match fs::canonicalize(path) {
+                Ok(path) => path,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    canonical_parent.join(path.file_name().context("output path must name a file")?)
+                }
+                Err(error) => return Err(error.into()),
+            };
+            if canonical_path.starts_with(&canonical_root) {
+                return Err(OutputPathInStores {
+                    name,
+                    path: path.to_path_buf(),
+                    root: root.clone(),
+                }
+                .into());
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = admission {
+        // This invocation acquired root before creating any output parents inside it.
+        return finish_run(Err(error), None, &root, false).map(|()| root);
+    }
     std::path::absolute(root).map_err(Into::into)
 }
 
@@ -1811,12 +1805,14 @@ mod tests {
                 error.downcast_ref::<OutputPathInStores>().unwrap().name,
                 "header"
             );
-            assert!(!output.parent().unwrap().exists());
+            assert!(!output.exists());
+            assert!(!output.parent().unwrap().join("stores").exists());
         }
         if cfg!(windows) {
             let header = output.with_file_name("STORES/header.json");
             assert!(create_run_root(&output, &[("header", &header)]).is_err());
-            assert!(!output.parent().unwrap().exists());
+            assert!(!output.exists());
+            assert!(!output.parent().unwrap().join("stores").exists());
         }
         let report = output.with_file_name("stores-sibling/report.json");
         let root = create_run_root(&output, &[("report", &report)]).unwrap();
@@ -1824,7 +1820,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn every_output_is_admitted_before_creating_the_run_directory() {
+    async fn every_output_is_admitted_before_writing_artifacts() {
         let directory = tempfile::tempdir().unwrap();
         for name in ["out", "summary-out", "trace-out", "report-out"] {
             let mut args = continuity_args(directory.path());
@@ -1847,7 +1843,8 @@ mod tests {
                 error.downcast_ref::<OutputPathInStores>().unwrap().name,
                 name
             );
-            assert!(!output_dir.exists());
+            assert!(!output_dir.join("stores").exists());
+            assert!(fs::read_dir(&output_dir).unwrap().next().is_none());
         }
         let dataset = directory.path().join("locomo.json");
         fs::write(&dataset, "[]").unwrap();
@@ -1868,10 +1865,62 @@ mod tests {
                 error.downcast_ref::<OutputPathInStores>().unwrap().name,
                 name
             );
-            assert!(!output_dir.exists());
+            assert!(!output_dir.join("stores").exists());
+            assert!(fs::read_dir(&output_dir).unwrap().next().is_none());
         }
     }
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn unicode_case_alias_cannot_place_output_in_stores() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut args = continuity_args(directory.path());
+        args.scenario = Some("correction-chains".into());
+        let output_dir = directory.path().join("\u{e9}valuation");
+        args.run.out = output_dir.join("results.jsonl");
+        args.run.summary_out = directory.path().join("\u{c9}valuation/stores/summary.json");
+        args.trace_out = output_dir.join("traces.jsonl");
+        args.report_out = output_dir.join("report.json");
+        let error = run_continuity(args).await.unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<OutputPathInStores>().unwrap().name,
+            "summary-out"
+        );
+        assert!(fs::read_dir(output_dir).unwrap().next().is_none());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn junction_alias_cannot_place_output_in_stores() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut args = continuity_args(directory.path());
+        args.scenario = Some("correction-chains".into());
+        let output_dir = directory.path().join("real-output");
+        let alias = directory.path().join("output-alias");
+        fs::create_dir(&output_dir).unwrap();
+        let created = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&alias)
+            .arg(&output_dir)
+            .output()
+            .unwrap();
+        assert!(created.status.success(), "{created:?}");
+        let same_identity =
+            fs::canonicalize(&alias).unwrap() == fs::canonicalize(&output_dir).unwrap();
+        args.run.out = output_dir.join("results.jsonl");
+        args.run.summary_out = alias.join("stores/summary.json");
+        args.trace_out = output_dir.join("traces.jsonl");
+        args.report_out = output_dir.join("report.json");
+        let result = run_continuity(args).await;
+        fs::remove_dir(&alias).unwrap();
+        assert!(same_identity);
+        let error = result.unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<OutputPathInStores>().unwrap().name,
+            "summary-out"
+        );
+        assert!(fs::read_dir(output_dir).unwrap().next().is_none());
+    }
     #[test]
     fn run_root_admission_preserves_an_existing_directory() {
         let directory = tempfile::tempdir().unwrap();

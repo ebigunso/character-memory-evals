@@ -239,6 +239,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_8 step 4 Copilot corrections: named output paths are checked against the reserved run stores root before directory creation; retained namespace cleanup closes only that namespace and preserves open siblings and durable files. Added CLI admission, derived-output path, and two-namespace retention regressions. Task_5 is parked while this priority fix lands; Task_4 and Task_5 will be rebased onto the reviewed parent.
 
+- 2026-09-13 Task_8 step 4 P1B correction: output admission resolves filesystem identities after creating required parents and atomically acquiring the reserved root. Removed lexical normalization and ASCII case folding. Unicode-case and junction aliases are rejected before artifact writes; failed admission removes only the acquired root. Added both Windows regressions and the reviewer path-identity hotspot.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.

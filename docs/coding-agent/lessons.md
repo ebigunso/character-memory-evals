@@ -849,3 +849,21 @@ Prevention:
 
 Evidence:
 - Accepted Copilot findings on CME #28; `every_output_is_admitted_before_creating_the_run_directory`, `derived_outputs_cannot_enter_the_reserved_stores_root`, and `retained_cleanup_closes_only_the_named_namespace`.
+
+
+## 2026-09-13 — Resolve path identity through the filesystem [tags: review, paths, cleanup]
+
+Symptom:
+- The reviewer used lowercase e-acute in the output parent and uppercase E-acute in the summary parent on Windows. The summary passed lexical admission, landed under the same stores directory, and was deleted on cleanup.
+
+Root cause:
+- ASCII case folding compared path spellings instead of the filesystem identities that the writers and cleanup used.
+
+Fix applied:
+- Acquire the reserved root atomically, create required output parents, canonicalize both sides through the filesystem, and compare path components. On rejection, remove only the root acquired by this invocation before any artifact write.
+
+Prevention:
+- Admission and cleanup decisions comparing paths must canonicalize both sides and compare components; never infer identity from spelling or case folding. The reviewer hotspot and Unicode-alias regression carry this rule.
+
+Evidence:
+- Step 4 P1B reviewer finding on 13932a6 and unicode_case_alias_cannot_place_output_in_stores, with plain nested-output and existing-root ownership regressions.
