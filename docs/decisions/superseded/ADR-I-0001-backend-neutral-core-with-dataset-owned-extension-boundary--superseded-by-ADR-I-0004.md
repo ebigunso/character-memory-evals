@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded
 adr_type: implementation
 date: 2026-07-24
 deciders: [ebigunso]
@@ -12,11 +12,13 @@ warrant:
 depends_on: []
 implements: []
 supersedes: []
-superseded_by: null
+superseded_by: "implementation/ADR-I-0004-one-shared-evaluation-crate-with-dataset-owned-extension-boundary.md"
 supersession_scope: null
 ---
 
 # ADR-I-0001: Backend-neutral core with dataset-owned extension boundary
+
+Retired on 2026-09-13. Replaced by ADR-I-0004.
 
 ## Context and Problem Statement
 
