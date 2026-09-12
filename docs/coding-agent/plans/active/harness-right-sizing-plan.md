@@ -259,6 +259,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_6 creation ruling: every seal writer uses create-new at the filesystem operation. Sealing removes nothing; a failed attempt preserves its partial destination and reports completed paths and the failed operation for inspection. This replaces the unreviewed rollback implementation and inherits Task_5's syscall-level no-overwrite contract.
 
+- 2026-09-13 Task_6 done (stacked on Task_5): `seal <run-dir>` writes `seal.json` (run header as an object, per-file SHA-256 hashes, sealing time) and copies the artifact, header, report and seal into the tracked `evidence/<run-id>/` directory, never overwriting; `verify <evidence-dir>` recomputes the hashes and fails on mismatch. The register's reference pair is promoted into `evidence/` as bytes with promotion-note seals; the register gains one dated addendum mapping each cited raw hash to its evidence file and each derived identity to its source file and offline derivation. Reviewer verdict recorded on the pull request.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.
