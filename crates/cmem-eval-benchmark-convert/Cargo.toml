@@ -10,6 +10,6 @@ clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 cmem-eval-continuity = { path = "../cmem-eval-continuity" }
-cmem-eval-core = { path = "../cmem-eval-core" }
+cmem-eval = { path = "../cmem-eval" }
 cmem-eval-locomo = { path = "../cmem-eval-locomo" }
 cmem-eval-longmemeval = { path = "../cmem-eval-longmemeval" }

@@ -1,6 +1,18 @@
-pub mod fs_util;
-pub mod openai_embedding;
+use crate::fs_util;
 
+use crate::{
+    BenchmarkRunConfig, CommitWriteOptions, CommitWriteResult, ContextRenderer,
+    ControllableDimensionPolicy, ControllableSimilarityEmbeddingProvider,
+    ControllableSimilarityFixture, CorrectMemoryInput, CorrectionTargetInput,
+    DeterministicEmbeddingProvider, EmbeddingProviderConfig, EmbeddingRuntimeBinding, EpisodeInput,
+    ExternalSourceRefInput, ForgetMemoryInput, FrozenEmbeddingDimensionPolicy,
+    FrozenEmbeddingProvider, FrozenEmbeddingSource, GraphEnrichmentInput, LifecycleMutationResult,
+    LinkMemoryInput, LinkMemoryResult, LiveEmbeddingProvider, MemoryEndpointInput,
+    NamespaceLifecycleResult, ObservationInput, PrepareWriteInput, PreparedWritePlan,
+    RecordedOutcome, ReplacementDerivedMemoryInput, RetrievalMode, RetrievalSurfacePolicy,
+    RetrieveInput, RetrievedContextPack, RetrievedItem, SourceProvenanceInput, SupersessionResult,
+    VectorStoreMode, WriteResult, deterministic_operation_id,
+};
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use character_memory::{
@@ -8,59 +20,15 @@ use character_memory::{
     CharacterMemory, CommitOptions, ContinuitySectionLimits, CorrectMemoryDraft,
     CorrectionCascadePolicy, CorrectionLifecyclePolicy, CorrectionTarget, DEFAULT_SCHEMA_VERSION,
     DerivedMemoryCandidate, DerivedMemoryDraft, DerivedType, EmbeddingProvider, EntityCandidate,
-    EntityDraft, EntityType, EpisodeCandidate, EpisodeDraft, ExternalSourceReference,
-    ForgetCascadePolicy, ForgetLifecyclePolicy, ForgetMemoryDraft, LifecycleFilterAction,
-    LifecycleFilterReason, LifecycleMutationOutcome, LifecycleTargetRef, MemoryCandidate, MemoryId,
-    MemoryLinkCandidate, MemoryLinkDraft, MemoryObjectDraft, MemoryObjectRef,
-    MemoryThreadCandidate, MemoryThreadDraft, ObjectType, ObservationCandidate, ObservationDraft,
-    PrepareOptions, RelationType, RememberInput, RememberOutcome, RememberWritePlan,
-    ReplacementDerivedMemoryDraft, RetentionState, RetrievalContext, Settings,
-    SourceObjectCorrectionTarget, SourceProvenance, SourceProvenanceReference, Stability,
-    SuppressionPolicy, ThreadStatus, VectorIndexCandidate,
+    EntityDraft, EpisodeCandidate, EpisodeDraft, ExternalSourceReference, ForgetCascadePolicy,
+    ForgetLifecyclePolicy, ForgetMemoryDraft, LifecycleMutationOutcome, LifecycleTargetRef,
+    MemoryCandidate, MemoryId, MemoryLinkCandidate, MemoryLinkDraft, MemoryObjectDraft,
+    MemoryObjectRef, MemoryThreadCandidate, MemoryThreadDraft, ObjectType, ObservationCandidate,
+    ObservationDraft, PrepareOptions, RememberInput, RememberOutcome, RememberWritePlan,
+    ReplacementDerivedMemoryDraft, RetrievalContext, Settings, SourceObjectCorrectionTarget,
+    SourceProvenanceReference, SuppressionPolicy, VectorIndexCandidate,
 };
 use chrono::{DateTime, Utc};
-use cmem_eval_core::{
-    BenchmarkRunConfig, CandidateCountRecord, CandidateProducerKind as EvalCandidateProducerKind,
-    CandidateReferenceRole as EvalCandidateReferenceRole,
-    CandidateScoreField as EvalCandidateScoreField,
-    CandidateSourceSpanIssue as EvalCandidateSourceSpanIssue,
-    CandidateTimestampField as EvalCandidateTimestampField, CandidateValidationIssueRecord,
-    CandidateValidationResult, CandidateValidationStatus as EvalCandidateValidationStatus,
-    CommitWriteOptions, CommitWriteResult, ConfiguredCandidateLimits, ConfiguredGraphLimits,
-    ConfiguredLifecyclePolicy, ContextPackSection as EvalContextPackSection, ContextRenderer,
-    ControllableDimensionPolicy, ControllableSimilarityEmbeddingProvider,
-    ControllableSimilarityFixture, CorrectMemoryInput, CorrectionTargetInput,
-    DerivedType as EvalDerivedType, DeterministicEmbeddingProvider, EmbeddingErrorRecord,
-    EmbeddingProviderConfig, EmbeddingRuntimeBinding,
-    EmbeddingTransportErrorKind as EvalEmbeddingTransportErrorKind, EntityType as EvalEntityType,
-    EpisodeInput, ExternalSourceRefInput, ForgetMemoryInput, FrozenEmbeddingDimensionPolicy,
-    FrozenEmbeddingProvider, FrozenEmbeddingSource, GraphEnrichmentInput,
-    GraphExpansionBoundedReason as EvalGraphExpansionBoundedReason, GraphExpansionSummary,
-    GraphFailureMode as EvalGraphFailureMode, GraphQueryErrorRecord,
-    LifecycleFilterReason as EvalLifecycleFilterReason, LifecycleMutationResult,
-    LifecycleOperationKind, LifecycleOutcomeRecord, LifecycleWarningReason, LifecycleWarningRecord,
-    LinkMemoryInput, LinkMemoryResult, LiveEmbeddingProvider, MemoryAdapter,
-    MemoryCandidateKind as EvalMemoryCandidateKind, MemoryEndpointInput,
-    MemoryLinkEndpoint as EvalMemoryLinkEndpoint, NamespaceLifecycleResult, ObjectRefRecord,
-    ObjectType as EvalObjectType, ObservationInput, PlanIdentityField as EvalPlanIdentityField,
-    PrepareWriteInput, PreparedCandidate, PreparedWritePlan,
-    RationaleOrigin as EvalRationaleOrigin, RelationType as EvalRelationType, RepairMarkerRecord,
-    ReplacementDerivedMemoryInput, RetentionState as EvalRetentionState,
-    RetrievalFanoutUtilization, RetrievalMode, RetrievalRationaleCategory, RetrievalSectionBudgets,
-    RetrievalSelectivityDecision, RetrievalStatsHealthCauseRecord, RetrievalStatsStoreErrorRecord,
-    RetrievalSurfacePolicy, RetrievalTelemetry, RetrieveInput, RetrievedContextPack, RetrievedItem,
-    ScopedVectorRecallCompleteness, SectionPressureSummary as EvalSectionPressureSummary,
-    SelectivityCountScope as EvalSelectivityCountScope,
-    SelectivityDecision as EvalSelectivityDecision, SelectivitySummary, SourceProvenanceInput,
-    Stability as EvalStability, StaleCandidateReason as EvalStaleCandidateReason,
-    StatsUpdateCauseRecord, StatsUpdateFailureRecord, StatsUpdateStatusRecord, SupersessionRecord,
-    SupersessionResult, ThreadStatus as EvalThreadStatus, TransportStatus as EvalTransportStatus,
-    VectorDatabaseErrorKind as EvalVectorDatabaseErrorKind, VectorDatabaseErrorRecord,
-    VectorIndexingCauseRecord, VectorIndexingFailureRecord, VectorMaintenanceFailureItemRecord,
-    VectorMaintenanceOperation as EvalVectorMaintenanceOperation, VectorRecallCompleteness,
-    VectorStoreMode, WriteOperationKind, WriteOutcomeRecord, WriteResult,
-    deterministic_operation_id,
-};
 use qdrant_client::{Qdrant, config::QdrantConfig};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
@@ -374,7 +342,7 @@ impl CharacterMemoryAdapter {
         let dimension_policy = if provider.source() == FrozenEmbeddingSource::TestFixture {
             FrozenEmbeddingDimensionPolicy::TestFixture
         } else {
-            cmem_eval_core::classify_frozen_embedding_dimensions(
+            crate::classify_frozen_embedding_dimensions(
                 provider.model(),
                 provider.vector_size(),
                 false,
@@ -432,9 +400,7 @@ impl CharacterMemoryAdapter {
         config.validate()?;
         let configured_size = match config.backend.embedding.vector_size {
             Some(vector_size) => vector_size,
-            None => {
-                cmem_eval_core::model_native_embedding_vector_size(&config.backend.embedding.model)?
-            }
+            None => crate::model_native_embedding_vector_size(&config.backend.embedding.model)?,
         };
         match binding {
             EmbeddingRuntimeBinding::Controllable {
@@ -961,14 +927,7 @@ impl CharacterMemoryAdapter {
             .get_mut(&input.namespace)
             .ok_or_else(|| explicit_lifecycle_error(&input.namespace))?;
         let mut hits = Vec::new();
-        let mut telemetry = RetrievalTelemetry {
-            configured_object_types: Some(input.surface_policy.object_types.clone()),
-            configured_section_limits: Some(input.surface_policy.sections),
-            vector_candidate_count: Some(0),
-            returned_vector_candidate_count: Some(0),
-            ..RetrievalTelemetry::default()
-        };
-        let mut verdicts = Vec::new();
+        let mut outcomes = Vec::new();
         for (kind, budget) in search_plan {
             let object_type = match kind {
                 "episode" => ObjectType::Episode,
@@ -986,13 +945,6 @@ impl CharacterMemoryAdapter {
                 .trace
                 .as_ref()
                 .context("vector-only retrieval omitted requested trace")?;
-            verdicts.push(scoped_completeness(&outcome.rationale.telemetry));
-            telemetry.trace_available = true;
-            telemetry.query_embedding_dimension =
-                Some(outcome.rationale.telemetry.query_embedding_dimension);
-            *telemetry.vector_candidate_count.as_mut().unwrap() += trace.vector_candidates.len();
-            *telemetry.returned_vector_candidate_count.as_mut().unwrap() +=
-                trace.vector_candidates.len();
             // The library trace orders surfaces by score, then canonical identity.
             let mut seen = HashSet::new();
             for candidate in trace
@@ -1026,12 +978,13 @@ impl CharacterMemoryAdapter {
                     text: Some(text.clone()),
                 });
             }
+            outcomes.push(outcome);
         }
-        telemetry.vector_recall_completeness = verdicts;
+
         Ok(vector_hits_to_context_pack(
             &state.identities,
             hits,
-            telemetry,
+            outcomes,
         ))
     }
 }
@@ -1041,24 +994,20 @@ fn vector_only_search_plan(
 ) -> Result<Vec<(&'static str, usize)>> {
     surface_policy.validate_for_vector_only()?;
     let mut plan = Vec::new();
-    if surface_policy
-        .object_types
-        .contains(&EvalObjectType::Episode)
-    {
+    if surface_policy.object_types.contains(&ObjectType::Episode) {
         plan.push(("episode", surface_policy.sections.relevant_episodes));
     }
     if surface_policy
         .object_types
-        .contains(&EvalObjectType::Observation)
+        .contains(&ObjectType::Observation)
     {
         plan.push(("observation", surface_policy.sections.salient_observations));
     }
     Ok(plan)
 }
 
-#[async_trait]
-impl MemoryAdapter for CharacterMemoryAdapter {
-    async fn open_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
+impl CharacterMemoryAdapter {
+    pub async fn open_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
         let mut namespaces = self.namespaces.lock().await;
         if namespaces.contains_key(namespace) {
             bail!("namespace is already open: {namespace}");
@@ -1100,7 +1049,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         })
     }
 
-    async fn reattach_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
+    pub async fn reattach_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
         let mut namespaces = self.namespaces.lock().await;
         if namespaces.contains_key(namespace) {
             bail!("namespace is already open: {namespace}");
@@ -1145,7 +1094,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         })
     }
 
-    async fn detach_namespace(&self, namespace: &str) -> Result<()> {
+    pub async fn detach_namespace(&self, namespace: &str) -> Result<()> {
         let mut namespaces = self.namespaces.lock().await;
         let state = namespaces
             .remove(namespace)
@@ -1157,13 +1106,13 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             .with_context(|| format!("close namespace {namespace} for detach"))
     }
 
-    async fn reset_namespace(&self, namespace: &str) -> Result<()> {
+    pub async fn reset_namespace(&self, namespace: &str) -> Result<()> {
         let namespace_prefix = self.namespace_prefix();
         self.reset_namespace_with_prefix(namespace, namespace_prefix)
             .await
     }
 
-    async fn cleanup_namespace(&self, namespace: &str) -> Result<()> {
+    pub async fn cleanup_namespace(&self, namespace: &str) -> Result<()> {
         if !self.config.backend.cleanup.enabled {
             return Ok(());
         }
@@ -1178,7 +1127,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             .await
     }
 
-    async fn remember_episode(&self, input: EpisodeInput) -> Result<WriteResult<String>> {
+    pub async fn remember_episode(&self, input: EpisodeInput) -> Result<WriteResult<String>> {
         let result = self.remember_episodes(vec![input]).await?;
         let [id]: [String; 1] = result
             .value
@@ -1190,7 +1139,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         })
     }
 
-    async fn remember_episodes(
+    pub async fn remember_episodes(
         &self,
         inputs: Vec<EpisodeInput>,
     ) -> Result<WriteResult<Vec<String>>> {
@@ -1243,7 +1192,10 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         })
     }
 
-    async fn remember_observation(&self, input: ObservationInput) -> Result<WriteResult<String>> {
+    pub async fn remember_observation(
+        &self,
+        input: ObservationInput,
+    ) -> Result<WriteResult<String>> {
         let result = self.remember_observations(vec![input]).await?;
         let [id]: [String; 1] = result
             .value
@@ -1255,7 +1207,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         })
     }
 
-    async fn remember_observations(
+    pub async fn remember_observations(
         &self,
         inputs: Vec<ObservationInput>,
     ) -> Result<WriteResult<Vec<String>>> {
@@ -1321,7 +1273,10 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         })
     }
 
-    async fn remember_enrichment(&self, input: GraphEnrichmentInput) -> Result<WriteOutcomeRecord> {
+    pub async fn remember_enrichment(
+        &self,
+        input: GraphEnrichmentInput,
+    ) -> Result<Option<RecordedOutcome<RememberOutcome>>> {
         let mut namespaces = self.namespaces.lock().await;
         let state = namespaces
             .get_mut(&input.namespace)
@@ -1355,7 +1310,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
 
         for entity in input.entities {
             let id = pending_entities[&entity.external_id];
-            let mut draft = EntityDraft::new(entity_type_to_live(entity.entity_type), entity.name);
+            let mut draft = EntityDraft::new(entity.entity_type, entity.name);
             draft.id = Some(id);
             draft.aliases = entity.aliases;
             draft.canonical_key = entity.canonical_key;
@@ -1367,7 +1322,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             let id = pending_threads[&thread.external_id];
             let mut draft = MemoryThreadDraft::new(thread.title, thread.summary);
             draft.id = Some(id);
-            draft.status = thread_status_to_live(thread.status);
+            draft.status = thread.status;
             draft.last_touched_at = parse_timestamp(thread.last_touched_at.as_deref())?;
             draft.salience_score = thread.salience_score;
             draft.canonical_key = thread.canonical_key;
@@ -1376,8 +1331,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
 
         for memory in input.derived_memories {
             let id = pending_derived[&memory.external_id];
-            let mut draft =
-                DerivedMemoryDraft::new(derived_type_to_live(memory.derived_type), memory.text);
+            let mut draft = DerivedMemoryDraft::new(memory.derived_type, memory.text);
             draft.id = Some(id);
             draft.derived_from_episode_ids = resolve_ids(
                 "episode",
@@ -1405,7 +1359,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             )?;
             draft.confidence = memory.confidence;
             draft.salience_score = memory.salience_score;
-            draft.stability = stability_to_live(memory.stability);
+            draft.stability = memory.stability;
             draft.is_current = memory.is_current;
             draft.supersedes = resolve_ids(
                 "derived_memory",
@@ -1431,13 +1385,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 &pending_threads,
                 &pending_derived,
             )?;
-            let mut draft = MemoryLinkDraft::new(
-                from_type,
-                from_id,
-                relation_type_to_live(link.relation),
-                to_type,
-                to_id,
-            );
+            let mut draft = MemoryLinkDraft::new(from_type, from_id, link.relation, to_type, to_id);
             let id = deterministic_id(&input.namespace, "memory_link", &link.external_id);
             draft.id = Some(id);
             draft.confidence = link.confidence;
@@ -1447,14 +1395,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         }
 
         if objects.is_empty() && links.is_empty() {
-            return Ok(WriteOutcomeRecord::clean(
-                deterministic_operation_id(
-                    &input.namespace,
-                    "remember_enrichment",
-                    std::iter::empty(),
-                ),
-                WriteOperationKind::TypedIngest,
-            ));
+            return Ok(None);
         }
 
         let outcome = commit_typed_drafts(&state.memory, &input.namespace, objects, links).await?;
@@ -1475,10 +1416,13 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             state.reverse_link_ids.insert(id, external_id);
         }
         state.persist_identities()?;
-        Ok(outcome)
+        Ok(Some(outcome))
     }
 
-    async fn link(&self, input: LinkMemoryInput) -> Result<WriteResult<LinkMemoryResult>> {
+    pub async fn link(
+        &self,
+        input: LinkMemoryInput,
+    ) -> Result<WriteResult<LinkMemoryResult, character_memory::LinkOutcome>> {
         let mut namespaces = self.namespaces.lock().await;
         let state = namespaces
             .get_mut(&input.namespace)
@@ -1497,13 +1441,8 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             &BTreeMap::new(),
             &BTreeMap::new(),
         )?;
-        let mut draft = MemoryLinkDraft::new(
-            from_type,
-            from_id,
-            relation_type_to_live(input.link.relation),
-            to_type,
-            to_id,
-        );
+        let mut draft =
+            MemoryLinkDraft::new(from_type, from_id, input.link.relation, to_type, to_id);
         let id = deterministic_id(&input.namespace, "memory_link", &input.link.external_id);
         draft.id = Some(id);
         draft.confidence = input.link.confidence;
@@ -1521,19 +1460,18 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             internal_id: link_id.to_string(),
             external_id: input.link.external_id,
         };
-        let mut outcome = WriteOutcomeRecord::clean(
-            deterministic_operation_id(&input.namespace, "link", [value.external_id.as_str()]),
-            WriteOperationKind::TypedIngest,
-        );
-        outcome
-            .persisted_link_internal_ids
-            .push(value.internal_id.clone());
-        outcome.stats_update_status =
-            stats_update_status_from_live(&link_outcome.stats_update_status);
+        let outcome = RecordedOutcome {
+            operation_id: deterministic_operation_id(
+                &input.namespace,
+                "link",
+                [value.external_id.as_str()],
+            ),
+            outcome: link_outcome,
+        };
         Ok(WriteResult { value, outcome })
     }
 
-    async fn correct(&self, input: CorrectMemoryInput) -> Result<LifecycleMutationResult> {
+    pub async fn correct(&self, input: CorrectMemoryInput) -> Result<LifecycleMutationResult> {
         let operation_identity = serde_json::to_string(&input)
             .context("serialize correction input for deterministic operation identity")?;
         let operation_id =
@@ -1599,15 +1537,10 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             state.reverse_derived_memory_ids.insert(id, external_id);
         }
         state.persist_identities()?;
-        lifecycle_result(
-            state,
-            outcome,
-            operation_id,
-            LifecycleOperationKind::Correct,
-        )
+        lifecycle_result(state, outcome, operation_id)
     }
 
-    async fn forget(&self, input: ForgetMemoryInput) -> Result<LifecycleMutationResult> {
+    pub async fn forget(&self, input: ForgetMemoryInput) -> Result<LifecycleMutationResult> {
         let operation_identity = serde_json::to_string(&input)
             .context("serialize forget input for deterministic operation identity")?;
         let operation_id =
@@ -1645,15 +1578,15 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 apply_to_derived_from_target: input.cascade_policy.apply_to_derived_from_target,
                 apply_to_thread_members: input.cascade_policy.apply_to_thread_members,
             },
-            target_retention_state: retention_state_to_live(input.target_retention_state),
-            target_thread_status: input.target_thread_status.map(thread_status_to_live),
+            target_retention_state: input.target_retention_state,
+            target_thread_status: input.target_thread_status,
             include_trace: input.include_trace,
         };
         let outcome = state.memory.forget(draft).await?;
-        lifecycle_result(state, outcome, operation_id, LifecycleOperationKind::Forget)
+        lifecycle_result(state, outcome, operation_id)
     }
 
-    async fn prepare(&self, input: PrepareWriteInput) -> Result<PreparedWritePlan> {
+    pub async fn prepare(&self, input: PrepareWriteInput) -> Result<PreparedWritePlan> {
         let mut namespaces = self.namespaces.lock().await;
         let state = namespaces
             .get_mut(&input.namespace)
@@ -1680,63 +1613,25 @@ impl MemoryAdapter for CharacterMemoryAdapter {
                 },
             )
             .await?;
-        let known_refs = HashMap::from([
-            (
-                episode_id,
-                MemoryEndpointInput {
-                    object_type: EvalObjectType::Episode,
-                    external_id: input.episode_external_id.clone(),
-                },
-            ),
-            (
-                observation_id,
-                MemoryEndpointInput {
-                    object_type: EvalObjectType::Observation,
-                    external_id: input.observation_external_id.clone(),
-                },
-            ),
-        ]);
-        let candidates = backend_plan
-            .candidates
-            .iter()
-            .map(|candidate| prepared_candidate_from_live(candidate, state, &known_refs))
-            .collect::<Result<Vec<_>>>()?;
-        let validations = backend_plan
-            .validations
-            .iter()
-            .map(candidate_validation_from_live)
-            .collect();
         Ok(PreparedWritePlan {
             namespace: input.namespace.clone(),
-            operation_internal_id: backend_plan.operation_id.to_string(),
-            idempotency_key: backend_plan.idempotency_key.clone(),
             input,
-            candidates,
-            validations,
-            backend_plan: serde_json::to_value(backend_plan)?,
+            plan: backend_plan,
         })
     }
 
-    async fn validate_plan(
+    pub async fn validate_plan(
         &self,
         plan: &PreparedWritePlan,
-    ) -> Result<Vec<CandidateValidationResult>> {
+    ) -> Result<Vec<CandidateValidation>> {
         let mut namespaces = self.namespaces.lock().await;
         let state = namespaces
             .get_mut(&plan.namespace)
             .ok_or_else(|| anyhow!("namespace has no prepared state: {}", plan.namespace))?;
-        let backend_plan: RememberWritePlan = serde_json::from_value(plan.backend_plan.clone())
-            .context("deserialize Character Memory write plan")?;
-        Ok(state
-            .memory
-            .validate_plan(&backend_plan)
-            .await?
-            .iter()
-            .map(candidate_validation_from_live)
-            .collect())
+        Ok(state.memory.validate_plan(&plan.plan).await?)
     }
 
-    async fn commit(
+    pub async fn commit(
         &self,
         plan: PreparedWritePlan,
         options: CommitWriteOptions,
@@ -1745,8 +1640,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
         let state = namespaces
             .get_mut(&plan.namespace)
             .ok_or_else(|| anyhow!("namespace has no prepared state: {}", plan.namespace))?;
-        let backend_plan: RememberWritePlan = serde_json::from_value(plan.backend_plan)
-            .context("deserialize Character Memory write plan")?;
+        let backend_plan = plan.plan;
         let operation_id = backend_plan.idempotency_key.clone();
         let outcome = state
             .memory
@@ -1809,44 +1703,21 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             .iter()
             .filter_map(|id| external_endpoint_for_id(state, *id))
             .collect::<Vec<_>>();
-        let object_types = BTreeMap::from([
-            (episode_id, ObjectType::Episode),
-            (observation_id, ObjectType::Observation),
-        ]);
-        let mut record = write_outcome_from_live(
-            operation_id,
-            WriteOperationKind::ExplicitCommit,
-            &outcome,
-            &object_types,
-        );
-        for object in record
-            .persisted_objects
-            .iter_mut()
-            .chain(record.vector_indexed_objects.iter_mut())
-        {
-            object.external_id = object
-                .internal_id
-                .parse::<MemoryId>()
-                .ok()
-                .and_then(|id| external_endpoint_for_id(state, id))
-                .map(|endpoint| endpoint.external_id);
-        }
         Ok(CommitWriteResult {
             persisted_object_refs,
             persisted_link_external_ids,
             vector_indexed_object_refs,
-            repair_needed: record.repair_needed.clone(),
-            outcome: record,
+            repair_needed: outcome.repair_needed.clone(),
+            outcome: RecordedOutcome {
+                operation_id,
+                outcome,
+            },
         })
     }
 
-    async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
+    pub async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
         match input.mode {
-            RetrievalMode::Bm25Only => {
-                bail!(
-                    "retrieval.mode=bm25_only is service-free and must be run with `--adapter mock --allow-mock-benchmark`; the live Character Memory adapter would use Qdrant/Oxigraph"
-                );
-            }
+            RetrievalMode::Bm25Only => bail!("BM25 retrieval uses the ingested-text baseline"),
             RetrievalMode::VectorOnly => return self.retrieve_vector_only(input).await,
             RetrievalMode::Hybrid => {}
         }
@@ -1875,13 +1746,7 @@ impl MemoryAdapter for CharacterMemoryAdapter {
             commitments: sections.commitments,
             character_signals: sections.character_signals,
         };
-        context.object_type_defaults = input
-            .surface_policy
-            .object_types
-            .iter()
-            .copied()
-            .map(object_type_to_live)
-            .collect();
+        context.object_type_defaults = input.surface_policy.object_types;
 
         let outcome = state.memory.retrieve(context).await?;
         Ok(flatten_outcome(state, outcome))
@@ -1892,7 +1757,6 @@ fn flatten_outcome(
     state: &ExternalIdRegistry,
     outcome: character_memory::RetrieveOutcome,
 ) -> RetrievedContextPack {
-    let telemetry = telemetry_from_outcome(state, &outcome);
     let mut trace_score_by_id: HashMap<MemoryId, f64> = HashMap::new();
     if let Some(trace) = &outcome.trace {
         for candidate in &trace.vector_candidates {
@@ -1901,38 +1765,38 @@ fn flatten_outcome(
     }
 
     let mut items = Vec::new();
-    for thread in outcome.pack.active_threads {
+    for thread in &outcome.pack.active_threads {
         items.push(RetrievedItem {
-            kind: EvalObjectType::MemoryThread,
+            kind: ObjectType::MemoryThread,
             internal_id: thread.id.to_string(),
             external_id: state.reverse_thread_ids.get(&thread.id).cloned(),
             episode_external_id: None,
             score: trace_score_by_id.get(&thread.id).copied(),
             rank: items.len() + 1,
             rationale: vec![outcome.rationale.summary.clone()],
-            text: Some(thread.summary),
+            text: Some(thread.summary.clone()),
         });
     }
 
-    for episode in outcome.pack.relevant_episodes {
+    for episode in &outcome.pack.relevant_episodes {
         let external_id = state
             .reverse_episode_ids
             .get(&episode.id)
             .cloned()
             .or(episode.source_conversation_id.clone());
         items.push(RetrievedItem {
-            kind: EvalObjectType::Episode,
+            kind: ObjectType::Episode,
             internal_id: episode.id.to_string(),
             external_id,
             episode_external_id: None,
             score: trace_score_by_id.get(&episode.id).copied(),
             rank: items.len() + 1,
             rationale: vec![outcome.rationale.summary.clone()],
-            text: Some(episode.summary),
+            text: Some(episode.summary.clone()),
         });
     }
 
-    for observation in outcome.pack.salient_observations {
+    for observation in &outcome.pack.salient_observations {
         let mapped = state.reverse_observation_ids.get(&observation.id).cloned();
         let (external_id, episode_external_id) = mapped
             .map(|(obs_id, ep_id)| (Some(obs_id), Some(ep_id)))
@@ -1946,14 +1810,14 @@ fn flatten_outcome(
                 )
             });
         items.push(RetrievedItem {
-            kind: EvalObjectType::Observation,
+            kind: ObjectType::Observation,
             internal_id: observation.id.to_string(),
             external_id,
             episode_external_id,
             score: trace_score_by_id.get(&observation.id).copied(),
             rank: items.len() + 1,
             rationale: vec![outcome.rationale.summary.clone()],
-            text: Some(observation.text),
+            text: Some(observation.text.clone()),
         });
     }
 
@@ -1961,18 +1825,18 @@ fn flatten_outcome(
     for derived in outcome
         .pack
         .derived_memories
-        .into_iter()
-        .chain(outcome.pack.preferences)
-        .chain(outcome.pack.relationship_notes)
-        .chain(outcome.pack.open_loops)
-        .chain(outcome.pack.commitments)
-        .chain(outcome.pack.character_signals)
+        .iter()
+        .chain(&outcome.pack.preferences)
+        .chain(&outcome.pack.relationship_notes)
+        .chain(&outcome.pack.open_loops)
+        .chain(&outcome.pack.commitments)
+        .chain(&outcome.pack.character_signals)
     {
         if !seen_derived.insert(derived.memory.id) {
             continue;
         }
         items.push(RetrievedItem {
-            kind: EvalObjectType::DerivedMemory,
+            kind: ObjectType::DerivedMemory,
             internal_id: derived.memory.id.to_string(),
             external_id: state
                 .reverse_derived_memory_ids
@@ -1986,17 +1850,17 @@ fn flatten_outcome(
             score: trace_score_by_id.get(&derived.memory.id).copied(),
             rank: items.len() + 1,
             rationale: vec![outcome.rationale.summary.clone()],
-            text: Some(derived.memory.text),
+            text: Some(derived.memory.text.clone()),
         });
     }
 
-    RetrievedContextPack::from_ranked_items(items, telemetry, ContextRenderer::WithIdentity)
+    RetrievedContextPack::from_ranked_items(items, vec![outcome], ContextRenderer::WithIdentity)
 }
 
 fn vector_hits_to_context_pack(
     snapshot: &ExternalIdRegistry,
     hits: Vec<VectorHit>,
-    telemetry: RetrievalTelemetry,
+    outcomes: Vec<character_memory::RetrieveOutcome>,
 ) -> RetrievedContextPack {
     let mut best_by_key: HashMap<(&'static str, MemoryId), VectorHit> = HashMap::new();
     for hit in hits {
@@ -2028,7 +1892,7 @@ fn vector_hits_to_context_pack(
                     continue;
                 };
                 items.push(RetrievedItem {
-                    kind: EvalObjectType::Episode,
+                    kind: ObjectType::Episode,
                     internal_id: hit.object_id.to_string(),
                     external_id: Some(external_id),
                     episode_external_id: None,
@@ -2047,7 +1911,7 @@ fn vector_hits_to_context_pack(
                     continue;
                 };
                 items.push(RetrievedItem {
-                    kind: EvalObjectType::Observation,
+                    kind: ObjectType::Observation,
                     internal_id: hit.object_id.to_string(),
                     external_id: Some(external_id),
                     episode_external_id: Some(episode_external_id),
@@ -2064,595 +1928,12 @@ fn vector_hits_to_context_pack(
         item.rank = idx + 1;
     }
 
-    RetrievedContextPack::from_ranked_items(items, telemetry, ContextRenderer::WithIdentity)
-}
-
-fn scoped_completeness(
-    telemetry: &character_memory::RetrievalTelemetry,
-) -> ScopedVectorRecallCompleteness {
-    let completeness = match telemetry.vector_recall_completeness {
-        character_memory::VectorRecallCompleteness::NotRequested => {
-            VectorRecallCompleteness::NotRequested {}
-        }
-        character_memory::VectorRecallCompleteness::Exhaustive { scanned } => {
-            VectorRecallCompleteness::Exhaustive { scanned }
-        }
-        character_memory::VectorRecallCompleteness::BoundaryTieClosed { fetched } => {
-            VectorRecallCompleteness::BoundaryTieClosed { fetched }
-        }
-        character_memory::VectorRecallCompleteness::BoundaryTieOpen {
-            fetched,
-            fetch_bound,
-        } => VectorRecallCompleteness::BoundaryTieOpen {
-            fetched,
-            fetch_bound,
-        },
-    };
-    ScopedVectorRecallCompleteness {
-        scope: if matches!(completeness, VectorRecallCompleteness::NotRequested {}) {
-            Vec::new()
-        } else {
-            telemetry
-                .configured_object_types
-                .iter()
-                .copied()
-                .map(object_type_from_live)
-                .collect()
-        },
-        completeness,
-    }
-}
-
-fn telemetry_from_outcome(
-    state: &ExternalIdRegistry,
-    outcome: &character_memory::RetrieveOutcome,
-) -> RetrievalTelemetry {
-    let trace = outcome.trace.as_ref();
-    let returned_ids = returned_object_ids(outcome);
-    let suppressed_or_deleted_returned_count = trace.map(|trace| {
-        trace
-            .lifecycle_filter_decisions
-            .iter()
-            .filter(|decision| is_suppressed_or_deleted_returned(decision, &returned_ids))
-            .map(|decision| decision.object.id)
-            .collect::<HashSet<_>>()
-            .len()
-    });
-    let superseded_current_returned_count = trace.map(|trace| {
-        trace
-            .lifecycle_filter_decisions
-            .iter()
-            .filter(|decision| is_superseded_current_returned(decision, &returned_ids))
-            .map(|decision| decision.object.id)
-            .collect::<HashSet<_>>()
-            .len()
-    });
-    let unsafe_lifecycle_returned_count = trace.map(|trace| {
-        trace
-            .lifecycle_filter_decisions
-            .iter()
-            .filter(|decision| {
-                is_suppressed_or_deleted_returned(decision, &returned_ids)
-                    || is_superseded_current_returned(decision, &returned_ids)
-            })
-            .map(|decision| decision.object.id)
-            .collect::<HashSet<_>>()
-            .len()
-    });
-    let graph_object_missing_omitted_count = trace.map(|trace| {
-        trace
-            .stale_candidate_omissions
-            .iter()
-            .filter(|omission| {
-                matches!(
-                    omission.reason,
-                    character_memory::StaleCandidateReason::GraphObjectMissing
-                )
-            })
-            .count()
-            + trace
-                .lifecycle_filter_decisions
-                .iter()
-                .filter(|decision| {
-                    !returned_ids.contains(&decision.object.id)
-                        && decision.action == LifecycleFilterAction::Omitted
-                        && decision.reason == LifecycleFilterReason::GraphObjectMissing
-                })
-                .count()
-    });
-    let graph_object_missing_returned_count = trace.map(|trace| {
-        trace
-            .lifecycle_filter_decisions
-            .iter()
-            .filter(|decision| {
-                returned_ids.contains(&decision.object.id)
-                    && decision.action == LifecycleFilterAction::Included
-                    && decision.reason == LifecycleFilterReason::GraphObjectMissing
-            })
-            .count()
-    });
-    RetrievalTelemetry {
-        trace_available: trace.is_some(),
-        vector_recall_completeness: vec![scoped_completeness(&outcome.rationale.telemetry)],
-        vector_candidate_count: Some(outcome.rationale.vector_candidate_count),
-        configured_candidate_limits: Some(ConfiguredCandidateLimits {
-            max_vector_candidates: outcome
-                .rationale
-                .telemetry
-                .configured_candidate_limits
-                .max_vector_candidates,
-            max_graph_roots: outcome
-                .rationale
-                .telemetry
-                .configured_candidate_limits
-                .max_graph_roots,
-        }),
-        configured_graph_limits: Some(ConfiguredGraphLimits {
-            max_depth: outcome
-                .rationale
-                .telemetry
-                .configured_graph_limits
-                .max_depth,
-            max_nodes: outcome
-                .rationale
-                .telemetry
-                .configured_graph_limits
-                .max_nodes,
-            max_fanout_per_node: outcome
-                .rationale
-                .telemetry
-                .configured_graph_limits
-                .max_fanout_per_node,
-            max_hub_edges: outcome
-                .rationale
-                .telemetry
-                .configured_graph_limits
-                .max_hub_edges,
-            timeout_ms: outcome
-                .rationale
-                .telemetry
-                .configured_graph_limits
-                .timeout_ms,
-            failure_mode: match outcome
-                .rationale
-                .telemetry
-                .configured_graph_limits
-                .failure_mode
-            {
-                character_memory::GraphFailureMode::AllowPartialResults => {
-                    EvalGraphFailureMode::AllowPartialResults
-                }
-                character_memory::GraphFailureMode::FailClosed => EvalGraphFailureMode::FailClosed,
-            },
-            allowed_relation_types: outcome
-                .rationale
-                .telemetry
-                .configured_graph_limits
-                .allowed_relation_types
-                .iter()
-                .copied()
-                .map(relation_type_from_live)
-                .collect(),
-        }),
-        configured_section_limits: Some(RetrievalSectionBudgets {
-            active_threads: outcome
-                .rationale
-                .telemetry
-                .configured_section_limits
-                .active_threads,
-            relevant_episodes: outcome
-                .rationale
-                .telemetry
-                .configured_section_limits
-                .relevant_episodes,
-            salient_observations: outcome
-                .rationale
-                .telemetry
-                .configured_section_limits
-                .salient_observations,
-            derived_memories: outcome
-                .rationale
-                .telemetry
-                .configured_section_limits
-                .derived_memories,
-            preferences: outcome
-                .rationale
-                .telemetry
-                .configured_section_limits
-                .preferences,
-            relationship_notes: outcome
-                .rationale
-                .telemetry
-                .configured_section_limits
-                .relationship_notes,
-            open_loops: outcome
-                .rationale
-                .telemetry
-                .configured_section_limits
-                .open_loops,
-            commitments: outcome
-                .rationale
-                .telemetry
-                .configured_section_limits
-                .commitments,
-            character_signals: outcome
-                .rationale
-                .telemetry
-                .configured_section_limits
-                .character_signals,
-        }),
-        configured_object_types: Some(
-            outcome
-                .rationale
-                .telemetry
-                .configured_object_types
-                .iter()
-                .copied()
-                .map(object_type_from_live)
-                .collect(),
-        ),
-        configured_lifecycle_policy: Some(ConfiguredLifecyclePolicy {
-            include_archived: outcome
-                .rationale
-                .telemetry
-                .configured_lifecycle_policy
-                .include_archived,
-            include_suppressed: outcome
-                .rationale
-                .telemetry
-                .configured_lifecycle_policy
-                .include_suppressed,
-            include_deleted: outcome
-                .rationale
-                .telemetry
-                .configured_lifecycle_policy
-                .include_deleted,
-            include_non_current: outcome
-                .rationale
-                .telemetry
-                .configured_lifecycle_policy
-                .include_non_current,
-            include_superseded: outcome
-                .rationale
-                .telemetry
-                .configured_lifecycle_policy
-                .include_superseded,
-        }),
-        query_embedding_dimension: Some(outcome.rationale.telemetry.query_embedding_dimension),
-        returned_vector_candidate_count: Some(
-            outcome.rationale.telemetry.returned_vector_candidate_count,
-        ),
-        unique_graph_root_candidate_count: trace.map(|_| {
-            outcome
-                .rationale
-                .telemetry
-                .unique_graph_root_candidate_count
-        }),
-        selected_graph_root_count: trace
-            .map(|_| outcome.rationale.telemetry.selected_graph_root_count),
-        graph_root_omission_count: trace
-            .map(|_| outcome.rationale.telemetry.graph_root_omission_count),
-        graph_relation_count: trace.map(|trace| trace.graph_relations.len()),
-        graph_expansion: Some(GraphExpansionSummary {
-            attempted_root_count: outcome
-                .rationale
-                .telemetry
-                .graph_expansion
-                .attempted_root_count,
-            expanded_root_count: outcome
-                .rationale
-                .telemetry
-                .graph_expansion
-                .expanded_root_count,
-            missing_root_count: outcome
-                .rationale
-                .telemetry
-                .graph_expansion
-                .missing_root_count,
-            expanded_object_count: outcome
-                .rationale
-                .telemetry
-                .graph_expansion
-                .expanded_object_count,
-            expanded_relation_count: outcome
-                .rationale
-                .telemetry
-                .graph_expansion
-                .expanded_relation_count,
-            filtered_node_count: outcome
-                .rationale
-                .telemetry
-                .graph_expansion
-                .filtered_node_count,
-            bounded_failure_count: outcome
-                .rationale
-                .telemetry
-                .graph_expansion
-                .bounded_failure_count,
-            bounded_failure_reasons: outcome
-                .rationale
-                .telemetry
-                .graph_expansion
-                .bounded_failure_reasons
-                .iter()
-                .map(|summary| {
-                    (
-                        graph_bounded_reason_from_live(summary.reason),
-                        summary.count,
-                    )
-                })
-                .collect(),
-        }),
-        selectivity_summary: Some(SelectivitySummary {
-            decision_count: outcome.rationale.telemetry.selectivity.decision_count,
-            high_selectivity_count: outcome
-                .rationale
-                .telemetry
-                .selectivity
-                .high_selectivity_count,
-            low_selectivity_supported_count: outcome
-                .rationale
-                .telemetry
-                .selectivity
-                .low_selectivity_supported_count,
-            low_selectivity_rejected_count: outcome
-                .rationale
-                .telemetry
-                .selectivity
-                .low_selectivity_rejected_count,
-            fallback_count: outcome.rationale.telemetry.selectivity.fallback_count,
-        }),
-        section_pressure: Some(
-            outcome
-                .rationale
-                .telemetry
-                .section_pressure
-                .iter()
-                .map(|pressure| EvalSectionPressureSummary {
-                    section: context_pack_section_from_live(pressure.section),
-                    limit: pressure.limit,
-                    included_count: pressure.included_count,
-                    omitted_by_limit_count: pressure.omitted_by_limit_count,
-                })
-                .collect(),
-        ),
-        graph_verified_count: Some(outcome.rationale.graph_verified_count),
-        stale_candidate_omission_count: Some(outcome.rationale.stale_candidate_omission_count),
-        lifecycle_omission_count: Some(outcome.rationale.lifecycle_omission_count),
-        lifecycle_filter_decision_count: trace.map(|trace| trace.lifecycle_filter_decisions.len()),
-        suppressed_or_deleted_returned_count,
-        superseded_current_returned_count,
-        unsafe_lifecycle_returned_count,
-        graph_object_missing_omitted_count,
-        graph_object_missing_returned_count,
-        section_assignment_count: trace.map(|trace| trace.section_assignments.len()),
-        section_assignment_counts: trace
-            .map(|trace| {
-                let mut counts = BTreeMap::new();
-                for assignment in &trace.section_assignments {
-                    *counts
-                        .entry(context_pack_section_from_live(assignment.section))
-                        .or_insert(0) += 1;
-                }
-                counts
-            })
-            .unwrap_or_default(),
-        stale_candidate_omission_reasons: outcome
-            .rationale
-            .stale_candidate_omission_reasons
-            .iter()
-            .map(|summary| {
-                (
-                    stale_candidate_reason_from_live(summary.reason),
-                    summary.count,
-                )
-            })
-            .collect(),
-        lifecycle_omission_reasons: outcome
-            .rationale
-            .lifecycle_omission_reasons
-            .iter()
-            .map(|summary| {
-                (
-                    lifecycle_filter_reason_from_live(summary.reason),
-                    summary.count,
-                )
-            })
-            .collect(),
-        fanout_utilization: trace.map(|trace| {
-            trace
-                .fanout_utilization
-                .iter()
-                .map(|entry| RetrievalFanoutUtilization {
-                    root_internal_id: entry.root.id.to_string(),
-                    root_object_type: object_type_from_live(entry.root.object_type),
-                    root_external_id: external_id_for_object(state, entry.root),
-                    relation: relation_type_from_live(entry.relation),
-                    object_type: object_type_from_live(entry.object_type),
-                    configured_cap: entry.configured_cap,
-                    selected_cap: entry.selected_cap,
-                    retained_count: entry.retained_count,
-                    omitted_by_fanout_count: entry.omitted_by_fanout_count,
-                })
-                .collect()
-        }),
-        selectivity_decisions: trace.map(|trace| {
-            trace
-                .selectivity_decisions
-                .iter()
-                .map(|entry| RetrievalSelectivityDecision {
-                    root_internal_id: entry.root.id.to_string(),
-                    root_object_type: object_type_from_live(entry.root.object_type),
-                    root_external_id: external_id_for_object(state, entry.root),
-                    relation: relation_type_from_live(entry.relation),
-                    object_type: object_type_from_live(entry.object_type),
-                    count_scope: selectivity_count_scope_from_live(entry.count_scope),
-                    score: entry.score,
-                    entity_count: entry.entity_count,
-                    global_count: entry.global_count,
-                    support_factor: entry.support_factor,
-                    chosen_fanout: entry.chosen_fanout,
-                    max_fanout: entry.max_fanout,
-                    decision: selectivity_decision_from_live(entry.decision),
-                    fallback: entry.fallback,
-                })
-                .collect()
-        }),
-        rationale_categories_by_internal_id: trace.map(|trace| {
-            let mut categories_by_id: BTreeMap<String, Vec<RetrievalRationaleCategory>> =
-                BTreeMap::new();
-            for assignment in &trace.section_assignments {
-                let categories = categories_by_id
-                    .entry(assignment.object.id.to_string())
-                    .or_default();
-                for category in assignment
-                    .rationale_categories
-                    .iter()
-                    .copied()
-                    .map(retrieval_rationale_category)
-                {
-                    if !categories.contains(&category) {
-                        categories.push(category);
-                    }
-                }
-            }
-            categories_by_id
-        }),
-    }
-}
-
-fn is_suppressed_or_deleted_returned(
-    decision: &character_memory::LifecycleFilterDecision,
-    returned_ids: &HashSet<MemoryId>,
-) -> bool {
-    returned_ids.contains(&decision.object.id)
-        && decision.action == LifecycleFilterAction::Included
-        && (matches!(
-            decision.retention_state,
-            Some(RetentionState::Suppressed | RetentionState::Deleted)
-        ) || matches!(
-            decision.reason,
-            LifecycleFilterReason::SuppressedIncludedByPolicy
-                | LifecycleFilterReason::DeletedIncludedByPolicy
-        ))
-}
-
-fn is_superseded_current_returned(
-    decision: &character_memory::LifecycleFilterDecision,
-    returned_ids: &HashSet<MemoryId>,
-) -> bool {
-    returned_ids.contains(&decision.object.id)
-        && decision.action == LifecycleFilterAction::Included
-        && (decision.is_current == Some(false)
-            || !decision.superseded_by.is_empty()
-            || matches!(
-                decision.reason,
-                LifecycleFilterReason::NonCurrentIncludedByPolicy
-                    | LifecycleFilterReason::SupersededIncludedByPolicy
-            ))
-}
-
-fn external_id_for_object(
-    state: &ExternalIdRegistry,
-    object: character_memory::MemoryObjectRef,
-) -> Option<String> {
-    match object.object_type {
-        ObjectType::Episode => state.reverse_episode_ids.get(&object.id).cloned(),
-        ObjectType::Observation => state
-            .reverse_observation_ids
-            .get(&object.id)
-            .map(|(external_id, _)| external_id.clone()),
-        ObjectType::Entity => state.reverse_entity_ids.get(&object.id).cloned(),
-        ObjectType::MemoryThread => state.reverse_thread_ids.get(&object.id).cloned(),
-        ObjectType::DerivedMemory => state.reverse_derived_memory_ids.get(&object.id).cloned(),
-        ObjectType::MemoryLink => state.reverse_link_ids.get(&object.id).cloned(),
-    }
-}
-
-fn retrieval_rationale_category(
-    category: character_memory::RationaleCategory,
-) -> RetrievalRationaleCategory {
-    match category {
-        character_memory::RationaleCategory::Semantic => RetrievalRationaleCategory::Semantic,
-        character_memory::RationaleCategory::Entity => RetrievalRationaleCategory::Entity,
-        character_memory::RationaleCategory::Thread => RetrievalRationaleCategory::Thread,
-        character_memory::RationaleCategory::Temporal => RetrievalRationaleCategory::Temporal,
-        character_memory::RationaleCategory::Salience => RetrievalRationaleCategory::Salience,
-        character_memory::RationaleCategory::Scope => RetrievalRationaleCategory::Scope,
-        character_memory::RationaleCategory::Lifecycle => RetrievalRationaleCategory::Lifecycle,
-        character_memory::RationaleCategory::GraphBound => RetrievalRationaleCategory::GraphBound,
-    }
-}
-
-fn returned_object_ids(outcome: &character_memory::RetrieveOutcome) -> HashSet<MemoryId> {
-    outcome
-        .pack
-        .active_threads
-        .iter()
-        .map(|thread| thread.id)
-        .chain(
-            outcome
-                .pack
-                .relevant_episodes
-                .iter()
-                .map(|episode| episode.id),
-        )
-        .chain(
-            outcome
-                .pack
-                .salient_observations
-                .iter()
-                .map(|observation| observation.id),
-        )
-        .chain(
-            outcome
-                .pack
-                .derived_memories
-                .iter()
-                .map(|derived| derived.memory.id),
-        )
-        .chain(
-            outcome
-                .pack
-                .preferences
-                .iter()
-                .map(|derived| derived.memory.id),
-        )
-        .chain(
-            outcome
-                .pack
-                .relationship_notes
-                .iter()
-                .map(|derived| derived.memory.id),
-        )
-        .chain(
-            outcome
-                .pack
-                .open_loops
-                .iter()
-                .map(|derived| derived.memory.id),
-        )
-        .chain(
-            outcome
-                .pack
-                .commitments
-                .iter()
-                .map(|derived| derived.memory.id),
-        )
-        .chain(
-            outcome
-                .pack
-                .character_signals
-                .iter()
-                .map(|derived| derived.memory.id),
-        )
-        .collect()
+    RetrievedContextPack::from_ranked_items(items, outcomes, ContextRenderer::WithIdentity)
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct RememberTopology {
     object_ids: Vec<MemoryId>,
-    object_types: BTreeMap<MemoryId, ObjectType>,
     link_ids: Vec<MemoryId>,
     vector_ids: Vec<MemoryId>,
 }
@@ -2662,7 +1943,7 @@ async fn commit_typed_drafts(
     namespace: &str,
     object_drafts: Vec<MemoryObjectDraft>,
     link_drafts: Vec<MemoryLinkDraft>,
-) -> Result<WriteOutcomeRecord> {
+) -> Result<crate::RecordedOutcome<crate::RememberOutcome>> {
     let (plan, expected) =
         typed_remember_plan_at(namespace, object_drafts, link_drafts, Utc::now())?;
     let validations = memory.validate_plan(&plan).await?;
@@ -2693,12 +1974,10 @@ async fn commit_typed_drafts(
     let operation_id = plan.idempotency_key.clone();
     let outcome = memory.commit(plan, CommitOptions::default()).await?;
     validate_remember_topology(&outcome, &expected)?;
-    Ok(write_outcome_from_live(
+    Ok(RecordedOutcome {
         operation_id,
-        WriteOperationKind::TypedIngest,
-        &outcome,
-        &expected.object_types,
-    ))
+        outcome,
+    })
 }
 
 fn typed_remember_plan_at(
@@ -2712,7 +1991,6 @@ fn typed_remember_plan_at(
     let mut link_candidates = Vec::new();
     let mut vector_candidates = Vec::new();
     let mut object_ids = Vec::new();
-    let mut object_types = BTreeMap::new();
     let mut link_ids = Vec::new();
     let mut vector_ids = Vec::new();
 
@@ -2722,7 +2000,6 @@ fn typed_remember_plan_at(
             MemoryObjectDraft::Episode(draft) => {
                 let id = required_draft_id(draft.id, "episode")?;
                 object_ids.push(id);
-                object_types.insert(id, ObjectType::Episode);
                 vector_ids.push(id);
                 vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
                     MemoryObjectRef::new(ObjectType::Episode, id),
@@ -2737,7 +2014,6 @@ fn typed_remember_plan_at(
             MemoryObjectDraft::Observation(draft) => {
                 let id = required_draft_id(draft.id, "observation")?;
                 object_ids.push(id);
-                object_types.insert(id, ObjectType::Observation);
                 vector_ids.push(id);
                 vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
                     MemoryObjectRef::new(ObjectType::Observation, id),
@@ -2762,7 +2038,6 @@ fn typed_remember_plan_at(
                     draft.summary.as_deref().unwrap_or_default(),
                 ]);
                 object_ids.push(id);
-                object_types.insert(id, ObjectType::Entity);
                 vector_ids.push(id);
                 vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
                     MemoryObjectRef::new(ObjectType::Entity, id),
@@ -2778,7 +2053,6 @@ fn typed_remember_plan_at(
                 let id = required_draft_id(draft.id, "memory thread")?;
                 let content = join_embedding_text([draft.title.as_str(), draft.summary.as_str()]);
                 object_ids.push(id);
-                object_types.insert(id, ObjectType::MemoryThread);
                 vector_ids.push(id);
                 vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
                     MemoryObjectRef::new(ObjectType::MemoryThread, id),
@@ -2793,7 +2067,6 @@ fn typed_remember_plan_at(
             MemoryObjectDraft::DerivedMemory(draft) => {
                 let id = required_draft_id(draft.id, "derived memory")?;
                 object_ids.push(id);
-                object_types.insert(id, ObjectType::DerivedMemory);
                 vector_ids.push(id);
                 vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
                     MemoryObjectRef::new(ObjectType::DerivedMemory, id),
@@ -2852,7 +2125,6 @@ fn typed_remember_plan_at(
         plan,
         RememberTopology {
             object_ids,
-            object_types,
             link_ids,
             vector_ids,
         },
@@ -2952,775 +2224,6 @@ fn validate_remember_topology(
         );
     }
     Ok(())
-}
-
-fn write_outcome_from_live(
-    operation_id: String,
-    operation: WriteOperationKind,
-    outcome: &RememberOutcome,
-    object_types: &BTreeMap<MemoryId, ObjectType>,
-) -> WriteOutcomeRecord {
-    let object_record = |id: &MemoryId| ObjectRefRecord {
-        object_type: object_types
-            .get(id)
-            .copied()
-            .map(object_type_from_live)
-            .expect("remember outcome object IDs originate in the typed plan"),
-        internal_id: id.to_string(),
-        external_id: None,
-    };
-    WriteOutcomeRecord {
-        operation_id,
-        operation,
-        persisted_objects: outcome
-            .persisted_object_ids
-            .iter()
-            .map(object_record)
-            .collect(),
-        persisted_link_internal_ids: outcome
-            .persisted_link_ids
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
-        vector_indexed_objects: outcome
-            .vector_indexed_object_ids
-            .iter()
-            .map(object_record)
-            .collect(),
-        validations: outcome
-            .diagnostics
-            .validations
-            .iter()
-            .map(candidate_validation_from_live)
-            .collect(),
-        candidate_counts: outcome
-            .diagnostics
-            .candidate_counts
-            .iter()
-            .map(|count| CandidateCountRecord {
-                candidate_kind: candidate_kind_from_live(count.candidate_kind),
-                count: count.count,
-            })
-            .collect(),
-        vector_indexing_failure: outcome.vector_indexing_failure.as_ref().map(|failure| {
-            VectorIndexingFailureRecord {
-                unindexed_objects: failure
-                    .unindexed_objects
-                    .iter()
-                    .map(|object| object_ref_from_live(*object, None))
-                    .collect(),
-                cause: vector_indexing_cause_from_live(&failure.cause),
-            }
-        }),
-        stats_update_status: stats_update_status_from_live(&outcome.stats_update_status),
-        repair_needed: outcome
-            .repair_needed
-            .iter()
-            .map(repair_marker_from_live)
-            .collect(),
-    }
-}
-
-fn object_ref_from_live(object: MemoryObjectRef, external_id: Option<String>) -> ObjectRefRecord {
-    ObjectRefRecord {
-        object_type: object_type_from_live(object.object_type),
-        internal_id: object.id.to_string(),
-        external_id,
-    }
-}
-
-fn candidate_kind_from_live(
-    value: character_memory::MemoryCandidateKind,
-) -> EvalMemoryCandidateKind {
-    match value {
-        character_memory::MemoryCandidateKind::Episode => EvalMemoryCandidateKind::Episode,
-        character_memory::MemoryCandidateKind::Observation => EvalMemoryCandidateKind::Observation,
-        character_memory::MemoryCandidateKind::Entity => EvalMemoryCandidateKind::Entity,
-        character_memory::MemoryCandidateKind::MemoryThread => {
-            EvalMemoryCandidateKind::MemoryThread
-        }
-        character_memory::MemoryCandidateKind::DerivedMemory => {
-            EvalMemoryCandidateKind::DerivedMemory
-        }
-        character_memory::MemoryCandidateKind::MemoryLink => EvalMemoryCandidateKind::MemoryLink,
-        character_memory::MemoryCandidateKind::VectorIndex => EvalMemoryCandidateKind::VectorIndex,
-        character_memory::MemoryCandidateKind::StatsUpdate => EvalMemoryCandidateKind::StatsUpdate,
-    }
-}
-
-fn candidate_validation_issue_from_live(
-    issue: &character_memory::CandidateValidationIssue,
-) -> CandidateValidationIssueRecord {
-    use character_memory::CandidateValidationIssue as Live;
-    match issue {
-        Live::MissingPlanIdentity { field } => {
-            CandidateValidationIssueRecord::MissingPlanIdentity {
-                field: match field {
-                    character_memory::PlanIdentityField::OperationId => {
-                        EvalPlanIdentityField::OperationId
-                    }
-                    character_memory::PlanIdentityField::IdempotencyKey => {
-                        EvalPlanIdentityField::IdempotencyKey
-                    }
-                },
-            }
-        }
-        Live::MissingCandidateId => CandidateValidationIssueRecord::MissingCandidateId,
-        Live::MissingCandidateSchemaVersion => {
-            CandidateValidationIssueRecord::MissingCandidateSchemaVersion
-        }
-        Live::MissingTimestamp { field } => CandidateValidationIssueRecord::MissingTimestamp {
-            field: match field {
-                character_memory::CandidateTimestampField::CreatedAt => {
-                    EvalCandidateTimestampField::CreatedAt
-                }
-                character_memory::CandidateTimestampField::UpdatedAt => {
-                    EvalCandidateTimestampField::UpdatedAt
-                }
-                character_memory::CandidateTimestampField::LastTouchedAt => {
-                    EvalCandidateTimestampField::LastTouchedAt
-                }
-            },
-        },
-        Live::ObjectTypeMismatch { expected, actual } => {
-            CandidateValidationIssueRecord::ObjectTypeMismatch {
-                expected: object_type_from_live(*expected),
-                actual: object_type_from_live(*actual),
-            }
-        }
-        Live::EmptyEpisodeSummary => CandidateValidationIssueRecord::EmptyEpisodeSummary,
-        Live::MissingEpisodeReference => CandidateValidationIssueRecord::MissingEpisodeReference,
-        Live::MissingDerivedSource => CandidateValidationIssueRecord::MissingDerivedSource,
-        Live::InvalidScore { field, actual } => CandidateValidationIssueRecord::InvalidScore {
-            field: match field {
-                character_memory::CandidateScoreField::EpisodeSalience => {
-                    EvalCandidateScoreField::EpisodeSalience
-                }
-                character_memory::CandidateScoreField::ObservationSalience => {
-                    EvalCandidateScoreField::ObservationSalience
-                }
-                character_memory::CandidateScoreField::MemoryThreadSalience => {
-                    EvalCandidateScoreField::MemoryThreadSalience
-                }
-                character_memory::CandidateScoreField::DerivedMemoryConfidence => {
-                    EvalCandidateScoreField::DerivedMemoryConfidence
-                }
-                character_memory::CandidateScoreField::DerivedMemorySalience => {
-                    EvalCandidateScoreField::DerivedMemorySalience
-                }
-                character_memory::CandidateScoreField::MemoryLinkConfidence => {
-                    EvalCandidateScoreField::MemoryLinkConfidence
-                }
-            },
-            actual: actual.clone(),
-        },
-        Live::UnsupportedMemoryLinkEndpoint { endpoint } => {
-            CandidateValidationIssueRecord::UnsupportedMemoryLinkEndpoint {
-                endpoint: match endpoint {
-                    character_memory::MemoryLinkEndpoint::From => EvalMemoryLinkEndpoint::From,
-                    character_memory::MemoryLinkEndpoint::To => EvalMemoryLinkEndpoint::To,
-                },
-            }
-        }
-        Live::SelfLink { referenced } => CandidateValidationIssueRecord::SelfLink {
-            referenced: object_ref_from_live(*referenced, None),
-        },
-        Live::MissingObjectSchemaVersion => {
-            CandidateValidationIssueRecord::MissingObjectSchemaVersion
-        }
-        Live::MemoryLinkRejectedByAdmissionPolicy => {
-            CandidateValidationIssueRecord::MemoryLinkRejectedByAdmissionPolicy
-        }
-        Live::SuppressedMemoryMarkedCurrent => {
-            CandidateValidationIssueRecord::SuppressedMemoryMarkedCurrent
-        }
-        Live::SupersedingMemoryMarkedCurrent => {
-            CandidateValidationIssueRecord::SupersedingMemoryMarkedCurrent
-        }
-        Live::InvalidProvenance { reason } => CandidateValidationIssueRecord::InvalidProvenance {
-            reason: match reason {
-                character_memory::CandidateProvenanceIssue::NonCallerClaimedCallerRationale => {
-                    cmem_eval_core::CandidateProvenanceIssue::NonCallerClaimedCallerRationale
-                }
-                character_memory::CandidateProvenanceIssue::EmptyRationaleText => {
-                    cmem_eval_core::CandidateProvenanceIssue::EmptyRationaleText
-                }
-                character_memory::CandidateProvenanceIssue::EmptyExternalReference => {
-                    cmem_eval_core::CandidateProvenanceIssue::EmptyExternalReference
-                }
-            },
-        },
-        Live::InvalidSourceSpan { reason } => CandidateValidationIssueRecord::InvalidSourceSpan {
-            reason: match reason {
-                character_memory::CandidateSourceSpanIssue::EmptySourceRef => {
-                    EvalCandidateSourceSpanIssue::EmptySourceRef
-                }
-                character_memory::CandidateSourceSpanIssue::EmptyRawRef => {
-                    EvalCandidateSourceSpanIssue::EmptyRawRef
-                }
-                character_memory::CandidateSourceSpanIssue::EmptyMessageId => {
-                    EvalCandidateSourceSpanIssue::EmptyMessageId
-                }
-                character_memory::CandidateSourceSpanIssue::EmptyTranscriptSegmentId => {
-                    EvalCandidateSourceSpanIssue::EmptyTranscriptSegmentId
-                }
-                character_memory::CandidateSourceSpanIssue::InvalidTurnRange => {
-                    EvalCandidateSourceSpanIssue::InvalidTurnRange
-                }
-                character_memory::CandidateSourceSpanIssue::InvalidCharRange => {
-                    EvalCandidateSourceSpanIssue::InvalidCharRange
-                }
-                character_memory::CandidateSourceSpanIssue::InvalidByteRange => {
-                    EvalCandidateSourceSpanIssue::InvalidByteRange
-                }
-                character_memory::CandidateSourceSpanIssue::InvalidTimestampRange => {
-                    EvalCandidateSourceSpanIssue::InvalidTimestampRange
-                }
-            },
-        },
-        Live::EmptyVectorEmbeddingText => CandidateValidationIssueRecord::EmptyVectorEmbeddingText,
-        Live::IncompleteStatsRelationObjectPair => {
-            CandidateValidationIssueRecord::IncompleteStatsRelationObjectPair
-        }
-        Live::UnknownObjectRef { role, referenced } => {
-            CandidateValidationIssueRecord::UnknownObjectRef {
-                role: candidate_reference_role_from_live(*role),
-                referenced: object_ref_from_live(*referenced, None),
-            }
-        }
-        Live::ReferenceNotInPlan { role, referenced } => {
-            CandidateValidationIssueRecord::ReferenceNotInPlan {
-                role: candidate_reference_role_from_live(*role),
-                referenced: object_ref_from_live(*referenced, None),
-            }
-        }
-        Live::DuplicateObservationEcho {
-            echo_surface,
-            matching_episode_ids,
-        } => CandidateValidationIssueRecord::DuplicateObservationEcho {
-            echo_surface: echo_surface.clone(),
-            matching_episode_ids: matching_episode_ids
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
-        },
-    }
-}
-
-fn candidate_reference_role_from_live(
-    value: character_memory::CandidateReferenceRole,
-) -> EvalCandidateReferenceRole {
-    match value {
-        character_memory::CandidateReferenceRole::DerivedSourceEpisode => {
-            EvalCandidateReferenceRole::DerivedSourceEpisode
-        }
-        character_memory::CandidateReferenceRole::DerivedSourceObservation => {
-            EvalCandidateReferenceRole::DerivedSourceObservation
-        }
-        character_memory::CandidateReferenceRole::MemoryLinkFrom => {
-            EvalCandidateReferenceRole::MemoryLinkFrom
-        }
-        character_memory::CandidateReferenceRole::MemoryLinkTo => {
-            EvalCandidateReferenceRole::MemoryLinkTo
-        }
-        character_memory::CandidateReferenceRole::VectorIndexTarget => {
-            EvalCandidateReferenceRole::VectorIndexTarget
-        }
-        character_memory::CandidateReferenceRole::StatsUpdateSubject => {
-            EvalCandidateReferenceRole::StatsUpdateSubject
-        }
-        character_memory::CandidateReferenceRole::StatsUpdateObject => {
-            EvalCandidateReferenceRole::StatsUpdateObject
-        }
-    }
-}
-
-fn repair_marker_from_live(marker: &character_memory::RepairMarker) -> RepairMarkerRecord {
-    match marker {
-        character_memory::RepairMarker::VectorIndex {
-            unindexed_objects,
-            cause,
-        } => RepairMarkerRecord::VectorIndex {
-            unindexed_objects: unindexed_objects
-                .iter()
-                .map(|object| object_ref_from_live(*object, None))
-                .collect(),
-            cause: vector_indexing_cause_from_live(cause),
-        },
-        character_memory::RepairMarker::StatsUpdate { object_ids, causes } => {
-            RepairMarkerRecord::StatsUpdate {
-                object_internal_ids: object_ids.iter().map(ToString::to_string).collect(),
-                causes: causes.iter().map(stats_update_cause_from_live).collect(),
-            }
-        }
-    }
-}
-
-fn stats_update_cause_from_live(
-    cause: &character_memory::StatsUpdateCause,
-) -> StatsUpdateCauseRecord {
-    match cause {
-        character_memory::StatsUpdateCause::EndpointHydration { error } => {
-            StatsUpdateCauseRecord::EndpointHydration {
-                error: graph_query_error_from_live(error),
-            }
-        }
-        character_memory::StatsUpdateCause::EdgeWrite { error } => {
-            StatsUpdateCauseRecord::EdgeWrite {
-                error: retrieval_stats_store_error_from_live(error),
-            }
-        }
-        character_memory::StatsUpdateCause::ObjectStateWrite { error } => {
-            StatsUpdateCauseRecord::ObjectStateWrite {
-                error: retrieval_stats_store_error_from_live(error),
-            }
-        }
-        character_memory::StatsUpdateCause::HealthCheck { error } => {
-            StatsUpdateCauseRecord::HealthCheck {
-                error: retrieval_stats_store_error_from_live(error),
-            }
-        }
-        character_memory::StatsUpdateCause::HealthMark { error } => {
-            StatsUpdateCauseRecord::HealthMark {
-                error: retrieval_stats_store_error_from_live(error),
-            }
-        }
-        character_memory::StatsUpdateCause::StoreUnhealthy { health_cause } => {
-            StatsUpdateCauseRecord::StoreUnhealthy {
-                health_cause: health_cause
-                    .as_ref()
-                    .map(retrieval_stats_health_cause_from_live),
-            }
-        }
-    }
-}
-
-fn stats_update_status_from_live(
-    status: &character_memory::StatsUpdateStatus,
-) -> StatsUpdateStatusRecord {
-    StatsUpdateStatusRecord {
-        updated_object_internal_ids: status
-            .updated_object_ids
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
-        failure: status
-            .failure
-            .as_ref()
-            .map(|failure| StatsUpdateFailureRecord {
-                failed_object_internal_ids: failure
-                    .failed_object_ids
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
-                causes: failure
-                    .causes
-                    .iter()
-                    .map(stats_update_cause_from_live)
-                    .collect(),
-            }),
-    }
-}
-
-fn graph_query_error_from_live(error: &character_memory::GraphQueryError) -> GraphQueryErrorRecord {
-    match error {
-        character_memory::GraphQueryError::Selection { detail } => {
-            GraphQueryErrorRecord::Selection {
-                detail: detail.clone(),
-            }
-        }
-        character_memory::GraphQueryError::Hydration { detail } => {
-            GraphQueryErrorRecord::Hydration {
-                detail: detail.clone(),
-            }
-        }
-    }
-}
-
-fn retrieval_stats_store_error_from_live(
-    error: &character_memory::RetrievalStatsStoreError,
-) -> RetrievalStatsStoreErrorRecord {
-    match error {
-        character_memory::RetrievalStatsStoreError::Sqlite { detail } => {
-            RetrievalStatsStoreErrorRecord::Sqlite {
-                detail: detail.clone(),
-            }
-        }
-        character_memory::RetrievalStatsStoreError::Filesystem { io_kind, detail } => {
-            RetrievalStatsStoreErrorRecord::Filesystem {
-                io_kind: io_error_kind_from_live(io_kind),
-                detail: detail.clone(),
-            }
-        }
-        character_memory::RetrievalStatsStoreError::LockPoisoned => {
-            RetrievalStatsStoreErrorRecord::LockPoisoned
-        }
-        character_memory::RetrievalStatsStoreError::HealthSerialization { detail } => {
-            RetrievalStatsStoreErrorRecord::HealthSerialization {
-                detail: detail.clone(),
-            }
-        }
-        character_memory::RetrievalStatsStoreError::HealthDeserialization { detail } => {
-            RetrievalStatsStoreErrorRecord::HealthDeserialization {
-                detail: detail.clone(),
-            }
-        }
-    }
-}
-
-fn retrieval_stats_health_cause_from_live(
-    cause: &character_memory::RetrievalStatsHealthCause,
-) -> RetrievalStatsHealthCauseRecord {
-    match cause {
-        character_memory::RetrievalStatsHealthCause::StoreInitialization { error } => {
-            RetrievalStatsHealthCauseRecord::StoreInitialization {
-                error: retrieval_stats_store_error_from_live(error),
-            }
-        }
-        character_memory::RetrievalStatsHealthCause::EndpointHydration { error } => {
-            RetrievalStatsHealthCauseRecord::EndpointHydration {
-                error: graph_query_error_from_live(error),
-            }
-        }
-        character_memory::RetrievalStatsHealthCause::EdgeWrite { error } => {
-            RetrievalStatsHealthCauseRecord::EdgeWrite {
-                error: retrieval_stats_store_error_from_live(error),
-            }
-        }
-        character_memory::RetrievalStatsHealthCause::ObjectStateWrite { error } => {
-            RetrievalStatsHealthCauseRecord::ObjectStateWrite {
-                error: retrieval_stats_store_error_from_live(error),
-            }
-        }
-        character_memory::RetrievalStatsHealthCause::HealthCheck { error } => {
-            RetrievalStatsHealthCauseRecord::HealthCheck {
-                error: retrieval_stats_store_error_from_live(error),
-            }
-        }
-        character_memory::RetrievalStatsHealthCause::CounterRead { error } => {
-            RetrievalStatsHealthCauseRecord::CounterRead {
-                error: retrieval_stats_store_error_from_live(error),
-            }
-        }
-        character_memory::RetrievalStatsHealthCause::GlobalCounterRead { error } => {
-            RetrievalStatsHealthCauseRecord::GlobalCounterRead {
-                error: retrieval_stats_store_error_from_live(error),
-            }
-        }
-    }
-}
-
-fn vector_indexing_cause_from_live(
-    cause: &character_memory::VectorIndexingCause,
-) -> VectorIndexingCauseRecord {
-    match cause {
-        character_memory::VectorIndexingCause::ZeroNormEmbedding { object } => {
-            VectorIndexingCauseRecord::ZeroNormEmbedding {
-                object: object_ref_from_live(*object, None),
-            }
-        }
-        character_memory::VectorIndexingCause::Embedding(error) => {
-            VectorIndexingCauseRecord::Embedding(embedding_error_from_live(error))
-        }
-        character_memory::VectorIndexingCause::CardinalityMismatch { expected, actual } => {
-            VectorIndexingCauseRecord::CardinalityMismatch {
-                expected: *expected,
-                actual: *actual,
-            }
-        }
-        character_memory::VectorIndexingCause::VectorDatabase(error) => {
-            VectorIndexingCauseRecord::VectorDatabase(VectorDatabaseErrorRecord {
-                backend: error.backend.clone(),
-                kind: vector_database_kind_from_live(&error.kind),
-                status: error.status.as_ref().map(transport_status_from_live),
-                message: error.message.clone(),
-                retry_after_seconds: error.retry_after_seconds,
-            })
-        }
-    }
-}
-
-fn vector_database_kind_from_live(
-    kind: &character_memory::VectorDatabaseErrorKind,
-) -> EvalVectorDatabaseErrorKind {
-    match kind {
-        character_memory::VectorDatabaseErrorKind::Engine => EvalVectorDatabaseErrorKind::Engine,
-        character_memory::VectorDatabaseErrorKind::Response => {
-            EvalVectorDatabaseErrorKind::Response
-        }
-        character_memory::VectorDatabaseErrorKind::ResourceExhausted => {
-            EvalVectorDatabaseErrorKind::ResourceExhausted
-        }
-        character_memory::VectorDatabaseErrorKind::Conversion => {
-            EvalVectorDatabaseErrorKind::Conversion
-        }
-        character_memory::VectorDatabaseErrorKind::InvalidUri => {
-            EvalVectorDatabaseErrorKind::InvalidUri
-        }
-        character_memory::VectorDatabaseErrorKind::NoSnapshotFound => {
-            EvalVectorDatabaseErrorKind::NoSnapshotFound
-        }
-        character_memory::VectorDatabaseErrorKind::Io { io_kind } => {
-            EvalVectorDatabaseErrorKind::Io {
-                io_kind: io_error_kind_from_live(io_kind),
-            }
-        }
-        character_memory::VectorDatabaseErrorKind::HttpTimeout => {
-            EvalVectorDatabaseErrorKind::HttpTimeout
-        }
-        character_memory::VectorDatabaseErrorKind::HttpConnect => {
-            EvalVectorDatabaseErrorKind::HttpConnect
-        }
-        character_memory::VectorDatabaseErrorKind::HttpStatus => {
-            EvalVectorDatabaseErrorKind::HttpStatus
-        }
-        character_memory::VectorDatabaseErrorKind::Http => EvalVectorDatabaseErrorKind::Http,
-        character_memory::VectorDatabaseErrorKind::JsonToPayload => {
-            EvalVectorDatabaseErrorKind::JsonToPayload
-        }
-        character_memory::VectorDatabaseErrorKind::PayloadDeserialization => {
-            EvalVectorDatabaseErrorKind::PayloadDeserialization
-        }
-    }
-}
-
-fn io_error_kind_from_live(
-    kind: &character_memory::IoErrorKind,
-) -> cmem_eval_core::IoErrorKindRecord {
-    match kind {
-        character_memory::IoErrorKind::NotFound => cmem_eval_core::IoErrorKindRecord::NotFound,
-        character_memory::IoErrorKind::PermissionDenied => {
-            cmem_eval_core::IoErrorKindRecord::PermissionDenied
-        }
-        character_memory::IoErrorKind::ConnectionRefused => {
-            cmem_eval_core::IoErrorKindRecord::ConnectionRefused
-        }
-        character_memory::IoErrorKind::ConnectionReset => {
-            cmem_eval_core::IoErrorKindRecord::ConnectionReset
-        }
-        character_memory::IoErrorKind::HostUnreachable => {
-            cmem_eval_core::IoErrorKindRecord::HostUnreachable
-        }
-        character_memory::IoErrorKind::NetworkUnreachable => {
-            cmem_eval_core::IoErrorKindRecord::NetworkUnreachable
-        }
-        character_memory::IoErrorKind::ConnectionAborted => {
-            cmem_eval_core::IoErrorKindRecord::ConnectionAborted
-        }
-        character_memory::IoErrorKind::NotConnected => {
-            cmem_eval_core::IoErrorKindRecord::NotConnected
-        }
-        character_memory::IoErrorKind::AddrInUse => cmem_eval_core::IoErrorKindRecord::AddrInUse,
-        character_memory::IoErrorKind::AddrNotAvailable => {
-            cmem_eval_core::IoErrorKindRecord::AddrNotAvailable
-        }
-        character_memory::IoErrorKind::NetworkDown => {
-            cmem_eval_core::IoErrorKindRecord::NetworkDown
-        }
-        character_memory::IoErrorKind::BrokenPipe => cmem_eval_core::IoErrorKindRecord::BrokenPipe,
-        character_memory::IoErrorKind::AlreadyExists => {
-            cmem_eval_core::IoErrorKindRecord::AlreadyExists
-        }
-        character_memory::IoErrorKind::WouldBlock => cmem_eval_core::IoErrorKindRecord::WouldBlock,
-        character_memory::IoErrorKind::NotADirectory => {
-            cmem_eval_core::IoErrorKindRecord::NotADirectory
-        }
-        character_memory::IoErrorKind::IsADirectory => {
-            cmem_eval_core::IoErrorKindRecord::IsADirectory
-        }
-        character_memory::IoErrorKind::DirectoryNotEmpty => {
-            cmem_eval_core::IoErrorKindRecord::DirectoryNotEmpty
-        }
-        character_memory::IoErrorKind::ReadOnlyFilesystem => {
-            cmem_eval_core::IoErrorKindRecord::ReadOnlyFilesystem
-        }
-        character_memory::IoErrorKind::StaleNetworkFileHandle => {
-            cmem_eval_core::IoErrorKindRecord::StaleNetworkFileHandle
-        }
-        character_memory::IoErrorKind::InvalidInput => {
-            cmem_eval_core::IoErrorKindRecord::InvalidInput
-        }
-        character_memory::IoErrorKind::InvalidData => {
-            cmem_eval_core::IoErrorKindRecord::InvalidData
-        }
-        character_memory::IoErrorKind::TimedOut => cmem_eval_core::IoErrorKindRecord::TimedOut,
-        character_memory::IoErrorKind::WriteZero => cmem_eval_core::IoErrorKindRecord::WriteZero,
-        character_memory::IoErrorKind::StorageFull => {
-            cmem_eval_core::IoErrorKindRecord::StorageFull
-        }
-        character_memory::IoErrorKind::NotSeekable => {
-            cmem_eval_core::IoErrorKindRecord::NotSeekable
-        }
-        character_memory::IoErrorKind::QuotaExceeded => {
-            cmem_eval_core::IoErrorKindRecord::QuotaExceeded
-        }
-        character_memory::IoErrorKind::FileTooLarge => {
-            cmem_eval_core::IoErrorKindRecord::FileTooLarge
-        }
-        character_memory::IoErrorKind::ResourceBusy => {
-            cmem_eval_core::IoErrorKindRecord::ResourceBusy
-        }
-        character_memory::IoErrorKind::ExecutableFileBusy => {
-            cmem_eval_core::IoErrorKindRecord::ExecutableFileBusy
-        }
-        character_memory::IoErrorKind::Deadlock => cmem_eval_core::IoErrorKindRecord::Deadlock,
-        character_memory::IoErrorKind::CrossesDevices => {
-            cmem_eval_core::IoErrorKindRecord::CrossesDevices
-        }
-        character_memory::IoErrorKind::TooManyLinks => {
-            cmem_eval_core::IoErrorKindRecord::TooManyLinks
-        }
-        character_memory::IoErrorKind::InvalidFilename => {
-            cmem_eval_core::IoErrorKindRecord::InvalidFilename
-        }
-        character_memory::IoErrorKind::ArgumentListTooLong => {
-            cmem_eval_core::IoErrorKindRecord::ArgumentListTooLong
-        }
-        character_memory::IoErrorKind::Interrupted => {
-            cmem_eval_core::IoErrorKindRecord::Interrupted
-        }
-        character_memory::IoErrorKind::Unsupported => {
-            cmem_eval_core::IoErrorKindRecord::Unsupported
-        }
-        character_memory::IoErrorKind::UnexpectedEof => {
-            cmem_eval_core::IoErrorKindRecord::UnexpectedEof
-        }
-        character_memory::IoErrorKind::OutOfMemory => {
-            cmem_eval_core::IoErrorKindRecord::OutOfMemory
-        }
-        character_memory::IoErrorKind::Other => cmem_eval_core::IoErrorKindRecord::Other,
-        character_memory::IoErrorKind::Unrecognized => {
-            cmem_eval_core::IoErrorKindRecord::Unrecognized
-        }
-    }
-}
-
-fn transport_status_from_live(status: &character_memory::TransportStatus) -> EvalTransportStatus {
-    match status {
-        character_memory::TransportStatus::Ok => EvalTransportStatus::Ok,
-        character_memory::TransportStatus::Cancelled => EvalTransportStatus::Cancelled,
-        character_memory::TransportStatus::Unknown => EvalTransportStatus::Unknown,
-        character_memory::TransportStatus::InvalidArgument => EvalTransportStatus::InvalidArgument,
-        character_memory::TransportStatus::DeadlineExceeded => {
-            EvalTransportStatus::DeadlineExceeded
-        }
-        character_memory::TransportStatus::NotFound => EvalTransportStatus::NotFound,
-        character_memory::TransportStatus::AlreadyExists => EvalTransportStatus::AlreadyExists,
-        character_memory::TransportStatus::PermissionDenied => {
-            EvalTransportStatus::PermissionDenied
-        }
-        character_memory::TransportStatus::ResourceExhausted => {
-            EvalTransportStatus::ResourceExhausted
-        }
-        character_memory::TransportStatus::FailedPrecondition => {
-            EvalTransportStatus::FailedPrecondition
-        }
-        character_memory::TransportStatus::Aborted => EvalTransportStatus::Aborted,
-        character_memory::TransportStatus::OutOfRange => EvalTransportStatus::OutOfRange,
-        character_memory::TransportStatus::Unimplemented => EvalTransportStatus::Unimplemented,
-        character_memory::TransportStatus::Internal => EvalTransportStatus::Internal,
-        character_memory::TransportStatus::Unavailable => EvalTransportStatus::Unavailable,
-        character_memory::TransportStatus::DataLoss => EvalTransportStatus::DataLoss,
-        character_memory::TransportStatus::Unauthenticated => EvalTransportStatus::Unauthenticated,
-        character_memory::TransportStatus::Unrecognized(value) => {
-            EvalTransportStatus::Unrecognized(value.clone())
-        }
-    }
-}
-
-fn embedding_error_from_live(error: &character_memory::EmbeddingError) -> EmbeddingErrorRecord {
-    match error {
-        character_memory::EmbeddingError::MissingApiKey => EmbeddingErrorRecord::MissingApiKey,
-        character_memory::EmbeddingError::ProviderVectorSizeMismatch { expected, actual } => {
-            EmbeddingErrorRecord::ProviderVectorSizeMismatch {
-                expected: *expected,
-                actual: *actual,
-            }
-        }
-        character_memory::EmbeddingError::BlankInput { index } => {
-            EmbeddingErrorRecord::BlankInput { index: *index }
-        }
-        character_memory::EmbeddingError::Transport {
-            transport_kind,
-            detail,
-        } => EmbeddingErrorRecord::Transport {
-            transport_kind: match transport_kind {
-                character_memory::EmbeddingTransportErrorKind::Timeout => {
-                    EvalEmbeddingTransportErrorKind::Timeout
-                }
-                character_memory::EmbeddingTransportErrorKind::Connect => {
-                    EvalEmbeddingTransportErrorKind::Connect
-                }
-                character_memory::EmbeddingTransportErrorKind::Request => {
-                    EvalEmbeddingTransportErrorKind::Request
-                }
-                character_memory::EmbeddingTransportErrorKind::Body => {
-                    EvalEmbeddingTransportErrorKind::Body
-                }
-                character_memory::EmbeddingTransportErrorKind::Other => {
-                    EvalEmbeddingTransportErrorKind::Other
-                }
-            },
-            detail: detail.clone(),
-        },
-        character_memory::EmbeddingError::HttpStatus { status, body } => {
-            EmbeddingErrorRecord::HttpStatus {
-                status: *status,
-                body: body.clone(),
-            }
-        }
-        character_memory::EmbeddingError::InvalidJson { detail } => {
-            EmbeddingErrorRecord::InvalidJson {
-                detail: detail.clone(),
-            }
-        }
-        character_memory::EmbeddingError::MissingData => EmbeddingErrorRecord::MissingData,
-        character_memory::EmbeddingError::CountMismatch { expected, actual } => {
-            EmbeddingErrorRecord::CountMismatch {
-                expected: *expected,
-                actual: *actual,
-            }
-        }
-        character_memory::EmbeddingError::MissingIndex { item } => {
-            EmbeddingErrorRecord::MissingIndex { item: *item }
-        }
-        character_memory::EmbeddingError::IndexOutOfRange {
-            index,
-            expected_count,
-        } => EmbeddingErrorRecord::IndexOutOfRange {
-            index: *index,
-            expected_count: *expected_count,
-        },
-        character_memory::EmbeddingError::DuplicateIndex { index } => {
-            EmbeddingErrorRecord::DuplicateIndex { index: *index }
-        }
-        character_memory::EmbeddingError::MissingEmbedding { item } => {
-            EmbeddingErrorRecord::MissingEmbedding { item: *item }
-        }
-        character_memory::EmbeddingError::DimensionMismatch {
-            index,
-            expected,
-            actual,
-        } => EmbeddingErrorRecord::DimensionMismatch {
-            index: *index,
-            expected: *expected,
-            actual: *actual,
-        },
-        character_memory::EmbeddingError::NonNumericValue { index, component } => {
-            EmbeddingErrorRecord::NonNumericValue {
-                index: *index,
-                component: *component,
-            }
-        }
-        character_memory::EmbeddingError::MissingResponseIndex { index } => {
-            EmbeddingErrorRecord::MissingResponseIndex { index: *index }
-        }
-        character_memory::EmbeddingError::Unrecognized { detail } => {
-            EmbeddingErrorRecord::Unrecognized {
-                detail: detail.clone(),
-            }
-        }
-    }
 }
 
 fn prefixed_embedding_text(label: &str, text: &str) -> String {
@@ -3855,7 +2358,7 @@ fn resolve_endpoint(
     pending_threads: &BTreeMap<String, MemoryId>,
     pending_derived: &BTreeMap<String, MemoryId>,
 ) -> Result<(ObjectType, MemoryId)> {
-    let object_type = object_type_to_live(endpoint.object_type);
+    let object_type = endpoint.object_type;
     if object_type == ObjectType::MemoryLink {
         bail!("memory links cannot be endpoints in enrichment links");
     }
@@ -3907,7 +2410,7 @@ fn correction_target_to_live(
             original_source_ref,
         } => {
             let target = match object_type {
-                EvalObjectType::Episode => SourceObjectCorrectionTarget::Episode {
+                ObjectType::Episode => SourceObjectCorrectionTarget::Episode {
                     id: *state
                         .episode_ids
                         .get(external_id)
@@ -3915,7 +2418,7 @@ fn correction_target_to_live(
                     original_raw_ref: original_raw_ref.clone(),
                     original_source_ref: original_source_ref.clone(),
                 },
-                EvalObjectType::Observation => SourceObjectCorrectionTarget::Observation {
+                ObjectType::Observation => SourceObjectCorrectionTarget::Observation {
                     id: *state
                         .observation_ids
                         .get(external_id)
@@ -3937,22 +2440,22 @@ fn lifecycle_target_to_live(
     state: &NamespaceState,
 ) -> Result<LifecycleTargetRef> {
     match target.object_type {
-        EvalObjectType::Episode => state
+        ObjectType::Episode => state
             .episode_ids
             .get(&target.external_id)
             .copied()
             .map(LifecycleTargetRef::episode),
-        EvalObjectType::Observation => state
+        ObjectType::Observation => state
             .observation_ids
             .get(&target.external_id)
             .copied()
             .map(LifecycleTargetRef::observation),
-        EvalObjectType::DerivedMemory => state
+        ObjectType::DerivedMemory => state
             .derived_memory_ids
             .get(&target.external_id)
             .copied()
             .map(LifecycleTargetRef::derived_memory),
-        EvalObjectType::MemoryThread => state
+        ObjectType::MemoryThread => state
             .thread_ids
             .get(&target.external_id)
             .copied()
@@ -4007,10 +2510,7 @@ fn replacement_to_live(
     state: &NamespaceState,
 ) -> Result<ReplacementDerivedMemoryDraft> {
     let memory = &input.memory;
-    let mut draft = ReplacementDerivedMemoryDraft::new(
-        derived_type_to_live(memory.derived_type),
-        memory.text.clone(),
-    );
+    let mut draft = ReplacementDerivedMemoryDraft::new(memory.derived_type, memory.text.clone());
     draft.id = Some(id);
     draft.derived_from_episode_ids = resolve_ids(
         "episode",
@@ -4038,7 +2538,7 @@ fn replacement_to_live(
     )?;
     draft.confidence = memory.confidence;
     draft.salience_score = memory.salience_score;
-    draft.stability = stability_to_live(memory.stability);
+    draft.stability = memory.stability;
     draft.supersedes = resolve_ids(
         "derived_memory",
         &memory.supersedes_external_ids,
@@ -4056,7 +2556,6 @@ fn lifecycle_result(
     state: &NamespaceState,
     outcome: LifecycleMutationOutcome,
     operation_id: String,
-    operation: LifecycleOperationKind,
 ) -> Result<LifecycleMutationResult> {
     let mutated_object_refs = outcome
         .graph_mutated_object_ids
@@ -4090,105 +2589,15 @@ fn lifecycle_result(
             })
         })
         .collect::<Vec<_>>();
-    let requested_targets = outcome
-        .trace
-        .as_ref()
-        .map(|trace| {
-            trace
-                .requested_targets
-                .iter()
-                .map(|target| {
-                    let object = MemoryObjectRef::new(target.object_type(), target.id());
-                    object_ref_from_live(object, external_id_for_object(state, object))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let graph_mutated_objects = outcome
-        .graph_mutated_object_ids
-        .iter()
-        .map(|object| object_ref_from_live(*object, external_id_for_object(state, *object)))
-        .collect();
-    let vector_maintained_objects = outcome
-        .vector_maintained_object_ids
-        .iter()
-        .map(|object| object_ref_from_live(*object, external_id_for_object(state, *object)))
-        .collect();
-    let vector_maintenance_failures = outcome
-        .vector_maintenance_failure
-        .as_ref()
-        .map(|failure| {
-            failure
-                .failures
-                .iter()
-                .map(|failure| VectorMaintenanceFailureItemRecord {
-                    operation: match failure.operation {
-                        character_memory::VectorMaintenanceOperation::Delete => {
-                            EvalVectorMaintenanceOperation::Delete
-                        }
-                        character_memory::VectorMaintenanceOperation::Upsert => {
-                            EvalVectorMaintenanceOperation::Upsert
-                        }
-                    },
-                    objects: failure
-                        .objects
-                        .iter()
-                        .map(|object| {
-                            object_ref_from_live(*object, external_id_for_object(state, *object))
-                        })
-                        .collect(),
-                    cause: vector_indexing_cause_from_live(&failure.cause),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let warnings = outcome
-        .diagnostics
-        .warnings
-        .iter()
-        .map(|warning| LifecycleWarningRecord {
-            reason: match warning.reason {
-                character_memory::LifecycleMutationWarningReason::CascadeSuppressesCurrentReplacement => {
-                    LifecycleWarningReason::CascadeSuppressesCurrentReplacement
-                }
-            },
-            affected_internal_ids: warning
-                .affected_memory_ids
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
-        })
-        .collect();
-    let outcome_record = LifecycleOutcomeRecord {
-        operation_id,
-        operation,
-        requested_targets,
-        graph_mutated_objects,
-        graph_mutated_link_internal_ids: outcome
-            .graph_mutated_link_ids
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
-        vector_maintained_objects,
-        vector_maintenance_failures,
-        stats_update_status: stats_update_status_from_live(&outcome.stats_update_status),
-        superseded: outcome
-            .trace
-            .iter()
-            .flat_map(|trace| &trace.superseded_by)
-            .map(|evidence| SupersessionRecord {
-                superseded_internal_id: evidence.superseded_memory_id.to_string(),
-                superseded_by_internal_id: evidence.superseded_by_memory_id.to_string(),
-            })
-            .collect(),
-        warnings,
-    };
     Ok(LifecycleMutationResult {
         mutated_object_refs,
         mutated_link_external_ids,
         vector_maintained_object_refs,
         superseded,
-        outcome: outcome_record,
+        outcome: RecordedOutcome {
+            operation_id,
+            outcome,
+        },
     })
 }
 
@@ -4237,470 +2646,20 @@ fn external_endpoint_from_reverse_maps(
     links: &BTreeMap<MemoryId, String>,
 ) -> Option<MemoryEndpointInput> {
     let (object_type, external_id) = match object_type {
-        ObjectType::Episode => (EvalObjectType::Episode, episodes.get(&id)?.clone()),
-        ObjectType::Observation => (
-            EvalObjectType::Observation,
-            observations.get(&id)?.0.clone(),
-        ),
-        ObjectType::Entity => (EvalObjectType::Entity, entities.get(&id)?.clone()),
-        ObjectType::MemoryThread => (EvalObjectType::MemoryThread, threads.get(&id)?.clone()),
+        ObjectType::Episode => (ObjectType::Episode, episodes.get(&id)?.clone()),
+        ObjectType::Observation => (ObjectType::Observation, observations.get(&id)?.0.clone()),
+        ObjectType::Entity => (ObjectType::Entity, entities.get(&id)?.clone()),
+        ObjectType::MemoryThread => (ObjectType::MemoryThread, threads.get(&id)?.clone()),
         ObjectType::DerivedMemory => (
-            EvalObjectType::DerivedMemory,
+            ObjectType::DerivedMemory,
             derived_memories.get(&id)?.clone(),
         ),
-        ObjectType::MemoryLink => (EvalObjectType::MemoryLink, links.get(&id)?.clone()),
+        ObjectType::MemoryLink => (ObjectType::MemoryLink, links.get(&id)?.clone()),
     };
     Some(MemoryEndpointInput {
         object_type,
         external_id,
     })
-}
-
-fn prepared_candidate_from_live(
-    candidate: &MemoryCandidate,
-    state: &NamespaceState,
-    known_refs: &HashMap<MemoryId, MemoryEndpointInput>,
-) -> Result<PreparedCandidate> {
-    let (kind, internal_id, object_type, provenance): (
-        EvalMemoryCandidateKind,
-        MemoryId,
-        Option<ObjectType>,
-        &CandidateProvenance,
-    ) = match candidate {
-        MemoryCandidate::Episode(candidate) => (
-            EvalMemoryCandidateKind::Episode,
-            candidate
-                .draft
-                .id
-                .context("prepared episode candidate id")?,
-            Some(ObjectType::Episode),
-            &candidate.provenance,
-        ),
-        MemoryCandidate::Observation(candidate) => (
-            EvalMemoryCandidateKind::Observation,
-            candidate
-                .draft
-                .id
-                .context("prepared observation candidate id")?,
-            Some(ObjectType::Observation),
-            &candidate.provenance,
-        ),
-        MemoryCandidate::Entity(candidate) => (
-            EvalMemoryCandidateKind::Entity,
-            candidate.draft.id.context("prepared entity candidate id")?,
-            Some(ObjectType::Entity),
-            &candidate.provenance,
-        ),
-        MemoryCandidate::MemoryThread(candidate) => (
-            EvalMemoryCandidateKind::MemoryThread,
-            candidate
-                .draft
-                .id
-                .context("prepared memory_thread candidate id")?,
-            Some(ObjectType::MemoryThread),
-            &candidate.provenance,
-        ),
-        MemoryCandidate::DerivedMemory(candidate) => (
-            EvalMemoryCandidateKind::DerivedMemory,
-            candidate
-                .draft
-                .id
-                .context("prepared derived_memory candidate id")?,
-            Some(ObjectType::DerivedMemory),
-            &candidate.provenance,
-        ),
-        MemoryCandidate::MemoryLink(candidate) => (
-            EvalMemoryCandidateKind::MemoryLink,
-            candidate
-                .draft
-                .id
-                .context("prepared memory_link candidate id")?,
-            Some(ObjectType::MemoryLink),
-            &candidate.provenance,
-        ),
-        MemoryCandidate::VectorIndex(candidate) => (
-            EvalMemoryCandidateKind::VectorIndex,
-            candidate.target.id,
-            Some(candidate.target.object_type),
-            &candidate.provenance,
-        ),
-        MemoryCandidate::StatsUpdate(candidate) => (
-            EvalMemoryCandidateKind::StatsUpdate,
-            candidate.subject.id,
-            Some(candidate.subject.object_type),
-            &candidate.provenance,
-        ),
-    };
-    let external_id = known_refs
-        .get(&internal_id)
-        .cloned()
-        .or_else(|| {
-            object_type.and_then(|kind| external_endpoint_for_object(state, kind, internal_id))
-        })
-        .map(|endpoint| endpoint.external_id);
-    let (producer_kind, rationale_origin, rationale) = candidate_provenance_summary(provenance);
-    Ok(PreparedCandidate {
-        kind,
-        internal_id: internal_id.to_string(),
-        external_id,
-        producer_kind,
-        rationale_origin,
-        rationale,
-        source: source_provenance_from_live(&provenance.source, state, known_refs),
-    })
-}
-
-fn candidate_provenance_summary(
-    provenance: &CandidateProvenance,
-) -> (
-    EvalCandidateProducerKind,
-    EvalRationaleOrigin,
-    Option<String>,
-) {
-    (
-        match provenance.producer_kind {
-            character_memory::CandidateProducerKind::Caller => EvalCandidateProducerKind::Caller,
-            character_memory::CandidateProducerKind::DeterministicHelper => {
-                EvalCandidateProducerKind::DeterministicHelper
-            }
-            character_memory::CandidateProducerKind::RuleProcessor => {
-                EvalCandidateProducerKind::RuleProcessor
-            }
-            character_memory::CandidateProducerKind::ModelProcessor => {
-                EvalCandidateProducerKind::ModelProcessor
-            }
-            character_memory::CandidateProducerKind::ImportTool => {
-                EvalCandidateProducerKind::ImportTool
-            }
-            character_memory::CandidateProducerKind::System => EvalCandidateProducerKind::System,
-            character_memory::CandidateProducerKind::Unknown => EvalCandidateProducerKind::Unknown,
-        },
-        match provenance.rationale_origin() {
-            character_memory::RationaleOrigin::ProvidedByCaller => {
-                EvalRationaleOrigin::ProvidedByCaller
-            }
-            character_memory::RationaleOrigin::ProvidedByProcessor => {
-                EvalRationaleOrigin::ProvidedByProcessor
-            }
-            character_memory::RationaleOrigin::InferredByProcessor => {
-                EvalRationaleOrigin::InferredByProcessor
-            }
-            character_memory::RationaleOrigin::Unavailable => EvalRationaleOrigin::Unavailable,
-        },
-        provenance.rationale.text().map(str::to_string),
-    )
-}
-
-fn source_provenance_from_live(
-    provenance: &SourceProvenance,
-    state: &NamespaceState,
-    known_refs: &HashMap<MemoryId, MemoryEndpointInput>,
-) -> SourceProvenanceInput {
-    let external_for = |object_type, id| {
-        known_refs
-            .get(&id)
-            .cloned()
-            .or_else(|| external_endpoint_for_object(state, object_type, id))
-            .map(|endpoint| endpoint.external_id)
-    };
-    SourceProvenanceInput {
-        episode_external_ids: provenance
-            .episode_ids
-            .iter()
-            .filter_map(|id| external_for(ObjectType::Episode, *id))
-            .collect(),
-        observation_external_ids: provenance
-            .observation_ids
-            .iter()
-            .filter_map(|id| external_for(ObjectType::Observation, *id))
-            .collect(),
-        external_refs: provenance
-            .external_refs
-            .iter()
-            .map(|reference| ExternalSourceRefInput {
-                source_ref: reference.source_ref.clone(),
-                raw_ref: reference.raw_ref.clone(),
-            })
-            .collect(),
-    }
-}
-
-fn candidate_validation_from_live(validation: &CandidateValidation) -> CandidateValidationResult {
-    CandidateValidationResult {
-        candidate_index: validation.candidate_index,
-        candidate_kind: candidate_kind_from_live(validation.candidate_kind),
-        status: match validation.status {
-            CandidateValidationStatus::Valid => EvalCandidateValidationStatus::Valid,
-            CandidateValidationStatus::Invalid => EvalCandidateValidationStatus::Invalid,
-        },
-        errors: validation
-            .errors
-            .iter()
-            .map(candidate_validation_issue_from_live)
-            .collect(),
-        warnings: validation
-            .warnings
-            .iter()
-            .map(candidate_validation_issue_from_live)
-            .collect(),
-    }
-}
-
-fn entity_type_to_live(value: EvalEntityType) -> EntityType {
-    match value {
-        EvalEntityType::Person => EntityType::Person,
-        EvalEntityType::User => EntityType::User,
-        EvalEntityType::Assistant => EntityType::Assistant,
-        EvalEntityType::Project => EntityType::Project,
-        EvalEntityType::Concept => EntityType::Concept,
-        EvalEntityType::Tool => EntityType::Tool,
-        EvalEntityType::Document => EntityType::Document,
-        EvalEntityType::Place => EntityType::Place,
-        EvalEntityType::Organization => EntityType::Organization,
-        EvalEntityType::Other => EntityType::Other,
-    }
-}
-
-fn derived_type_to_live(value: EvalDerivedType) -> DerivedType {
-    match value {
-        EvalDerivedType::Reflection => DerivedType::Reflection,
-        EvalDerivedType::UserPreference => DerivedType::UserPreference,
-        EvalDerivedType::AssistantPreference => DerivedType::AssistantPreference,
-        EvalDerivedType::Commitment => DerivedType::Commitment,
-        EvalDerivedType::OpenLoop => DerivedType::OpenLoop,
-        EvalDerivedType::CharacterSignal => DerivedType::CharacterSignal,
-        EvalDerivedType::RelationshipNote => DerivedType::RelationshipNote,
-        EvalDerivedType::ProjectNote => DerivedType::ProjectNote,
-        EvalDerivedType::Claim => DerivedType::Claim,
-        EvalDerivedType::Correction => DerivedType::Correction,
-    }
-}
-
-fn thread_status_to_live(value: EvalThreadStatus) -> ThreadStatus {
-    match value {
-        EvalThreadStatus::Active => ThreadStatus::Active,
-        EvalThreadStatus::Dormant => ThreadStatus::Dormant,
-        EvalThreadStatus::Resolved => ThreadStatus::Resolved,
-        EvalThreadStatus::Archived => ThreadStatus::Archived,
-    }
-}
-
-fn stability_to_live(value: EvalStability) -> Stability {
-    match value {
-        EvalStability::Low => Stability::Low,
-        EvalStability::Medium => Stability::Medium,
-        EvalStability::High => Stability::High,
-    }
-}
-
-fn relation_type_to_live(value: EvalRelationType) -> RelationType {
-    match value {
-        EvalRelationType::HasObservation => RelationType::HasObservation,
-        EvalRelationType::ObservedIn => RelationType::ObservedIn,
-        EvalRelationType::Mentions => RelationType::Mentions,
-        EvalRelationType::Involves => RelationType::Involves,
-        EvalRelationType::About => RelationType::About,
-        EvalRelationType::DerivedFrom => RelationType::DerivedFrom,
-        EvalRelationType::PartOfThread => RelationType::PartOfThread,
-        EvalRelationType::Supports => RelationType::Supports,
-        EvalRelationType::Contradicts => RelationType::Contradicts,
-        EvalRelationType::Supersedes => RelationType::Supersedes,
-        EvalRelationType::Resolves => RelationType::Resolves,
-        EvalRelationType::CreatesOpenLoop => RelationType::CreatesOpenLoop,
-        EvalRelationType::FulfillsCommitment => RelationType::FulfillsCommitment,
-        EvalRelationType::AssociatedWith => RelationType::AssociatedWith,
-    }
-}
-
-fn object_type_to_live(value: EvalObjectType) -> ObjectType {
-    match value {
-        EvalObjectType::Episode => ObjectType::Episode,
-        EvalObjectType::Observation => ObjectType::Observation,
-        EvalObjectType::Entity => ObjectType::Entity,
-        EvalObjectType::MemoryThread => ObjectType::MemoryThread,
-        EvalObjectType::DerivedMemory => ObjectType::DerivedMemory,
-        EvalObjectType::MemoryLink => ObjectType::MemoryLink,
-    }
-}
-
-fn object_type_from_live(value: ObjectType) -> EvalObjectType {
-    match value {
-        ObjectType::Episode => EvalObjectType::Episode,
-        ObjectType::Observation => EvalObjectType::Observation,
-        ObjectType::Entity => EvalObjectType::Entity,
-        ObjectType::MemoryThread => EvalObjectType::MemoryThread,
-        ObjectType::DerivedMemory => EvalObjectType::DerivedMemory,
-        ObjectType::MemoryLink => EvalObjectType::MemoryLink,
-    }
-}
-
-fn relation_type_from_live(value: RelationType) -> EvalRelationType {
-    match value {
-        RelationType::HasObservation => EvalRelationType::HasObservation,
-        RelationType::ObservedIn => EvalRelationType::ObservedIn,
-        RelationType::Mentions => EvalRelationType::Mentions,
-        RelationType::Involves => EvalRelationType::Involves,
-        RelationType::About => EvalRelationType::About,
-        RelationType::DerivedFrom => EvalRelationType::DerivedFrom,
-        RelationType::PartOfThread => EvalRelationType::PartOfThread,
-        RelationType::Supports => EvalRelationType::Supports,
-        RelationType::Contradicts => EvalRelationType::Contradicts,
-        RelationType::Supersedes => EvalRelationType::Supersedes,
-        RelationType::Resolves => EvalRelationType::Resolves,
-        RelationType::CreatesOpenLoop => EvalRelationType::CreatesOpenLoop,
-        RelationType::FulfillsCommitment => EvalRelationType::FulfillsCommitment,
-        RelationType::AssociatedWith => EvalRelationType::AssociatedWith,
-    }
-}
-
-fn context_pack_section_from_live(
-    value: character_memory::ContextPackSection,
-) -> EvalContextPackSection {
-    match value {
-        character_memory::ContextPackSection::ActiveThreads => {
-            EvalContextPackSection::ActiveThreads
-        }
-        character_memory::ContextPackSection::RelevantEpisodes => {
-            EvalContextPackSection::RelevantEpisodes
-        }
-        character_memory::ContextPackSection::SalientObservations => {
-            EvalContextPackSection::SalientObservations
-        }
-        character_memory::ContextPackSection::DerivedMemories => {
-            EvalContextPackSection::DerivedMemories
-        }
-        character_memory::ContextPackSection::Preferences => EvalContextPackSection::Preferences,
-        character_memory::ContextPackSection::RelationshipNotes => {
-            EvalContextPackSection::RelationshipNotes
-        }
-        character_memory::ContextPackSection::OpenLoops => EvalContextPackSection::OpenLoops,
-        character_memory::ContextPackSection::Commitments => EvalContextPackSection::Commitments,
-        character_memory::ContextPackSection::CharacterSignals => {
-            EvalContextPackSection::CharacterSignals
-        }
-        character_memory::ContextPackSection::Omitted => EvalContextPackSection::Omitted,
-    }
-}
-
-fn graph_bounded_reason_from_live(
-    value: character_memory::GraphExpansionBoundedReason,
-) -> EvalGraphExpansionBoundedReason {
-    match value {
-        character_memory::GraphExpansionBoundedReason::NodeLimit => {
-            EvalGraphExpansionBoundedReason::NodeLimit
-        }
-        character_memory::GraphExpansionBoundedReason::Timeout => {
-            EvalGraphExpansionBoundedReason::Timeout
-        }
-        character_memory::GraphExpansionBoundedReason::HubLimit => {
-            EvalGraphExpansionBoundedReason::HubLimit
-        }
-    }
-}
-
-fn stale_candidate_reason_from_live(
-    value: character_memory::StaleCandidateReason,
-) -> EvalStaleCandidateReason {
-    match value {
-        character_memory::StaleCandidateReason::GraphObjectMissing => {
-            EvalStaleCandidateReason::GraphObjectMissing
-        }
-        character_memory::StaleCandidateReason::LifecycleMismatch => {
-            EvalStaleCandidateReason::LifecycleMismatch
-        }
-        character_memory::StaleCandidateReason::CurrentnessMismatch => {
-            EvalStaleCandidateReason::CurrentnessMismatch
-        }
-        character_memory::StaleCandidateReason::Superseded => EvalStaleCandidateReason::Superseded,
-        character_memory::StaleCandidateReason::SectionLimit => {
-            EvalStaleCandidateReason::SectionLimit
-        }
-        character_memory::StaleCandidateReason::GraphExpansionBounded => {
-            EvalStaleCandidateReason::GraphExpansionBounded
-        }
-    }
-}
-
-fn lifecycle_filter_reason_from_live(
-    value: character_memory::LifecycleFilterReason,
-) -> EvalLifecycleFilterReason {
-    match value {
-        character_memory::LifecycleFilterReason::Active => EvalLifecycleFilterReason::Active,
-        character_memory::LifecycleFilterReason::ArchivedIncludedByPolicy => {
-            EvalLifecycleFilterReason::ArchivedIncludedByPolicy
-        }
-        character_memory::LifecycleFilterReason::SuppressedIncludedByPolicy => {
-            EvalLifecycleFilterReason::SuppressedIncludedByPolicy
-        }
-        character_memory::LifecycleFilterReason::DeletedIncludedByPolicy => {
-            EvalLifecycleFilterReason::DeletedIncludedByPolicy
-        }
-        character_memory::LifecycleFilterReason::NonCurrentIncludedByPolicy => {
-            EvalLifecycleFilterReason::NonCurrentIncludedByPolicy
-        }
-        character_memory::LifecycleFilterReason::SupersededIncludedByPolicy => {
-            EvalLifecycleFilterReason::SupersededIncludedByPolicy
-        }
-        character_memory::LifecycleFilterReason::ArchivedOmitted => {
-            EvalLifecycleFilterReason::ArchivedOmitted
-        }
-        character_memory::LifecycleFilterReason::SuppressedOmitted => {
-            EvalLifecycleFilterReason::SuppressedOmitted
-        }
-        character_memory::LifecycleFilterReason::DeletedOmitted => {
-            EvalLifecycleFilterReason::DeletedOmitted
-        }
-        character_memory::LifecycleFilterReason::NonCurrentOmitted => {
-            EvalLifecycleFilterReason::NonCurrentOmitted
-        }
-        character_memory::LifecycleFilterReason::SupersededOmitted => {
-            EvalLifecycleFilterReason::SupersededOmitted
-        }
-        character_memory::LifecycleFilterReason::GraphObjectMissing => {
-            EvalLifecycleFilterReason::GraphObjectMissing
-        }
-        character_memory::LifecycleFilterReason::GraphExpansionBounded => {
-            EvalLifecycleFilterReason::GraphExpansionBounded
-        }
-    }
-}
-
-fn selectivity_count_scope_from_live(
-    value: character_memory::SelectivityCountScope,
-) -> EvalSelectivityCountScope {
-    match value {
-        character_memory::SelectivityCountScope::Current => EvalSelectivityCountScope::Current,
-        character_memory::SelectivityCountScope::Active => EvalSelectivityCountScope::Active,
-        character_memory::SelectivityCountScope::Total => EvalSelectivityCountScope::Total,
-    }
-}
-
-fn selectivity_decision_from_live(
-    value: character_memory::SelectivityDecision,
-) -> EvalSelectivityDecision {
-    match value {
-        character_memory::SelectivityDecision::HighSelectivity => {
-            EvalSelectivityDecision::HighSelectivity
-        }
-        character_memory::SelectivityDecision::LowSelectivitySupported => {
-            EvalSelectivityDecision::LowSelectivitySupported
-        }
-        character_memory::SelectivityDecision::LowSelectivityRejected => {
-            EvalSelectivityDecision::LowSelectivityRejected
-        }
-        character_memory::SelectivityDecision::ConservativeFallback => {
-            EvalSelectivityDecision::ConservativeFallback
-        }
-    }
-}
-
-fn retention_state_to_live(value: EvalRetentionState) -> RetentionState {
-    match value {
-        EvalRetentionState::Active => RetentionState::Active,
-        EvalRetentionState::Suppressed => RetentionState::Suppressed,
-        EvalRetentionState::Archived => RetentionState::Archived,
-        EvalRetentionState::Deleted => RetentionState::Deleted,
-    }
 }
 
 fn validate_cleanup_target(collection_name: &str, required_prefix: Option<&str>) -> Result<()> {
@@ -4929,17 +2888,16 @@ impl EmbeddingProvider for CharacterMemoryFrozenEmbeddingProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use character_memory::{
-        CURRENT_SCHEMA_VERSION, ContextPackSection, ContinuityContextPack, Episode,
-        FanoutUtilizationTrace, LifecycleFilterDecision, MemoryObjectRef, Modality,
-        RationaleCategory, RetrievalRationale, RetrievalTrace, RetrieveOutcome, SectionAssignment,
-        SectionAssignmentReason, SectionScoreComponents, SectionVectorScoreSource,
-        SelectivityCountScope, SelectivityDecision, SelectivityTrace, TransportStatus,
-        VectorCandidateTrace, VectorDatabaseError, VectorDatabaseErrorKind, VectorSurface,
-    };
-    use cmem_eval_core::{
+    use crate::RetrievalSectionBudgets;
+    use crate::{
         CleanupConfig, DatasetId, DerivedMemoryInput, EmbeddingConfig, EntityInput,
         FrozenEmbeddingStore, MemoryLinkInput, RetrievalSurfacePolicy,
+    };
+    use character_memory::{
+        CURRENT_SCHEMA_VERSION, ContinuityContextPack, EntityType, Episode, LifecycleFilterAction,
+        LifecycleFilterDecision, LifecycleFilterReason, MemoryObjectRef, Modality, RelationType,
+        RetentionState, RetrievalRationale, RetrievalTrace, RetrieveOutcome, Stability,
+        VectorCandidateTrace, VectorSurface,
     };
     use std::io::Write;
     use std::process::Command;
@@ -4948,8 +2906,8 @@ mod tests {
     static LIVE_QDRANT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     fn adapter_config(run_id: String, namespace_prefix: String) -> BenchmarkRunConfig {
-        let mut backend = cmem_eval_core::BackendConfig {
-            vector_store_mode: VectorStoreMode::Service,
+        let mut backend = crate::BackendConfig {
+            vector_store_mode: VectorStoreMode::Embedded,
             namespace_prefix: Some(namespace_prefix.clone()),
             qdrant_connection_string: Some(
                 env::var("QDRANT_CONNECTION_STRING")
@@ -4964,7 +2922,7 @@ mod tests {
                 vector_size: Some(3072),
                 ..EmbeddingConfig::default()
             },
-            ..cmem_eval_core::BackendConfig::default()
+            ..crate::BackendConfig::default()
         };
         backend.openai_api_key_env = "CMEM_EVAL_UNUSED_OPENAI_KEY".to_string();
         BenchmarkRunConfig {
@@ -4972,25 +2930,30 @@ mod tests {
             dataset: DatasetId::new("locomo").unwrap(),
             backend,
             retrieval: Default::default(),
-            ingest: cmem_eval_core::IngestConfig::default(),
+            ingest: crate::IngestConfig::default(),
             metrics: Default::default(),
         }
     }
 
     #[test]
     fn oxigraph_env_cannot_redirect_graph_path() {
-        let status = Command::new(env::current_exe().unwrap())
+        let output = Command::new(env::current_exe().unwrap())
             .args([
                 "--exact",
-                "tests::oxigraph_env_cannot_redirect_graph_path_probe",
+                "adapter::tests::oxigraph_env_cannot_redirect_graph_path_probe",
                 "--nocapture",
             ])
             .env("CMEM_EVAL_OXIGRAPH_REDIRECT_PROBE", "1")
             .env("OXIGRAPH_PATH", "redirected-by-env")
-            .status()
+            .output()
             .unwrap();
 
-        assert!(status.success());
+        assert!(output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .contains("1 passed")
+        );
     }
 
     #[tokio::test]
@@ -5023,7 +2986,7 @@ mod tests {
                 })
                 .await
                 .unwrap();
-            assert!(episode.outcome.vector_indexing_failure.is_none());
+            assert!(episode.outcome.outcome.vector_indexing_failure.is_none());
             let observation = adapter
                 .remember_observation(ObservationInput {
                     external_id: id.into(),
@@ -5036,7 +2999,13 @@ mod tests {
                 })
                 .await
                 .unwrap();
-            assert!(observation.outcome.vector_indexing_failure.is_none());
+            assert!(
+                observation
+                    .outcome
+                    .outcome
+                    .vector_indexing_failure
+                    .is_none()
+            );
         }
         let mut query = RetrieveInput {
             mode: RetrievalMode::VectorOnly,
@@ -5055,22 +3024,19 @@ mod tests {
         );
         assert_eq!(
             result
-                .telemetry()
-                .vector_recall_completeness
+                .outcomes()
                 .iter()
-                .map(|v| v.scope.clone())
+                .map(|outcome| outcome.rationale.telemetry.configured_object_types.clone())
                 .collect::<Vec<_>>(),
-            vec![
-                vec![EvalObjectType::Episode],
-                vec![EvalObjectType::Observation]
-            ]
+            vec![vec![ObjectType::Episode], vec![ObjectType::Observation]]
         );
-        assert!(result.telemetry().trace_available);
-        assert_eq!(result.telemetry().selected_graph_root_count, None);
-        for (kind, budget) in [
-            (EvalObjectType::Episode, 1),
-            (EvalObjectType::Observation, 2),
-        ] {
+        assert!(
+            result
+                .outcomes()
+                .iter()
+                .all(|outcome| outcome.trace.is_some())
+        );
+        for (kind, budget) in [(ObjectType::Episode, 1), (ObjectType::Observation, 2)] {
             let actual: Vec<_> = result
                 .items()
                 .iter()
@@ -5082,7 +3048,7 @@ mod tests {
                 .map(|id| {
                     deterministic_id(
                         "n",
-                        if kind == EvalObjectType::Episode {
+                        if kind == ObjectType::Episode {
                             "episode"
                         } else {
                             "observation"
@@ -5157,15 +3123,15 @@ mod tests {
         let before = adapter.retrieve(query.clone()).await.unwrap();
         assert!(!before.items().is_empty());
         assert!(matches!(
-            before.telemetry().vector_recall_completeness.as_slice(),
-            [ScopedVectorRecallCompleteness {
-                completeness: VectorRecallCompleteness::Exhaustive { .. },
-                ..
-            }]
+            before.outcomes()[0]
+                .rationale
+                .telemetry
+                .vector_recall_completeness,
+            character_memory::VectorRecallCompleteness::Exhaustive { .. }
         ));
         let mut vector_query = query.clone();
         vector_query.mode = RetrievalMode::VectorOnly;
-        vector_query.surface_policy.object_types = vec![EvalObjectType::Episode];
+        vector_query.surface_policy.object_types = vec![ObjectType::Episode];
         let vector_before = adapter.retrieve(vector_query.clone()).await.unwrap();
         assert_eq!(
             vector_before.items()[0].text.as_deref(),
@@ -5240,15 +3206,15 @@ mod tests {
         if !include_threads {
             sections.active_threads = 0;
         }
-        let mut object_types = vec![EvalObjectType::Episode, EvalObjectType::Observation];
+        let mut object_types = vec![ObjectType::Episode, ObjectType::Observation];
         if include_derived_memories {
-            object_types.push(EvalObjectType::DerivedMemory);
+            object_types.push(ObjectType::DerivedMemory);
         }
         if include_threads {
-            object_types.push(EvalObjectType::MemoryThread);
+            object_types.push(ObjectType::MemoryThread);
         }
         if include_entities {
-            object_types.push(EvalObjectType::Entity);
+            object_types.push(ObjectType::Entity);
         }
         RetrievalSurfacePolicy {
             sections,
@@ -5279,161 +3245,16 @@ mod tests {
     #[test]
     fn vector_only_search_plan_honors_the_selected_supported_object_types() {
         let mut policy = retrieval_surface_policy(3, 5, false, false, false, false);
-        policy.object_types = vec![EvalObjectType::Observation];
+        policy.object_types = vec![ObjectType::Observation];
         assert_eq!(
             vector_only_search_plan(&policy).unwrap(),
             vec![("observation", 5)]
         );
 
-        policy.object_types = vec![EvalObjectType::Episode];
+        policy.object_types = vec![ObjectType::Episode];
         assert_eq!(
             vector_only_search_plan(&policy).unwrap(),
             vec![("episode", 3)]
-        );
-    }
-
-    #[test]
-    fn io_error_kind_projection_preserves_typed_variants_and_unknown_marker() {
-        assert_eq!(
-            vector_database_kind_from_live(&VectorDatabaseErrorKind::Io {
-                io_kind: character_memory::IoErrorKind::ConnectionRefused,
-            }),
-            EvalVectorDatabaseErrorKind::Io {
-                io_kind: cmem_eval_core::IoErrorKindRecord::ConnectionRefused,
-            }
-        );
-        assert_eq!(
-            vector_database_kind_from_live(&VectorDatabaseErrorKind::Io {
-                io_kind: character_memory::IoErrorKind::Unrecognized,
-            }),
-            EvalVectorDatabaseErrorKind::Io {
-                io_kind: cmem_eval_core::IoErrorKindRecord::Unrecognized,
-            }
-        );
-    }
-
-    #[test]
-    fn stats_update_projection_preserves_typed_multi_cause_structure() {
-        let live_causes = vec![
-            character_memory::StatsUpdateCause::EndpointHydration {
-                error: character_memory::GraphQueryError::Selection {
-                    detail: "select endpoints".into(),
-                },
-            },
-            character_memory::StatsUpdateCause::EdgeWrite {
-                error: character_memory::RetrievalStatsStoreError::Sqlite {
-                    detail: "write edges".into(),
-                },
-            },
-            character_memory::StatsUpdateCause::ObjectStateWrite {
-                error: character_memory::RetrievalStatsStoreError::Filesystem {
-                    io_kind: character_memory::IoErrorKind::PermissionDenied,
-                    detail: "write states".into(),
-                },
-            },
-            character_memory::StatsUpdateCause::HealthCheck {
-                error: character_memory::RetrievalStatsStoreError::LockPoisoned,
-            },
-            character_memory::StatsUpdateCause::HealthMark {
-                error: character_memory::RetrievalStatsStoreError::HealthSerialization {
-                    detail: "mark unhealthy".into(),
-                },
-            },
-            character_memory::StatsUpdateCause::StoreUnhealthy {
-                health_cause: Some(
-                    character_memory::RetrievalStatsHealthCause::GlobalCounterRead {
-                        error: character_memory::RetrievalStatsStoreError::HealthDeserialization {
-                            detail: "read global counter".into(),
-                        },
-                    },
-                ),
-            },
-        ];
-        let expected = vec![
-            StatsUpdateCauseRecord::EndpointHydration {
-                error: GraphQueryErrorRecord::Selection {
-                    detail: "select endpoints".into(),
-                },
-            },
-            StatsUpdateCauseRecord::EdgeWrite {
-                error: RetrievalStatsStoreErrorRecord::Sqlite {
-                    detail: "write edges".into(),
-                },
-            },
-            StatsUpdateCauseRecord::ObjectStateWrite {
-                error: RetrievalStatsStoreErrorRecord::Filesystem {
-                    io_kind: cmem_eval_core::IoErrorKindRecord::PermissionDenied,
-                    detail: "write states".into(),
-                },
-            },
-            StatsUpdateCauseRecord::HealthCheck {
-                error: RetrievalStatsStoreErrorRecord::LockPoisoned,
-            },
-            StatsUpdateCauseRecord::HealthMark {
-                error: RetrievalStatsStoreErrorRecord::HealthSerialization {
-                    detail: "mark unhealthy".into(),
-                },
-            },
-            StatsUpdateCauseRecord::StoreUnhealthy {
-                health_cause: Some(RetrievalStatsHealthCauseRecord::GlobalCounterRead {
-                    error: RetrievalStatsStoreErrorRecord::HealthDeserialization {
-                        detail: "read global counter".into(),
-                    },
-                }),
-            },
-        ];
-
-        assert_eq!(
-            live_causes
-                .iter()
-                .map(stats_update_cause_from_live)
-                .collect::<Vec<_>>(),
-            expected
-        );
-        assert_eq!(
-            graph_query_error_from_live(&character_memory::GraphQueryError::Hydration {
-                detail: "hydrate endpoints".into(),
-            }),
-            GraphQueryErrorRecord::Hydration {
-                detail: "hydrate endpoints".into(),
-            }
-        );
-
-        let marker = character_memory::RepairMarker::StatsUpdate {
-            object_ids: vec![Uuid::nil()],
-            causes: live_causes,
-        };
-        assert_eq!(
-            repair_marker_from_live(&marker),
-            RepairMarkerRecord::StatsUpdate {
-                object_internal_ids: vec![Uuid::nil().to_string()],
-                causes: expected,
-            }
-        );
-    }
-
-    #[test]
-    fn stats_update_status_projection_preserves_failure_objects_and_causes() {
-        let failed_id = Uuid::nil();
-        let status = character_memory::StatsUpdateStatus::failed(
-            [],
-            [failed_id],
-            vec![character_memory::StatsUpdateCause::HealthCheck {
-                error: character_memory::RetrievalStatsStoreError::LockPoisoned,
-            }],
-        );
-
-        assert_eq!(
-            stats_update_status_from_live(&status),
-            StatsUpdateStatusRecord {
-                updated_object_internal_ids: Vec::new(),
-                failure: Some(StatsUpdateFailureRecord {
-                    failed_object_internal_ids: vec![failed_id.to_string()],
-                    causes: vec![StatsUpdateCauseRecord::HealthCheck {
-                        error: RetrievalStatsStoreErrorRecord::LockPoisoned,
-                    }],
-                }),
-            }
         );
     }
 
@@ -5569,244 +3390,6 @@ mod tests {
         PathBuf::from(value)
     }
 
-    fn assert_exhaustive_relation_type(relation: RelationType) {
-        // No wildcard: a new facade variant must fail this test target's build
-        // until the fixture vocabulary and serialized-name assertion are updated.
-        match relation {
-            RelationType::HasObservation
-            | RelationType::ObservedIn
-            | RelationType::Mentions
-            | RelationType::Involves
-            | RelationType::About
-            | RelationType::DerivedFrom
-            | RelationType::PartOfThread
-            | RelationType::Supports
-            | RelationType::Contradicts
-            | RelationType::Supersedes
-            | RelationType::Resolves
-            | RelationType::CreatesOpenLoop
-            | RelationType::FulfillsCommitment
-            | RelationType::AssociatedWith => {}
-        }
-    }
-
-    #[test]
-    fn continuity_relation_vocabulary_matches_the_facade_parser_exhaustively() {
-        let relation_types = [
-            RelationType::HasObservation,
-            RelationType::ObservedIn,
-            RelationType::Mentions,
-            RelationType::Involves,
-            RelationType::About,
-            RelationType::DerivedFrom,
-            RelationType::PartOfThread,
-            RelationType::Supports,
-            RelationType::Contradicts,
-            RelationType::Supersedes,
-            RelationType::Resolves,
-            RelationType::CreatesOpenLoop,
-            RelationType::FulfillsCommitment,
-            RelationType::AssociatedWith,
-        ];
-        let facade_names = relation_types
-            .into_iter()
-            .map(|relation| {
-                assert_exhaustive_relation_type(relation);
-                serde_json::to_value(relation)
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .to_string()
-            })
-            .collect::<std::collections::BTreeSet<_>>();
-        let fixture_names = cmem_eval_continuity::CONTINUITY_RELATION_VOCABULARY
-            .iter()
-            .map(|relation| (*relation).to_string())
-            .collect::<std::collections::BTreeSet<_>>();
-
-        assert_eq!(
-            fixture_names.len(),
-            cmem_eval_continuity::CONTINUITY_RELATION_VOCABULARY.len(),
-            "continuity fixture relation vocabulary contains duplicates"
-        );
-        assert_eq!(facade_names, fixture_names);
-        let unknown_relation = "invented_relation";
-        let mut fixtures =
-            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
-                .unwrap();
-        let fixture_relation = fixtures
-            .scenarios
-            .iter_mut()
-            .flat_map(|scenario| scenario.events.iter_mut())
-            .find_map(|event| match event {
-                cmem_eval_continuity::InteractionEvent::Link { relation, .. } => Some(relation),
-                _ => None,
-            })
-            .unwrap();
-        *fixture_relation = unknown_relation.to_string();
-        let fixture_bytes = serde_json::to_vec(&fixtures).unwrap();
-        assert!(cmem_eval_continuity::parse_fixture_bytes(&fixture_bytes).is_err());
-    }
-
-    fn is_qdrant_unavailable_error(error: &VectorDatabaseError) -> bool {
-        let message = error.message.to_ascii_lowercase();
-        error.backend == "qdrant"
-            && (error.status == Some(TransportStatus::Unavailable)
-                || (error.kind == VectorDatabaseErrorKind::Response
-                    && message.contains("failed to connect")
-                    && message.contains("tcp connect error"))
-                || matches!(
-                    error.kind,
-                    VectorDatabaseErrorKind::HttpConnect | VectorDatabaseErrorKind::HttpTimeout
-                )
-                || matches!(
-                    &error.kind,
-                    VectorDatabaseErrorKind::Io { io_kind }
-                        if matches!(
-                            io_kind,
-                            character_memory::IoErrorKind::ConnectionRefused
-                                | character_memory::IoErrorKind::ConnectionReset
-                                | character_memory::IoErrorKind::ConnectionAborted
-                                | character_memory::IoErrorKind::NotConnected
-                                | character_memory::IoErrorKind::TimedOut
-                        )
-                ))
-    }
-
-    fn qdrant_unavailable(error: &anyhow::Error) -> bool {
-        let typed_error_is_unavailable = error
-            .chain()
-            .find_map(|source| source.downcast_ref::<VectorDatabaseError>())
-            .is_some_and(is_qdrant_unavailable_error);
-        let message = format!("{error:#}").to_ascii_lowercase();
-        typed_error_is_unavailable
-            || (message.contains("failed to connect") && message.contains("tcp connect error"))
-            || message.contains("connection refused")
-            || message.contains("timeout expired")
-            || message.contains("status: unavailable")
-            || message.contains("code: unavailable")
-    }
-
-    fn qdrant_unavailability_can_skip(service_available: bool) -> bool {
-        !service_available && env::var("CMEM_EVAL_REQUIRE_LIVE").as_deref() != Ok("1")
-    }
-
-    macro_rules! live_call_or_skip {
-        ($service_available:ident, $phase:expr, $confirms_availability:expr, $call:expr) => {{
-            match $call {
-                Ok(value) => {
-                    if $confirms_availability {
-                        $service_available = true;
-                    }
-                    value
-                }
-                Err(error)
-                    if qdrant_unavailable(&error)
-                        && qdrant_unavailability_can_skip($service_available) =>
-                {
-                    println!(
-                        "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
-                        $phase
-                    );
-                    return;
-                }
-                Err(error) if qdrant_unavailable(&error) => {
-                    panic!(
-                        "live adapter test requires Qdrant during {}: {error:#}",
-                        $phase
-                    )
-                }
-                Err(error) => {
-                    panic!("unexpected live adapter failure during {}: {error:#}", $phase)
-                }
-            }
-        }};
-    }
-
-    macro_rules! live_call_or_skip_without_confirmation {
-        ($service_available:ident, $phase:expr, $call:expr) => {{
-            match $call {
-                Ok(value) => value,
-                Err(error)
-                    if qdrant_unavailable(&error)
-                        && qdrant_unavailability_can_skip($service_available) =>
-                {
-                    println!(
-                        "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
-                        $phase
-                    );
-                    return;
-                }
-                Err(error) if qdrant_unavailable(&error) => {
-                    panic!(
-                        "live adapter test requires Qdrant during {}: {error:#}",
-                        $phase
-                    )
-                }
-                Err(error) => {
-                    panic!("unexpected live adapter failure during {}: {error:#}", $phase)
-                }
-            }
-        }};
-    }
-
-    macro_rules! live_teardown_with_one_retry {
-        ($service_available:ident, $phase:expr, $call:expr, $retry:expr) => {{
-            match $call {
-                Ok(value) => value,
-                Err(error)
-                    if qdrant_unavailable(&error)
-                        && qdrant_unavailability_can_skip($service_available) =>
-                {
-                    println!(
-                        "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
-                        $phase
-                    );
-                    return;
-                }
-                Err(error) if qdrant_unavailable(&error) => {
-                    println!(
-                        "retrying live adapter teardown after Qdrant availability error during {}: {error:#}",
-                        $phase
-                    );
-                    live_call_or_skip_without_confirmation!(
-                        $service_available,
-                        concat!($phase, " retry"),
-                        $retry
-                    )
-                }
-                Err(error) => {
-                    panic!("unexpected live adapter failure during {}: {error:#}", $phase)
-                }
-            }
-        }};
-    }
-
-    macro_rules! live_error_or_skip {
-        ($service_available:ident, $phase:expr, $call:expr) => {{
-            match $call {
-                Err(error)
-                    if qdrant_unavailable(&error)
-                        && qdrant_unavailability_can_skip($service_available) =>
-                {
-                    println!(
-                        "skipping live adapter reattach test because Qdrant is unavailable during {}: {error:#}",
-                        $phase
-                    );
-                    return;
-                }
-                Err(error) if qdrant_unavailable(&error) => {
-                    panic!(
-                        "live adapter test requires Qdrant during {}: {error:#}",
-                        $phase
-                    )
-                }
-                Err(error) => error,
-                Ok(_) => panic!("expected live adapter failure during {}", $phase),
-            }
-        }};
-    }
-
     fn unique_test_token() -> String {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -5924,15 +3507,6 @@ mod tests {
                     thread_id,
                     derived_id,
                 ],
-                object_types: BTreeMap::from([
-                    (episode_a_id, ObjectType::Episode),
-                    (episode_b_id, ObjectType::Episode),
-                    (observation_a_id, ObjectType::Observation),
-                    (observation_b_id, ObjectType::Observation),
-                    (entity_id, ObjectType::Entity),
-                    (thread_id, ObjectType::MemoryThread),
-                    (derived_id, ObjectType::DerivedMemory),
-                ]),
                 link_ids: vec![link_id],
                 vector_ids: vec![
                     episode_a_id,
@@ -6237,7 +3811,7 @@ mod tests {
             clusters: BTreeMap::from([("cluster".to_string(), vec![1.0, -1.0])]),
             concepts: BTreeMap::from([(
                 "concept".to_string(),
-                cmem_eval_core::SimilarityConceptFixture {
+                crate::SimilarityConceptFixture {
                     cluster: "cluster".to_string(),
                     inputs: vec!["fixture text".to_string()],
                 },
@@ -6287,7 +3861,7 @@ mod tests {
             clusters: BTreeMap::from([("cluster".to_string(), vec![1.0, -1.0])]),
             concepts: BTreeMap::from([(
                 "concept".to_string(),
-                cmem_eval_core::SimilarityConceptFixture {
+                crate::SimilarityConceptFixture {
                     cluster: "cluster".to_string(),
                     inputs: vec!["fixture text".to_string()],
                 },
@@ -6504,7 +4078,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn live_frozen_write_surface_matches_continuity_runtime_normalization() {
+    async fn embedded_frozen_write_surface_matches_continuity_runtime_normalization() {
         let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
         let directory = tempdir().unwrap();
         let token = unique_test_token();
@@ -6547,55 +4121,42 @@ mod tests {
                 .to_string_lossy()
                 .into_owned(),
         );
-        let mut qdrant_was_available = false;
-        let adapter = live_call_or_skip!(
-            qdrant_was_available,
-            "frozen drift-guard adapter construction",
-            false,
-            CharacterMemoryAdapter::new_with_test_frozen_embeddings(&config).await
-        );
-        live_call_or_skip!(
-            qdrant_was_available,
-            "frozen drift-guard namespace open",
-            true,
-            adapter.open_namespace(namespace).await
-        );
-        let plan = live_call_or_skip!(
-            qdrant_was_available,
-            "frozen drift-guard write preparation",
-            true,
-            adapter
-                .prepare(PrepareWriteInput {
-                    namespace: namespace.to_string(),
-                    content: content.to_string(),
-                    episode_external_id: "whitespace-episode".to_string(),
-                    observation_external_id: "whitespace-observation".to_string(),
-                    episode_started_at: None,
-                    observation_observed_at: None,
-                    raw_refs: Vec::new(),
-                    idempotency_key: Some("whitespace-drift-guard".to_string()),
-                    include_vector_index_candidates: true,
-                    include_stats_update_candidates: true,
-                })
-                .await
-        );
-        let outcome = live_call_or_skip!(
-            qdrant_was_available,
-            "frozen drift-guard write commit",
-            true,
-            adapter.commit(plan, CommitWriteOptions::default()).await
-        );
+        let adapter = (CharacterMemoryAdapter::new_with_test_frozen_embeddings(&config).await)
+            .expect("frozen drift-guard adapter construction");
+        (adapter.open_namespace(namespace).await).expect("frozen drift-guard namespace open");
+        let plan = (adapter
+            .prepare(PrepareWriteInput {
+                namespace: namespace.to_string(),
+                content: content.to_string(),
+                episode_external_id: "whitespace-episode".to_string(),
+                observation_external_id: "whitespace-observation".to_string(),
+                episode_started_at: None,
+                observation_observed_at: None,
+                raw_refs: Vec::new(),
+                idempotency_key: Some("whitespace-drift-guard".to_string()),
+                include_vector_index_candidates: true,
+                include_stats_update_candidates: true,
+            })
+            .await)
+            .expect("frozen drift-guard write preparation");
+        let outcome = (adapter.commit(plan, CommitWriteOptions::default()).await)
+            .expect("frozen drift-guard write commit");
         assert_eq!(outcome.vector_indexed_object_refs.len(), 2);
-        live_teardown_with_one_retry!(
-            qdrant_was_available,
-            "frozen drift-guard namespace cleanup",
-            adapter.reset_namespace(namespace).await,
-            adapter.reset_namespace(namespace).await
-        );
+        (adapter.reset_namespace(namespace).await).expect("frozen drift-guard namespace cleanup");
     }
 
     #[tokio::test]
-    async fn live_adapter_reattaches_with_external_ids() {
+    async fn embedded_adapter_reattaches_with_external_ids() {
+        reattach_with_external_ids(VectorStoreMode::Embedded).await;
+    }
+
+    #[cfg(feature = "service-tests")]
+    #[tokio::test]
+    async fn service_mode_reattaches_with_external_ids() {
+        reattach_with_external_ids(VectorStoreMode::Service).await;
+    }
+
+    async fn reattach_with_external_ids(mode: VectorStoreMode) {
         let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
         let directory = tempdir().unwrap();
         let token = unique_test_token();
@@ -6603,6 +4164,7 @@ mod tests {
         let prefix = format!("cmem_eval_task3_{token}");
         let namespace = "restart-round-trip";
         let mut config = adapter_config(run_id, prefix);
+        config.backend.vector_store_mode = mode;
         config.backend.cleanup.enabled = false;
         config.backend.cleanup.require_collection_prefix = Some("unrelated:prefix".to_string());
         config.backend.identity_registry_dir = Some(
@@ -6632,128 +4194,95 @@ mod tests {
         let retrieval_stats_path = path_adapter.retrieval_stats_path(namespace).unwrap();
         drop(path_adapter);
 
-        // Absence before the first successful Qdrant operation skips this gated test. Once
-        // availability is demonstrated, later failures are test failures; teardown alone gets
-        // one retry for the case where deletion committed but its response timed out.
-        let mut qdrant_was_available = false;
-        let adapter_a = live_call_or_skip!(
-            qdrant_was_available,
-            "initial adapter construction",
-            false,
-            CharacterMemoryAdapter::new(&config).await
-        );
-        live_call_or_skip!(
-            qdrant_was_available,
-            "initial fresh namespace open",
-            true,
-            adapter_a.open_namespace(namespace).await
-        );
-        let staged_plan = live_call_or_skip!(
-            qdrant_was_available,
-            "staged write preparation",
-            true,
-            adapter_a
-                .prepare(PrepareWriteInput {
-                    namespace: namespace.to_string(),
-                    content: "The restart-safe drink is jasmine tea.".to_string(),
-                    episode_external_id: "episode-external".to_string(),
-                    observation_external_id: "observation-external".to_string(),
-                    episode_started_at: Some("2025-01-01T00:00:00Z".to_string()),
-                    observation_observed_at: Some("2025-01-01T00:00:00Z".to_string()),
-                    raw_refs: vec!["fixture://continuity/restart".to_string()],
-                    idempotency_key: Some("continuity-restart-write".to_string()),
-                    include_vector_index_candidates: true,
-                    include_stats_update_candidates: true,
-                })
-                .await
-        );
-        let staged_validations = live_call_or_skip!(
-            qdrant_was_available,
-            "staged write validation",
-            true,
-            adapter_a.validate_plan(&staged_plan).await
-        );
+        let adapter_a =
+            (CharacterMemoryAdapter::new(&config).await).expect("initial adapter construction");
+        (adapter_a.open_namespace(namespace).await).expect("initial fresh namespace open");
+        let staged_plan = (adapter_a
+            .prepare(PrepareWriteInput {
+                namespace: namespace.to_string(),
+                content: "The restart-safe drink is jasmine tea.".to_string(),
+                episode_external_id: "episode-external".to_string(),
+                observation_external_id: "observation-external".to_string(),
+                episode_started_at: Some("2025-01-01T00:00:00Z".to_string()),
+                observation_observed_at: Some("2025-01-01T00:00:00Z".to_string()),
+                raw_refs: vec!["fixture://continuity/restart".to_string()],
+                idempotency_key: Some("continuity-restart-write".to_string()),
+                include_vector_index_candidates: true,
+                include_stats_update_candidates: true,
+            })
+            .await)
+            .expect("staged write preparation");
+        let staged_validations =
+            (adapter_a.validate_plan(&staged_plan).await).expect("staged write validation");
         assert!(
             staged_validations
                 .iter()
-                .all(|validation| validation.status == EvalCandidateValidationStatus::Valid)
+                .all(|validation| validation.status == CandidateValidationStatus::Valid)
         );
-        let staged_commit = live_call_or_skip!(
-            qdrant_was_available,
-            "staged write commit",
-            true,
-            adapter_a
-                .commit(staged_plan, CommitWriteOptions::default())
-                .await
-        );
+        let staged_commit = (adapter_a
+            .commit(staged_plan, CommitWriteOptions::default())
+            .await)
+            .expect("staged write commit");
         assert!(staged_commit.persisted_object_refs.iter().any(|reference| {
-            reference.object_type == EvalObjectType::Episode
+            reference.object_type == ObjectType::Episode
                 && reference.external_id == "episode-external"
         }));
         assert!(staged_commit.persisted_object_refs.iter().any(|reference| {
-            reference.object_type == EvalObjectType::Observation
+            reference.object_type == ObjectType::Observation
                 && reference.external_id == "observation-external"
         }));
-        live_call_or_skip!(
-            qdrant_was_available,
-            "graph enrichment ingest",
-            true,
-            adapter_a
-                .remember_enrichment(GraphEnrichmentInput {
-                    namespace: namespace.to_string(),
-                    entities: vec![EntityInput {
+        (adapter_a
+            .remember_enrichment(GraphEnrichmentInput {
+                namespace: namespace.to_string(),
+                entities: vec![EntityInput {
+                    external_id: "alice-entity".to_string(),
+                    entity_type: EntityType::Person,
+                    name: "Alice".to_string(),
+                    aliases: Vec::new(),
+                    canonical_key: None,
+                    summary: Some("A restart-safe graph entity.".to_string()),
+                }],
+                derived_memories: vec![DerivedMemoryInput {
+                    external_id: "pre-correction-memory".to_string(),
+                    derived_type: DerivedType::Reflection,
+                    text: "The restart-safe drink is jasmine tea.".to_string(),
+                    source_episode_external_ids: vec!["episode-external".to_string()],
+                    source_observation_external_ids: vec!["observation-external".to_string()],
+                    thread_external_ids: Vec::new(),
+                    entity_external_ids: vec!["alice-entity".to_string()],
+                    confidence: 1.0,
+                    salience_score: 0.8,
+                    stability: Stability::Medium,
+                    is_current: true,
+                    supersedes_external_ids: Vec::new(),
+                    metadata: serde_json::Value::Null,
+                }],
+                ..GraphEnrichmentInput::default()
+            })
+            .await)
+            .expect("graph enrichment ingest");
+        let link = (adapter_a
+            .link(LinkMemoryInput {
+                namespace: namespace.to_string(),
+                link: MemoryLinkInput {
+                    external_id: "alice-episode-link".to_string(),
+                    from: MemoryEndpointInput {
+                        object_type: ObjectType::Entity,
                         external_id: "alice-entity".to_string(),
-                        entity_type: EvalEntityType::Person,
-                        name: "Alice".to_string(),
-                        aliases: Vec::new(),
-                        canonical_key: None,
-                        summary: Some("A restart-safe graph entity.".to_string()),
-                    }],
-                    derived_memories: vec![DerivedMemoryInput {
-                        external_id: "pre-correction-memory".to_string(),
-                        derived_type: EvalDerivedType::Reflection,
-                        text: "The restart-safe drink is jasmine tea.".to_string(),
-                        source_episode_external_ids: vec!["episode-external".to_string()],
-                        source_observation_external_ids: vec!["observation-external".to_string(),],
-                        thread_external_ids: Vec::new(),
-                        entity_external_ids: vec!["alice-entity".to_string()],
-                        confidence: 1.0,
-                        salience_score: 0.8,
-                        stability: EvalStability::Medium,
-                        is_current: true,
-                        supersedes_external_ids: Vec::new(),
-                        metadata: serde_json::Value::Null,
-                    }],
-                    ..GraphEnrichmentInput::default()
-                })
-                .await
-        );
-        let link = live_call_or_skip!(
-            qdrant_was_available,
-            "public link round-trip",
-            true,
-            adapter_a
-                .link(LinkMemoryInput {
-                    namespace: namespace.to_string(),
-                    link: MemoryLinkInput {
-                        external_id: "alice-episode-link".to_string(),
-                        from: MemoryEndpointInput {
-                            object_type: EvalObjectType::Entity,
-                            external_id: "alice-entity".to_string(),
-                        },
-                        relation: EvalRelationType::Involves,
-                        to: MemoryEndpointInput {
-                            object_type: EvalObjectType::Episode,
-                            external_id: "episode-external".to_string(),
-                        },
-                        confidence: 1.0,
-                        rationale: Some("exercise graph and stats persistence".to_string()),
                     },
-                })
-                .await
-        );
+                    relation: RelationType::Involves,
+                    to: MemoryEndpointInput {
+                        object_type: ObjectType::Episode,
+                        external_id: "episode-external".to_string(),
+                    },
+                    confidence: 1.0,
+                    rationale: Some("exercise graph and stats persistence".to_string()),
+                },
+            })
+            .await)
+            .expect("public link round-trip");
         assert_eq!(link.value.external_id, "alice-episode-link");
-        assert!(link.outcome.stats_update_status.failure.is_none());
+        assert!(link.outcome.outcome.stats_update_status.failure.is_none());
 
         let origin = SourceProvenanceInput {
             episode_external_ids: vec!["episode-external".to_string()],
@@ -6768,7 +4297,7 @@ mod tests {
             replacements: vec![ReplacementDerivedMemoryInput {
                 memory: DerivedMemoryInput {
                     external_id: "corrected-memory".to_string(),
-                    derived_type: EvalDerivedType::Reflection,
+                    derived_type: DerivedType::Reflection,
                     text: "The restart-safe drink is oolong tea.".to_string(),
                     source_episode_external_ids: vec!["episode-external".to_string()],
                     source_observation_external_ids: vec!["observation-external".to_string()],
@@ -6776,7 +4305,7 @@ mod tests {
                     entity_external_ids: vec!["alice-entity".to_string()],
                     confidence: 1.0,
                     salience_score: 0.8,
-                    stability: EvalStability::Medium,
+                    stability: Stability::Medium,
                     is_current: true,
                     supersedes_external_ids: vec!["pre-correction-memory".to_string()],
                     metadata: serde_json::Value::Null,
@@ -6791,45 +4320,55 @@ mod tests {
             cascade_policy: Default::default(),
             include_trace: true,
         };
-        let correction = live_call_or_skip!(
-            qdrant_was_available,
-            "public correction round-trip",
-            true,
-            adapter_a.correct(correction_input.clone()).await
-        );
+        let correction = (adapter_a.correct(correction_input.clone()).await)
+            .expect("public correction round-trip");
         assert!(correction.mutated_object_refs.iter().any(|reference| {
-            reference.object_type == EvalObjectType::DerivedMemory
+            reference.object_type == ObjectType::DerivedMemory
                 && reference.external_id == "corrected-memory"
         }));
-        let correction_retry = live_call_or_skip!(
-            qdrant_was_available,
-            "identical public correction retry",
-            true,
-            adapter_a.correct(correction_input).await
-        );
+        let correction_retry =
+            (adapter_a.correct(correction_input).await).expect("identical public correction retry");
         assert_eq!(
             correction_retry.outcome.operation_id,
             correction.outcome.operation_id
         );
         assert!(correction_retry.mutated_object_refs.is_empty());
         assert!(correction_retry.mutated_link_external_ids.is_empty());
-        assert!(correction_retry.outcome.graph_mutated_objects.is_empty());
         assert!(
             correction_retry
                 .outcome
-                .graph_mutated_link_internal_ids
+                .outcome
+                .graph_mutated_object_ids
+                .is_empty()
+        );
+        assert!(
+            correction_retry
+                .outcome
+                .outcome
+                .graph_mutated_link_ids
                 .is_empty()
         );
         assert!(correction_retry.superseded.is_empty());
-        assert!(correction_retry.outcome.superseded.is_empty());
         assert!(
             correction_retry
                 .outcome
-                .vector_maintenance_failures
+                .outcome
+                .trace
+                .as_ref()
+                .unwrap()
+                .superseded_by
                 .is_empty()
         );
         assert!(
             correction_retry
+                .outcome
+                .outcome
+                .vector_maintenance_failure
+                .is_none()
+        );
+        assert!(
+            correction_retry
+                .outcome
                 .outcome
                 .stats_update_status
                 .failure
@@ -6847,47 +4386,43 @@ mod tests {
         );
         let mut retried_internal_ids = correction_retry
             .outcome
-            .vector_maintained_objects
+            .outcome
+            .vector_maintained_object_ids
             .iter()
-            .map(|reference| reference.internal_id.as_str())
+            .map(|reference| reference.id)
             .collect::<Vec<_>>();
         retried_internal_ids.sort_unstable();
         let mut retried_stats_ids = correction_retry
             .outcome
+            .outcome
             .stats_update_status
-            .updated_object_internal_ids
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
+            .updated_object_ids
+            .clone();
         retried_stats_ids.sort_unstable();
         assert_eq!(retried_stats_ids, retried_internal_ids);
 
-        let forgotten = live_call_or_skip!(
-            qdrant_was_available,
-            "public forget round-trip",
-            true,
-            adapter_a
-                .forget(ForgetMemoryInput {
-                    namespace: namespace.to_string(),
-                    targets: vec![MemoryEndpointInput {
-                        object_type: EvalObjectType::DerivedMemory,
-                        external_id: "corrected-memory".to_string(),
-                    }],
-                    rationale: "The fixture scripted suppression.".to_string(),
-                    suppression_policy: Default::default(),
-                    archive_policy: Default::default(),
-                    cascade_policy: Default::default(),
-                    target_retention_state: EvalRetentionState::Suppressed,
-                    target_thread_status: None,
-                    include_trace: true,
-                })
-                .await
-        );
+        let forgotten = (adapter_a
+            .forget(ForgetMemoryInput {
+                namespace: namespace.to_string(),
+                targets: vec![MemoryEndpointInput {
+                    object_type: ObjectType::DerivedMemory,
+                    external_id: "corrected-memory".to_string(),
+                }],
+                rationale: "The fixture scripted suppression.".to_string(),
+                suppression_policy: Default::default(),
+                archive_policy: Default::default(),
+                cascade_policy: Default::default(),
+                target_retention_state: RetentionState::Suppressed,
+                target_thread_status: None,
+                include_trace: true,
+            })
+            .await)
+            .expect("public forget round-trip");
         assert!(forgotten.mutated_object_refs.iter().any(|reference| {
-            reference.object_type == EvalObjectType::DerivedMemory
+            reference.object_type == ObjectType::DerivedMemory
                 && reference.external_id == "corrected-memory"
         }));
-        drop(adapter_a);
+        adapter_a.close().await.unwrap();
         assert!(oxigraph_path.exists());
         assert!(retrieval_stats_path.exists());
         let persisted_entity_id = deterministic_id(namespace, "entity", "alice-entity").to_string();
@@ -6896,12 +4431,9 @@ mod tests {
             persisted_entity_id.as_bytes()
         ));
 
-        let (adapter_b, lifecycle) = live_call_or_skip!(
-            qdrant_was_available,
-            "public adapter reconstruction",
-            true,
-            CharacterMemoryAdapter::reconstruct(&config, namespace).await
-        );
+        let (adapter_b, lifecycle) = (CharacterMemoryAdapter::reconstruct(&config, namespace)
+            .await)
+            .expect("public adapter reconstruction");
         assert_eq!(lifecycle.restored_identity_count, 6);
         {
             let namespaces = adapter_b.namespaces.lock().await;
@@ -6943,62 +4475,47 @@ mod tests {
                 Some("alice-episode-link")
             );
         }
-        let retrieved = live_call_or_skip!(
-            qdrant_was_available,
-            "reattached retrieval",
-            true,
-            adapter_b
-                .retrieve(RetrieveInput {
-                    mode: RetrievalMode::Hybrid,
-                    namespace: namespace.to_string(),
-                    query: "What is the restart-safe drink?".to_string(),
-                    query_date: None,
-                    surface_policy: retrieval_surface_policy(8, 8, false, false, false, true),
-                })
-                .await
-        );
+        let retrieved = (adapter_b
+            .retrieve(RetrieveInput {
+                mode: RetrievalMode::Hybrid,
+                namespace: namespace.to_string(),
+                query: "What is the restart-safe drink?".to_string(),
+                query_date: None,
+                surface_policy: retrieval_surface_policy(8, 8, false, false, false, true),
+            })
+            .await)
+            .expect("reattached retrieval");
         assert!(retrieved.items().iter().any(|item| {
-            item.kind == EvalObjectType::Episode
+            item.kind == ObjectType::Episode
                 && item.external_id.as_deref() == Some("episode-external")
         }));
         assert!(retrieved.items().iter().any(|item| {
-            item.kind == EvalObjectType::Observation
+            item.kind == ObjectType::Observation
                 && item.external_id.as_deref() == Some("observation-external")
                 && item.episode_external_id.as_deref() == Some("episode-external")
         }));
-        let suppression_check = live_call_or_skip!(
-            qdrant_was_available,
-            "post-reconstruct suppression retrieval",
-            true,
-            adapter_b
-                .retrieve(RetrieveInput {
-                    mode: RetrievalMode::Hybrid,
-                    namespace: namespace.to_string(),
-                    query: "What is the corrected restart-safe drink?".to_string(),
-                    query_date: None,
-                    surface_policy: retrieval_surface_policy(8, 8, true, false, false, true),
-                })
-                .await
-        );
+        let suppression_check = (adapter_b
+            .retrieve(RetrieveInput {
+                mode: RetrievalMode::Hybrid,
+                namespace: namespace.to_string(),
+                query: "What is the corrected restart-safe drink?".to_string(),
+                query_date: None,
+                surface_policy: retrieval_surface_policy(8, 8, true, false, false, true),
+            })
+            .await)
+            .expect("post-reconstruct suppression retrieval");
         assert!(suppression_check.items().iter().all(|item| {
             item.external_id.as_deref() != Some("corrected-memory")
                 && item.external_id.as_deref() != Some("pre-correction-memory")
         }));
-        drop(adapter_b);
+        adapter_b.close().await.unwrap();
 
         let oxigraph_backup = oxigraph_path.with_extension("missing-test-backup");
         fs::rename(&oxigraph_path, &oxigraph_backup).unwrap();
-        let adapter_missing_oxigraph = live_call_or_skip!(
-            qdrant_was_available,
-            "missing-Oxigraph adapter construction",
-            false,
-            CharacterMemoryAdapter::new(&config).await
-        );
-        let missing_oxigraph_error = live_error_or_skip!(
-            qdrant_was_available,
-            "missing-Oxigraph namespace reattach",
-            adapter_missing_oxigraph.reattach_namespace(namespace).await
-        );
+        let adapter_missing_oxigraph = (CharacterMemoryAdapter::new(&config).await)
+            .expect("missing-Oxigraph adapter construction");
+        let missing_oxigraph_error = (adapter_missing_oxigraph.reattach_namespace(namespace).await)
+            .expect_err("expected operation failure");
         let missing_oxigraph_message = missing_oxigraph_error.to_string();
         assert!(missing_oxigraph_message.contains("Oxigraph store"));
         assert!(missing_oxigraph_message.contains(&oxigraph_path.display().to_string()));
@@ -7007,17 +4524,10 @@ mod tests {
 
         let retrieval_stats_backup = retrieval_stats_path.with_extension("missing-test-backup");
         fs::rename(&retrieval_stats_path, &retrieval_stats_backup).unwrap();
-        let adapter_missing_stats = live_call_or_skip!(
-            qdrant_was_available,
-            "missing-stats adapter construction",
-            false,
-            CharacterMemoryAdapter::new(&config).await
-        );
-        let missing_stats_error = live_error_or_skip!(
-            qdrant_was_available,
-            "missing-stats namespace reattach",
-            adapter_missing_stats.reattach_namespace(namespace).await
-        );
+        let adapter_missing_stats = (CharacterMemoryAdapter::new(&config).await)
+            .expect("missing-stats adapter construction");
+        let missing_stats_error = (adapter_missing_stats.reattach_namespace(namespace).await)
+            .expect_err("expected operation failure");
         let missing_stats_message = missing_stats_error.to_string();
         assert!(missing_stats_message.contains("retrieval stats store"));
         assert!(missing_stats_message.contains(&retrieval_stats_path.display().to_string()));
@@ -7026,17 +4536,10 @@ mod tests {
 
         let identity_registry_backup = identity_registry_path.with_extension("missing-test-backup");
         fs::rename(&identity_registry_path, &identity_registry_backup).unwrap();
-        let adapter_missing_registry = live_call_or_skip!(
-            qdrant_was_available,
-            "missing-registry adapter construction",
-            false,
-            CharacterMemoryAdapter::new(&config).await
-        );
-        let missing_registry_error = live_error_or_skip!(
-            qdrant_was_available,
-            "missing-registry namespace reattach",
-            adapter_missing_registry.reattach_namespace(namespace).await
-        );
+        let adapter_missing_registry = (CharacterMemoryAdapter::new(&config).await)
+            .expect("missing-registry adapter construction");
+        let missing_registry_error = (adapter_missing_registry.reattach_namespace(namespace).await)
+            .expect_err("expected operation failure");
         let missing_registry_message = missing_registry_error.to_string();
         assert!(missing_registry_message.contains("identity registry"));
         assert!(missing_registry_message.contains(&identity_registry_path.display().to_string()));
@@ -7044,117 +4547,99 @@ mod tests {
         drop(adapter_missing_registry);
         fs::rename(&identity_registry_backup, &identity_registry_path).unwrap();
 
-        let adapter_restored_stores = live_call_or_skip!(
-            qdrant_was_available,
-            "all-stores adapter construction",
-            false,
-            CharacterMemoryAdapter::new(&config).await
-        );
-        let restored_stores = live_call_or_skip!(
-            qdrant_was_available,
-            "all-stores namespace reattach",
-            true,
-            adapter_restored_stores.reattach_namespace(namespace).await
-        );
+        let adapter_restored_stores =
+            (CharacterMemoryAdapter::new(&config).await).expect("all-stores adapter construction");
+        let restored_stores = (adapter_restored_stores.reattach_namespace(namespace).await)
+            .expect("all-stores namespace reattach");
         assert_eq!(restored_stores.restored_identity_count, 6);
-        let collection_name = adapter_restored_stores.collection_name(namespace);
-        live_call_or_skip!(
-            qdrant_was_available,
-            "backing collection deletion",
-            true,
+        if mode == VectorStoreMode::Service {
             adapter_restored_stores
                 .qdrant
                 .as_ref()
                 .unwrap()
-                .delete_collection(&collection_name)
+                .delete_collection(adapter_restored_stores.collection_name(namespace))
                 .await
-                .with_context(|| format!("delete Qdrant collection {collection_name}"))
-        );
-        drop(adapter_restored_stores);
+                .unwrap();
+            adapter_restored_stores.close().await.unwrap();
+        } else {
+            let vector_path = adapter_restored_stores.vector_store_path(namespace);
+            adapter_restored_stores.close().await.unwrap();
+            remove_namespace_store(&vector_path, "embedded vector").unwrap();
+        }
 
-        let adapter_missing_collection = live_call_or_skip!(
-            qdrant_was_available,
-            "missing-collection adapter construction",
-            false,
-            CharacterMemoryAdapter::new(&config).await
-        );
-        let missing_collection_error = live_error_or_skip!(
-            qdrant_was_available,
-            "missing-collection namespace reattach",
-            adapter_missing_collection
-                .reattach_namespace(namespace)
-                .await
-        );
+        let adapter_missing_collection = (CharacterMemoryAdapter::new(&config).await)
+            .expect("missing-collection adapter construction");
+        let missing_collection_error = (adapter_missing_collection
+            .reattach_namespace(namespace)
+            .await)
+            .expect_err("expected operation failure");
         let missing_collection_message = missing_collection_error.to_string();
-        assert!(missing_collection_message.contains("Qdrant collection"));
+        assert!(
+            missing_collection_message.contains(if mode == VectorStoreMode::Service {
+                "Qdrant collection"
+            } else {
+                "vector"
+            }),
+            "{missing_collection_message}"
+        );
         assert!(missing_collection_message.contains("missing durable store(s)"));
         assert!(missing_collection_message.contains("identity registry"));
-        assert!(missing_collection_message.contains(&collection_name));
+        if mode == VectorStoreMode::Service {
+            assert!(
+                missing_collection_message
+                    .contains(&adapter_missing_collection.collection_name(namespace))
+            );
+        }
         println!("verified reattach rejects a surviving registry without its Qdrant collection");
         drop(adapter_missing_collection);
 
-        let adapter_c = live_call_or_skip!(
-            qdrant_was_available,
-            "fresh adapter construction",
-            false,
-            CharacterMemoryAdapter::new(&config).await
-        );
-        let stale_open_error = live_error_or_skip!(
-            qdrant_was_available,
-            "stale fresh namespace rejection",
-            adapter_c.open_namespace(namespace).await
-        );
+        let adapter_c =
+            (CharacterMemoryAdapter::new(&config).await).expect("fresh adapter construction");
+        let stale_open_error =
+            (adapter_c.open_namespace(namespace).await).expect_err("expected operation failure");
         assert!(
             stale_open_error
                 .to_string()
                 .contains("identity registry already exists")
         );
-        live_call_or_skip!(
-            qdrant_was_available,
-            "fresh adapter durable reset",
-            true,
-            adapter_c.reset_namespace(namespace).await
-        );
+        (adapter_c.reset_namespace(namespace).await).expect("fresh adapter durable reset");
         assert!(!oxigraph_path.exists());
         assert!(!retrieval_stats_path.exists());
-        let fresh = live_call_or_skip!(
-            qdrant_was_available,
-            "post-reset fresh namespace open",
-            true,
-            adapter_c.open_namespace(namespace).await
-        );
+        let fresh =
+            (adapter_c.open_namespace(namespace).await).expect("post-reset fresh namespace open");
         assert_eq!(fresh.restored_identity_count, 0);
         assert!(oxigraph_path.exists());
         assert!(retrieval_stats_path.exists());
-        let fresh_retrieval = live_call_or_skip!(
-            qdrant_was_available,
-            "fresh namespace retrieval",
-            true,
-            adapter_c
-                .retrieve(RetrieveInput {
-                    mode: RetrievalMode::Hybrid,
-                    namespace: namespace.to_string(),
-                    query: "What is the restart-safe drink?".to_string(),
-                    query_date: None,
-                    surface_policy: retrieval_surface_policy(8, 8, true, true, true, true),
-                })
-                .await
-        );
+        let fresh_retrieval = (adapter_c
+            .retrieve(RetrieveInput {
+                mode: RetrievalMode::Hybrid,
+                namespace: namespace.to_string(),
+                query: "What is the restart-safe drink?".to_string(),
+                query_date: None,
+                surface_policy: retrieval_surface_policy(8, 8, true, true, true, true),
+            })
+            .await)
+            .expect("fresh namespace retrieval");
         assert!(fresh_retrieval.items().is_empty());
         assert!(!file_contains(
             &retrieval_stats_path,
             persisted_entity_id.as_bytes()
         ));
-        live_teardown_with_one_retry!(
-            qdrant_was_available,
-            "final namespace cleanup",
-            adapter_c.reset_namespace(namespace).await,
-            adapter_c.reset_namespace(namespace).await
-        );
+        (adapter_c.reset_namespace(namespace).await).expect("final namespace cleanup");
     }
 
     #[tokio::test]
-    async fn live_reset_preserves_sibling_namespace_durable_stores() {
+    async fn embedded_reset_preserves_sibling_namespace_durable_stores() {
+        reset_preserves_sibling_stores(VectorStoreMode::Embedded).await;
+    }
+
+    #[cfg(feature = "service-tests")]
+    #[tokio::test]
+    async fn service_mode_reset_preserves_sibling_namespace_durable_stores() {
+        reset_preserves_sibling_stores(VectorStoreMode::Service).await;
+    }
+
+    async fn reset_preserves_sibling_stores(mode: VectorStoreMode) {
         let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
         let directory = tempdir().unwrap();
         let token = unique_test_token();
@@ -7165,6 +4650,7 @@ mod tests {
         let oxigraph_root = directory.path().join("shared-oxigraph-root");
         let stats_template = directory.path().join("shared-retrieval-stats.sqlite");
         let mut config = adapter_config(run_id, prefix);
+        config.backend.vector_store_mode = mode;
         config.backend.cleanup.enabled = false;
         config.backend.identity_registry_dir = Some(
             directory
@@ -7177,75 +4663,52 @@ mod tests {
             Some(oxigraph_root.to_string_lossy().into_owned());
         config.backend.retrieval_stats_path = Some(stats_template.to_string_lossy().into_owned());
 
-        let mut qdrant_was_available = false;
-        let writer = live_call_or_skip!(
-            qdrant_was_available,
-            "sibling writer construction",
-            false,
-            CharacterMemoryAdapter::new(&config).await
-        );
-        live_call_or_skip!(
-            qdrant_was_available,
-            "namespace A fresh open",
-            true,
-            writer.open_namespace(namespace_a).await
-        );
-        live_call_or_skip!(
-            qdrant_was_available,
-            "namespace B fresh open",
-            true,
-            writer.open_namespace(namespace_b).await
-        );
+        let writer =
+            (CharacterMemoryAdapter::new(&config).await).expect("sibling writer construction");
+        (writer.open_namespace(namespace_a).await).expect("namespace A fresh open");
+        (writer.open_namespace(namespace_b).await).expect("namespace B fresh open");
         for (namespace, label) in [(namespace_a, "a"), (namespace_b, "b")] {
-            live_call_or_skip!(
-                qdrant_was_available,
-                "sibling episode ingest",
-                true,
-                writer
-                    .remember_episode(EpisodeInput {
-                        external_id: format!("episode-{label}"),
-                        namespace: namespace.to_string(),
-                        summary: format!("Sibling namespace {label} must survive independently."),
-                        started_at: None,
-                        ended_at: None,
-                        participants: Vec::new(),
-                        metadata: serde_json::Value::Null,
-                    })
-                    .await
-            );
-            live_call_or_skip!(
-                qdrant_was_available,
-                "sibling graph and stats ingest",
-                true,
-                writer
-                    .remember_enrichment(GraphEnrichmentInput {
-                        namespace: namespace.to_string(),
-                        entities: vec![EntityInput {
+            (writer
+                .remember_episode(EpisodeInput {
+                    external_id: format!("episode-{label}"),
+                    namespace: namespace.to_string(),
+                    summary: format!("Sibling namespace {label} must survive independently."),
+                    started_at: None,
+                    ended_at: None,
+                    participants: Vec::new(),
+                    metadata: serde_json::Value::Null,
+                })
+                .await)
+                .expect("sibling episode ingest");
+            (writer
+                .remember_enrichment(GraphEnrichmentInput {
+                    namespace: namespace.to_string(),
+                    entities: vec![EntityInput {
+                        external_id: format!("entity-{label}"),
+                        entity_type: EntityType::Person,
+                        name: format!("Sibling {label}"),
+                        aliases: Vec::new(),
+                        canonical_key: None,
+                        summary: Some(format!("Graph sentinel for namespace {label}.")),
+                    }],
+                    links: vec![MemoryLinkInput {
+                        external_id: format!("link-{label}"),
+                        from: MemoryEndpointInput {
+                            object_type: ObjectType::Entity,
                             external_id: format!("entity-{label}"),
-                            entity_type: EvalEntityType::Person,
-                            name: format!("Sibling {label}"),
-                            aliases: Vec::new(),
-                            canonical_key: None,
-                            summary: Some(format!("Graph sentinel for namespace {label}.")),
-                        }],
-                        links: vec![MemoryLinkInput {
-                            external_id: format!("link-{label}"),
-                            from: MemoryEndpointInput {
-                                object_type: EvalObjectType::Entity,
-                                external_id: format!("entity-{label}"),
-                            },
-                            relation: EvalRelationType::Involves,
-                            to: MemoryEndpointInput {
-                                object_type: EvalObjectType::Episode,
-                                external_id: format!("episode-{label}"),
-                            },
-                            confidence: 1.0,
-                            rationale: Some("sibling isolation sentinel".to_string()),
-                        }],
-                        ..GraphEnrichmentInput::default()
-                    })
-                    .await
-            );
+                        },
+                        relation: RelationType::Involves,
+                        to: MemoryEndpointInput {
+                            object_type: ObjectType::Episode,
+                            external_id: format!("episode-{label}"),
+                        },
+                        confidence: 1.0,
+                        rationale: Some("sibling isolation sentinel".to_string()),
+                    }],
+                    ..GraphEnrichmentInput::default()
+                })
+                .await)
+                .expect("sibling graph and stats ingest");
         }
 
         let registry_a = writer.identity_registry_path(namespace_a);
@@ -7263,7 +4726,7 @@ mod tests {
         assert_ne!(oxigraph_a, oxigraph_b);
         assert_ne!(stats_a, stats_b);
         assert!(!stats_template.exists());
-        drop(writer);
+        writer.close().await.unwrap();
 
         let stats_a_wal = path_with_appended_suffix(&stats_a, "-wal");
         let stats_a_shm = path_with_appended_suffix(&stats_a, "-shm");
@@ -7274,18 +4737,9 @@ mod tests {
         let entity_b_id = deterministic_id(namespace_b, "entity", "entity-b").to_string();
         assert!(file_contains(&stats_b, entity_b_id.as_bytes()));
 
-        let resetter = live_call_or_skip!(
-            qdrant_was_available,
-            "sibling resetter construction",
-            false,
-            CharacterMemoryAdapter::new(&config).await
-        );
-        live_call_or_skip!(
-            qdrant_was_available,
-            "namespace A production reset",
-            true,
-            resetter.reset_namespace(namespace_a).await
-        );
+        let resetter =
+            (CharacterMemoryAdapter::new(&config).await).expect("sibling resetter construction");
+        (resetter.reset_namespace(namespace_a).await).expect("namespace A production reset");
 
         assert!(!registry_a.exists());
         assert!(!oxigraph_a.exists());
@@ -7298,66 +4752,50 @@ mod tests {
         assert!(stats_b.exists());
         assert_eq!(fs::read(&registry_b).unwrap(), registry_b_before);
         assert_eq!(fs::read(&stats_b).unwrap(), stats_b_before);
-        let collection_a_exists = live_call_or_skip!(
-            qdrant_was_available,
-            "namespace A collection absence check",
-            true,
-            resetter
-                .qdrant
-                .as_ref()
-                .unwrap()
-                .collection_exists(&collection_a)
-                .await
-                .with_context(|| format!("check sibling collection {collection_a}"))
-        );
-        let collection_b_exists = live_call_or_skip!(
-            qdrant_was_available,
-            "namespace B collection survival check",
-            true,
-            resetter
-                .qdrant
-                .as_ref()
-                .unwrap()
-                .collection_exists(&collection_b)
-                .await
-                .with_context(|| format!("check sibling collection {collection_b}"))
-        );
-        assert!(!collection_a_exists);
-        assert!(collection_b_exists);
+        if mode == VectorStoreMode::Service {
+            assert!(
+                !resetter
+                    .qdrant
+                    .as_ref()
+                    .unwrap()
+                    .collection_exists(&collection_a)
+                    .await
+                    .unwrap()
+            );
+            assert!(
+                resetter
+                    .qdrant
+                    .as_ref()
+                    .unwrap()
+                    .collection_exists(&collection_b)
+                    .await
+                    .unwrap()
+            );
+        } else {
+            assert!(!resetter.vector_store_path(namespace_a).exists());
+            assert!(resetter.vector_store_path(namespace_b).exists());
+        }
 
-        let reattached_b = live_call_or_skip!(
-            qdrant_was_available,
-            "namespace B reattach after sibling reset",
-            true,
-            resetter.reattach_namespace(namespace_b).await
-        );
+        let reattached_b = (resetter.reattach_namespace(namespace_b).await)
+            .expect("namespace B reattach after sibling reset");
         assert_eq!(reattached_b.restored_identity_count, 3);
-        let surviving_b = live_call_or_skip!(
-            qdrant_was_available,
-            "namespace B retrieval after sibling reset",
-            true,
-            resetter
-                .retrieve(RetrieveInput {
-                    mode: RetrievalMode::Hybrid,
-                    namespace: namespace_b.to_string(),
-                    query: "Which sibling namespace must survive?".to_string(),
-                    query_date: None,
-                    surface_policy: retrieval_surface_policy(8, 8, false, false, true, true),
-                })
-                .await
-        );
+        let surviving_b = (resetter
+            .retrieve(RetrieveInput {
+                mode: RetrievalMode::Hybrid,
+                namespace: namespace_b.to_string(),
+                query: "Which sibling namespace must survive?".to_string(),
+                query_date: None,
+                surface_policy: retrieval_surface_policy(8, 8, false, false, true, true),
+            })
+            .await)
+            .expect("namespace B retrieval after sibling reset");
         assert!(
             surviving_b
                 .items()
                 .iter()
                 .any(|item| item.external_id.as_deref() == Some("episode-b"))
         );
-        live_teardown_with_one_retry!(
-            qdrant_was_available,
-            "sibling namespace B cleanup",
-            resetter.reset_namespace(namespace_b).await,
-            resetter.reset_namespace(namespace_b).await
-        );
+        (resetter.reset_namespace(namespace_b).await).expect("sibling namespace B cleanup");
     }
 
     #[tokio::test]
@@ -7389,35 +4827,30 @@ mod tests {
         let links = BTreeMap::from([(link_id, "l1".to_string())]);
 
         for (object_type, id, expected_type, expected_external_id) in [
-            (
-                ObjectType::Episode,
-                episode_id,
-                EvalObjectType::Episode,
-                "s1",
-            ),
+            (ObjectType::Episode, episode_id, ObjectType::Episode, "s1"),
             (
                 ObjectType::Observation,
                 observation_id,
-                EvalObjectType::Observation,
+                ObjectType::Observation,
                 "o1",
             ),
-            (ObjectType::Entity, entity_id, EvalObjectType::Entity, "e1"),
+            (ObjectType::Entity, entity_id, ObjectType::Entity, "e1"),
             (
                 ObjectType::MemoryThread,
                 thread_id,
-                EvalObjectType::MemoryThread,
+                ObjectType::MemoryThread,
                 "t1",
             ),
             (
                 ObjectType::DerivedMemory,
                 derived_id,
-                EvalObjectType::DerivedMemory,
+                ObjectType::DerivedMemory,
                 "d1",
             ),
             (
                 ObjectType::MemoryLink,
                 link_id,
-                EvalObjectType::MemoryLink,
+                ObjectType::MemoryLink,
                 "l1",
             ),
         ] {
@@ -7438,35 +4871,10 @@ mod tests {
     }
 
     #[test]
-    fn prepared_candidate_provenance_preserves_producer_and_rationale_origin() {
-        let caller = CandidateProvenance::caller("caller supplied the candidate");
-        assert_eq!(
-            candidate_provenance_summary(&caller),
-            (
-                EvalCandidateProducerKind::Caller,
-                EvalRationaleOrigin::ProvidedByCaller,
-                Some("caller supplied the candidate".to_string()),
-            )
-        );
-
-        let helper = CandidateProvenance::unavailable(
-            character_memory::CandidateProducerKind::DeterministicHelper,
-        );
-        assert_eq!(
-            candidate_provenance_summary(&helper),
-            (
-                EvalCandidateProducerKind::DeterministicHelper,
-                EvalRationaleOrigin::Unavailable,
-                None,
-            )
-        );
-    }
-
-    #[test]
     fn context_pack_constructor_renders_external_ids() {
         let pack = RetrievedContextPack::from_ranked_items(
             vec![RetrievedItem {
-                kind: EvalObjectType::Observation,
+                kind: ObjectType::Observation,
                 internal_id: "i".to_string(),
                 external_id: Some("s1:turn:1".to_string()),
                 episode_external_id: Some("s1".to_string()),
@@ -7475,7 +4883,7 @@ mod tests {
                 rationale: vec![],
                 text: Some("hello".to_string()),
             }],
-            RetrievalTelemetry::default(),
+            Vec::new(),
             ContextRenderer::WithIdentity,
         );
         assert!(pack.context_text().contains("observation:s1:turn:1"));
@@ -7518,29 +4926,17 @@ mod tests {
                     text: Some("episode summary".to_string()),
                 },
             ],
-            RetrievalTelemetry {
-                vector_candidate_count: Some(3),
-                query_embedding_dimension: Some(3072),
-                ..RetrievalTelemetry::default()
-            },
+            Vec::new(),
         );
 
         assert_eq!(pack.items().len(), 2);
-        assert_eq!(pack.items()[0].kind, EvalObjectType::Observation);
+        assert_eq!(pack.items()[0].kind, ObjectType::Observation);
         assert_eq!(pack.items()[0].external_id.as_deref(), Some("s1:turn:1"));
         assert_eq!(pack.items()[0].episode_external_id.as_deref(), Some("s1"));
         assert_eq!(pack.items()[0].rank, 1);
-        assert_eq!(pack.items()[1].kind, EvalObjectType::Episode);
+        assert_eq!(pack.items()[1].kind, ObjectType::Episode);
         assert_eq!(pack.items()[1].external_id.as_deref(), Some("s1"));
         assert_eq!(pack.items()[1].rank, 2);
-        assert_eq!(pack.telemetry().vector_candidate_count, Some(3));
-        assert_eq!(pack.telemetry().query_embedding_dimension, Some(3072));
-        assert!(!pack.telemetry().trace_available);
-        assert_eq!(pack.telemetry().unique_graph_root_candidate_count, None);
-        assert_eq!(pack.telemetry().selected_graph_root_count, None);
-        assert_eq!(pack.telemetry().graph_root_omission_count, None);
-        assert_eq!(pack.telemetry().graph_relation_count, None);
-        assert_eq!(pack.telemetry().graph_verified_count, None);
         assert!(pack.context_text().contains("turn text"));
         assert!(pack.context_text().contains("episode summary"));
     }
@@ -7573,11 +4969,7 @@ mod tests {
                     text: Some("higher".to_string()),
                 },
             ],
-            RetrievalTelemetry {
-                vector_candidate_count: Some(3),
-                query_embedding_dimension: Some(3072),
-                ..RetrievalTelemetry::default()
-            },
+            Vec::new(),
         );
 
         assert_eq!(pack.items().len(), 1);
@@ -7712,15 +5104,9 @@ mod tests {
             trace: Some(trace),
         };
 
-        let telemetry = telemetry_from_outcome(&ExternalIdRegistry::new("n"), &outcome);
-
-        assert_eq!(telemetry.suppressed_or_deleted_returned_count, Some(1));
-        assert_eq!(telemetry.superseded_current_returned_count, Some(1));
-        assert_eq!(telemetry.unsafe_lifecycle_returned_count, Some(1));
-
-        let integrity = cmem_eval_core::integrity_details_with_telemetry(
+        let integrity = crate::integrity_details_from_outcomes(
             &[RetrievedItem {
-                kind: EvalObjectType::Episode,
+                kind: ObjectType::Episode,
                 internal_id: returned_id.to_string(),
                 external_id: Some("returned".to_string()),
                 episode_external_id: None,
@@ -7729,106 +5115,10 @@ mod tests {
                 rationale: Vec::new(),
                 text: None,
             }],
-            &telemetry,
+            &[outcome],
         );
         assert_eq!(integrity.suppressed_memory_leakage_rate, Some(1.0));
         assert_eq!(integrity.superseded_current_leakage_rate, Some(1.0));
-    }
-
-    #[test]
-    fn telemetry_projection_preserves_fanout_selectivity_and_typed_rationales() {
-        let entity_id = deterministic_id("n", "entity", "hub");
-        let episode_id = deterministic_id("n", "episode", "result");
-        let mut registry = ExternalIdRegistry::new("n");
-        registry
-            .reverse_entity_ids
-            .insert(entity_id, "entity-hub".to_string());
-        let mut trace = RetrievalTrace::empty();
-        trace.fanout_utilization = vec![FanoutUtilizationTrace {
-            root: MemoryObjectRef::new(ObjectType::Entity, entity_id),
-            relation: RelationType::Mentions,
-            object_type: ObjectType::Episode,
-            configured_cap: 8,
-            selected_cap: 4,
-            retained_count: 3,
-            omitted_by_fanout_count: 2,
-        }];
-        trace.selectivity_decisions = vec![SelectivityTrace {
-            root: MemoryObjectRef::new(ObjectType::Entity, entity_id),
-            relation: RelationType::Mentions,
-            object_type: ObjectType::Episode,
-            count_scope: SelectivityCountScope::Active,
-            score: Some(0.25),
-            entity_count: Some(5),
-            global_count: Some(20),
-            support_factor: 0.75,
-            chosen_fanout: 4,
-            max_fanout: 8,
-            decision: SelectivityDecision::LowSelectivitySupported,
-            fallback: false,
-        }];
-        trace.section_assignments = vec![SectionAssignment {
-            object: MemoryObjectRef::new(ObjectType::Episode, episode_id),
-            section: ContextPackSection::RelevantEpisodes,
-            rank: Some(1),
-            reason: SectionAssignmentReason::Selected {
-                scores: SectionScoreComponents {
-                    final_score: 0.75,
-                    vector_score: Some(0.5),
-                    vector_score_source: Some(SectionVectorScoreSource::DirectMatch),
-                    graph_score: Some(1.0),
-                    salience_score: None,
-                },
-            },
-            rationale_categories: vec![RationaleCategory::Entity, RationaleCategory::Semantic],
-        }];
-        let mut rationale = RetrievalRationale::new("test");
-        rationale.telemetry.configured_object_types = vec![ObjectType::Episode];
-        rationale.telemetry.unique_graph_root_candidate_count = 9;
-        rationale.telemetry.selected_graph_root_count = 4;
-        rationale.telemetry.graph_root_omission_count = 5;
-        rationale.telemetry.vector_recall_completeness =
-            character_memory::VectorRecallCompleteness::BoundaryTieOpen {
-                fetched: 17,
-                fetch_bound: 17,
-            };
-        let outcome = RetrieveOutcome {
-            pack: ContinuityContextPack::empty(),
-            rationale,
-            trace: Some(trace),
-        };
-
-        let telemetry = telemetry_from_outcome(&registry, &outcome);
-        assert_eq!(telemetry.unique_graph_root_candidate_count, Some(9));
-        assert_eq!(telemetry.selected_graph_root_count, Some(4));
-        assert_eq!(telemetry.graph_root_omission_count, Some(5));
-        assert_eq!(
-            telemetry.vector_recall_completeness,
-            vec![ScopedVectorRecallCompleteness {
-                scope: vec![EvalObjectType::Episode],
-                completeness: VectorRecallCompleteness::BoundaryTieOpen {
-                    fetched: 17,
-                    fetch_bound: 17
-                },
-            }]
-        );
-        let fanout = &telemetry.fanout_utilization.as_ref().unwrap()[0];
-        assert_eq!(fanout.root_external_id.as_deref(), Some("entity-hub"));
-        assert_eq!((fanout.configured_cap, fanout.selected_cap), (8, 4));
-        let selectivity = &telemetry.selectivity_decisions.as_ref().unwrap()[0];
-        assert_eq!(selectivity.score, Some(0.25));
-        assert_eq!(selectivity.count_scope, EvalSelectivityCountScope::Active);
-        assert_eq!(
-            telemetry
-                .rationale_categories_by_internal_id
-                .as_ref()
-                .unwrap()
-                .get(&episode_id.to_string()),
-            Some(&vec![
-                RetrievalRationaleCategory::Entity,
-                RetrievalRationaleCategory::Semantic,
-            ])
-        );
     }
 
     #[test]

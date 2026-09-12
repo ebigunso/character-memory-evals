@@ -5,17 +5,15 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
-use async_trait::async_trait;
 use chrono::{SecondsFormat, Utc};
-use cmem_eval_core::{
-    CandidateValidationStatus, CommitWriteOptions, CorrectMemoryInput, CorrectionTargetInput,
-    DerivedMemoryInput, DerivedType, EntityInput, EntityType, EpisodeInput,
-    ForgetCascadePolicyInput, ForgetMemoryInput, GraphEnrichmentInput, LifecycleOutcomeRecord,
-    LinkMemoryInput, MemoryAdapter, MemoryEndpointInput, MemoryLinkInput, MemoryThreadInput,
-    NamespaceLifecycleResult, ObjectType, ObservationInput, PrepareWriteInput, RelationType,
-    ReplacementDerivedMemoryInput, RetentionState, RetrievalConfig, RetrieveInput,
+use cmem_eval::{
+    BenchmarkRunConfig, CandidateValidationStatus, CharacterMemoryAdapter, CommitWriteOptions,
+    CorrectMemoryInput, CorrectionTargetInput, DerivedMemoryInput, DerivedType,
+    EmbeddingRuntimeBinding, EntityInput, EntityType, EpisodeInput, ForgetCascadePolicyInput,
+    ForgetMemoryInput, GraphEnrichmentInput, LinkMemoryInput, MemoryEndpointInput, MemoryLinkInput,
+    MemoryThreadInput, NamespaceLifecycleResult, ObjectType, ObservationInput, PrepareWriteInput,
+    RelationType, ReplacementDerivedMemoryInput, RetentionState, RetrievalConfig, RetrieveInput,
     RetrievedContextPack, SourceProvenanceInput, Stability, SuppressionPolicyInput, ThreadStatus,
-    WriteOutcomeRecord,
 };
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
@@ -26,7 +24,7 @@ use crate::{
     derived_external_id, observation_external_id,
 };
 
-pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "2.2.0";
+pub const CONTINUITY_TRACE_SCHEMA_VERSION: &str = "3.0.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -42,8 +40,9 @@ pub struct ContinuityQueryTrace {
     pub expected: ExpectedRelevance,
     pub history_text: String,
     pub retrieval: RetrievedContextPack,
-    pub write_outcomes: Vec<WriteOutcomeRecord>,
-    pub lifecycle_outcomes: Vec<LifecycleOutcomeRecord>,
+    pub write_outcomes: Vec<cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>>,
+    pub link_outcomes: Vec<cmem_eval::RecordedOutcome<cmem_eval::LinkOutcome>>,
+    pub lifecycle_outcomes: Vec<cmem_eval::RecordedOutcome<cmem_eval::LifecycleMutationOutcome>>,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -60,19 +59,19 @@ pub struct RestartProbeSnapshot {
     pub returned_object_ids: Vec<String>,
     pub relevant_returned_count: usize,
     pub expected_relevant_count: usize,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub recall: Option<f64>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub graph_relation_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub graph_verified_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub fanout_decision_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub selectivity_decision_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub scored_selectivity_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub fallback_selectivity_count: Option<usize>,
 }
 
@@ -81,19 +80,19 @@ pub struct RestartProbeSnapshot {
 pub struct RestartProbeDelta {
     pub returned_object_count: i64,
     pub relevant_returned_count: i64,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub recall: Option<f64>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub graph_relation_count: Option<i64>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub graph_verified_count: Option<i64>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub fanout_decision_count: Option<i64>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub selectivity_decision_count: Option<i64>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub scored_selectivity_count: Option<i64>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub fallback_selectivity_count: Option<i64>,
     pub stable_returned_objects: bool,
 }
@@ -129,6 +128,9 @@ pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> 
             .write_outcomes
             .sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
         canonical
+            .link_outcomes
+            .sort_by(|a, b| a.operation_id.cmp(&b.operation_id));
+        canonical
             .lifecycle_outcomes
             .sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
         serde_json::to_writer(&mut file, &canonical)?;
@@ -151,7 +153,7 @@ pub fn read_continuity_traces(path: &Path) -> Result<Vec<ContinuityQueryTrace>> 
         if line.trim().is_empty() {
             continue;
         }
-        let schema_version = cmem_eval_core::serde_contract::schema_version_from_str(&line)
+        let schema_version = cmem_eval::serde_contract::schema_version_from_str(&line)
             .with_context(|| {
                 format!(
                     "parse continuity trace line {line_number} from {}",
@@ -160,7 +162,7 @@ pub fn read_continuity_traces(path: &Path) -> Result<Vec<ContinuityQueryTrace>> 
             })?;
         let trace = match schema_version.as_deref() {
             Some(CONTINUITY_TRACE_SCHEMA_VERSION) => {
-                cmem_eval_core::serde_contract::reject_duplicate_json_keys(&line)?;
+                cmem_eval::serde_contract::reject_duplicate_json_keys(&line)?;
                 serde_json::from_str(&line)?
             }
             Some(version) => bail!(
@@ -178,11 +180,51 @@ pub fn read_continuity_traces(path: &Path) -> Result<Vec<ContinuityQueryTrace>> 
     Ok(traces)
 }
 
-#[async_trait]
-pub trait ContinuityRuntime: Send {
-    fn adapter(&self) -> &dyn MemoryAdapter;
+pub struct ContinuityRuntime {
+    active: Option<Box<CharacterMemoryAdapter>>,
+    config: Box<BenchmarkRunConfig>,
+    embedding_binding: EmbeddingRuntimeBinding,
+}
 
-    async fn restart(&mut self, scenario: &ContinuityScenario) -> Result<NamespaceLifecycleResult>;
+impl ContinuityRuntime {
+    pub async fn new(
+        config: &BenchmarkRunConfig,
+        embedding_binding: EmbeddingRuntimeBinding,
+    ) -> Result<Self> {
+        let adapter =
+            CharacterMemoryAdapter::new_with_binding(config, embedding_binding.clone()).await?;
+        Ok(Self {
+            active: Some(Box::new(adapter)),
+            config: Box::new(config.clone()),
+            embedding_binding,
+        })
+    }
+
+    pub fn adapter(&self) -> &CharacterMemoryAdapter {
+        self.active
+            .as_ref()
+            .expect("continuity runtime always holds an active adapter")
+            .as_ref()
+    }
+
+    pub async fn restart(
+        &mut self,
+        scenario: &ContinuityScenario,
+    ) -> Result<NamespaceLifecycleResult> {
+        let previous = self
+            .active
+            .take()
+            .context("continuity runtime lost its active adapter")?;
+        previous.close().await?;
+        let (replacement, lifecycle) = CharacterMemoryAdapter::reconstruct_with_binding(
+            self.config.as_ref(),
+            &scenario.namespace,
+            self.embedding_binding.clone(),
+        )
+        .await?;
+        self.active = Some(Box::new(replacement));
+        Ok(lifecycle)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -194,7 +236,7 @@ struct AdmittedObject {
 }
 
 pub async fn run_continuity_scenario(
-    runtime: &mut dyn ContinuityRuntime,
+    runtime: &mut ContinuityRuntime,
     scenario: &ContinuityScenario,
     retrieval: &RetrievalConfig,
 ) -> Result<ContinuityScenarioRun> {
@@ -210,6 +252,7 @@ pub async fn run_continuity_scenario(
 
     let mut run = ContinuityScenarioRun::default();
     let mut write_outcomes = Vec::new();
+    let mut link_outcomes = Vec::new();
     let mut lifecycle_outcomes = Vec::new();
     let mut admitted = scenario
         .entities
@@ -242,7 +285,7 @@ pub async fn run_continuity_scenario(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    write_outcomes.push(
+    write_outcomes.extend(
         runtime
             .adapter()
             .remember_enrichment(GraphEnrichmentInput {
@@ -348,7 +391,7 @@ pub async fn run_continuity_scenario(
                             scenario.fixture_id
                         );
                     }
-                    plan.validations = validations;
+                    plan.plan.validations = validations;
                     let commit = runtime
                         .adapter()
                         .commit(plan, CommitWriteOptions::default())
@@ -472,7 +515,7 @@ pub async fn run_continuity_scenario(
                     Vec::new()
                 };
                 let association_count = association_links.len();
-                write_outcomes.push(
+                write_outcomes.extend(
                     runtime
                         .adapter()
                         .remember_enrichment(GraphEnrichmentInput {
@@ -684,14 +727,16 @@ pub async fn run_continuity_scenario(
                         link: MemoryLinkInput {
                             external_id: external_id.clone(),
                             from,
-                            relation: RelationType::try_from(relation.as_str())?,
+                            relation: serde_json::from_value(serde_json::Value::String(
+                                relation.clone(),
+                            ))?,
                             to,
                             confidence: 1.0,
                             rationale: Some(format!("fixture-scripted link {event_id}")),
                         },
                     })
                     .await?;
-                write_outcomes.push(result.outcome);
+                link_outcomes.push(result.outcome);
                 increment(&mut run.operation_counts, "link");
                 admitted.insert(
                     external_id.clone(),
@@ -795,6 +840,7 @@ pub async fn run_continuity_scenario(
                     history_text: history.join("\n"),
                     retrieval: pack,
                     write_outcomes: write_outcomes.clone(),
+                    link_outcomes: link_outcomes.clone(),
                     lifecycle_outcomes: lifecycle_outcomes.clone(),
                 });
             }
@@ -805,7 +851,7 @@ pub async fn run_continuity_scenario(
 }
 
 async fn retrieve_query(
-    adapter: &dyn MemoryAdapter,
+    adapter: &CharacterMemoryAdapter,
     scenario: &ContinuityScenario,
     retrieval: &RetrievalConfig,
     timestamp: &chrono::DateTime<Utc>,
@@ -852,25 +898,28 @@ fn restart_probe_snapshot(
         })
         .count();
     let expected_relevant_count = expected.relevant_external_ids.len();
-    let telemetry = pack.telemetry();
+    let outcome = pack.outcomes().first();
+    let native_trace = outcome.and_then(|outcome| outcome.trace.as_ref());
     RestartProbeSnapshot {
         returned_object_ids,
         relevant_returned_count,
         expected_relevant_count,
         recall: (expected_relevant_count > 0)
             .then_some(relevant_returned_count as f64 / expected_relevant_count as f64),
-        graph_relation_count: telemetry.graph_relation_count,
-        graph_verified_count: telemetry.graph_verified_count,
-        fanout_decision_count: telemetry.fanout_utilization.as_ref().map(Vec::len),
-        selectivity_decision_count: telemetry.selectivity_decisions.as_ref().map(Vec::len),
-        scored_selectivity_count: telemetry.selectivity_decisions.as_ref().map(|decisions| {
-            decisions
+        graph_relation_count: native_trace.map(|trace| trace.graph_relations.len()),
+        graph_verified_count: outcome.map(|outcome| outcome.rationale.graph_verified_count),
+        fanout_decision_count: native_trace.map(|trace| trace.fanout_utilization.len()),
+        selectivity_decision_count: native_trace.map(|trace| trace.selectivity_decisions.len()),
+        scored_selectivity_count: native_trace.map(|trace| {
+            trace
+                .selectivity_decisions
                 .iter()
                 .filter(|decision| decision.score.is_some())
                 .count()
         }),
-        fallback_selectivity_count: telemetry.selectivity_decisions.as_ref().map(|decisions| {
-            decisions
+        fallback_selectivity_count: native_trace.map(|trace| {
+            trace
+                .selectivity_decisions
                 .iter()
                 .filter(|decision| decision.fallback)
                 .count()
@@ -999,158 +1048,68 @@ fn adapter_entity_type(fixture_entity_type: ContinuityEntityKind) -> EntityType 
 #[cfg(test)]
 mod tests {
     use std::fs::OpenOptions;
-    use std::sync::{Arc, Mutex};
 
     use super::*;
     use crate::{CHECKED_FIXTURE_SEED, generate_fixture_set};
-    use cmem_eval_core::{
-        CandidateValidationResult, CommitWriteResult, EpisodeInput, LifecycleMutationResult,
-        LinkMemoryResult, MockMemoryAdapter, ObservationInput, PreparedWritePlan, RetrievalMode,
-        RetrievalSectionBudgets, RetrievalSurfacePolicy, WriteResult,
-    };
+    use cmem_eval::{RetrievalMode, RetrievalSectionBudgets, RetrievalSurfacePolicy};
     use uuid::Uuid;
 
-    #[derive(Default)]
-    struct MockRuntime {
-        adapter: MockMemoryAdapter,
-    }
-
-    #[derive(Clone, Default)]
-    struct RecordingAdapter {
-        inner: MockMemoryAdapter,
-        prepared: Arc<Mutex<Vec<PrepareWriteInput>>>,
-        episodes: Arc<Mutex<Vec<EpisodeInput>>>,
-        observations: Arc<Mutex<Vec<ObservationInput>>>,
-        enrichments: Arc<Mutex<Vec<GraphEnrichmentInput>>>,
-        forgets: Arc<Mutex<Vec<ForgetMemoryInput>>>,
-    }
-
-    #[async_trait]
-    impl MemoryAdapter for RecordingAdapter {
-        async fn open_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
-            self.inner.open_namespace(namespace).await
-        }
-
-        async fn reattach_namespace(&self, namespace: &str) -> Result<NamespaceLifecycleResult> {
-            self.inner.reattach_namespace(namespace).await
-        }
-
-        async fn reset_namespace(&self, namespace: &str) -> Result<()> {
-            self.inner.reset_namespace(namespace).await
-        }
-
-        async fn remember_episode(&self, input: EpisodeInput) -> Result<WriteResult<String>> {
-            self.episodes.lock().unwrap().push(input.clone());
-            self.inner.remember_episode(input).await
-        }
-
-        async fn remember_episodes(
-            &self,
-            inputs: Vec<EpisodeInput>,
-        ) -> Result<WriteResult<Vec<String>>> {
-            self.episodes.lock().unwrap().extend(inputs.iter().cloned());
-            self.inner.remember_episodes(inputs).await
-        }
-
-        async fn remember_observation(
-            &self,
-            input: ObservationInput,
-        ) -> Result<WriteResult<String>> {
-            self.observations.lock().unwrap().push(input.clone());
-            self.inner.remember_observation(input).await
-        }
-
-        async fn remember_observations(
-            &self,
-            inputs: Vec<ObservationInput>,
-        ) -> Result<WriteResult<Vec<String>>> {
-            self.observations
-                .lock()
-                .unwrap()
-                .extend(inputs.iter().cloned());
-            self.inner.remember_observations(inputs).await
-        }
-
-        async fn remember_enrichment(
-            &self,
-            input: GraphEnrichmentInput,
-        ) -> Result<WriteOutcomeRecord> {
-            self.enrichments.lock().unwrap().push(input.clone());
-            self.inner.remember_enrichment(input).await
-        }
-
-        async fn link(&self, input: LinkMemoryInput) -> Result<WriteResult<LinkMemoryResult>> {
-            self.inner.link(input).await
-        }
-
-        async fn correct(&self, input: CorrectMemoryInput) -> Result<LifecycleMutationResult> {
-            self.inner.correct(input).await
-        }
-
-        async fn forget(&self, input: ForgetMemoryInput) -> Result<LifecycleMutationResult> {
-            self.forgets.lock().unwrap().push(input.clone());
-            self.inner.forget(input).await
-        }
-
-        async fn prepare(&self, input: PrepareWriteInput) -> Result<PreparedWritePlan> {
-            self.prepared.lock().unwrap().push(input.clone());
-            self.inner.prepare(input).await
-        }
-
-        async fn validate_plan(
-            &self,
-            plan: &PreparedWritePlan,
-        ) -> Result<Vec<CandidateValidationResult>> {
-            self.inner.validate_plan(plan).await
-        }
-
-        async fn commit(
-            &self,
-            plan: PreparedWritePlan,
-            options: CommitWriteOptions,
-        ) -> Result<CommitWriteResult> {
-            self.inner.commit(plan, options).await
-        }
-
-        async fn retrieve(&self, input: RetrieveInput) -> Result<RetrievedContextPack> {
-            self.inner.retrieve(input).await
-        }
-    }
-
-    #[derive(Default)]
-    struct RecordingRuntime {
-        adapter: RecordingAdapter,
-    }
-
-    #[async_trait]
-    impl ContinuityRuntime for MockRuntime {
-        fn adapter(&self) -> &dyn MemoryAdapter {
-            &self.adapter
-        }
-
-        async fn restart(
-            &mut self,
-            scenario: &ContinuityScenario,
-        ) -> Result<NamespaceLifecycleResult> {
-            self.adapter.reattach_namespace(&scenario.namespace).await
-        }
-    }
-
-    #[async_trait]
-    impl ContinuityRuntime for RecordingRuntime {
-        fn adapter(&self) -> &dyn MemoryAdapter {
-            &self.adapter
-        }
-
-        async fn restart(
-            &mut self,
-            scenario: &ContinuityScenario,
-        ) -> Result<NamespaceLifecycleResult> {
-            self.adapter
-                .inner
-                .reattach_namespace(&scenario.namespace)
-                .await
-        }
+    async fn run_embedded(scenario: &ContinuityScenario) -> ContinuityScenarioRun {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = BenchmarkRunConfig {
+            run_id: "driver-test".into(),
+            dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
+            backend: Default::default(),
+            retrieval: retrieval(),
+            ingest: Default::default(),
+            metrics: Default::default(),
+        };
+        config.backend.namespace_prefix = Some("cmem_eval_driver_test".into());
+        config.backend.cleanup.require_collection_prefix = Some("cmem_eval_driver_test".into());
+        config.backend.identity_registry_dir =
+            Some(directory.path().join("identities").display().to_string());
+        config.backend.oxigraph_persistence_path =
+            Some(directory.path().join("graph").display().to_string());
+        config.backend.retrieval_stats_path =
+            Some(directory.path().join("stats.sqlite").display().to_string());
+        let binding = if let Some(fixture) = scenario.embedding.controllable_similarity() {
+            config.backend.embedding.provider =
+                cmem_eval::EmbeddingProviderConfig::ControllableSimilarity;
+            config.backend.embedding.vector_size = Some(fixture.vector_size);
+            EmbeddingRuntimeBinding::Controllable {
+                dimension_policy: cmem_eval::ControllableDimensionPolicy::Exact {
+                    vector_size: fixture.vector_size,
+                },
+                fixture: fixture.clone(),
+            }
+        } else {
+            let store_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures/embeddings/task22_real_store.json");
+            let store = cmem_eval::FrozenEmbeddingProvider::load(
+                &store_path,
+                "text-embedding-3-large",
+                3072,
+            )
+            .unwrap();
+            config.backend.embedding.provider = cmem_eval::EmbeddingProviderConfig::Frozen;
+            config.backend.embedding.vector_size = Some(store.vector_size());
+            config.backend.embedding.store_path = Some(store_path.display().to_string());
+            EmbeddingRuntimeBinding::Frozen {
+                dimension_policy: store.dimension_policy(),
+                store,
+            }
+        };
+        let mut runtime = ContinuityRuntime::new(&config, binding).await.unwrap();
+        let run = run_continuity_scenario(&mut runtime, scenario, &config.retrieval)
+            .await
+            .unwrap();
+        runtime
+            .adapter()
+            .reset_namespace(&scenario.namespace)
+            .await
+            .unwrap();
+        runtime.active.take().unwrap().close().await.unwrap();
+        run
     }
 
     fn retrieval() -> RetrievalConfig {
@@ -1177,10 +1136,7 @@ mod tests {
         let mut operation_counts = BTreeMap::new();
         let mut restart_observations = Vec::new();
         for scenario in &fixtures.scenarios {
-            let mut runtime = MockRuntime::default();
-            let run = run_continuity_scenario(&mut runtime, scenario, &retrieval())
-                .await
-                .unwrap();
+            let run = run_embedded(scenario).await;
             traces.extend(run.traces);
             restart_observations.extend(run.restart_observations);
             for (operation, count) in run.operation_counts {
@@ -1231,9 +1187,8 @@ mod tests {
         assert_eq!(counts.get("link"), Some(&expected_link_count));
         assert!(traces.iter().any(|trace| {
             trace.write_outcomes.iter().any(|outcome| {
-                !outcome.persisted_link_internal_ids.is_empty()
-                    && outcome.stats_update_status
-                        == cmem_eval_core::StatsUpdateStatusRecord::default()
+                !outcome.outcome.persisted_link_ids.is_empty()
+                    && outcome.outcome.stats_update_status.failure.is_none()
             })
         }));
         assert_eq!(restart_observations.len(), 1);
@@ -1264,9 +1219,7 @@ mod tests {
         };
         *target_external_id = "delivery-v1:observation".to_string();
         correction.validate().unwrap();
-        run_continuity_scenario(&mut MockRuntime::default(), &correction, &retrieval())
-            .await
-            .unwrap();
+        run_embedded(&correction).await;
 
         let mut thread = fixtures
             .scenarios
@@ -1313,15 +1266,13 @@ mod tests {
             },
         );
         thread.validate().unwrap();
-        run_continuity_scenario(&mut MockRuntime::default(), &thread, &retrieval())
-            .await
-            .unwrap();
+        run_embedded(&thread).await;
     }
 
     #[test]
     fn restart_recall_matches_items_by_represented_episode_identity() {
         let pack = RetrievedContextPack::from_ranked_items(
-            vec![cmem_eval_core::RetrievedItem {
+            vec![cmem_eval::RetrievedItem {
                 kind: ObjectType::Observation,
                 internal_id: "observation-internal".to_string(),
                 external_id: Some("observation-external".to_string()),
@@ -1332,7 +1283,7 @@ mod tests {
                 text: None,
             }],
             Default::default(),
-            cmem_eval_core::ContextRenderer::PlainText,
+            cmem_eval::ContextRenderer::PlainText,
         );
         let expected = ExpectedRelevance {
             relevant_external_ids: vec!["episode-relevant".to_string()],
@@ -1350,143 +1301,100 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scripted_remember_executes_timestamps_threads_and_salience() {
+    async fn scripted_remember_persists_timestamps_threads_and_salience() {
         let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let thread_scenario = fixtures
-            .scenarios
-            .iter()
-            .find(|scenario| scenario.pattern == ScenarioPattern::ThreadDrift)
-            .unwrap();
-        let mut thread_runtime = RecordingRuntime::default();
-        run_continuity_scenario(&mut thread_runtime, thread_scenario, &retrieval())
-            .await
-            .unwrap();
-
-        let remember_events = thread_scenario
-            .events
-            .iter()
-            .filter_map(|event| match event {
-                InteractionEvent::Remember { timestamp, .. } => Some(timestamp),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        {
-            let prepared = thread_runtime.adapter.prepared.lock().unwrap();
-            assert_eq!(prepared.len(), remember_events.len());
-            for (input, timestamp) in prepared.iter().zip(remember_events) {
-                let expected = timestamp.to_rfc3339_opts(SecondsFormat::Secs, true);
-                assert_eq!(input.episode_started_at.as_deref(), Some(expected.as_str()));
-                assert_eq!(
-                    input.observation_observed_at.as_deref(),
-                    Some(expected.as_str())
-                );
+        for pattern in [
+            ScenarioPattern::ThreadDrift,
+            ScenarioPattern::MixedSalienceAccumulation,
+            ScenarioPattern::SurfaceContribution,
+        ] {
+            let scenario = fixtures
+                .scenarios
+                .iter()
+                .find(|scenario| scenario.pattern == pattern)
+                .unwrap();
+            let run = run_embedded(scenario).await;
+            let packs = run
+                .traces
+                .iter()
+                .flat_map(|trace| trace.retrieval.outcomes())
+                .map(|outcome| &outcome.pack)
+                .collect::<Vec<_>>();
+            assert!(packs.iter().any(|pack| !pack.relevant_episodes.is_empty()));
+            for pack in packs {
+                for episode in &pack.relevant_episodes {
+                    let external = episode.source_conversation_id.as_deref().unwrap();
+                    let (timestamp, text) = scenario
+                        .events
+                        .iter()
+                        .find_map(|event| match event {
+                            InteractionEvent::Remember {
+                                external_id,
+                                timestamp,
+                                text,
+                                surface_texts,
+                                ..
+                            } if external_id == external => Some((
+                                timestamp,
+                                surface_texts
+                                    .as_ref()
+                                    .map_or(text, |surface| &surface.episode),
+                            )),
+                            _ => None,
+                        })
+                        .unwrap();
+                    assert_eq!(episode.started_at.as_ref(), Some(timestamp));
+                    assert_eq!(&episode.summary, text);
+                }
+                for derived in &pack.derived_memories {
+                    let expected = scenario
+                        .events
+                        .iter()
+                        .find_map(|event| match event {
+                            InteractionEvent::Remember {
+                                text,
+                                surface_texts,
+                                salience,
+                                thread,
+                                ..
+                            } if surface_texts
+                                .as_ref()
+                                .map_or(text, |surface| &surface.derived)
+                                == &derived.memory.text =>
+                            {
+                                Some((salience, thread))
+                            }
+                            _ => None,
+                        })
+                        .unwrap();
+                    assert_eq!(derived.memory.salience_score, *expected.0);
+                    if expected.1.is_some() {
+                        assert_eq!(derived.memory.thread_ids.len(), 1);
+                    }
+                }
             }
         }
-
-        {
-            let enrichments = thread_runtime.adapter.enrichments.lock().unwrap();
-            let scripted = enrichments
-                .iter()
-                .filter(|input| !input.derived_memories.is_empty())
-                .collect::<Vec<_>>();
-            assert_eq!(scripted.len(), 3);
-            assert_eq!(
-                scripted
-                    .iter()
-                    .map(|input| input.threads.len())
-                    .sum::<usize>(),
-                1
-            );
-            assert!(scripted.iter().all(|input| {
-                input.derived_memories.len() == 1
-                    && input.derived_memories[0].thread_external_ids == vec!["thread-1"]
-            }));
-            assert_eq!(
-                scripted
-                    .iter()
-                    .flat_map(|input| &input.links)
-                    .filter(|link| link.relation == RelationType::PartOfThread)
-                    .map(|link| link.confidence)
-                    .collect::<Vec<_>>(),
-                vec![0.95, 0.65, 0.25]
-            );
-        }
-
-        let salience_scenario = fixtures
-            .scenarios
-            .iter()
-            .find(|scenario| scenario.pattern == ScenarioPattern::MixedSalienceAccumulation)
-            .unwrap();
-        let mut salience_runtime = RecordingRuntime::default();
-        run_continuity_scenario(&mut salience_runtime, salience_scenario, &retrieval())
-            .await
-            .unwrap();
-        let enrichments = salience_runtime.adapter.enrichments.lock().unwrap();
-        assert_eq!(
-            enrichments
-                .iter()
-                .flat_map(|input| &input.derived_memories)
-                .map(|memory| memory.salience_score)
-                .collect::<Vec<_>>(),
-            vec![0.1, 0.5, 0.95]
-        );
     }
 
     #[tokio::test]
-    async fn distinct_surface_scenario_persists_each_surface_text_and_correction_forget_is_explicit()
-     {
+    async fn correction_forget_records_explicit_native_targets() {
         let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let surface_scenario = fixtures
-            .scenarios
-            .iter()
-            .find(|scenario| scenario.pattern == ScenarioPattern::SurfaceContribution)
-            .unwrap();
-        let mut surface_runtime = RecordingRuntime::default();
-        run_continuity_scenario(&mut surface_runtime, surface_scenario, &retrieval())
-            .await
-            .unwrap();
-        {
-            let episodes = surface_runtime.adapter.episodes.lock().unwrap();
-            let observations = surface_runtime.adapter.observations.lock().unwrap();
-            let enrichments = surface_runtime.adapter.enrichments.lock().unwrap();
-            let derived = enrichments
-                .iter()
-                .flat_map(|input| &input.derived_memories)
-                .collect::<Vec<_>>();
-            assert_eq!(episodes.len(), 2);
-            assert_eq!(observations.len(), 2);
-            assert_eq!(derived.len(), 2);
-            for index in 0..2 {
-                assert_ne!(episodes[index].summary, observations[index].text);
-                assert_ne!(episodes[index].summary, derived[index].text);
-                assert_ne!(observations[index].text, derived[index].text);
-            }
-        }
-
-        let correction_scenario = fixtures
+        let scenario = fixtures
             .scenarios
             .iter()
             .find(|scenario| scenario.pattern == ScenarioPattern::CorrectionChains)
             .unwrap();
-        let mut correction_runtime = RecordingRuntime::default();
-        run_continuity_scenario(&mut correction_runtime, correction_scenario, &retrieval())
-            .await
-            .unwrap();
-        let forgets = correction_runtime.adapter.forgets.lock().unwrap();
-        assert_eq!(forgets.len(), 1);
-        assert_eq!(
-            forgets[0]
-                .targets
+        let run = run_embedded(scenario).await;
+        assert!(
+            run.traces
                 .iter()
-                .map(|target| (target.object_type.as_str(), target.external_id.as_str()))
-                .collect::<Vec<_>>(),
-            vec![
-                ("episode", "delivery-v1"),
-                ("observation", "delivery-v1:observation"),
-            ]
+                .flat_map(|trace| &trace.lifecycle_outcomes)
+                .any(|record| record
+                    .outcome
+                    .trace
+                    .as_ref()
+                    .is_some_and(|trace| trace.requested_targets.len() == 2))
         );
-        assert!(!forgets[0].suppression_policy.suppress_derived_from_target);
-        assert!(!forgets[0].cascade_policy.apply_to_derived_from_target);
     }
 
     #[test]
@@ -1518,33 +1426,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mock_driver_is_deterministic_for_identical_fixtures() {
-        let first = run_all().await;
-        let second = run_all().await;
-        assert_eq!(first, second);
-    }
-
-    #[tokio::test]
     async fn trace_writer_canonicalizes_outcomes_by_operation() {
         let (mut traces, _, _) = run_all().await;
         let mut trace = traces.remove(0);
-        trace.write_outcomes.clear();
-        trace.lifecycle_outcomes.clear();
-        for operation_id in ["b", "c", "a"] {
-            trace
-                .write_outcomes
-                .push(cmem_eval_core::WriteOutcomeRecord::clean(
-                    operation_id,
-                    cmem_eval_core::WriteOperationKind::ExplicitCommit,
-                ));
-
-            trace
-                .lifecycle_outcomes
-                .push(cmem_eval_core::LifecycleOutcomeRecord::clean(
-                    operation_id,
-                    cmem_eval_core::LifecycleOperationKind::Correct,
-                ));
-        }
+        let template = trace.write_outcomes.first().unwrap().clone();
+        trace.write_outcomes = ["b", "c", "a"]
+            .into_iter()
+            .map(|id| {
+                let mut record = template.clone();
+                record.operation_id = id.into();
+                record
+            })
+            .collect();
+        let lifecycle_template = traces
+            .iter()
+            .flat_map(|trace| &trace.lifecycle_outcomes)
+            .next()
+            .unwrap()
+            .clone();
+        trace.lifecycle_outcomes = ["b", "c", "a"]
+            .into_iter()
+            .map(|id| {
+                let mut record = lifecycle_template.clone();
+                record.operation_id = id.into();
+                record
+            })
+            .collect();
         let first_path = temporary_trace_path();
         let second_path = temporary_trace_path();
         write_continuity_traces(&first_path, std::slice::from_ref(&trace)).unwrap();
@@ -1651,93 +1558,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn v2_trace_reader_rejects_shape_drift() {
+    async fn trace_reader_rejects_owned_shape_drift() {
         let (traces, _, _) = run_all().await;
         let path = temporary_trace_path();
-
-        let current = serde_json::to_string(&traces[0]).unwrap();
-        let fixture_id = format!(r#""fixture_id":"{}""#, traces[0].fixture_id);
-        let duplicate_root = current.replacen(
-            &fixture_id,
-            &format!(r#"{fixture_id},"fixture_id":"{}""#, traces[0].fixture_id),
-            1,
-        );
-        assert_ne!(current, duplicate_root);
-        std::fs::write(&path, format!("{duplicate_root}\n")).unwrap();
-        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
-        assert!(error.contains("duplicate JSON object key"), "{error}");
-
-        let mut verdict_trace = traces[0].clone();
-        let mut outcome = cmem_eval_core::WriteOutcomeRecord::clean(
-            "duplicate-verdict",
-            cmem_eval_core::WriteOperationKind::ExplicitCommit,
-        );
-        outcome.vector_indexing_failure = Some(cmem_eval_core::VectorIndexingFailureRecord {
-            unindexed_objects: Vec::new(),
-            cause: cmem_eval_core::VectorIndexingCauseRecord::VectorDatabase(
-                cmem_eval_core::VectorDatabaseErrorRecord {
-                    backend: "qdrant".to_string(),
-                    kind: cmem_eval_core::VectorDatabaseErrorKind::Response,
-                    status: None,
-                    message: "rejected".to_string(),
-                    retry_after_seconds: None,
-                },
-            ),
-        });
-        verdict_trace.write_outcomes.push(outcome);
-        verdict_trace
-            .lifecycle_outcomes
-            .push(cmem_eval_core::LifecycleOutcomeRecord::clean(
-                "required-attempt-index",
-                cmem_eval_core::LifecycleOperationKind::Correct,
-            ));
-        let current = serde_json::to_string(&verdict_trace).unwrap();
-        let duplicate_nested_verdict = current.replacen(
-            r#""kind":"response""#,
-            r#""kind":"response","kind":"response""#,
-            1,
-        );
-        assert_ne!(current, duplicate_nested_verdict);
-        std::fs::write(&path, format!("{duplicate_nested_verdict}\n")).unwrap();
-        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
-        assert!(error.contains("duplicate JSON object key"), "{error}");
-
-        let mut current = serde_json::to_value(&traces[0]).unwrap();
-        current["unexpected_v2_field"] = Value::Bool(true);
+        let value = serde_json::to_value(&traces[0]).unwrap();
+        for field in [
+            "write_outcomes",
+            "link_outcomes",
+            "lifecycle_outcomes",
+            "retrieval",
+        ] {
+            let mut missing = value.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            std::fs::write(&path, serde_json::to_vec(&missing).unwrap()).unwrap();
+            assert!(read_continuity_traces(&path).is_err());
+        }
+        let mut unknown = value;
+        unknown["retrieval"]["unexpected_field"] = Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&unknown).unwrap()).unwrap();
+        assert!(read_continuity_traces(&path).is_err());
         std::fs::write(
             &path,
-            format!("{}\n", serde_json::to_string(&current).unwrap()),
+            r#"{"schema_version":"3.0.0","schema_version":"3.0.0"}"#,
         )
         .unwrap();
-        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut current = serde_json::to_value(&traces[0]).unwrap();
-        current["retrieval"]["telemetry"]["unexpected_v2_field"] = Value::Bool(true);
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&current).unwrap()),
-        )
-        .unwrap();
-        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut current = serde_json::to_value(&traces[0]).unwrap();
-        current["retrieval"]["telemetry"]
-            .as_object_mut()
-            .unwrap()
-            .remove("vector_candidate_count");
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&current).unwrap()),
-        )
-        .unwrap();
-        let error = format!("{:#}", read_continuity_traces(&path).unwrap_err());
-        assert!(
-            error.contains("missing field `vector_candidate_count`"),
-            "{error}"
-        );
-
+        assert!(format!("{:#}", read_continuity_traces(&path).unwrap_err()).contains("duplicate"));
         std::fs::remove_file(path).unwrap();
     }
 

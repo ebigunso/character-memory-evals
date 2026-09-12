@@ -4,7 +4,7 @@ Evaluation harness for the Character Memory memory substrate. This repository me
 
 CharacterMemoryEvals is the public companion evaluation repository for the public [`ebigunso/character-memory`](https://github.com/ebigunso/character-memory) library.
 
-Benchmark CLI runs default to the live Character Memory adapter. Mock runs are available only as explicit smoke/test runs so benchmark output is not accidentally generated from the mock adapter.
+Benchmark CLI runs use Character Memory with its embedded vector store by default. BM25 is a separate baseline over ingested conversation text.
 
 ## Commands
 
@@ -17,7 +17,7 @@ The repository pins Rust 1.97.0 with the `rustfmt` and `clippy` components. Each
 - The Resolve Character Memory revision job captures the public sibling's current `main` commit once so every gate validates the same snapshot.
 - The Formatting job checks `cargo fmt --all --check` without compiling the workspace.
 - The Clippy job enforces warnings-as-errors across the workspace and all targets.
-- The Tests job runs the complete workspace test suite.
+- The Tests job runs the complete workspace suite with embedded stores and no external service.
 
 ```bash
 cargo fmt --all --check
@@ -25,7 +25,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Benchmark commands default to the live Character Memory adapter. OpenAI embeddings require `OPENAI_API_KEY`; service mode additionally requires `QDRANT_CONNECTION_STRING`:
+OpenAI embeddings require `OPENAI_API_KEY`; Qdrant service mode additionally requires `QDRANT_CONNECTION_STRING`:
 
 ```bash
 export QDRANT_CONNECTION_STRING=http://127.0.0.1:6334
@@ -39,7 +39,7 @@ For live runs that use deterministic embeddings instead of OpenAI, set
 
 `[backend] vector_store_mode = "embedded"` is the default and needs no Qdrant service or connection string. The adapter creates and canonicalizes a `vectors-<namespace UUID>` directory beside the identity registry, under `backend.identity_registry_dir` (or `runs/<run_id>`). The path includes the prefix, run, and namespace identity so reset and cleanup remove only that namespace's embedded store. Reattach requires the embedded store alongside the registry and configured graph/stat stores.
 
-Set `[backend] vector_store_mode = "service"` to use Qdrant at `backend.qdrant_connection_string` or `QDRANT_CONNECTION_STRING`. Hybrid and vector-only retrieval support both modes. The vector-only baseline uses the library retrieval trace, with one singleton-scoped retrieval per measured object kind and object-level deduplication within each section budget. Its context text comes from the evaluation ingest registry. Rows record `telemetry.vector_recall_completeness` as a required list of `{scope, completeness}` entries, one per retrieval; no retrieval is represented by one `not_requested` entry with an empty scope. Completed conventional items detach their namespace handles while retaining durable stores until configured cleanup.
+Set `[backend] vector_store_mode = "service"` to use Qdrant at `backend.qdrant_connection_string` or `QDRANT_CONNECTION_STRING`. Hybrid and vector-only retrieval support both modes. The vector-only baseline uses the library retrieval trace, with one singleton-scoped retrieval per measured object kind and object-level deduplication within each section budget. Its context text comes from the evaluation ingest registry. Rows retain each library `RetrieveOutcome` under `retrieval_outcomes`. Each outcome carries its native completeness verdict in `rationale.telemetry.vector_recall_completeness` and its object scope in `rationale.telemetry.configured_object_types`. BM25 has no library retrieval outcomes. Completed conventional items detach their namespace handles while retaining durable stores until configured cleanup.
 
 ## Continuity Evaluation
 
@@ -51,12 +51,12 @@ The 26 committed continuity configs cited by hash in the findings register are s
 
 ### Run a service-free continuity smoke
 
-`configs/continuity_smoke.toml` is the maintained, unsealed inner-loop config and may change with the current CLI. Run its frozen `graded-similarity` scenario twice with the mock adapter, then compare the rows:
+`configs/continuity_smoke.toml` is the maintained, unsealed inner-loop config and may change with the current CLI. Run its frozen `graded-similarity` scenario twice with the embedded adapter, then compare the rows:
 
 ```bash
 mkdir -p .agent-work/continuity-smoke/{a,b}
-cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --adapter mock --allow-mock-benchmark --out ./.agent-work/continuity-smoke/a/results.jsonl --summary-out ./.agent-work/continuity-smoke/a/summary.json --trace-out ./.agent-work/continuity-smoke/a/traces.jsonl --report-out ./.agent-work/continuity-smoke/a/report.json
-cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --adapter mock --allow-mock-benchmark --out ./.agent-work/continuity-smoke/b/results.jsonl --summary-out ./.agent-work/continuity-smoke/b/summary.json --trace-out ./.agent-work/continuity-smoke/b/traces.jsonl --report-out ./.agent-work/continuity-smoke/b/report.json
+cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/a/results.jsonl --summary-out ./.agent-work/continuity-smoke/a/summary.json --trace-out ./.agent-work/continuity-smoke/a/traces.jsonl --report-out ./.agent-work/continuity-smoke/a/report.json
+cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/b/results.jsonl --summary-out ./.agent-work/continuity-smoke/b/summary.json --trace-out ./.agent-work/continuity-smoke/b/traces.jsonl --report-out ./.agent-work/continuity-smoke/b/report.json
 cargo run -p cmem-eval-runner -- diff ./.agent-work/continuity-smoke/a/results.jsonl ./.agent-work/continuity-smoke/b/results.jsonl
 ```
 
@@ -121,7 +121,7 @@ vector_size = 3072
 store_path = "crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json"
 ```
 
-Use `provider = "frozen"` when selected schema-v3 scenarios contain both explicit `controllable_similarity` and `frozen` embedding blocks; the runtime binds each scenario to its declared provider. The committed `task21_smoke_manifest.json` and `task21_smoke_store.json` exercise format and validation machinery with a store that declares `source = "test_fixture"`. Frozen-store cache coverage is preflighted for both mock and live real-adapter runs. A mock run may use test-provenance vectors when they cover every selected runtime text; the mock adapter does not call an embedding service. Live real-adapter runs additionally require `source = "open_ai_api"`, so they reject the task21 smoke store rather than representing its hand-authored three-dimensional vectors as OpenAI output. Generated production stores record that production source and the requested model.
+Use `provider = "frozen"` when selected schema-v3 scenarios contain both explicit `controllable_similarity` and `frozen` embedding blocks; the runtime binds each scenario to its declared provider. The committed `task21_smoke_manifest.json` and `task21_smoke_store.json` exercise format and validation machinery with a store that declares `source = "test_fixture"`. Frozen CLI runs preflight cache coverage and require `source = "open_ai_api"`; the task21 store is restricted to format and provider unit tests. Generated production stores record that production source and the requested model.
 
 Set the live endpoint in the current shell before a live run:
 
@@ -145,15 +145,15 @@ Schema v3 keeps backend persistence identities derived from config, stable names
 ### Read the continuity artifacts
 
 - `results.jsonl` contains one schema-versioned retrieval result per query. `summary.json` contains numeric aggregates, support counts, registry coverage, and latency. Live query latency is measured, so raw `results.jsonl` and `summary.json` bytes intentionally vary across repeat live runs.
-- `traces.jsonl` contains the deterministic query, expected labels, history text, complete retrieved context pack, rationales, and backend-neutral telemetry used by continuity metrics.
-- `report.json` has a top-level `metadata` block and deterministic `content`. `metadata` contains the generation timestamp, run, dataset, and adapter identity, fixture provenance (schema version, fixture seed, embedding seeds, and fixture IDs), the full config snapshot, schema versions, and normalization policy; it does not contain the fixture body. Compare repeat runs by removing `metadata`; correction/forget library mutation timestamps and measured query latency are excluded from deterministic content.
+- `traces.jsonl` contains the deterministic query, expected labels, history text, complete retrieved context pack, rationales, and native library outcomes and traces used by continuity metrics.
+- `report.json` contains run metadata, aggregate and per-scenario metrics, and the complete native retrieval outcomes in each context sample. Library-generated timestamps in those outcomes are retained. Use the result-row `diff` command to compare returned identities, ranks, metrics, and degradation.
 - `content.aggregate` reports metrics, `metric_support`, and registry coverage across the selected run. `content.scenarios` repeats those views per fixture and includes full query/context/rationale samples, fanout/selectivity decisions, stats-health observations, and any restart observations.
 - A restart observation records the lifecycle restoration count, before/after returned object IDs and recall, graph/fanout/selectivity snapshots, signed deltas, and whether the returned object set stayed stable.
 - `tuning_observations` records measured behavior together with the relevant config regime. These are tuning signals, not assertions that a Character Memory default passed or failed.
 
 ### Compare runs
 
-`diff` compares result JSONL by question after normalizing only `run_id` and `latency_ms`. It reports returned-identity, rank, metric, and degradation-flag changes plus a summary:
+`diff` reads schema 3.0.0 result JSONL and compares by question after normalizing only `run_id` and `latency_ms`. Malformed native outcomes and older schemas fail admission; archival comparisons use an offline tool pinned to their reader version. It reports returned-identity, rank, metric, and degradation-flag changes plus a summary:
 
 ```bash
 cargo run -p cmem-eval-runner -- diff \
@@ -173,7 +173,7 @@ Fixture `irrelevant_external_ids` are sampled negatives, not an exhaustive compl
 4. Assign every text that reaches the controllable-similarity provider to exactly one embedding concept. Entity labels are embedding inputs as well as display text, so every entity label must also appear exactly once in `embedding.concepts`; the generator assigns referenced entity labels to the first referencing concept and unreferenced labels to `entity_background`. For a frozen scenario, put every exact runtime text in the generation manifest and declare the semantic orderings that scenario needs.
 5. Use schema v3, the only accepted fixture schema version. Tag every controllable-similarity embedding block with `"provider": "controllable_similarity"` and every frozen block with `"provider": "frozen"`.
 6. Use the dedicated v3 patterns rather than overloading earlier measurements: `graded_similarity` covers target/near-miss/background discrimination; `combined_life` covers interleaved patterns in one namespace; `temporal_patterns` covers interval, recurrence, and one-off-versus-repeated structure; `entrenched_correction` covers late correction after reinforcement; `autobiographical` covers self-history continuity; `multi_evidence_assembly` covers answers requiring several evidence items; and `abstention` covers pollution-only no-answer queries. Existing patterns remain for their established semantics.
-7. Regenerate a candidate with the checked seed, inspect the semantic and byte diff, run offline frozen-store validation when applicable, and run the fixture parser, generator determinism, mock driver, and workspace tests before replacing checked JSON.
+7. Regenerate a candidate with the checked seed, inspect the semantic and byte diff, run offline frozen-store validation when applicable, and run the fixture parser, generator determinism, embedded driver, and workspace tests before replacing checked JSON.
 
 ### Add a continuity metric
 
@@ -184,26 +184,19 @@ Fixture `irrelevant_external_ids` are sampled negatives, not an exhaustive compl
 
 Continuity metrics are measurements for comparison and tuning. Adding a metric does not create a CI threshold or a pass/fail policy.
 
-BM25 retrieval is the service-free lexical hurdle that Character Memory recall must beat. Select it with `[retrieval] mode = "bm25_only"` and the guarded mock adapter; the baseline ranks ingested episodes and observations without Qdrant, Oxigraph, OpenAI, or live Character Memory retrieval:
+BM25 retrieval is the service-free lexical hurdle that Character Memory recall must beat. Select it with `[retrieval] mode = "bm25_only"`; the baseline ranks ingested episodes and observations without Qdrant, Oxigraph, OpenAI, or live Character Memory retrieval:
 
 ```bash
 cargo run -p cmem-eval-runner -- run longmemeval-s \
   --dataset ./datasets/longmemeval_s_cleaned.json \
   --config ./configs/longmemeval_s_bm25.toml \
   --out ./runs/longmemeval_s_bm25.jsonl \
-  --summary-out ./runs/longmemeval_s_bm25_summary.json \
-  --adapter mock \
-  --allow-mock-benchmark
+  --summary-out ./runs/longmemeval_s_bm25_summary.json
 ```
 
 BM25 configs are available for LongMemEval-S and LoCoMo: `configs/longmemeval_s_bm25.toml` and `configs/locomo_bm25.toml`. Use baseline-specific run IDs and output paths so active benchmark artifacts are not overwritten.
 
-Vector-only retrieval is a live baseline selected in TOML with
-`[retrieval] mode = "vector_only"`. It ingests through Character Memory, then
-the eval runner bypasses Character Memory retrieval and searches the namespace
-Qdrant collection directly with basic vector similarity over benchmark-provided
-raw candidates: episodes and observations. It uses the configured embedding
-provider for query embeddings and cannot run with `--adapter mock`.
+Vector-only retrieval uses `[retrieval] mode = "vector_only"`. It ingests through Character Memory and reads the library retrieval trace for one object kind at a time, then ranks raw episodes and observations within their configured budgets. It supports embedded and Qdrant service stores and uses the configured embedding provider.
 
 ```bash
 cargo run -p cmem-eval-runner -- run longmemeval-s \
@@ -240,16 +233,19 @@ Gold evidence labels are used only for scoring. They are not copied into `Episod
 
 The workspace separates shared evaluation contracts, dataset-specific behavior, live Character Memory integration, and CLI orchestration:
 
-- `crates/cmem-eval-core` owns backend-neutral configuration, the `MemoryAdapter` contract and DTOs, deterministic metric primitives, runtime metric-family composition, and versioned result/summary types. Core contains no dataset-name dispatch.
-- `crates/cmem-eval-adapter-cmem` is the reusable live Character Memory adapter. It maps the core contract to the sibling library, derives deterministic collection names from the configured prefix, run ID, and namespace, and persists a BTreeMap-backed external-ID registry so a new adapter process can reattach to existing stores without losing benchmark IDs.
+- `crates/cmem-eval` owns the Character Memory adapter, configuration, external-ID mappings, context rendering, shared metrics, and result/summary types. It derives namespace store names and persists external IDs for reattach. Dataset-name dispatch stays in the runner.
 - `crates/cmem-eval-longmemeval`, `crates/cmem-eval-locomo`, and `crates/cmem-eval-continuity` own their loaders, ingest or event mapping, scorers or trace contracts, full-history construction, config-name validation, and metric-family declarations.
 - `crates/cmem-eval-runner` owns the CLI and static dataset selection. Its `DatasetSpec` seam feeds conventional datasets into the generic ingest → enrich → retrieve → score → result pipeline and routes continuity fixtures through their ordered scripted lifecycle driver.
 
-Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementation, but no `cmem-eval-core` change. Continuity-specific fixture parsing, ordered event execution, and query trace serialization remain in `crates/cmem-eval-continuity`.
+Adding a dataset requires a dataset crate plus a runner `DatasetSpec` implementation, but no `cmem-eval` change. Continuity-specific fixture parsing, ordered event execution, and query trace serialization remain in `crates/cmem-eval-continuity`.
 
-JSONL rows, continuity traces, summaries, and reports use report schema version `2.2.0`. Readers accept only schema `2.2.0` and fail closed on missing or unsupported versions; sealed evidence from superseded schemas remains immutable bytes verified by hash rather than input for the live readers. The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains first-class as per-row `latency_ms` and summary `latency.latency_ms` mean/median/p50/p95 values, but it is excluded from deterministic `metrics`. Each row records its typed per-scenario embedding binding, and summaries aggregate the sorted unique binding records rather than exposing a single embedding-provider field.
+JSONL rows, continuity traces, summaries, and reports use report schema version `3.0.0`. Readers accept only schema `3.0.0` and fail closed on missing or unsupported versions; sealed evidence from superseded schemas remains immutable bytes verified by hash rather than input for the live readers. The runtime required-metric set combines the core base family with the selected dataset family, and unsupported required metrics remain explicit `null` values reflected by `metric_support` and `registry_coverage`. Retrieval latency remains first-class as per-row `latency_ms` and summary `latency.latency_ms` mean/median/p50/p95 values, but it is excluded from deterministic `metrics`. Each row records its typed per-scenario embedding binding, and summaries aggregate the sorted unique binding records rather than exposing a single embedding-provider field.
 
-Live namespace lifecycle is explicit: `open_namespace` creates fresh run state, while `reattach_namespace` requires and restores the complete durable identity consisting of the external-ID registry, deterministic Qdrant collection, and every configured namespace-scoped Oxigraph and retrieval-stat store. Before ingesting a conventional dataset item, the runner resets and opens its namespace exactly once per `DatasetSpec::Item`; the item supplies the granularity (a question for LongMemEval-S or a sample for LoCoMo), and configuration does not alter it. Configured `oxigraph_persistence_path` values are shared roots whose namespace child directories use the same prefix/run/namespace UUID identity as Qdrant; configured `retrieval_stats_path` values are filename templates whose derived sibling files use that identity while preserving the configured extension. Cleanup remains guarded by the configured eval prefix and never deletes a configured shared root.
+Rows embed native `RetrieveOutcome` values and `RecordedOutcome<T> { operation_id, outcome }` envelopes for `RememberOutcome`, `LinkOutcome`, and `LifecycleMutationOutcome`. The harness operation ID preserves ordering and identifies retries; the library outcome is serialized without field projection. The degradation summary reads native vector failures, stats-update failures, and repair markers.
+
+Schema 3.0.0 removes diagnostic metric keys `vector_candidate_count`, `retrieved_by_vector_count`, `graph_relations_count`, `graph_verified_count`, `stale_candidate_omission_count`, `lifecycle_omission_count`, `lifecycle_filter_decision_count`, `suppressed_or_deleted_returned_count`, `superseded_current_returned_count`, `unsafe_lifecycle_returned_count`, `graph_object_missing_omitted_count`, `graph_object_missing_returned_count`, `section_assignment_count`, `section_assignment_*_count`, `section_assignment_*_rate`, `hub_fanout_utilization_mean`, `fanout_over_budget_count`, `conservative_fallback_activation_count`, `fanout_selected_cap_utilization_mean`, `fanout_configured_cap_utilization_mean`, `selectivity_score_mean`, `selectivity_score_p50`, `selectivity_score_p95`, and `selectivity_score_mean_entity_kind_*`. The underlying diagnostics remain in native outcomes; character-facing recall, rationale, pollution, and lifecycle-safety metrics remain measurements.
+
+Live namespace lifecycle is explicit: `open_namespace` creates fresh run state, while `reattach_namespace` requires and restores the complete durable identity consisting of the external-ID registry, embedded vector store or deterministic Qdrant collection, and every configured namespace-scoped Oxigraph and retrieval-stat store. Before ingesting a conventional dataset item, the runner resets and opens its namespace exactly once per `DatasetSpec::Item`; the item supplies the granularity (a question for LongMemEval-S or a sample for LoCoMo), and configuration does not alter it. Configured `oxigraph_persistence_path` values are shared roots whose namespace child directories use the same prefix/run/namespace UUID identity as Qdrant; configured `retrieval_stats_path` values are filename templates whose derived sibling files use that identity while preserving the configured extension. Cleanup remains guarded by the configured eval prefix and never deletes a configured shared root.
 
 ## Precomputed Graph Enrichment
 
@@ -320,18 +316,11 @@ framing overhead.
 Trace-dependent metrics require:
 
 ```toml
-[retrieval]
+[retrieval.surface_policy]
 include_debug_rationale = true
 ```
 
-When trace data is available, rows can also include route and integrity evidence
-such as `vector_candidate_count`, `graph_relations_count`,
-`graph_verified_count`, `section_assignment_count`,
-`suppressed_or_deleted_returned_count`, and
-`superseded_current_returned_count`. When trace data is unavailable, affected
-route/integrity metrics are emitted as `null` and are reflected in
-`metric_support` / `registry_coverage`; the harness does not write false zeroes
-for unsupported checks.
+Native retrieval outcomes retain vector, graph, lifecycle, and section diagnostics. Character-facing integrity metrics are computed directly from these traces; unsupported metrics remain `null` and are reflected in `metric_support` and `registry_coverage`.
 
 QA metrics such as accuracy, F1, exact match, abstention accuracy, and
 unsupported-answer rate remain `null` in retrieval-only runs. Use the official
@@ -354,8 +343,10 @@ Fresh runs always remove every prior namespace-scoped durable store for the same
 
 ## Character Memory API
 
-The eval-side adapter contract is in `cmem-eval-core::memory_adapter`. It is written as the target public API boundary for Character Memory: external IDs, namespaces, ranks, scores, rationale, and context text must survive round trip. Live runs require backend settings; the initial embedding default is OpenAI `text-embedding-3-large`.
+The adapter inputs and rendered context types live in `cmem-eval::memory_adapter`; `cmem-eval::adapter::CharacterMemoryAdapter` calls the sibling library directly. External IDs, namespaces, ranks, scores, rationale, and context text remain evaluation-owned mappings. Library outcome and enum types are reused directly. The embedding default is OpenAI `text-embedding-3-large`.
 
-Omitted `--adapter` and explicit `--adapter real` both select the live adapter.
-Mock output is for unit/integration smoke checks only and is marked with `adapter.mode =
-"mock_smoke"` in result artifacts.
+The workspace test suite runs with embedded stores, including restart, reattach, and cleanup checks. Service-specific collection administration is gated by the explicit `service-tests` feature and fails if Qdrant is unavailable:
+
+```bash
+QDRANT_CONNECTION_STRING=http://127.0.0.1:6334 cargo test -p cmem-eval --features service-tests service_mode_ -- --nocapture
+```

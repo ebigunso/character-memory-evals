@@ -154,10 +154,6 @@ const CORE_BASE_METRICS: &[&str] = &[
     "num_active_threads",
     "num_entities",
     "retrieval_rationale_coverage",
-    "vector_candidate_count",
-    "graph_relations_count",
-    "graph_verified_count",
-    "section_assignment_count",
     "provenance_coverage",
     "context_validation_pass_rate",
     "suppressed_memory_leakage_rate",
@@ -475,76 +471,6 @@ pub fn insert_composition_metrics(
     );
 }
 
-pub fn insert_telemetry_metrics(
-    out: &mut Map<String, Value>,
-    telemetry: &crate::RetrievalTelemetry,
-) {
-    out.insert(
-        "vector_candidate_count".to_string(),
-        option_usize(telemetry.vector_candidate_count),
-    );
-    out.insert(
-        "retrieved_by_vector_count".to_string(),
-        option_usize(telemetry.vector_candidate_count),
-    );
-    out.insert(
-        "graph_relations_count".to_string(),
-        option_usize(telemetry.graph_relation_count),
-    );
-    out.insert(
-        "graph_verified_count".to_string(),
-        option_usize(telemetry.graph_verified_count),
-    );
-    out.insert(
-        "stale_candidate_omission_count".to_string(),
-        option_usize(telemetry.stale_candidate_omission_count),
-    );
-    out.insert(
-        "lifecycle_omission_count".to_string(),
-        option_usize(telemetry.lifecycle_omission_count),
-    );
-    out.insert(
-        "lifecycle_filter_decision_count".to_string(),
-        option_usize(telemetry.lifecycle_filter_decision_count),
-    );
-    out.insert(
-        "suppressed_or_deleted_returned_count".to_string(),
-        option_usize(telemetry.suppressed_or_deleted_returned_count),
-    );
-    out.insert(
-        "superseded_current_returned_count".to_string(),
-        option_usize(telemetry.superseded_current_returned_count),
-    );
-    out.insert(
-        "unsafe_lifecycle_returned_count".to_string(),
-        option_usize(telemetry.unsafe_lifecycle_returned_count),
-    );
-    out.insert(
-        "graph_object_missing_omitted_count".to_string(),
-        option_usize(telemetry.graph_object_missing_omitted_count),
-    );
-    out.insert(
-        "graph_object_missing_returned_count".to_string(),
-        option_usize(telemetry.graph_object_missing_returned_count),
-    );
-    out.insert(
-        "section_assignment_count".to_string(),
-        option_usize(telemetry.section_assignment_count),
-    );
-    if let Some(total) = telemetry.section_assignment_count {
-        for (section, count) in &telemetry.section_assignment_counts {
-            out.insert(
-                format!("section_assignment_{section}_count"),
-                Value::from(*count),
-            );
-            out.insert(
-                format!("section_assignment_{section}_rate"),
-                rate(*count, total),
-            );
-        }
-    }
-}
-
 pub fn insert_integrity_metrics(out: &mut Map<String, Value>, retrieved: &[crate::RetrievedItem]) {
     let without_external_id = retrieved
         .iter()
@@ -687,36 +613,128 @@ pub fn integrity_details(retrieved: &[crate::RetrievedItem]) -> crate::ResultInt
     }
 }
 
-pub fn integrity_details_with_telemetry(
+fn suppressed(decision: &character_memory::LifecycleFilterDecision) -> bool {
+    use character_memory::{LifecycleFilterReason, RetentionState};
+    matches!(
+        decision.retention_state,
+        Some(RetentionState::Suppressed | RetentionState::Deleted)
+    ) || matches!(
+        decision.reason,
+        LifecycleFilterReason::SuppressedIncludedByPolicy
+            | LifecycleFilterReason::DeletedIncludedByPolicy
+    )
+}
+
+fn superseded(decision: &character_memory::LifecycleFilterDecision) -> bool {
+    use character_memory::LifecycleFilterReason;
+    decision.is_current == Some(false)
+        || !decision.superseded_by.is_empty()
+        || matches!(
+            decision.reason,
+            LifecycleFilterReason::NonCurrentIncludedByPolicy
+                | LifecycleFilterReason::SupersededIncludedByPolicy
+        )
+}
+
+fn returned_lifecycle_decisions<'a>(
+    retrieved: &'a [crate::RetrievedItem],
+    outcomes: &'a [crate::RetrieveOutcome],
+) -> impl Iterator<Item = &'a character_memory::LifecycleFilterDecision> {
+    outcomes
+        .iter()
+        .filter_map(|outcome| outcome.trace.as_ref())
+        .flat_map(|trace| &trace.lifecycle_filter_decisions)
+        .filter(move |decision| {
+            decision.action == character_memory::LifecycleFilterAction::Included
+                && retrieved
+                    .iter()
+                    .any(|item| item.internal_id == decision.object.id.to_string())
+        })
+}
+
+pub fn lifecycle_safe_admission_rate(
     retrieved: &[crate::RetrievedItem],
-    telemetry: &crate::RetrievalTelemetry,
-) -> crate::ResultIntegrityDetails {
-    let mut details = integrity_details(retrieved);
-    let returned_count = retrieved.len();
-    if telemetry.trace_available {
-        details.suppressed_memory_leakage_rate = telemetry
-            .suppressed_or_deleted_returned_count
-            .map(|count| leakage_rate(count, returned_count));
-        details.suppressed_or_deleted_returned_count =
-            telemetry.suppressed_or_deleted_returned_count;
-        details.superseded_current_leakage_rate = telemetry
-            .superseded_current_returned_count
-            .map(|count| leakage_rate(count, returned_count));
-        details.superseded_current_returned_count = telemetry.superseded_current_returned_count;
-        details.orphan_vector_leakage_rate = match (
-            telemetry.graph_object_missing_returned_count,
-            telemetry.graph_object_missing_omitted_count,
-        ) {
-            (Some(returned), Some(omitted)) => Some(leakage_rate(returned, returned + omitted)),
-            _ => None,
-        };
-        details.context_validation_pass_rate = context_validation_pass_rate(
-            returned_count,
-            telemetry.graph_verified_count,
-            telemetry.unsafe_lifecycle_returned_count,
-            telemetry.graph_object_missing_returned_count,
-        );
+    outcomes: &[crate::RetrieveOutcome],
+) -> Option<f64> {
+    if !outcomes.iter().any(|outcome| outcome.trace.is_some()) {
+        return None;
     }
+    let unsafe_count = returned_lifecycle_decisions(retrieved, outcomes)
+        .filter(|decision| suppressed(decision) || superseded(decision))
+        .map(|decision| decision.object.id)
+        .collect::<BTreeSet<_>>()
+        .len();
+    Some(1.0 - leakage_rate(unsafe_count.min(retrieved.len()), retrieved.len()))
+}
+
+pub fn integrity_details_from_outcomes(
+    retrieved: &[crate::RetrievedItem],
+    outcomes: &[crate::RetrieveOutcome],
+) -> crate::ResultIntegrityDetails {
+    use character_memory::{LifecycleFilterAction, LifecycleFilterReason, StaleCandidateReason};
+    let mut details = integrity_details(retrieved);
+    if !outcomes.iter().any(|outcome| outcome.trace.is_some()) {
+        return details;
+    }
+    let suppressed_count = returned_lifecycle_decisions(retrieved, outcomes)
+        .filter(|decision| suppressed(decision))
+        .map(|decision| decision.object.id)
+        .collect::<BTreeSet<_>>()
+        .len();
+    let superseded_count = returned_lifecycle_decisions(retrieved, outcomes)
+        .filter(|decision| superseded(decision))
+        .map(|decision| decision.object.id)
+        .collect::<BTreeSet<_>>()
+        .len();
+    let unsafe_count = returned_lifecycle_decisions(retrieved, outcomes)
+        .filter(|decision| suppressed(decision) || superseded(decision))
+        .map(|decision| decision.object.id)
+        .collect::<BTreeSet<_>>()
+        .len();
+    let missing_returned = returned_lifecycle_decisions(retrieved, outcomes)
+        .filter(|decision| decision.reason == LifecycleFilterReason::GraphObjectMissing)
+        .count();
+    let missing_omitted = outcomes
+        .iter()
+        .filter_map(|outcome| outcome.trace.as_ref())
+        .map(|trace| {
+            trace
+                .stale_candidate_omissions
+                .iter()
+                .filter(|omission| omission.reason == StaleCandidateReason::GraphObjectMissing)
+                .count()
+                + trace
+                    .lifecycle_filter_decisions
+                    .iter()
+                    .filter(|decision| {
+                        decision.action == LifecycleFilterAction::Omitted
+                            && decision.reason == LifecycleFilterReason::GraphObjectMissing
+                            && !retrieved
+                                .iter()
+                                .any(|item| item.internal_id == decision.object.id.to_string())
+                    })
+                    .count()
+        })
+        .sum::<usize>();
+    details.suppressed_or_deleted_returned_count = Some(suppressed_count);
+    details.superseded_current_returned_count = Some(superseded_count);
+    details.suppressed_memory_leakage_rate = Some(leakage_rate(suppressed_count, retrieved.len()));
+    details.superseded_current_leakage_rate = Some(leakage_rate(superseded_count, retrieved.len()));
+    details.orphan_vector_leakage_rate = Some(leakage_rate(
+        missing_returned,
+        missing_returned + missing_omitted,
+    ));
+    details.context_validation_pass_rate = context_validation_pass_rate(
+        retrieved.len(),
+        Some(
+            outcomes
+                .iter()
+                .map(|outcome| outcome.rationale.graph_verified_count)
+                .sum(),
+        ),
+        Some(unsafe_count),
+        Some(missing_returned),
+    );
     details
 }
 
@@ -783,14 +801,6 @@ fn context_validation_pass_rate(
     let invalid_count =
         graph_unverified + unsafe_lifecycle_returned_count + graph_object_missing_returned_count;
     Some(1.0 - invalid_count.min(returned_count) as f64 / returned_count as f64)
-}
-
-fn rate(count: usize, denominator: usize) -> Value {
-    if denominator == 0 {
-        Value::Null
-    } else {
-        Value::from(count as f64 / denominator as f64)
-    }
 }
 
 #[cfg(test)]
@@ -875,8 +885,8 @@ mod tests {
         let retrieved = vec![
             crate::RetrievedItem {
                 kind: crate::ObjectType::Observation,
-                internal_id: "o1".to_string(),
-                external_id: Some("o1".to_string()),
+                internal_id: uuid::Uuid::nil().to_string(),
+                external_id: Some(uuid::Uuid::nil().to_string()),
                 episode_external_id: Some("e1".to_string()),
                 score: None,
                 rank: 1,
@@ -894,18 +904,14 @@ mod tests {
                 text: None,
             },
         ];
-        let telemetry = crate::RetrievalTelemetry {
-            trace_available: true,
-            graph_verified_count: Some(2),
-            suppressed_or_deleted_returned_count: Some(0),
-            superseded_current_returned_count: Some(0),
-            unsafe_lifecycle_returned_count: Some(0),
-            graph_object_missing_omitted_count: Some(3),
-            graph_object_missing_returned_count: Some(0),
-            ..crate::RetrievalTelemetry::default()
+        let mut outcome = crate::RetrieveOutcome {
+            pack: character_memory::ContinuityContextPack::empty(),
+            rationale: character_memory::RetrievalRationale::new("test"),
+            trace: Some(crate::RetrievalTrace::empty()),
         };
+        outcome.rationale.graph_verified_count = 2;
 
-        let integrity = integrity_details_with_telemetry(&retrieved, &telemetry);
+        let integrity = integrity_details_from_outcomes(&retrieved, &[outcome]);
         let mut out = Map::new();
         insert_integrity_detail_metrics(&mut out, &integrity);
 
@@ -923,8 +929,8 @@ mod tests {
         let retrieved = vec![
             crate::RetrievedItem {
                 kind: crate::ObjectType::Observation,
-                internal_id: "o1".to_string(),
-                external_id: Some("o1".to_string()),
+                internal_id: uuid::Uuid::nil().to_string(),
+                external_id: Some(uuid::Uuid::nil().to_string()),
                 episode_external_id: Some("e1".to_string()),
                 score: None,
                 rank: 1,
@@ -942,18 +948,30 @@ mod tests {
                 text: None,
             },
         ];
-        let telemetry = crate::RetrievalTelemetry {
-            trace_available: true,
-            graph_verified_count: Some(2),
-            suppressed_or_deleted_returned_count: Some(1),
-            superseded_current_returned_count: Some(0),
-            unsafe_lifecycle_returned_count: Some(1),
-            graph_object_missing_omitted_count: Some(0),
-            graph_object_missing_returned_count: Some(0),
-            ..crate::RetrievalTelemetry::default()
+        let mut outcome = crate::RetrieveOutcome {
+            pack: character_memory::ContinuityContextPack::empty(),
+            rationale: character_memory::RetrievalRationale::new("test"),
+            trace: Some(crate::RetrievalTrace::empty()),
         };
+        outcome.rationale.graph_verified_count = 2;
+        outcome
+            .trace
+            .as_mut()
+            .unwrap()
+            .lifecycle_filter_decisions
+            .push(character_memory::LifecycleFilterDecision {
+                object: character_memory::MemoryObjectRef::new(
+                    crate::ObjectType::Observation,
+                    uuid::Uuid::nil(),
+                ),
+                retention_state: Some(character_memory::RetentionState::Suppressed),
+                is_current: None,
+                superseded_by: Vec::new(),
+                action: character_memory::LifecycleFilterAction::Included,
+                reason: character_memory::LifecycleFilterReason::SuppressedIncludedByPolicy,
+            });
 
-        let integrity = integrity_details_with_telemetry(&retrieved, &telemetry);
+        let integrity = integrity_details_from_outcomes(&retrieved, &[outcome]);
 
         assert_eq!(integrity.context_validation_pass_rate, Some(0.5));
         assert_eq!(integrity.suppressed_memory_leakage_rate, Some(0.5));

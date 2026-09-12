@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow, bail};
-use cmem_eval_core::{
+use cmem_eval::{
     DerivedMemoryInput, EntityInput, GraphEnrichmentInput, GraphSnapshotInput, MemoryLinkInput,
     MemoryThreadInput,
 };
@@ -226,7 +226,7 @@ pub fn empty_namespace(namespace: String) -> GraphEnrichmentInput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmem_eval_core::{DerivedType, Stability};
+    use cmem_eval::{DerivedType, Stability};
 
     #[test]
     fn rejects_derived_memory_without_provenance() {

@@ -683,3 +683,36 @@ Prevention:
 
 Evidence:
 - CME #25 follow-up after the CharacterMemory v0.1.6 merge (2026-09-10).
+
+## 2026-09-13 — Verify child-test execution after moving Rust modules [tags: validation, crate-layout]
+
+Symptom:
+- The first workspace run after merging the adapter crate reported success for an environment-isolation test whose child process selected zero tests.
+
+Root cause:
+- The exact child-test filter still used the old crate-root module path; Rust's test harness exits successfully when an exact filter matches nothing.
+
+Fix applied:
+- Updated the filter to `adapter::tests::oxigraph_env_cannot_redirect_graph_path_probe` and required the child output to report one passed test.
+
+Prevention:
+- When moving a Rust test module, update literal subprocess filters and assert that the intended child test executed, in addition to checking its exit status.
+
+Evidence:
+- Task_8 step 3 validation under `.agent-work/evals-worker/task8-step3/`; the execution-count assertion remains in `crates/cmem-eval/src/adapter.rs`.
+
+## 2026-09-13 — Retain evaluation evidence, clean up evaluation stores [tags: lifecycle, cleanup, evaluation]
+
+Symptom:
+- Cross-mode and A/B runs left 222 `cmem_eval` service collections that had to be deleted by hand on 2026-09-13.
+
+Root cause:
+- Evaluation store lifetimes extended beyond the runs even though retrospective evidence was already recorded in result artifacts.
+
+Decider ruling and prevention:
+- Evaluation runs clean up every store they create when the run ends, including service collections, embedded store directories, graph files and retrieval-stat files, unless the configuration explicitly retains them for retrospective inspection.
+- A run's evidence is its result rows, traces and report, never its stores.
+- Cleanup enabled by default, an explicit retain switch and per-run directories are Task_8 step 4 implementation work. This step records the policy and leaves the current cleanup behavior unchanged.
+
+Evidence:
+- Decider ruling relayed by the orchestrator on 2026-09-13, citing the manual removal of 222 collections left by the cross-mode and A/B runs.

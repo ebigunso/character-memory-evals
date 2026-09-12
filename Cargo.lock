@@ -809,7 +809,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmem-eval-adapter-cmem"
+name = "cmem-eval"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -817,14 +817,16 @@ dependencies = [
  "character_memory",
  "chrono",
  "cmem-eval-continuity",
- "cmem-eval-core",
  "config",
  "qdrant-client",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
+ "tiktoken-rs",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -835,8 +837,8 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "cmem-eval",
  "cmem-eval-continuity",
- "cmem-eval-core",
  "cmem-eval-locomo",
  "cmem-eval-longmemeval",
  "serde",
@@ -848,28 +850,12 @@ name = "cmem-eval-continuity"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "chrono",
- "cmem-eval-core",
+ "cmem-eval",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
- "uuid",
-]
-
-[[package]]
-name = "cmem-eval-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tiktoken-rs",
- "tokio",
- "tracing",
  "uuid",
 ]
 
@@ -879,7 +865,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "cmem-eval-core",
+ "cmem-eval",
  "serde",
  "serde_json",
  "tracing",
@@ -891,7 +877,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "cmem-eval-core",
+ "cmem-eval",
  "serde",
  "serde_json",
  "tracing",
@@ -902,12 +888,10 @@ name = "cmem-eval-runner"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "chrono",
  "clap",
- "cmem-eval-adapter-cmem",
+ "cmem-eval",
  "cmem-eval-continuity",
- "cmem-eval-core",
  "cmem-eval-locomo",
  "cmem-eval-longmemeval",
  "reqwest 0.12.28",
