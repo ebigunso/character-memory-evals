@@ -13,7 +13,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
-pub const RESULT_SCHEMA_VERSION: &str = "2.1.0";
+pub const RESULT_SCHEMA_VERSION: &str = "2.2.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -790,15 +790,52 @@ mod tests {
     }
 
     #[test]
+    fn scoped_vector_completeness_round_trips_and_rejects_missing_scope() {
+        let path = temp_path("scoped-completeness", "jsonl");
+        let mut value = versioned_row_value(&row(serde_json::json!({}))).unwrap();
+        let valid = serde_json::json!([
+            {"scope": ["episode"], "completeness": {"kind": "exhaustive", "scanned": 3}},
+            {"scope": ["observation"], "completeness": {"kind": "boundary_tie_open", "fetched": 5, "fetch_bound": 5}}
+        ]);
+        value["telemetry"]["vector_recall_completeness"] = valid.clone();
+        std::fs::write(&path, format!("{value}\n")).unwrap();
+        let rows = read_jsonl(&path).unwrap();
+        write_jsonl(&path, &rows).unwrap();
+        let reread = read_jsonl(&path).unwrap();
+        assert_eq!(
+            serde_json::to_value(&reread[0].telemetry.vector_recall_completeness).unwrap(),
+            valid
+        );
+        for invalid in [
+            Value::Null,
+            serde_json::json!([]),
+            serde_json::json!([{"scope": [], "completeness": {"kind": "exhaustive", "scanned": 0}}]),
+            serde_json::json!([{"scope": ["episode"], "completeness": {"kind": "not_requested"}}]),
+            serde_json::json!([{"completeness": {"kind": "exhaustive", "scanned": 0}}]),
+            serde_json::json!([{"scope": [], "completeness": {"kind": "not_requested"}}, {"scope": ["episode"], "completeness": {"kind": "exhaustive", "scanned": 0}}]),
+        ] {
+            value["telemetry"]["vector_recall_completeness"] = invalid.clone();
+            std::fs::write(&path, format!("{value}\n")).unwrap();
+            assert!(read_jsonl(&path).is_err(), "accepted {invalid}");
+        }
+        value["telemetry"]
+            .as_object_mut()
+            .unwrap()
+            .remove("vector_recall_completeness");
+        std::fs::write(&path, format!("{value}\n")).unwrap();
+        assert!(read_jsonl(&path).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn v2_result_reader_rejects_shape_drift() {
         let path = temp_path("results-shape-drift", "jsonl");
 
         let mut completeness = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        completeness["telemetry"]["vector_recall_completeness"] =
-            serde_json::json!({"kind": "exhaustive", "scanned": 3});
+        completeness["telemetry"]["vector_recall_completeness"] = serde_json::json!([{ "scope": ["episode"], "completeness": {"kind": "exhaustive", "scanned": 3} }]);
         std::fs::write(&path, format!("{completeness}\n")).unwrap();
         assert_eq!(read_jsonl(&path).unwrap().len(), 1);
-        completeness["telemetry"]["vector_recall_completeness"]["unexpected_field"] =
+        completeness["telemetry"]["vector_recall_completeness"][0]["completeness"]["unexpected_field"] =
             Value::Bool(true);
         std::fs::write(&path, format!("{completeness}\n")).unwrap();
         let error = format!("{:#}", read_jsonl(&path).unwrap_err());

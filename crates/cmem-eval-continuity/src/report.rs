@@ -20,7 +20,7 @@ use crate::{
     RestartObservation, ScenarioPattern,
 };
 
-pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "2.1.0";
+pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "2.2.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -945,8 +945,8 @@ mod tests {
 
         let raw = serde_json::to_string(&report).unwrap();
         let duplicate_root = raw.replacen(
-            r#""schema_version":"2.1.0""#,
-            r#""schema_version":"2.1.0","schema_version":"2.1.0""#,
+            r#""schema_version":"2.2.0""#,
+            r#""schema_version":"2.2.0","schema_version":"2.2.0""#,
             1,
         );
         assert_ne!(raw, duplicate_root);

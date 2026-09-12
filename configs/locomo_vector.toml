@@ -2,8 +2,7 @@ run_id = "locomo_v0_1_vector"
 dataset = "locomo"
 
 [backend]
-# The vector-only baseline reads the service collection directly; it needs service mode.
-vector_store_mode = "service"
+vector_store_mode = "embedded"
 namespace_prefix = "bench:locomo_vector"
 
 [backend.cleanup]

@@ -581,3 +581,7 @@ Per ADR-I-0002 (single-schema artifact contract), live reading capability for th
 ## Addendum (2026-09-10): 2.0.0 reader resurrection pointer
 
 Per ADR-I-0002, the artifact schema advanced to 2.1.0 when the retrieval telemetry's vector recall completeness field became required, and live reading capability for the 2.0.0 result-row, summary, continuity-trace, and continuity-report shapes was removed with it. No artifact cited in this register carries the 2.0.0 schema, and every cited artifact remains sealed, byte-identical, and hash-verifiable. The 2.0.0 readers were last present on `main` at commit `ef63d0e20c07293d3a91f9ec93a49ab62985f35c`; resurrect from there (as a standalone offline tool, never live-path dispatch) if a decider-ruled archival readout need ever materializes.
+
+## Addendum (2026-09-10): 2.1.0 reader resurrection pointer
+
+Per ADR-I-0002, the artifact schema advanced to 2.2.0 when vector recall completeness became a required list of scoped retrieval verdicts. Live readers for the 2.1.0 result-row, summary, continuity-trace, and continuity-report shapes were last present on `main` at commit `e409c236b42364f316840fe9045fa74303f13d2c`. Resurrect them as a standalone offline tool, never live-path dispatch, if a decider-ruled archival readout need materializes. Every artifact cited in this register remains sealed, byte-identical, and hash-verifiable.

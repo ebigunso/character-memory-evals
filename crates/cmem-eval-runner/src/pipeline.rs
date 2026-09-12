@@ -480,6 +480,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                 );
             }
         }
+        adapter.detach_namespace(&namespace).await?;
         namespaces_to_cleanup.push(namespace);
         progress.item_finished(item_number, &item_label, item_timer.elapsed_ms());
     }

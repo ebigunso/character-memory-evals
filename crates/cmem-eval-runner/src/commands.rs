@@ -111,7 +111,7 @@ impl RunArgs {
             && self.selected_adapter() == AdapterKind::Mock
         {
             bail!(
-                "retrieval.mode=vector_only is a live Qdrant baseline and cannot run with `--adapter mock`; omit `--adapter` or pass `--adapter real`"
+                "retrieval.mode=vector_only is a live vector-recall baseline and cannot run with `--adapter mock`; omit `--adapter` or pass `--adapter real`"
             );
         }
         Ok(())
