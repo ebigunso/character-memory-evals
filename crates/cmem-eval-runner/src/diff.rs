@@ -208,10 +208,6 @@ mod tests {
         let result = PerQuestionResult {
             run_id: run_id.into(),
             question_id: "q1".into(),
-            dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
-            dataset_kind: cmem_eval::DatasetKind::Continuity,
-            embedding_binding: cmem_eval::EmbeddingBindingRecord::Bm25,
-            adapter: Default::default(),
             question_type: None,
             question: "query".into(),
             gold_episode_ids: Vec::new(),

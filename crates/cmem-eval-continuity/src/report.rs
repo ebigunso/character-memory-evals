@@ -4,12 +4,10 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use chrono::{DateTime, Utc};
 use cmem_eval::{
-    DatasetId, DatasetKind, DegradationSummary, EmbeddingBindingRecord, FanoutUtilizationTrace,
-    MetricSupportSummary, NumericMetricSummary, PerQuestionResult, RationaleCategory,
-    RegistryCoverageSummary, RetrievedContextPack, RunAdapterMetadata, RunSummary,
-    SelectivityTrace, aggregate_numeric_metrics, metric_support_summary,
+    DegradationSummary, FanoutUtilizationTrace, MetricSupportSummary, NumericMetricSummary,
+    PerQuestionResult, RationaleCategory, RegistryCoverageSummary, RetrievedContextPack,
+    RunSummary, SelectivityTrace, aggregate_numeric_metrics, metric_support_summary,
     registry_coverage_summary_for,
 };
 use serde::{Deserialize, Serialize};
@@ -21,26 +19,8 @@ use crate::{
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContinuityReport {
-    pub metadata: ContinuityReportMetadata,
-    pub content: ContinuityReportContent,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ContinuityReportMetadata {
-    pub generated_at: DateTime<Utc>,
-    pub run_id: String,
-    pub dataset: DatasetId,
-    pub dataset_kind: DatasetKind,
-    pub embedding_bindings: Vec<EmbeddingBindingRecord>,
-    pub degradation: DegradationSummary,
-    pub adapter: RunAdapterMetadata,
-    pub fixture_schema_version: u32,
-    pub fixture_seed: u64,
-    pub embedding_seeds: BTreeMap<String, u64>,
-    pub fixture_ids: Vec<String>,
-    /// Dynamic-by-design snapshot of the selected runner and backend configuration.
-    pub config: Value,
     pub header: cmem_eval::RunHeader,
+    pub content: ContinuityReportContent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -52,6 +32,7 @@ pub struct ContinuityReportContent {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AggregateContinuityReport {
+    pub degradation: DegradationSummary,
     pub query_count: usize,
     pub restart_count: usize,
     pub metrics: NumericMetricSummary,
@@ -115,12 +96,8 @@ pub struct TuningObservation {
 }
 
 pub struct ContinuityReportInput<'a> {
-    pub generated_at: DateTime<Utc>,
-    pub fixture_schema_version: u32,
-    pub fixture_seed: u64,
-    /// Dynamic-by-design runner/backend configuration snapshot copied into the report.
+    /// Effective controls used to describe tuning measurements.
     pub config: Value,
-    pub adapter: RunAdapterMetadata,
     pub scenarios: &'a [ContinuityScenario],
     pub traces: &'a [ContinuityQueryTrace],
     pub rows: &'a [PerQuestionResult],
@@ -131,21 +108,6 @@ pub struct ContinuityReportInput<'a> {
 
 pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<ContinuityReport> {
     let restart_count = validate_restart_observations(input.scenarios, input.restart_observations)?;
-    let fixture_ids = input
-        .scenarios
-        .iter()
-        .map(|scenario| scenario.fixture_id.clone())
-        .collect::<Vec<_>>();
-    let embedding_seeds = input
-        .scenarios
-        .iter()
-        .filter_map(|scenario| {
-            scenario
-                .embedding
-                .controllable_similarity()
-                .map(|embedding| (scenario.fixture_id.clone(), embedding.seed))
-        })
-        .collect::<BTreeMap<_, _>>();
     let mut scenario_reports = BTreeMap::new();
     for scenario in input.scenarios {
         let scenario_traces = input
@@ -228,23 +190,10 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         .into_iter()
         .collect();
     Ok(ContinuityReport {
-        metadata: ContinuityReportMetadata {
-            generated_at: input.generated_at,
-            run_id: input.summary.run_id.clone(),
-            dataset: input.summary.dataset.clone(),
-            dataset_kind: input.summary.dataset_kind,
-            embedding_bindings: input.summary.embedding_bindings.clone(),
-            degradation: input.summary.degradation.clone(),
-            adapter: input.adapter,
-            fixture_schema_version: input.fixture_schema_version,
-            fixture_seed: input.fixture_seed,
-            embedding_seeds,
-            fixture_ids,
-            config: input.config.clone(),
-            header: input.summary.header.clone(),
-        },
+        header: input.summary.header.clone(),
         content: ContinuityReportContent {
             aggregate: AggregateContinuityReport {
+                degradation: input.summary.degradation.clone(),
                 query_count: input.summary.num_questions,
                 restart_count,
                 metrics: input.summary.metrics.clone(),
@@ -662,34 +611,26 @@ mod tests {
             Uuid::new_v4()
         ));
         let report = ContinuityReport {
-            metadata: ContinuityReportMetadata {
-                generated_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
-                run_id: "shape-drift".to_string(),
-                dataset: DatasetId::new("continuity").unwrap(),
-                dataset_kind: DatasetKind::Continuity,
-                embedding_bindings: Vec::new(),
-                degradation: DegradationSummary::default(),
-                adapter: RunAdapterMetadata::live(),
-                fixture_schema_version: 1,
-                fixture_seed: 1,
-                embedding_seeds: BTreeMap::new(),
-                fixture_ids: Vec::new(),
-                config: serde_json::json!({}),
-                header: cmem_eval::RunHeader {
-                    harness_commit: "test".into(),
-                    library_commit: "test".into(),
-                    generated_at: Utc::now(),
-                    config: String::new(),
-                    config_sha256: cmem_eval::text_sha256(""),
-                    adapter: RunAdapterMetadata::live(),
-                    storage_root: "stores".into(),
-                    storage_root_sha256: "test".into(),
-                    retain_stores: false,
-                    retain_reason: None,
-                },
+            header: cmem_eval::RunHeader {
+                run_id: "report".into(),
+                dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
+                dataset_kind: cmem_eval::DatasetKind::Continuity,
+                input_sha256: cmem_eval::text_sha256("input"),
+                embedding_bindings: BTreeMap::new(),
+                harness_commit: "test".into(),
+                library_commit: "test".into(),
+                generated_at: Utc::now(),
+                config: String::new(),
+                config_sha256: cmem_eval::text_sha256(""),
+                adapter: cmem_eval::RunAdapterMetadata::live(),
+                storage_root: "stores".into(),
+                storage_root_sha256: "test".into(),
+                retain_stores: false,
+                retain_reason: None,
             },
             content: ContinuityReportContent {
                 aggregate: AggregateContinuityReport {
+                    degradation: DegradationSummary::default(),
                     query_count: 0,
                     restart_count: 0,
                     metrics: BTreeMap::new(),

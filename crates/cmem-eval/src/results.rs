@@ -15,10 +15,6 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerQuestionResult {
     pub run_id: String,
-    pub dataset: DatasetId,
-    pub dataset_kind: DatasetKind,
-    pub embedding_binding: EmbeddingBindingRecord,
-    pub adapter: RunAdapterMetadata,
     pub question_id: String,
     pub question_type: Option<String>,
     pub question: String,
@@ -41,15 +37,7 @@ pub struct PerQuestionResult {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RunSummary {
-    pub run_id: String,
-    pub dataset: DatasetId,
-    pub dataset_kind: DatasetKind,
-    pub adapter: RunAdapterMetadata,
-    /// Dynamic-by-design snapshot whose shape is owned by the selected runner
-    /// and backend configuration rather than the result schema.
-    pub config: Value,
     pub header: RunHeader,
-    pub embedding_bindings: Vec<EmbeddingBindingRecord>,
     pub num_questions: usize,
     pub metrics: NumericMetricSummary,
     pub metric_support: MetricSupportSummary,
@@ -60,6 +48,12 @@ pub struct RunSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RunHeader {
+    pub run_id: String,
+    pub dataset: DatasetId,
+    pub dataset_kind: DatasetKind,
+    pub input_sha256: String,
+    /// Scenario id (continuity) or dataset id maps to the embedding used at runtime.
+    pub embedding_bindings: BTreeMap<String, EmbeddingBindingRecord>,
     pub harness_commit: String,
     pub library_commit: String,
     pub generated_at: chrono::DateTime<chrono::Utc>,
@@ -194,13 +188,7 @@ pub fn reject_empty_run(rows: &[PerQuestionResult]) -> Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)] // Explicit run header plus rows and their metric registry.
 pub fn summarize_rows(
-    run_id: String,
-    dataset: DatasetId,
-    dataset_kind: DatasetKind,
-    adapter: RunAdapterMetadata,
-    config: Value,
     header: RunHeader,
     rows: &[PerQuestionResult],
     metric_families: &[MetricFamily],
@@ -213,26 +201,9 @@ pub fn summarize_rows(
         .iter()
         .map(|row| row.latency_ms as f64)
         .collect::<Vec<_>>();
-    let embedding_bindings = rows
-        .iter()
-        .map(|row| row.embedding_binding.clone())
-        .fold(BTreeMap::new(), |mut bindings, binding| {
-            let key =
-                serde_json::to_string(&binding).expect("EmbeddingBindingRecord always serializes");
-            bindings.entry(key).or_insert(binding);
-            bindings
-        })
-        .into_values()
-        .collect();
     let degradation = summarize_degradation(rows);
     Ok(RunSummary {
-        run_id,
-        dataset,
-        dataset_kind,
-        adapter,
-        config,
         header,
-        embedding_bindings,
         num_questions: rows.len(),
         metrics: aggregate_numeric_metrics(&metric_rows),
         metric_support: metric_support_summary(&metric_rows),
@@ -285,6 +256,11 @@ mod tests {
 
     fn test_header() -> RunHeader {
         RunHeader {
+            run_id: "r".into(),
+            dataset: dataset(),
+            dataset_kind: DatasetKind::LoCoMo,
+            input_sha256: crate::text_sha256("input"),
+            embedding_bindings: BTreeMap::from([("locomo".into(), embedding_binding())]),
             harness_commit: "test".into(),
             library_commit: "test".into(),
             generated_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
@@ -323,10 +299,6 @@ mod tests {
     fn row(metric_values: Value) -> PerQuestionResult {
         PerQuestionResult {
             run_id: "r".into(),
-            dataset: dataset(),
-            dataset_kind: DatasetKind::LoCoMo,
-            embedding_binding: embedding_binding(),
-            adapter: RunAdapterMetadata::live(),
             question_id: "q".into(),
             question_type: None,
             question: "question".into(),
@@ -361,9 +333,6 @@ mod tests {
         let row = row(serde_json::json!({"recall_any@1": 1.0}));
         let value = canonical_row_value(&row).unwrap();
         assert_eq!(value["question_id"], "q");
-        assert_eq!(value["adapter"]["mode"], "live");
-        assert_eq!(value["dataset_kind"], "lo_co_mo");
-        assert_eq!(value["embedding_binding"]["kind"], "live");
     }
 
     #[test]
@@ -372,17 +341,7 @@ mod tests {
             "suppressed_or_deleted_items_returned": null
         }));
 
-        let summary = summarize_rows(
-            "r".into(),
-            dataset(),
-            DatasetKind::LoCoMo,
-            RunAdapterMetadata::live(),
-            serde_json::json!({}),
-            test_header(),
-            &[row],
-            &[],
-        )
-        .unwrap();
+        let summary = summarize_rows(test_header(), &[row], &[]).unwrap();
 
         assert!(summary.metric_support["suppressed_or_deleted_items_returned"].unsupported);
         assert_eq!(summary.registry_coverage.required_metrics_present, 0);
@@ -395,23 +354,13 @@ mod tests {
     }
 
     #[test]
-    fn summary_records_schema_binding_and_separate_latency() {
+    fn summary_preserves_header_and_measures_latency() {
         let mut row = row(serde_json::json!({"session_recall_any@5": 1.0}));
         row.latency_ms = 7;
         let family = crate::retrieval_metric_family("locomo", [("session", [5].as_slice())]);
 
-        let summary = summarize_rows(
-            "r".into(),
-            dataset(),
-            DatasetKind::LoCoMo,
-            RunAdapterMetadata::live(),
-            serde_json::json!({"backend": {"embedding": {"provider": "openai"}}}),
-            test_header(),
-            &[row],
-            &[family],
-        )
-        .unwrap();
-        assert_eq!(summary.embedding_bindings, vec![embedding_binding()]);
+        let summary = summarize_rows(test_header(), &[row], &[family]).unwrap();
+        assert_eq!(summary.header, test_header());
         assert_eq!(summary.latency.latency_ms.p95, Some(7.0));
         assert!(!summary.metrics.contains_key("retrieval_latency_ms"));
         assert_eq!(summary.registry_coverage.required_metrics_present, 1);
@@ -579,11 +528,6 @@ mod tests {
     fn read_summary_round_trips_summary() {
         let path = temp_path("summary", "json");
         let summary = summarize_rows(
-            "r".into(),
-            dataset(),
-            DatasetKind::LoCoMo,
-            RunAdapterMetadata::live(),
-            serde_json::json!({}),
             test_header(),
             &[row(serde_json::json!({"fixed_metric": 1.0}))],
             &[],

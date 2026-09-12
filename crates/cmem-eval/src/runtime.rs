@@ -105,6 +105,7 @@ pub enum EmbeddingBindingRecord {
     },
     Frozen {
         store_sha256: String,
+        source: crate::FrozenEmbeddingSource,
         model: String,
         vector_size: usize,
         dimension_policy: FrozenEmbeddingDimensionPolicy,
