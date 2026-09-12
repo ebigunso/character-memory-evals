@@ -237,6 +237,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_8 step 4 P1 correction: service collection identities include the canonical run-root hash, recorded in the run header. Atomic run-root acquisition remains the ownership gate; different-root concurrent runs no longer share collections, and same-root duplicate admission fails before namespace setup. The library retains collection construction. Added concurrent service isolation and atomic root-admission regressions; validation evidence accompanies the Worker handoff.
 
+- 2026-09-13 Task_8 step 4 Copilot corrections: named output paths are checked against the reserved run stores root before directory creation; retained namespace cleanup closes only that namespace and preserves open siblings and durable files. Added CLI admission, derived-output path, and two-namespace retention regressions. Task_5 is parked while this priority fix lands; Task_4 and Task_5 will be rebased onto the reviewed parent.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.

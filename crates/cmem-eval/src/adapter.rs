@@ -1057,7 +1057,14 @@ impl CharacterMemoryAdapter {
 
     pub async fn cleanup_namespace(&self, namespace: &str) -> Result<()> {
         if self.config.backend.retain_stores {
-            return self.release_namespaces().await;
+            if let Some(state) = self.namespaces.lock().await.remove(namespace) {
+                state
+                    .memory
+                    .close()
+                    .await
+                    .with_context(|| format!("close retained namespace {namespace}"))?;
+            }
+            return Ok(());
         }
         self.reset_namespace(namespace).await
     }
@@ -4530,6 +4537,54 @@ mod tests {
                 .any(|item| item.external_id.as_deref() == Some("episode-b"))
         );
         (resetter.reset_namespace(namespace_b).await).expect("sibling namespace B cleanup");
+    }
+
+    #[tokio::test]
+    async fn retained_cleanup_closes_only_the_named_namespace() {
+        let directory = tempdir().unwrap();
+        let mut config = adapter_config("retained-cleanup".into());
+        config.backend.retain_stores = true;
+        config.backend.retain_reason = Some("inspect namespace stores".into());
+        let adapter = CharacterMemoryAdapter::new(directory.path(), &config)
+            .await
+            .unwrap();
+        for namespace in ["a", "b"] {
+            adapter.open_namespace(namespace).await.unwrap();
+            adapter
+                .remember_episode(EpisodeInput {
+                    external_id: "episode".into(),
+                    namespace: namespace.into(),
+                    summary: "The notebook is blue.".into(),
+                    started_at: None,
+                    ended_at: None,
+                    participants: Vec::new(),
+                    metadata: serde_json::json!({}),
+                })
+                .await
+                .unwrap();
+        }
+        adapter.cleanup_namespace("a").await.unwrap();
+        adapter.cleanup_namespace("a").await.unwrap();
+        assert!(!adapter.namespaces.lock().await.contains_key("a"));
+        assert!(adapter.namespaces.lock().await.contains_key("b"));
+        assert!(adapter.namespace_path("a").exists());
+        assert!(adapter.namespace_path("b").exists());
+        let pack = adapter
+            .retrieve(RetrieveInput {
+                namespace: "b".into(),
+                query: "The notebook is blue.".into(),
+                query_date: None,
+                mode: RetrievalMode::Hybrid,
+                surface_policy: retrieval_surface_policy(8, 0, false, false, false, true),
+            })
+            .await
+            .unwrap();
+        assert!(!pack.items().is_empty());
+        adapter.reattach_namespace("a").await.unwrap();
+        adapter.release_namespaces().await.unwrap();
+        assert!(adapter.namespaces.lock().await.is_empty());
+        assert!(adapter.namespace_path("a").exists());
+        assert!(adapter.namespace_path("b").exists());
     }
 
     #[tokio::test]

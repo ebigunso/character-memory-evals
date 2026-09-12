@@ -314,7 +314,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
     } else {
         RunAdapterMetadata::live()
     };
-    let run_root = create_run_root(&args.out)?;
+    let run_root = create_run_root(&args.out, &[("summary-out", &args.summary_out)])?;
     let mut adapter = None;
     let namespaces_to_cleanup = source_items.iter().map(S::namespace).collect::<Vec<_>>();
     let result = async {
@@ -686,7 +686,14 @@ async fn run_continuity_pipeline(
     let mut traces = Vec::with_capacity(total_queries);
     let mut operation_counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut restart_observations: BTreeMap<String, Vec<RestartObservation>> = BTreeMap::new();
-    let run_root = create_run_root(&args.run.out)?;
+    let run_root = create_run_root(
+        &args.run.out,
+        &[
+            ("summary-out", &args.run.summary_out),
+            ("trace-out", &args.trace_out),
+            ("report-out", &args.report_out),
+        ],
+    )?;
     let mut runtimes = Vec::with_capacity(scenarios.len());
     let result = async {
         let header = run_header(config_source, &run_root, &config, adapter_metadata.clone())?;
@@ -1212,13 +1219,77 @@ fn context_metrics_with_full_history(
     }
 }
 
-fn create_run_root(results_path: &Path) -> Result<PathBuf> {
+#[derive(Debug)]
+struct OutputPathInStores {
+    name: &'static str,
+    path: PathBuf,
+    root: PathBuf,
+}
+
+impl std::fmt::Display for OutputPathInStores {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "output {} ({}) must not be inside reserved run stores {}",
+            self.name,
+            self.path.display(),
+            self.root.display()
+        )
+    }
+}
+
+impl std::error::Error for OutputPathInStores {}
+
+fn absolute_output_path(path: &Path) -> Result<PathBuf> {
+    let mut normalized = PathBuf::new();
+    for component in std::path::absolute(path)?.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            std::path::Component::CurDir => {}
+            component => normalized.push(component.as_os_str()),
+        }
+    }
+    Ok(normalized)
+}
+
+fn create_run_root(
+    results_path: &Path,
+    other_outputs: &[(&'static str, &Path)],
+) -> Result<PathBuf> {
     let output_dir = results_path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(output_dir)?;
     let root = output_dir.join("stores");
+    let absolute_root = absolute_output_path(&root)?;
+    for (name, path) in std::iter::once(("out", results_path)).chain(other_outputs.iter().copied())
+    {
+        let absolute_path = absolute_output_path(path)?;
+        let mut components = absolute_path.components();
+        let in_root = absolute_root.components().all(|root_component| {
+            components.next().is_some_and(|component| {
+                if cfg!(windows) {
+                    component
+                        .as_os_str()
+                        .as_encoded_bytes()
+                        .eq_ignore_ascii_case(root_component.as_os_str().as_encoded_bytes())
+                } else {
+                    component == root_component
+                }
+            })
+        });
+        if in_root {
+            return Err(OutputPathInStores {
+                name,
+                path: path.to_path_buf(),
+                root,
+            }
+            .into());
+        }
+    }
+    fs::create_dir_all(output_dir)?;
     fs::create_dir(&root).with_context(|| format!("create run stores {}; existing retained or crashed stores must be inspected before choosing a new output directory", root.display()))?;
     std::path::absolute(root).map_err(Into::into)
 }
@@ -1726,6 +1797,82 @@ mod tests {
     }
 
     #[test]
+    fn derived_outputs_cannot_enter_the_reserved_stores_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("not-created/results.jsonl");
+        for suffix in [
+            "stores/header.json",
+            "nested/../stores/header.json",
+            "stores/./nested/header.json",
+        ] {
+            let header = output.with_file_name(suffix);
+            let error = create_run_root(&output, &[("header", &header)]).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<OutputPathInStores>().unwrap().name,
+                "header"
+            );
+            assert!(!output.parent().unwrap().exists());
+        }
+        if cfg!(windows) {
+            let header = output.with_file_name("STORES/header.json");
+            assert!(create_run_root(&output, &[("header", &header)]).is_err());
+            assert!(!output.parent().unwrap().exists());
+        }
+        let report = output.with_file_name("stores-sibling/report.json");
+        let root = create_run_root(&output, &[("report", &report)]).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn every_output_is_admitted_before_creating_the_run_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        for name in ["out", "summary-out", "trace-out", "report-out"] {
+            let mut args = continuity_args(directory.path());
+            args.scenario = Some("correction-chains".into());
+            let output_dir = directory.path().join(name);
+            args.run.out = output_dir.join("rows.jsonl");
+            args.run.summary_out = output_dir.join("summary.json");
+            args.trace_out = output_dir.join("traces.jsonl");
+            args.report_out = output_dir.join("report.json");
+            let forbidden = output_dir.join("stores/artifact.json");
+            match name {
+                "out" => args.run.out = output_dir.join("stores"),
+                "summary-out" => args.run.summary_out = forbidden,
+                "trace-out" => args.trace_out = forbidden,
+                "report-out" => args.report_out = forbidden,
+                _ => unreachable!(),
+            }
+            let error = run_continuity(args).await.unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<OutputPathInStores>().unwrap().name,
+                name
+            );
+            assert!(!output_dir.exists());
+        }
+        let dataset = directory.path().join("locomo.json");
+        fs::write(&dataset, "[]").unwrap();
+        for name in ["out", "summary-out"] {
+            let output_dir = directory.path().join(format!("locomo-{name}"));
+            let mut args = run_args(
+                dataset.clone(),
+                service_free_config("../../configs/locomo_retrieval.toml", directory.path()),
+                &output_dir,
+            );
+            if name == "out" {
+                args.out = output_dir.join("stores");
+            } else {
+                args.summary_out = output_dir.join("stores/summary.json");
+            }
+            let error = run_locomo(args).await.unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<OutputPathInStores>().unwrap().name,
+                name
+            );
+            assert!(!output_dir.exists());
+        }
+    }
+
+    #[test]
     fn run_root_admission_preserves_an_existing_directory() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("stores");
@@ -1734,7 +1881,7 @@ mod tests {
         let admissions = std::thread::scope(|scope| {
             let acquire = || {
                 barrier.wait();
-                create_run_root(&results_path)
+                create_run_root(&results_path, &[])
             };
             let first = scope.spawn(acquire);
             let second = scope.spawn(acquire);
@@ -1743,7 +1890,7 @@ mod tests {
         assert_eq!(admissions.iter().filter(|result| result.is_ok()).count(), 1);
         assert!(fs::read_dir(&root).unwrap().next().is_none());
         fs::write(root.join("sentinel"), b"earlier run").unwrap();
-        let error = create_run_root(&directory.path().join("results.jsonl")).unwrap_err();
+        let error = create_run_root(&directory.path().join("results.jsonl"), &[]).unwrap_err();
         assert!(
             format!("{error:#}").contains(&root.display().to_string()),
             "{error:#}"

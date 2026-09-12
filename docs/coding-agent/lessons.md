@@ -832,3 +832,20 @@ Prevention:
 
 Evidence:
 - Step 4 reviewer public-adapter race probe at parent `0581b79`; Orchestrator design ruling 2026-09-13; `service_mode_concurrent_runs_with_same_identity_preserve_each_other` and `run_root_admission_preserves_an_existing_directory`.
+
+## 2026-09-13 — Check output disposition before storage admission and preserve cleanup scope [tags: review, lifecycle, cleanup, outputs]
+
+Symptom:
+- A caller could place a report or trace under the run's disposable `stores` directory, so successful cleanup deleted the requested artifact. With retention enabled, cleaning one namespace closed every open namespace.
+
+Root cause:
+- Output writers and store cleanup were reviewed separately. The retention branch reused a run-wide release operation despite the namespace-scoped API; earlier sibling coverage exercised deletion but not retained cleanup.
+
+Fix applied:
+- Admit every named output against the reserved store root before creating the output directory or stores, including normalized parent components and Windows case variations. Retained cleanup removes and closes only the named namespace and leaves durable files intact; run-wide release remains explicit.
+
+Prevention:
+- Follow each artifact through creation and cleanup when changing output placement. Exercise a surviving open sibling for both deletion and retention, including repeated cleanup of an already detached namespace. The existing reviewer lifecycle rule covers surviving siblings for destructive scope; the Worker proposes extending it explicitly to retained cleanup.
+
+Evidence:
+- Accepted Copilot findings on CME #28; `every_output_is_admitted_before_creating_the_run_directory`, `derived_outputs_cannot_enter_the_reserved_stores_root`, and `retained_cleanup_closes_only_the_named_namespace`.
