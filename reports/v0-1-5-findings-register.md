@@ -592,4 +592,8 @@ The artifact schema advanced to 3.0.0 when result rows and continuity traces beg
 
 ## Addendum (2026-09-13): 3.0.0 reader resurrection pointer
 
-The artifact schema advanced to 3.1.0 when the shared run header began recording provenance, exact configuration/hash and store retention. The 3.0.0 result-row, summary, continuity-trace and continuity-report readers remain available at step 3 commit `457dc572f4df18ec553c989200bed7c7f0a8cafb`. Resurrect them as a standalone offline tool, never live-path dispatch, if a decider-ruled archival readout need materializes. Every artifact cited in this register remains sealed, byte-identical and hash-verifiable.
+The artifact schema advanced to 3.1.0 when the shared run header began recording provenance, exact configuration/hash and store retention. The 3.0.0 result-row, summary, continuity-trace and continuity-report readers were last present on `main` at the squash commit of pull request #27 (its hash is appended here by the Orchestrator once the stack merges, because a branch commit does not survive a squash merge). Resurrect them as a standalone offline tool, never live-path dispatch, if a decider-ruled archival readout need materializes. Every artifact cited in this register remains sealed, byte-identical and hash-verifiable.
+
+## Addendum (2026-09-13): strict reader resurrection pointer
+
+Live readers became derived serde with no schema version and no unknown-field rejection (ADR-I-0005). The strict 3.1.0 result-row, summary, continuity-trace and continuity-report readers, with their schema constants and validators, were last present on `main` at the squash commit of pull request #28 (its hash is appended here by the Orchestrator once the stack merges). Resurrect them as a standalone offline tool, never live-path dispatch, if a decider-ruled archival readout need materializes. Every artifact cited in this register remains sealed, byte-identical and hash-verifiable.
