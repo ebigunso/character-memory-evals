@@ -514,7 +514,8 @@ fn rationale_category_name(category: RationaleCategory) -> &'static str {
 mod tests {
     use super::*;
     use crate::{
-        ContinuityEntityKind, ContinuityScenarioEmbedding, EntityDeclaration, ExpectedRelevance,
+        ContinuityEntityKind, ContinuityScenarioEmbedding, EntityDeclaration,
+        ExpectedRelevanceRecord,
     };
     use chrono::{TimeZone, Utc};
     use cmem_eval::character_memory::{
@@ -641,7 +642,7 @@ mod tests {
             query_id: "query".to_string(),
             timestamp: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
             query: "query".to_string(),
-            expected: ExpectedRelevance {
+            expected: ExpectedRelevanceRecord {
                 relevant_external_ids: vec!["relevant".to_string()],
                 irrelevant_external_ids: vec!["sampled-negative".to_string()],
             },

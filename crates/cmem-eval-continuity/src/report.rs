@@ -466,7 +466,7 @@ mod tests {
             query_id: "query-hub".to_string(),
             timestamp: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
             query: "What context is connected to the hub?".to_string(),
-            expected: crate::ExpectedRelevance {
+            expected: crate::ExpectedRelevanceRecord {
                 relevant_external_ids: vec!["relevant".to_string()],
                 irrelevant_external_ids: vec!["negative".to_string()],
             },

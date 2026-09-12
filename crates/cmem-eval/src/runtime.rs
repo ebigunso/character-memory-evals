@@ -62,7 +62,7 @@ pub enum DatasetKind {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[serde(rename_all = "snake_case")]
 pub enum ControllableDimensionPolicy {
     FixtureDeclared,
     Exact { vector_size: usize },

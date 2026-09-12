@@ -275,6 +275,23 @@ mod tests {
     }
 
     #[test]
+    fn header_accepts_additive_controllable_policy_fields() {
+        let mut header = test_header();
+        header.embedding_bindings.insert(
+            "scenario".into(),
+            EmbeddingBindingRecord::Controllable {
+                fixture_sha256: "fixture".into(),
+                vector_size: 3,
+                dimension_policy: crate::ControllableDimensionPolicy::Exact { vector_size: 1536 },
+            },
+        );
+        let mut value = serde_json::to_value(&header).unwrap();
+        value["embedding_bindings"]["scenario"]["dimension_policy"]["exact"]["future_annotation"] =
+            serde_json::json!(true);
+        assert_eq!(serde_json::from_value::<RunHeader>(value).unwrap(), header);
+    }
+
+    #[test]
     fn empty_run_is_rejected_before_summary() {
         let error = reject_empty_run(&[]).unwrap_err().to_string();
         assert!(error.contains("produced no result rows"), "{error}");

@@ -245,6 +245,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_4 implementation: rows, traces, summaries and reports use ordinary derived serde, without output schema dispatch, duplicate-key policing, required-option strictness or artifact-owned unknown-field rejection. Removed report normalization metadata and cross-artifact congruence checks. A single RunHeader owns identity, exact config/hash, input hash, root/hash, retention and scenario-keyed embedding bindings with known frozen store hash/source; rows retain run ID and measurements. Input fixture/config/frozen-store admission remains unchanged. README names `diff` as the comparison instrument. The branch records the strict-reader resurrection pointer in the findings register as the pull request whose squash commit last carries the readers (#28); the Orchestrator appends the hash after the stack merges.
 
+- 2026-09-13 Task_4 review round: trace expected labels use an artifact-side record with ordinary serde; the header's controllable dimension policy permits additive fields while runtime padding/admission stays unchanged. The nested-type census finds no other input DTO with unknown-field denial reachable from rows, traces, headers or reports. Fixture admission and persisted input bytes remain unchanged.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.

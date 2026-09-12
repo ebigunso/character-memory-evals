@@ -885,3 +885,20 @@ Prevention:
 
 Evidence:
 - Step 4 P1C reviewer finding on 9e9c0ae; output_leaf_links_are_rejected_before_writing_artifacts and existing_regular_output_files_remain_writable.
+
+## 2026-09-13 — Follow artifact serde semantics through nested types [tags: review, serde, artifacts]
+
+Symptom:
+- Additive fields under trace expected labels and header dimension policy still failed after the artifact readers adopted ordinary serde.
+
+Root cause:
+- The outer artifact records reused input DTOs, so their nested deny_unknown_fields attributes silently preserved fixture admission rules.
+
+Fix applied:
+- Record expected labels in a plain artifact-side DTO converted from the fixture. Remove only the controllable policy serde denial; fixture validation and runtime padding/admission are unchanged.
+
+Prevention:
+- Walk every nested type reachable from rows, traces, headers and reports when changing artifact reader semantics. Preserve input admission separately and exercise additive fields below the artifact root.
+
+Evidence:
+- Accepted Copilot findings on CME #30; trace_reader_accepts_additive_expected_fields and header_accepts_additive_controllable_policy_fields; Worker artifact-type census.

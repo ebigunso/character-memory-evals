@@ -33,12 +33,28 @@ pub struct ContinuityQueryTrace {
     pub query_id: String,
     pub timestamp: chrono::DateTime<Utc>,
     pub query: String,
-    pub expected: ExpectedRelevance,
+    pub expected: ExpectedRelevanceRecord,
     pub history_text: String,
     pub retrieval: RetrievedContextPack,
     pub write_outcomes: Vec<cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>>,
     pub link_outcomes: Vec<cmem_eval::RecordedOutcome<cmem_eval::LinkOutcome>>,
     pub lifecycle_outcomes: Vec<cmem_eval::RecordedOutcome<cmem_eval::LifecycleMutationOutcome>>,
+}
+
+/// Expected labels recorded in an artifact; fixture admission remains separate.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExpectedRelevanceRecord {
+    pub relevant_external_ids: Vec<String>,
+    pub irrelevant_external_ids: Vec<String>,
+}
+
+impl From<&ExpectedRelevance> for ExpectedRelevanceRecord {
+    fn from(expected: &ExpectedRelevance) -> Self {
+        Self {
+            relevant_external_ids: expected.relevant_external_ids.clone(),
+            irrelevant_external_ids: expected.irrelevant_external_ids.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -807,7 +823,7 @@ pub async fn run_continuity_scenario(
                     query_id: query_id.clone(),
                     timestamp: *timestamp,
                     query: text.clone(),
-                    expected: expected.clone(),
+                    expected: expected.into(),
                     history_text: history.join("\n"),
                     retrieval: pack,
                     write_outcomes: write_outcomes.clone(),
@@ -1524,7 +1540,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn trace_reader_round_trips_traces() {
+    async fn trace_reader_accepts_additive_expected_fields() {
         let (traces, _, _) = run_all().await;
         let path = temporary_trace_path();
         write_continuity_traces(&path, &traces[..1]).unwrap();
@@ -1532,6 +1548,14 @@ mod tests {
         assert_eq!(decoded.len(), 1);
         assert_eq!(decoded[0].fixture_id, traces[0].fixture_id);
         assert_eq!(decoded[0].query_id, traces[0].query_id);
+        let mut value = serde_json::to_value(&traces[0]).unwrap();
+        value["expected"]["future_annotation"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<ExpectedRelevance>(value["expected"].clone()).is_err());
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert_eq!(
+            read_continuity_traces(&path).unwrap()[0].expected,
+            traces[0].expected
+        );
 
         std::fs::remove_file(&path).unwrap();
     }
