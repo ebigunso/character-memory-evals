@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "common"
-last_updated: "2026-09-02"
+last_updated: "2026-09-13"
 ---
 
 # Common Repository Rules
@@ -25,7 +25,7 @@ last_updated: "2026-09-02"
 
 - Gold evidence labels must be used only for scoring and must not be copied into `EpisodeInput`, `ObservationInput`, or adapter metadata.
 - Default validation must remain deterministic and service-free unless the user explicitly asks for real backend integration.
-- Benchmark CLI runs default to the live Character Memory adapter; mock benchmark runs must require explicit opt-in and visibly mark outputs as mock/smoke.
+- Benchmark runs use the embedded Character Memory adapter by default; BM25 ranks ingested text as a separate retrieval baseline.
 - Run the service-free continuity smoke (the README recipe on `configs/continuity_smoke.toml`) before reporting continuity CLI changes done.
 
 ## Workaround Tripwire (design-debt escalation)
@@ -45,8 +45,7 @@ last_updated: "2026-09-02"
 
 ## Repo Naming / Structure
 
-- Keep backend-neutral adapter/result/metric contracts in `cmem-eval-core`; core must not dispatch on dataset names.
-- Keep the live Character Memory integration in `crates/cmem-eval-adapter-cmem`, including deterministic collection naming and persisted external-ID reattach state.
+- Keep shared configuration, metrics, result types, and Character Memory integration in `crates/cmem-eval`, including namespace store naming and persisted external-ID reattach state; dataset dispatch belongs in the runner.
 - Each dataset crate must own its loader, ingest mapper, scorer, full-history builder, config-name validation, and metric-family declaration; adding a dataset may add a runner `DatasetSpec` but must not require core edits.
 - The continuity benchmark lives in `crates/cmem-eval-continuity`.
 - Artifacts carry the harness and library commits; readers are derived serde; old artifacts are old. Sealed register-cited evidence is guaranteed as bytes-by-hash, never as parseability by the live binary.

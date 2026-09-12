@@ -5,11 +5,11 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
-use cmem_eval_core::{
-    DatasetId, DatasetKind, DegradationSummary, EmbeddingBindingRecord, MetricSupportSummary,
-    NumericMetricSummary, PerQuestionResult, RegistryCoverageSummary, RetrievalFanoutUtilization,
-    RetrievalRationaleCategory, RetrievalSelectivityDecision, RetrievedContextPack,
-    RunAdapterMetadata, RunSummary, aggregate_numeric_metrics, metric_support_summary,
+use cmem_eval::{
+    DatasetId, DatasetKind, DegradationSummary, EmbeddingBindingRecord, FanoutUtilizationTrace,
+    MetricSupportSummary, NumericMetricSummary, PerQuestionResult, RationaleCategory,
+    RegistryCoverageSummary, RetrievedContextPack, RunAdapterMetadata, RunSummary,
+    SelectivityTrace, aggregate_numeric_metrics, metric_support_summary,
     registry_coverage_summary_for, summarize_rows,
 };
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ use crate::{
     RestartObservation, ScenarioPattern,
 };
 
-pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "2.2.0";
+pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "3.0.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -53,6 +53,7 @@ pub struct ContinuityReportMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ReportNormalization {
+    /// Paths containing retained time-dependent values; native outcomes are not normalized.
     pub nondeterministic_paths: Vec<String>,
     pub excluded_nondeterministic_sources: Vec<String>,
 }
@@ -104,17 +105,17 @@ pub struct RationaleSampleItem {
     pub rank: usize,
     pub object_id: String,
     pub rationale: Vec<String>,
-    pub categories: Vec<RetrievalRationaleCategory>,
+    pub categories: Vec<RationaleCategory>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct QueryFanoutDecisions {
     pub query_id: String,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
-    pub utilization: Option<Vec<RetrievalFanoutUtilization>>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
-    pub selectivity: Option<Vec<RetrievalSelectivityDecision>>,
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
+    pub utilization: Option<Vec<FanoutUtilizationTrace>>,
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
+    pub selectivity: Option<Vec<SelectivityTrace>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -122,11 +123,11 @@ pub struct QueryFanoutDecisions {
 pub struct StatsHealthEvent {
     pub query_id: String,
     pub status: String,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub decision_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub scored_count: Option<usize>,
-    #[serde(deserialize_with = "cmem_eval_core::serde_contract::required_option")]
+    #[serde(deserialize_with = "cmem_eval::serde_contract::required_option")]
     pub fallback_count: Option<usize>,
 }
 
@@ -152,7 +153,7 @@ pub struct ContinuityReportInput<'a> {
     pub traces: &'a [ContinuityQueryTrace],
     pub rows: &'a [PerQuestionResult],
     pub summary: &'a RunSummary,
-    pub metric_family: &'a cmem_eval_core::MetricFamily,
+    pub metric_family: &'a cmem_eval::MetricFamily,
     pub restart_observations: &'a BTreeMap<String, Vec<RestartObservation>>,
 }
 
@@ -162,7 +163,7 @@ pub enum RetrievalPayloadConstituent {
     RenderedContext,
     CharCount,
     WordCount,
-    Telemetry,
+    Outcomes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -203,8 +204,8 @@ fn validate_retrieval_payload(
     if trace.retrieval.context_word_count() != row.context_word_count {
         constituents.push(RetrievalPayloadConstituent::WordCount);
     }
-    if trace.retrieval.telemetry() != &row.telemetry {
-        constituents.push(RetrievalPayloadConstituent::Telemetry);
+    if trace.retrieval.outcomes() != row.retrieval_outcomes {
+        constituents.push(RetrievalPayloadConstituent::Outcomes);
     }
 
     if constituents.is_empty() {
@@ -316,10 +317,11 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             || trace.query != row.question
             || row.question_type.as_deref() != Some(trace_question_type.as_str())
             || trace.write_outcomes != row.write_outcomes
+            || trace.link_outcomes != row.link_outcomes
             || trace.lifecycle_outcomes != row.lifecycle_outcomes
         {
             bail!(
-                "continuity report trace/result mismatch at index {index}: trace ({:?}, {:?}, {:?}), result ({:?}, {:?}, {:?}), outcome lengths trace/result (write={}/{}, lifecycle={}/{})",
+                "continuity report trace/result mismatch at index {index}: trace ({:?}, {:?}, {:?}), result ({:?}, {:?}, {:?}), outcome lengths trace/result (write={}/{}, link={}/{}, lifecycle={}/{})",
                 trace.query_id,
                 trace_question_type,
                 trace.query,
@@ -328,6 +330,8 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
                 row.question,
                 trace.write_outcomes.len(),
                 row.write_outcomes.len(),
+                trace.link_outcomes.len(),
+                row.link_outcomes.len(),
                 trace.lifecycle_outcomes.len(),
                 row.lifecycle_outcomes.len()
             );
@@ -434,8 +438,18 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             .iter()
             .map(|trace| QueryFanoutDecisions {
                 query_id: trace.query_id.clone(),
-                utilization: trace.retrieval.telemetry().fanout_utilization.clone(),
-                selectivity: trace.retrieval.telemetry().selectivity_decisions.clone(),
+                utilization: trace
+                    .retrieval
+                    .outcomes()
+                    .first()
+                    .and_then(|outcome| outcome.trace.as_ref())
+                    .map(|trace| trace.fanout_utilization.clone()),
+                selectivity: trace
+                    .retrieval
+                    .outcomes()
+                    .first()
+                    .and_then(|outcome| outcome.trace.as_ref())
+                    .map(|trace| trace.selectivity_decisions.clone()),
             })
             .collect();
         let stats_health_events = scenario_traces
@@ -480,7 +494,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         );
     }
 
-    let tuning_observations = tuning_observation(&input.config, &input.adapter, input.traces)
+    let tuning_observations = tuning_observation(&input.config, input.traces)
         .into_iter()
         .collect();
     Ok(ContinuityReport {
@@ -500,9 +514,12 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             config: input.config.clone(),
             schema_versions,
             normalization: ReportNormalization {
-                nondeterministic_paths: vec!["metadata.generated_at".to_string()],
+                nondeterministic_paths: vec![
+                    "metadata.generated_at".to_string(),
+                    "content.scenarios.*.rationale_samples.*.context_pack.outcomes.*.pack"
+                        .to_string(),
+                ],
                 excluded_nondeterministic_sources: vec![
-                    "correction and forget library mutation timestamps".to_string(),
                     "measured query retrieval latency in results and summaries".to_string(),
                 ],
             },
@@ -609,7 +626,7 @@ pub fn write_continuity_report(path: &Path, report: &ContinuityReport) -> Result
 pub fn read_continuity_report(path: &Path) -> Result<ContinuityReport> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("deserialize continuity report {}", path.display()))?;
-    let schema_version = cmem_eval_core::serde_contract::schema_version_from_str(&raw)
+    let schema_version = cmem_eval::serde_contract::schema_version_from_str(&raw)
         .with_context(|| format!("deserialize continuity report {}", path.display()))?;
     match schema_version.as_deref() {
         Some(CONTINUITY_REPORT_SCHEMA_VERSION) => {}
@@ -620,18 +637,14 @@ pub fn read_continuity_report(path: &Path) -> Result<ContinuityReport> {
             "missing continuity report schema_version; expected {CONTINUITY_REPORT_SCHEMA_VERSION:?}"
         ),
     }
-    cmem_eval_core::serde_contract::reject_duplicate_json_keys(&raw)
+    cmem_eval::serde_contract::reject_duplicate_json_keys(&raw)
         .with_context(|| format!("decode continuity report {}", path.display()))?;
     serde_json::from_str(&raw)
         .with_context(|| format!("decode continuity report {}", path.display()))
 }
 
 fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
-    let categories = trace
-        .retrieval
-        .telemetry()
-        .rationale_categories_by_internal_id
-        .as_ref();
+    let categories = crate::metrics::rationale_categories(trace);
     QueryRationaleSample {
         query_id: trace.query_id.clone(),
         query: trace.query.clone(),
@@ -648,6 +661,7 @@ fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
                     .unwrap_or_else(|| format!("{}:{}", item.kind, item.internal_id)),
                 rationale: item.rationale.clone(),
                 categories: categories
+                    .as_ref()
                     .and_then(|by_id| by_id.get(&item.internal_id))
                     .cloned()
                     .unwrap_or_default(),
@@ -657,7 +671,12 @@ fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
 }
 
 fn stats_health_event(trace: &ContinuityQueryTrace) -> StatsHealthEvent {
-    let decisions = trace.retrieval.telemetry().selectivity_decisions.as_ref();
+    let decisions = trace
+        .retrieval
+        .outcomes()
+        .first()
+        .and_then(|outcome| outcome.trace.as_ref())
+        .map(|trace| &trace.selectivity_decisions);
     let decision_count = decisions.map(Vec::len);
     let scored_count = decisions.map(|values| {
         values
@@ -685,12 +704,8 @@ fn stats_health_event(trace: &ContinuityQueryTrace) -> StatsHealthEvent {
 
 fn tuning_observation(
     config: &Value,
-    adapter: &RunAdapterMetadata,
     traces: &[ContinuityQueryTrace],
 ) -> Option<TuningObservation> {
-    if adapter.is_mock {
-        return None;
-    }
     let hub_traces = traces
         .iter()
         .filter(|trace| trace.pattern == ScenarioPattern::RecurringHubEntity)
@@ -698,11 +713,11 @@ fn tuning_observation(
     let root_counter_samples = hub_traces
         .iter()
         .filter_map(|trace| {
-            let telemetry = trace.retrieval.telemetry();
+            let telemetry = &trace.retrieval.outcomes().first()?.rationale.telemetry;
             Some((
-                telemetry.unique_graph_root_candidate_count?,
-                telemetry.selected_graph_root_count?,
-                telemetry.graph_root_omission_count?,
+                telemetry.unique_graph_root_candidate_count,
+                telemetry.selected_graph_root_count,
+                telemetry.graph_root_omission_count,
             ))
         })
         .collect::<Vec<_>>();
@@ -723,7 +738,14 @@ fn tuning_observation(
         .sum::<usize>();
     let decisions = hub_traces
         .iter()
-        .filter_map(|trace| trace.retrieval.telemetry().selectivity_decisions.as_ref())
+        .filter_map(|trace| {
+            trace
+                .retrieval
+                .outcomes()
+                .first()
+                .and_then(|outcome| outcome.trace.as_ref())
+                .map(|trace| &trace.selectivity_decisions)
+        })
         .flatten()
         .collect::<Vec<_>>();
     let scored_count = decisions
@@ -762,22 +784,26 @@ fn tuning_observation(
 #[cfg(test)]
 mod tests {
     use chrono::{TimeZone, Utc};
-    use cmem_eval_core::{ContextRenderer, RetrievalTelemetry, RetrievedContextPack};
+    use cmem_eval::{ContextRenderer, RetrievedContextPack};
     use uuid::Uuid;
 
     use super::*;
 
     fn hub_trace(counters: Option<(usize, usize, usize)>) -> ContinuityQueryTrace {
-        let mut telemetry = RetrievalTelemetry {
-            trace_available: true,
-            selectivity_decisions: Some(Vec::new()),
-            ..RetrievalTelemetry::default()
-        };
-        if let Some((unique, selected, omitted)) = counters {
-            telemetry.unique_graph_root_candidate_count = Some(unique);
-            telemetry.selected_graph_root_count = Some(selected);
-            telemetry.graph_root_omission_count = Some(omitted);
-        }
+        let outcomes = counters
+            .map(|(unique, selected, omitted)| {
+                let mut rationale = cmem_eval::character_memory::RetrievalRationale::new("test");
+                rationale.telemetry.unique_graph_root_candidate_count = unique;
+                rationale.telemetry.selected_graph_root_count = selected;
+                rationale.telemetry.graph_root_omission_count = omitted;
+                cmem_eval::RetrieveOutcome {
+                    pack: cmem_eval::character_memory::ContinuityContextPack::empty(),
+                    rationale,
+                    trace: Some(cmem_eval::RetrievalTrace::empty()),
+                }
+            })
+            .into_iter()
+            .collect();
         ContinuityQueryTrace {
             schema_version: CONTINUITY_TRACE_SCHEMA_VERSION.to_string(),
             fixture_id: "recurring-hub-entity".to_string(),
@@ -794,10 +820,11 @@ mod tests {
             history_text: String::new(),
             retrieval: RetrievedContextPack::from_ranked_items(
                 Vec::new(),
-                telemetry,
+                outcomes,
                 ContextRenderer::PlainText,
             ),
             write_outcomes: Vec::new(),
+            link_outcomes: Vec::new(),
             lifecycle_outcomes: Vec::new(),
         }
     }
@@ -811,7 +838,6 @@ mod tests {
                     "max_graph_roots": 12
                 }
             }),
-            &RunAdapterMetadata::live(),
             &[hub_trace(Some((21, 12, 9)))],
         )
         .unwrap();
@@ -834,12 +860,8 @@ mod tests {
     #[test]
     fn tuning_observation_requires_measured_root_counters() {
         assert!(
-            tuning_observation(
-                &serde_json::json!({ "retrieval": {} }),
-                &RunAdapterMetadata::live(),
-                &[hub_trace(None)],
-            )
-            .is_none()
+            tuning_observation(&serde_json::json!({ "retrieval": {} }), &[hub_trace(None)],)
+                .is_none()
         );
     }
 
@@ -891,7 +913,7 @@ mod tests {
                 dataset_kind: DatasetKind::Continuity,
                 embedding_bindings: Vec::new(),
                 degradation: DegradationSummary::default(),
-                adapter: RunAdapterMetadata::mock_smoke(),
+                adapter: RunAdapterMetadata::live(),
                 fixture_schema_version: 1,
                 fixture_seed: 1,
                 embedding_seeds: BTreeMap::new(),
@@ -945,8 +967,8 @@ mod tests {
 
         let raw = serde_json::to_string(&report).unwrap();
         let duplicate_root = raw.replacen(
-            r#""schema_version":"2.2.0""#,
-            r#""schema_version":"2.2.0","schema_version":"2.2.0""#,
+            r#""schema_version":"3.0.0""#,
+            r#""schema_version":"3.0.0","schema_version":"3.0.0""#,
             1,
         );
         assert_ne!(raw, duplicate_root);

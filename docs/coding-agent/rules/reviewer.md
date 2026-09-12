@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "reviewer"
-last_updated: "2026-09-02"
+last_updated: "2026-09-13"
 ---
 
 # Reviewer Repository Rules
@@ -30,7 +30,7 @@ last_updated: "2026-09-02"
 | Trigger | Evidence Required | Source |
 |---|---|---|
 | Continuity driver/report/metric changes | Run `diff` against the stored baseline; run twice only when sealing | `cmem-eval diff` |
-| Live adapter or persistence changes | Live adapter suite exercised (not skipped) with executed-test counts stated; restart/reattach assertions verified against real stores | `cargo test -p cmem-eval-adapter-cmem` with Qdrant up |
+| Adapter or persistence changes | Embedded adapter suite passes with executed-test counts; service lifecycle and collection administration also pass with Qdrant up | `cargo test -p cmem-eval`; `cargo test -p cmem-eval --features service-tests service_mode_` |
 | Fixture/generator changes | Regenerated fixture byte-identity vs the checked artifact (state both SHA256 values) | generator CLI |
 | Sealing changes | Independently reproduce at least the canonical content hashes; unexplained movement is a blocker, not a footnote | committed configs + seal command recipe |
 | Adapter lifecycle changes | Fresh open, intended reattach, and fresh-instance reset/cleanup tested across every durable store and identity, including phase-local configuration isolation and a surviving sibling for destructive scope | six recurrences, 2026-07-12 |

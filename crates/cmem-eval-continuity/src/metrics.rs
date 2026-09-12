@@ -1,53 +1,40 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use cmem_eval_core::{
-    MetricFamily, MetricsConfig, RetrievalRationaleCategory, RetrievedItem, mean, percentile,
-    retrieval_metrics,
-};
+use cmem_eval::{MetricFamily, MetricsConfig, RationaleCategory, RetrievedItem, retrieval_metrics};
 use serde_json::{Map, Value};
 
 use crate::{ContinuityQueryTrace, ContinuityScenario, InteractionEvent, ScenarioPattern};
 
 const GAP_BUCKETS: [&str; 3] = ["short", "medium", "long"];
-const RATIONALE_CATEGORIES: [RetrievalRationaleCategory; 8] = [
-    RetrievalRationaleCategory::Semantic,
-    RetrievalRationaleCategory::Entity,
-    RetrievalRationaleCategory::Thread,
-    RetrievalRationaleCategory::Temporal,
-    RetrievalRationaleCategory::Salience,
-    RetrievalRationaleCategory::Scope,
-    RetrievalRationaleCategory::Lifecycle,
-    RetrievalRationaleCategory::GraphBound,
+const RATIONALE_CATEGORIES: [RationaleCategory; 8] = [
+    RationaleCategory::Semantic,
+    RationaleCategory::Entity,
+    RationaleCategory::Thread,
+    RationaleCategory::Temporal,
+    RationaleCategory::Salience,
+    RationaleCategory::Scope,
+    RationaleCategory::Lifecycle,
+    RationaleCategory::GraphBound,
 ];
-const CONTINUITY_METRICS: [&str; 14] = [
+const CONTINUITY_METRICS: [&str; 8] = [
     "continuity_gap_days",
     "hub_context_share",
     "hub_expansion_relevant_hit_rate",
-    "hub_fanout_utilization_mean",
     "correction_lifecycle_safe_admission_rate",
     "supersession_replacement_recall",
     "typed_rationale_coverage",
     "sampled_context_pollution_rate",
     "sampled_event_pollution_rate",
-    "fanout_over_budget_count",
-    "conservative_fallback_activation_count",
-    "fanout_selected_cap_utilization_mean",
-    "fanout_configured_cap_utilization_mean",
-    "selectivity_score_mean",
 ];
 
 pub fn continuity_metric_family(
     config: &MetricsConfig,
-    scenarios: &[ContinuityScenario],
+    _scenarios: &[ContinuityScenario],
 ) -> MetricFamily {
     let mut required_metrics = CONTINUITY_METRICS
         .iter()
         .map(|name| (*name).to_string())
         .collect::<BTreeSet<_>>();
-    required_metrics.extend([
-        "selectivity_score_p50".to_string(),
-        "selectivity_score_p95".to_string(),
-    ]);
     for k in &config.ks_session {
         for bucket in GAP_BUCKETS {
             required_metrics.insert(format!("continuity_recall_fraction_gap_{bucket}@{k}"));
@@ -63,13 +50,6 @@ pub fn continuity_metric_family(
             "sampled_pollution_rationale_share_{}",
             rationale_category_name(category)
         ));
-    }
-    for entity_type in scenarios
-        .iter()
-        .flat_map(|scenario| scenario.entities.iter())
-        .map(|entity| metric_slug(entity.entity_type.as_str()))
-    {
-        required_metrics.insert(format!("selectivity_score_mean_entity_kind_{entity_type}"));
     }
     MetricFamily::new("continuity", required_metrics)
 }
@@ -123,7 +103,6 @@ pub fn insert_continuity_metrics(
     insert_correction_metrics(out, scenario, trace, &retrieved_ids);
     insert_rationale_metrics(out, trace);
     insert_pollution_metrics(out, trace);
-    insert_fanout_metrics(out, scenario, trace);
 }
 
 fn insert_hub_metrics(
@@ -170,11 +149,7 @@ fn insert_hub_metrics(
         ),
     );
 
-    if let Some(categories) = &trace
-        .retrieval
-        .telemetry()
-        .rationale_categories_by_internal_id
-    {
+    if let Some(categories) = &rationale_categories(trace) {
         let relevant = trace
             .expected
             .relevant_external_ids
@@ -194,7 +169,7 @@ fn insert_hub_metrics(
             .filter(|item| {
                 categories
                     .get(&item.internal_id)
-                    .is_some_and(|values| values.contains(&RetrievalRationaleCategory::Entity))
+                    .is_some_and(|values| values.contains(&RationaleCategory::Entity))
                     && (item_matches_any(item, &relevant)
                         || item_matches_any(item, &sampled_irrelevant))
             })
@@ -208,23 +183,6 @@ fn insert_hub_metrics(
                     .count(),
                 labeled_entity_expansions.len(),
             ),
-        );
-    }
-
-    if let Some(fanout) = &trace.retrieval.telemetry().fanout_utilization {
-        let utilizations = fanout
-            .iter()
-            .filter(|entry| {
-                entry
-                    .root_external_id
-                    .as_deref()
-                    .is_some_and(|external_id| hub_ids.contains(external_id))
-            })
-            .filter_map(|entry| utilization(entry.retained_count, entry.selected_cap))
-            .collect::<Vec<_>>();
-        out.insert(
-            "hub_fanout_utilization_mean".to_string(),
-            option_number(mean(&utilizations)),
         );
     }
 }
@@ -241,18 +199,13 @@ fn insert_correction_metrics(
     ) {
         return;
     }
-    let telemetry = trace.retrieval.telemetry();
-    if telemetry.trace_available
-        && let Some(unsafe_count) = telemetry.unsafe_lifecycle_returned_count
-    {
+    if let Some(rate) = cmem_eval::lifecycle_safe_admission_rate(
+        trace.retrieval.items(),
+        trace.retrieval.outcomes(),
+    ) {
         out.insert(
             "correction_lifecycle_safe_admission_rate".to_string(),
-            Value::from(if trace.retrieval.items().is_empty() {
-                1.0
-            } else {
-                1.0 - unsafe_count.min(trace.retrieval.items().len()) as f64
-                    / trace.retrieval.items().len() as f64
-            }),
+            Value::from(rate),
         );
     }
     let labeled_replacements = scenario
@@ -290,11 +243,7 @@ fn insert_correction_metrics(
 }
 
 fn insert_rationale_metrics(out: &mut Map<String, Value>, trace: &ContinuityQueryTrace) {
-    let Some(categories) = &trace
-        .retrieval
-        .telemetry()
-        .rationale_categories_by_internal_id
-    else {
+    let Some(categories) = &rationale_categories(trace) else {
         return;
     };
     let returned_categories = trace
@@ -382,11 +331,7 @@ fn insert_pollution_metrics(out: &mut Map<String, Value>, trace: &ContinuityQuer
             labeled_event_roots.len(),
         ),
     );
-    if let Some(categories) = &trace
-        .retrieval
-        .telemetry()
-        .rationale_categories_by_internal_id
-    {
+    if let Some(categories) = &rationale_categories(trace) {
         let pollution_categories = pollution
             .iter()
             .map(|item| {
@@ -404,91 +349,41 @@ fn insert_pollution_metrics(out: &mut Map<String, Value>, trace: &ContinuityQuer
     }
 }
 
-fn insert_fanout_metrics(
-    out: &mut Map<String, Value>,
-    scenario: &ContinuityScenario,
+pub(crate) fn rationale_categories(
     trace: &ContinuityQueryTrace,
-) {
-    if let Some(fanout) = &trace.retrieval.telemetry().fanout_utilization {
-        out.insert(
-            "fanout_over_budget_count".to_string(),
-            Value::from(
-                fanout
-                    .iter()
-                    .filter(|entry| {
-                        entry.selected_cap > entry.configured_cap
-                            || entry.retained_count > entry.selected_cap
-                    })
-                    .count(),
-            ),
-        );
-        let selected = fanout
-            .iter()
-            .filter_map(|entry| utilization(entry.retained_count, entry.selected_cap))
-            .collect::<Vec<_>>();
-        let configured = fanout
-            .iter()
-            .filter_map(|entry| utilization(entry.retained_count, entry.configured_cap))
-            .collect::<Vec<_>>();
-        out.insert(
-            "fanout_selected_cap_utilization_mean".to_string(),
-            option_number(mean(&selected)),
-        );
-        out.insert(
-            "fanout_configured_cap_utilization_mean".to_string(),
-            option_number(mean(&configured)),
-        );
+) -> Option<BTreeMap<String, Vec<RationaleCategory>>> {
+    if !trace
+        .retrieval
+        .outcomes()
+        .iter()
+        .any(|outcome| outcome.trace.is_some())
+    {
+        return None;
     }
-    if let Some(selectivity) = &trace.retrieval.telemetry().selectivity_decisions {
-        out.insert(
-            "conservative_fallback_activation_count".to_string(),
-            Value::from(selectivity.iter().filter(|entry| entry.fallback).count()),
-        );
-        let scores = selectivity
-            .iter()
-            .filter_map(|entry| entry.score)
-            .collect::<Vec<_>>();
-        out.insert(
-            "selectivity_score_mean".to_string(),
-            option_number(mean(&scores)),
-        );
-        out.insert(
-            "selectivity_score_p50".to_string(),
-            option_number(percentile(&scores, 50.0)),
-        );
-        out.insert(
-            "selectivity_score_p95".to_string(),
-            option_number(percentile(&scores, 95.0)),
-        );
-        let entity_types = scenario
-            .entities
-            .iter()
-            .map(|entity| (entity.external_id.as_str(), entity.entity_type.as_str()))
-            .collect::<BTreeMap<_, _>>();
-        let mut by_type: BTreeMap<String, Vec<f64>> = BTreeMap::new();
-        for entry in selectivity {
-            if let (Some(external_id), Some(score)) = (&entry.root_external_id, entry.score)
-                && let Some(entity_type) = entity_types.get(external_id.as_str())
-            {
-                by_type
-                    .entry(metric_slug(entity_type))
-                    .or_default()
-                    .push(score);
+    let mut categories: BTreeMap<String, Vec<RationaleCategory>> = BTreeMap::new();
+    for assignment in trace
+        .retrieval
+        .outcomes()
+        .iter()
+        .filter_map(|outcome| outcome.trace.as_ref())
+        .flat_map(|trace| &trace.section_assignments)
+    {
+        let values = categories
+            .entry(assignment.object.id.to_string())
+            .or_default();
+        for category in &assignment.rationale_categories {
+            if !values.contains(category) {
+                values.push(*category);
             }
         }
-        for (entity_type, scores) in by_type {
-            out.insert(
-                format!("selectivity_score_mean_entity_kind_{entity_type}"),
-                option_number(mean(&scores)),
-            );
-        }
     }
+    Some(categories)
 }
 
 fn insert_category_distribution(
     out: &mut Map<String, Value>,
     prefix: &str,
-    categories: &[&[RetrievalRationaleCategory]],
+    categories: &[&[RationaleCategory]],
 ) {
     let total = categories.iter().map(|values| values.len()).sum::<usize>();
     if total == 0 {
@@ -590,40 +485,17 @@ fn rate(numerator: usize, denominator: usize) -> Value {
     }
 }
 
-fn utilization(retained: usize, cap: usize) -> Option<f64> {
-    (cap > 0).then_some(retained as f64 / cap as f64)
-}
-
-fn option_number(value: Option<f64>) -> Value {
-    value.map(Value::from).unwrap_or(Value::Null)
-}
-
-fn rationale_category_name(category: RetrievalRationaleCategory) -> &'static str {
+fn rationale_category_name(category: RationaleCategory) -> &'static str {
     match category {
-        RetrievalRationaleCategory::Semantic => "semantic",
-        RetrievalRationaleCategory::Entity => "entity",
-        RetrievalRationaleCategory::Thread => "thread",
-        RetrievalRationaleCategory::Temporal => "temporal",
-        RetrievalRationaleCategory::Salience => "salience",
-        RetrievalRationaleCategory::Scope => "scope",
-        RetrievalRationaleCategory::Lifecycle => "lifecycle",
-        RetrievalRationaleCategory::GraphBound => "graph_bound",
+        RationaleCategory::Semantic => "semantic",
+        RationaleCategory::Entity => "entity",
+        RationaleCategory::Thread => "thread",
+        RationaleCategory::Temporal => "temporal",
+        RationaleCategory::Salience => "salience",
+        RationaleCategory::Scope => "scope",
+        RationaleCategory::Lifecycle => "lifecycle",
+        RationaleCategory::GraphBound => "graph_bound",
     }
-}
-
-fn metric_slug(value: &str) -> String {
-    value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('_')
-        .to_string()
 }
 
 #[cfg(test)]
@@ -633,16 +505,51 @@ mod tests {
         ContinuityEntityKind, ContinuityScenarioEmbedding, EntityDeclaration, ExpectedRelevance,
     };
     use chrono::{TimeZone, Utc};
-    use cmem_eval_core::{
-        ContextRenderer, ObjectType, RelationType, RetrievalFanoutUtilization,
-        RetrievalSelectivityDecision, RetrievalTelemetry, RetrievedContextPack,
-        SelectivityCountScope, SelectivityDecision,
+    use cmem_eval::character_memory::{
+        ContextPackSection, ContinuityContextPack, LifecycleFilterAction, LifecycleFilterDecision,
+        LifecycleFilterReason, MemoryObjectRef, RetentionState, RetrievalRationale, RetrievalTrace,
+        RetrieveOutcome, SectionAssignment, SectionAssignmentReason, SectionScoreComponents,
     };
+    use cmem_eval::{ContextRenderer, ObjectType, RetrievedContextPack};
+
+    fn object(id: &str) -> MemoryObjectRef {
+        MemoryObjectRef::new(
+            ObjectType::Episode,
+            uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, id.as_bytes()),
+        )
+    }
+    fn assignment(id: &str, categories: Vec<RationaleCategory>) -> SectionAssignment {
+        SectionAssignment {
+            object: object(id),
+            section: ContextPackSection::RelevantEpisodes,
+            rank: Some(1),
+            reason: SectionAssignmentReason::Selected {
+                scores: SectionScoreComponents {
+                    final_score: 1.0,
+                    vector_score: None,
+                    vector_score_source: None,
+                    graph_score: None,
+                    salience_score: None,
+                },
+            },
+            rationale_categories: categories,
+        }
+    }
+    fn unsafe_decision(id: &str) -> LifecycleFilterDecision {
+        LifecycleFilterDecision {
+            object: object(id),
+            retention_state: Some(RetentionState::Suppressed),
+            is_current: Some(false),
+            superseded_by: Vec::new(),
+            action: LifecycleFilterAction::Included,
+            reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+        }
+    }
 
     fn item(id: &str, rank: usize) -> RetrievedItem {
         RetrievedItem {
             kind: ObjectType::Episode,
-            internal_id: format!("internal-{id}"),
+            internal_id: object(id).id.to_string(),
             external_id: Some(id.to_string()),
             episode_external_id: None,
             score: Some(1.0 / rank as f64),
@@ -664,7 +571,7 @@ mod tests {
                 is_hub: true,
             }],
             embedding: ContinuityScenarioEmbedding::controllable_similarity_provider(
-                cmem_eval_core::ControllableSimilarityFixture {
+                cmem_eval::ControllableSimilarityFixture {
                     seed: 1,
                     vector_size: 2,
                     noise_magnitude: 0.0,
@@ -706,19 +613,14 @@ mod tests {
 
     fn trace(pattern: ScenarioPattern) -> ContinuityQueryTrace {
         let items = vec![item("relevant", 1), item("sampled-negative", 2)];
-        let rationale_categories_by_internal_id = BTreeMap::from([
-            (
-                "internal-relevant".to_string(),
-                vec![
-                    RetrievalRationaleCategory::Entity,
-                    RetrievalRationaleCategory::Temporal,
-                ],
+        let mut native_trace = RetrievalTrace::empty();
+        native_trace.section_assignments = vec![
+            assignment(
+                "relevant",
+                vec![RationaleCategory::Entity, RationaleCategory::Temporal],
             ),
-            (
-                "internal-sampled-negative".to_string(),
-                vec![RetrievalRationaleCategory::Semantic],
-            ),
-        ]);
+            assignment("sampled-negative", vec![RationaleCategory::Semantic]),
+        ];
         ContinuityQueryTrace {
             schema_version: crate::CONTINUITY_TRACE_SCHEMA_VERSION.to_string(),
             fixture_id: "fixture".to_string(),
@@ -735,56 +637,27 @@ mod tests {
             history_text: String::new(),
             retrieval: RetrievedContextPack::from_ranked_items(
                 items,
-                RetrievalTelemetry {
-                    trace_available: true,
-                    suppressed_or_deleted_returned_count: Some(0),
-                    superseded_current_returned_count: Some(0),
-                    unsafe_lifecycle_returned_count: Some(0),
-                    fanout_utilization: Some(vec![RetrievalFanoutUtilization {
-                        root_internal_id: "root".to_string(),
-                        root_object_type: ObjectType::Entity,
-                        root_external_id: Some("hub-person".to_string()),
-                        relation: RelationType::Mentions,
-                        object_type: ObjectType::Episode,
-                        configured_cap: 4,
-                        selected_cap: 2,
-                        retained_count: 1,
-                        omitted_by_fanout_count: 3,
-                    }]),
-                    selectivity_decisions: Some(vec![RetrievalSelectivityDecision {
-                        root_internal_id: "root".to_string(),
-                        root_object_type: ObjectType::Entity,
-                        root_external_id: Some("hub-person".to_string()),
-                        relation: RelationType::Mentions,
-                        object_type: ObjectType::Episode,
-                        count_scope: SelectivityCountScope::Active,
-                        score: Some(0.25),
-                        entity_count: Some(5),
-                        global_count: Some(20),
-                        support_factor: 0.5,
-                        chosen_fanout: 2,
-                        max_fanout: 4,
-                        decision: SelectivityDecision::LowSelectivitySupported,
-                        fallback: false,
-                    }]),
-                    rationale_categories_by_internal_id: Some(rationale_categories_by_internal_id),
-                    ..RetrievalTelemetry::default()
-                },
+                vec![RetrieveOutcome {
+                    pack: ContinuityContextPack::empty(),
+                    rationale: RetrievalRationale::new("test"),
+                    trace: Some(native_trace),
+                }],
                 ContextRenderer::PlainText,
             ),
             write_outcomes: Vec::new(),
+            link_outcomes: Vec::new(),
             lifecycle_outcomes: Vec::new(),
         }
     }
 
-    fn mutate_telemetry(
+    fn mutate_trace(
         trace: &mut ContinuityQueryTrace,
-        mutate: impl FnOnce(&mut RetrievalTelemetry),
+        mutate: impl FnOnce(&mut Option<RetrievalTrace>),
     ) {
-        let (items, _, _, _, mut telemetry) = std::mem::take(&mut trace.retrieval).into_parts();
-        mutate(&mut telemetry);
+        let (items, _, _, _, mut outcomes) = std::mem::take(&mut trace.retrieval).into_parts();
+        mutate(&mut outcomes[0].trace);
         trace.retrieval =
-            RetrievedContextPack::from_ranked_items(items, telemetry, ContextRenderer::PlainText);
+            RetrievedContextPack::from_ranked_items(items, outcomes, ContextRenderer::PlainText);
     }
 
     fn replace_items(trace: &mut ContinuityQueryTrace, items: Vec<RetrievedItem>) {
@@ -813,20 +686,15 @@ mod tests {
     fn entity_continuity_measures_share_hits_and_cap_utilization() {
         let scenario = scenario(ScenarioPattern::RecurringHubEntity);
         let mut trace = trace(ScenarioPattern::RecurringHubEntity);
-        mutate_telemetry(&mut trace, |telemetry| {
-            telemetry
-                .rationale_categories_by_internal_id
-                .as_mut()
-                .unwrap()
-                .get_mut("internal-sampled-negative")
-                .unwrap()
-                .push(RetrievalRationaleCategory::Entity);
+        mutate_trace(&mut trace, |telemetry| {
+            telemetry.as_mut().unwrap().section_assignments[1]
+                .rationale_categories
+                .push(RationaleCategory::Entity);
         });
         let mut out = Map::new();
         insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
         assert_eq!(out["hub_context_share"], 1.0);
         assert_eq!(out["hub_expansion_relevant_hit_rate"], 0.5);
-        assert_eq!(out["hub_fanout_utilization_mean"], 0.5);
     }
 
     #[test]
@@ -861,8 +729,12 @@ mod tests {
     fn entrenched_correction_routes_to_correction_metrics_with_hand_computed_expectations() {
         let scenario = scenario(ScenarioPattern::EntrenchedCorrection);
         let mut trace = trace(ScenarioPattern::EntrenchedCorrection);
-        mutate_telemetry(&mut trace, |telemetry| {
-            telemetry.unsafe_lifecycle_returned_count = Some(1);
+        mutate_trace(&mut trace, |telemetry| {
+            telemetry
+                .as_mut()
+                .unwrap()
+                .lifecycle_filter_decisions
+                .push(unsafe_decision("relevant"));
         });
         let mut out = Map::new();
 
@@ -877,10 +749,12 @@ mod tests {
     fn correction_safety_counts_overlapping_lifecycle_failures_once() {
         let scenario = scenario(ScenarioPattern::CorrectionChains);
         let mut trace = trace(ScenarioPattern::CorrectionChains);
-        mutate_telemetry(&mut trace, |telemetry| {
-            telemetry.suppressed_or_deleted_returned_count = Some(1);
-            telemetry.superseded_current_returned_count = Some(1);
-            telemetry.unsafe_lifecycle_returned_count = Some(1);
+        mutate_trace(&mut trace, |telemetry| {
+            telemetry
+                .as_mut()
+                .unwrap()
+                .lifecycle_filter_decisions
+                .push(unsafe_decision("relevant"));
         });
         let mut out = Map::new();
 
@@ -897,7 +771,7 @@ mod tests {
         let family =
             continuity_metric_family(&MetricsConfig::default(), std::slice::from_ref(&scenario));
         let mut out = Map::new();
-        cmem_eval_core::initialize_registry_metrics_for(&mut out, std::slice::from_ref(&family));
+        cmem_eval::initialize_registry_metrics_for(&mut out, std::slice::from_ref(&family));
 
         insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
 
@@ -921,15 +795,12 @@ mod tests {
         let mut items = trace.retrieval.items().to_vec();
         items.push(item("unlabeled", 3));
         replace_items(&mut trace, items);
-        mutate_telemetry(&mut trace, |telemetry| {
+        mutate_trace(&mut trace, |telemetry| {
             telemetry
-                .rationale_categories_by_internal_id
                 .as_mut()
                 .unwrap()
-                .insert(
-                    "internal-unlabeled".to_string(),
-                    vec![RetrievalRationaleCategory::Salience],
-                );
+                .section_assignments
+                .push(assignment("unlabeled", vec![RationaleCategory::Salience]));
         });
         let mut out = Map::new();
         insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
@@ -994,8 +865,8 @@ mod tests {
                 },
             ],
         );
-        mutate_telemetry(&mut trace, |telemetry| {
-            telemetry.rationale_categories_by_internal_id = None;
+        mutate_trace(&mut trace, |telemetry| {
+            *telemetry = None;
         });
         let mut out = Map::new();
 
@@ -1022,8 +893,8 @@ mod tests {
                 text: None,
             }],
         );
-        mutate_telemetry(&mut trace, |telemetry| {
-            telemetry.rationale_categories_by_internal_id = None;
+        mutate_trace(&mut trace, |telemetry| {
+            *telemetry = None;
         });
         let mut out = Map::new();
 
@@ -1034,33 +905,17 @@ mod tests {
     }
 
     #[test]
-    fn fanout_discipline_reports_budgets_fallbacks_and_selectivity_distribution() {
-        let out = metrics(ScenarioPattern::SelectiveEntity);
-        assert_eq!(out["fanout_over_budget_count"], 0);
-        assert_eq!(out["conservative_fallback_activation_count"], 0);
-        assert_eq!(out["fanout_selected_cap_utilization_mean"], 0.5);
-        assert_eq!(out["fanout_configured_cap_utilization_mean"], 0.25);
-        assert_eq!(out["selectivity_score_mean"], 0.25);
-        assert_eq!(out["selectivity_score_mean_entity_kind_person"], 0.25);
-    }
-
-    #[test]
     fn missing_telemetry_stays_null_in_the_registry_instead_of_false_zero() {
         let scenario = scenario(ScenarioPattern::SelectiveEntity);
         let mut trace = trace(ScenarioPattern::SelectiveEntity);
-        mutate_telemetry(&mut trace, |telemetry| {
-            *telemetry = RetrievalTelemetry::default();
+        mutate_trace(&mut trace, |telemetry| {
+            *telemetry = None;
         });
         let family =
             continuity_metric_family(&MetricsConfig::default(), std::slice::from_ref(&scenario));
         let mut out = Map::new();
-        cmem_eval_core::initialize_registry_metrics_for(&mut out, std::slice::from_ref(&family));
+        cmem_eval::initialize_registry_metrics_for(&mut out, std::slice::from_ref(&family));
         insert_continuity_metrics(&mut out, &scenario, &trace, &MetricsConfig::default());
-        assert_eq!(out["fanout_over_budget_count"], Value::Null);
         assert_eq!(out["typed_rationale_coverage"], Value::Null);
-        assert_eq!(
-            out["selectivity_score_mean_entity_kind_person"],
-            Value::Null
-        );
     }
 }

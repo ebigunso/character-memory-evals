@@ -1,5 +1,5 @@
 use crate::{LoCoMoMemoryInputs, LoCoMoSample};
-use cmem_eval_core::{DerivedMemoryInput, DerivedType, EpisodeInput, ObservationInput, Stability};
+use cmem_eval::{DerivedMemoryInput, DerivedType, EpisodeInput, ObservationInput, Stability};
 
 pub fn to_memory_inputs(
     sample: &LoCoMoSample,

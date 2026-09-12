@@ -93,7 +93,7 @@ pub struct LoCoMoQa {
 
 #[derive(Debug, Clone)]
 pub struct LoCoMoMemoryInputs {
-    pub episodes: Vec<cmem_eval_core::EpisodeInput>,
-    pub observations: Vec<cmem_eval_core::ObservationInput>,
-    pub derived_memories: Vec<cmem_eval_core::DerivedMemoryInput>,
+    pub episodes: Vec<cmem_eval::EpisodeInput>,
+    pub observations: Vec<cmem_eval::ObservationInput>,
+    pub derived_memories: Vec<cmem_eval::DerivedMemoryInput>,
 }

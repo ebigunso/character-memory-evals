@@ -1,5 +1,5 @@
 use crate::{LoCoMoQa, LoCoMoSample};
-use cmem_eval_core::{ObjectType, RetrievedItem, insert_retrieval_metrics};
+use cmem_eval::{ObjectType, RetrievedItem, insert_retrieval_metrics};
 use serde_json::{Map, Value};
 
 pub fn score(

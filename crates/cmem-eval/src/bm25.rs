@@ -1,5 +1,97 @@
 use std::collections::BTreeMap;
 
+use crate::{
+    ContextRenderer, EpisodeInput, ObjectType, ObservationInput, RetrieveInput,
+    RetrievedContextPack, RetrievedItem,
+};
+
+/// Lexical retrieval over one dataset item's own ingest text.
+pub struct Bm25Baseline {
+    index: Bm25Index,
+    items: BTreeMap<String, RetrievedItem>,
+}
+
+impl Bm25Baseline {
+    pub fn new(episodes: &[EpisodeInput], observations: &[ObservationInput]) -> Self {
+        let items = episodes
+            .iter()
+            .map(|episode| {
+                (
+                    ObjectType::Episode,
+                    &episode.external_id,
+                    None,
+                    &episode.summary,
+                )
+            })
+            .chain(observations.iter().map(|observation| {
+                (
+                    ObjectType::Observation,
+                    &observation.external_id,
+                    Some(observation.episode_external_id.clone()),
+                    &observation.text,
+                )
+            }))
+            .map(|(kind, external_id, episode_external_id, text)| {
+                let id = format!("{kind}:{external_id}");
+                (
+                    id.clone(),
+                    RetrievedItem {
+                        kind,
+                        internal_id: format!("bm25:{id}"),
+                        external_id: Some(external_id.clone()),
+                        episode_external_id,
+                        score: None,
+                        rank: 0,
+                        rationale: vec!["bm25_only".into()],
+                        text: Some(text.clone()),
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let documents = items
+            .iter()
+            .map(|(id, item)| Bm25Document {
+                id: id.clone(),
+                text: item.text.clone().unwrap(),
+            })
+            .collect::<Vec<_>>();
+        Self {
+            index: Bm25Index::new(&documents),
+            items,
+        }
+    }
+
+    pub fn retrieve(&self, input: &RetrieveInput) -> RetrievedContextPack {
+        let mut counts = [0, 0];
+        let items = self
+            .index
+            .rank(&input.query)
+            .into_iter()
+            .filter_map(|score| {
+                let mut item = self.items[&score.id].clone();
+                if !input.surface_policy.object_types.contains(&item.kind) {
+                    return None;
+                }
+                let (index, limit) = match item.kind {
+                    ObjectType::Episode => (0, input.surface_policy.sections.relevant_episodes),
+                    ObjectType::Observation => {
+                        (1, input.surface_policy.sections.salient_observations)
+                    }
+                    _ => unreachable!("BM25 indexes only episodes and observations"),
+                };
+                if counts[index] == limit {
+                    return None;
+                }
+                counts[index] += 1;
+                item.score = Some(score.score);
+                item.rank = counts.iter().sum();
+                Some(item)
+            })
+            .collect();
+        RetrievedContextPack::from_ranked_items(items, Vec::new(), ContextRenderer::PlainText)
+    }
+}
+
 const K1: f64 = 1.2;
 const B: f64 = 0.75;
 
@@ -153,6 +245,52 @@ fn document_frequencies(documents: &[IndexedDocument]) -> BTreeMap<String, usize
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lexical_baseline_keeps_ingest_text_and_each_selected_surface_quota() {
+        let episode = EpisodeInput {
+            external_id: "session".into(),
+            namespace: "lexical".into(),
+            summary: "green tea".into(),
+            started_at: None,
+            ended_at: None,
+            participants: Vec::new(),
+            metadata: serde_json::Value::Null,
+        };
+        let observations = ["tea tea", "train ticket"].map(|text| ObservationInput {
+            external_id: text.into(),
+            episode_external_id: "session".into(),
+            namespace: "lexical".into(),
+            speaker: None,
+            text: text.into(),
+            observed_at: None,
+            metadata: serde_json::Value::Null,
+        });
+        let baseline = Bm25Baseline::new(&[episode], &observations);
+        let mut input = RetrieveInput {
+            mode: crate::RetrievalMode::Bm25Only,
+            namespace: "lexical".into(),
+            query: "tea".into(),
+            query_date: None,
+            surface_policy: crate::RetrievalSurfacePolicy {
+                object_types: vec![ObjectType::Episode, ObjectType::Observation],
+                sections: crate::RetrievalSectionBudgets {
+                    relevant_episodes: 1,
+                    salient_observations: 1,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        };
+        let pack = baseline.retrieve(&input);
+        assert_eq!(pack.items().len(), 2);
+        assert_eq!(pack.items()[0].external_id.as_deref(), Some("tea tea"));
+        assert_eq!(pack.items()[1].external_id.as_deref(), Some("session"));
+        assert_eq!(pack.context_text(), "tea tea\ngreen tea");
+        assert!(pack.outcomes().is_empty());
+        input.surface_policy.object_types = vec![ObjectType::Episode];
+        assert_eq!(baseline.retrieve(&input).context_text(), "green tea");
+    }
 
     #[test]
     fn tokenizes_case_and_punctuation_deterministically() {

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
-use cmem_eval_core::ControllableSimilarityFixture;
+use cmem_eval::ControllableSimilarityFixture;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use serde_json::{Map, Value};
 
@@ -470,7 +470,7 @@ impl ContinuityScenario {
     pub fn validate(&self) -> Result<()> {
         let controllable_embedding = self.embedding.controllable_similarity();
         if let Some(embedding) = controllable_embedding {
-            cmem_eval_core::ControllableSimilarityEmbeddingProvider::new(embedding.clone())?;
+            cmem_eval::ControllableSimilarityEmbeddingProvider::new(embedding.clone())?;
         }
         let declared_entities = self
             .entities

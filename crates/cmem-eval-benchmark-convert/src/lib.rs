@@ -4,14 +4,14 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use cmem_eval::{
+    FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION, FrozenEmbeddingManifest, FrozenEmbeddingText,
+    FrozenSimilarityOrdering,
+};
 use cmem_eval_continuity::{
     CONTINUITY_FIXTURE_SCHEMA_VERSION, ContinuityEntityKind, ContinuityFixtureSet,
     ContinuityScenario, ContinuityScenarioEmbedding, EntityDeclaration, ExpectedRelevance,
     InteractionEvent, ScenarioPattern, canonical_fixture_bytes, runtime_memory_embedding_text,
-};
-use cmem_eval_core::{
-    FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION, FrozenEmbeddingManifest, FrozenEmbeddingText,
-    FrozenSimilarityOrdering,
 };
 use cmem_eval_locomo::{LoCoMoQa, LoCoMoSample};
 use cmem_eval_longmemeval::LongMemEvalInstance;
