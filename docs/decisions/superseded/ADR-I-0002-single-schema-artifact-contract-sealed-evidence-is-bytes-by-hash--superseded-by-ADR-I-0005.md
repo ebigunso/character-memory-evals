@@ -11,7 +11,7 @@ warrant:
   cost_of_violation: "a re-added legacy dispatch recreates the remediated live-path exception one justified case at a time; a sealed-byte migration silently converts hash-cited evidence into new evidence wearing sealed run identities, corrupting the findings register's evidentiary meaning"
 supersedes: []
 superseded_by: "implementation/ADR-I-0005-sealed-evidence-is-bytes-by-hash-and-live-readers-read-only-the-current-shape.md"
-supersession_scope: null
+supersession_scope: full
 ---
 
 # ADR-I-0002: Single-schema artifact contract; sealed evidence is bytes-by-hash

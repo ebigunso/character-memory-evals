@@ -5,8 +5,14 @@ date: 2026-09-13
 deciders: [ebigunso]
 consulted: ["Claude Fable 5.1"]
 informed: []
+warrant:
+  warranted_by: "without this record, future work meeting a sealed artifact the live binary cannot parse would likely re-add a schema version and strict readers, or migrate the sealed bytes"
+  detected_signals: "cross-boundary evidence-ownership shape; rejected alternatives likely to be re-proposed; a decider's ruling setting a durable governance default"
+  cost_of_violation: "a re-added version ritual taxes every shape change while serving no decision; a sealed-byte migration silently turns cited evidence into new evidence"
+  cost_of_over_extension: "treating input contracts (fixture, config, frozen-store admission) as artifact readers would strip the fail-closed checks that protect measurement inputs"
 supersedes: ["superseded/ADR-I-0002-single-schema-artifact-contract-sealed-evidence-is-bytes-by-hash--superseded-by-ADR-I-0005.md"]
 superseded_by: null
+supersession_scope: full
 ---
 
 # ADR-I-0005: Sealed evidence is guaranteed as bytes by hash; live readers read only the current artifact shape
