@@ -165,6 +165,19 @@ Required registry keys are initialized to JSON `null` when a row cannot measure 
 
 Fixture `irrelevant_external_ids` are sampled negatives, not an exhaustive complement of the relevant set. `sampled_context_pollution_rate` and its rationale attribution classify only explicitly relevant IDs and explicitly sampled-negative IDs; unlabeled retrieved items are not silently treated as negative.
 
+### Seal evidence for a durable claim
+
+Seal a finished run when a findings-register claim needs preserved evidence. The run directory must contain one `.jsonl` artifact, `header.json` and `report.json`. `seal` hashes those files with SHA-256, writes `seal.json` beside them with the header as a JSON object and the sealing time, and copies all four files into this checkout's `evidence/<run-id>/`. The copied `header.json` preserves its exact original bytes. Store directories and logs are not evidence artifacts.
+
+```bash
+cargo run -p cmem-eval-runner -- seal ./runs/continuity/candidate
+cargo run -p cmem-eval-runner -- verify ./evidence/<run-id>
+```
+
+The run ID must be one filename component. An existing evidence destination or source seal is never overwritten; every file is created atomically. If sealing fails after creating the destination, the command reports the written files and the failed operation and leaves all files in place for inspection. Inspect a partial destination before deliberately removing it; `seal` never removes files. Commit completed evidence and cite the SHA-256 of its `seal.json` in the findings register. Never edit sealed evidence; changed measurements require a new run and seal. `verify` checks the listed file hashes without parsing the artifacts and exits non-zero on missing or changed bytes. Compare the seal's own hash with the register citation as well.
+
+The historical round-9 reference pair is preserved in `evidence/pr13r9ba/` and `evidence/pr13r9bb/`. Its promotion seals describe the existing files without inventing a header or changing their old shape. `pwsh -NoProfile -File evidence/derive-round9.ps1` (PowerShell 7.2+) reproduces the cited normalized-row and report-content hashes and the short-gap recall@5 mean from those tracked bytes alone.
+
 ### Extend the scenario library
 
 1. Add or update a deterministic scenario constructor in `crates/cmem-eval-continuity/src/generator.rs`; add a `ScenarioPattern` variant in `fixture.rs` only when the scenario represents a new pattern.

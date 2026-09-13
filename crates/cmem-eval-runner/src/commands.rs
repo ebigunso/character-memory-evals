@@ -21,6 +21,14 @@ impl Cli {
             Command::Run(run) => run.run().await,
             Command::Embeddings(args) => args.run().await,
             Command::Diff(args) => crate::diff::run(args),
+            Command::Seal { run_dir } => {
+                let evidence_root =
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evidence");
+                let destination = crate::seal::seal(&run_dir, &evidence_root)?;
+                println!("sealed {}", destination.display());
+                Ok(())
+            }
+            Command::Verify { evidence_dir } => crate::seal::verify(&evidence_dir),
         }
     }
 }
@@ -30,6 +38,14 @@ enum Command {
     Run(RunCommand),
     Embeddings(crate::frozen_embeddings::EmbeddingsCommand),
     Diff(crate::diff::DiffArgs),
+    /// Preserve a finished run as immutable evidence in this checkout.
+    Seal {
+        run_dir: PathBuf,
+    },
+    /// Recompute the file hashes recorded in an evidence directory's seal.
+    Verify {
+        evidence_dir: PathBuf,
+    },
 }
 
 #[derive(Debug, Args)]

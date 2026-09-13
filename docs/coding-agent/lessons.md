@@ -967,3 +967,20 @@ Prevention:
 
 Evidence:
 - Accepted Copilot finding on CME #31; embedded-smoke job command replay and removed-flag census.
+
+## 2026-09-13 — Stream artifacts when sealing and verifying runs [tags: review, performance, artifacts]
+
+Symptom:
+- Sealing retained every artifact as a byte vector, and verification read each whole file, so memory use grew with run output size.
+
+Root cause:
+- Small fixtures demonstrated byte preservation but did not exercise the resource behavior needed for large completed runs.
+
+Fix applied:
+- Stream regular files through a fixed buffer into create-new destinations and hash the copied bytes; verification streams hashes too. Retain only the small original header bytes for the manifest object and exact header copy.
+
+Prevention:
+- For artifact operations, distinguish small parsed metadata from unbounded run data and keep the latter on a streaming path. Exercise files larger than the buffer, compare hashes against an independent whole-byte digest, and detect corruption beyond the first buffer.
+
+Evidence:
+- Accepted Copilot finding on CME #32; seals_and_verifies_artifacts_larger_than_the_stream_buffer and the existing seal/verify preservation tests.

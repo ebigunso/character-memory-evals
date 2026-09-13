@@ -1,0 +1,11 @@
+{
+  "files": {
+    "config.toml": "5de97bf9aafd8acdd02d490dc90ceeb04a56714321c3b0829c7408a0771cf731",
+    "results.jsonl": "86281f8998ef4ac371efccd344d607bbbcb7577215ff588fb31c4b65801b5c98",
+    "summary.json": "dad37d7633b276a84e303081ab009736f7d8eedbb6de714b0c16e615411e2d6d",
+    "traces.jsonl": "62b2fcc253028c46343a81eaaed765d71fca463fd95032399d7e0d449d0f6d68",
+    "report.json": "e2df5fd64d0356a40f593a738015854b2ebce6fa2200e14eb948570f58a69e55"
+  },
+  "sealed_at": "2026-09-12T22:04:42.688Z",
+  "promotion": "Byte-for-byte promotion of the register reference round9-benchmark-b (run_id pr13r9bb) from runs/continuity/pr13-round9/benchmark-b. These historical artifacts were not rerun or reshaped; no standalone run header existed."
+}
