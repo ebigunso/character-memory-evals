@@ -215,10 +215,11 @@
 
 - Wave 1 (parallel): [Task_1]
 - Wave 2 (parallel): [Task_2, Task_3]
-- Wave 3 (parallel): [Task_4, Task_7]
+- Wave 3 (parallel): [Task_4]
 - Wave 4 (parallel): [Task_5]
 - Wave 5 (parallel): [Task_6]
-- Wave 6 (parallel): [Task_8] (gated on the library phase's merges; split into per-step PRs)
+- Wave 6 (parallel): [Task_7] (reshaped to depend on Task_6; see the Decision Log)
+- Wave 7 (parallel): [Task_8] (gated on the library phase's merges; split into per-step PRs)
 
 ## Rollback / Safety
 - Every wave is a separately revertible PR; sealed bytes are never edited; evidence promotion adds files only.
@@ -305,6 +306,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 - 2026-09-13 Decision (Task_5 contract): one artifact per run for every dataset kind, named by `--out` (which must end in `.jsonl`), with `header.json` and `report.json` derived beside it and no header embedded in any report; continuity rows merge into the trace records (one record per query, restart observations carried by their probe query, the report keeping only the aggregate restart count and dropping the details the traces carry); the frozen embedding store is a text-keyed cache with an ordering validator whose persisted policy and source fields are opaque descriptions, never enforcement. The register records that the tracked canonical configs stopped being the cited bytes in pull request #15 (found by the Task_4 preservation audit; no rewrite).
 
 - 2026-09-13 Decision (Task_7 reshape): execute service-mode tests in a dedicated Qdrant CI job rather than mark them ignored. Task_8 step 3 deleted the live skip guard and moved service-specific tests behind `service-tests`; an ignored-test job would leave their bodies untested. The default embedded suite remains service-free, while the new job requires service readiness and runs the existing feature filter without skip or ignore attributes. This follows the Task_7 dispatch ruling and replaces the original Task_7 wording.
+
+- 2026-09-13 Decision (declined review item, known ceiling): service collection identity derives from run id, namespace and the canonical run-root path, with the atomic root creation as the ownership token. Two hosts sharing one Qdrant service with identical absolute paths, run ids and namespaces could derive one collection name that their local ownership gates cannot coordinate; that deployment is outside this harness's use (one developer machine, one service) and is not solved now. Remedy, if it ever applies: a nonce generated at root creation, persisted in the root marker and the run header, folded into the remote identity.
 
 ## Notes
 - Risks and mitigations: section 6 of the audit.
