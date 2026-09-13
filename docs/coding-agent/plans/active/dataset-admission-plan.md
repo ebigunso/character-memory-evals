@@ -65,7 +65,7 @@
 - owns:
   - crates/cmem-eval-longmemeval/**
   - crates/cmem-eval-locomo/**
-  - crates/cmem-eval-runner/src/pipeline.rs
+  - crates/cmem-eval-runner/**
   - README.md
 - depends_on: [Task_1]
 - description: |
@@ -139,6 +139,8 @@
 - 2026-09-14 Copilot on turn structure: a null turn or a turn without a text field was parsed into an empty observation; now every turn must be an object with a string text field under the admitted aliases. Empty text stays admitted: census shows 12 official LongMemEval-S turns with empty content (dd2973ad, gpt4_7fce9456) and no non-object turn in either file.
 
 - 2026-09-14 Copilot on the identical-repeat exception: the two official copies of a repeated session carry different dates, and ingest maps both onto the same deterministic episode and observation ids, so the library receives two drafts with one identity and two dates. That is today's behaviour for the official file and the harness resolves it deterministically inside one commit; admission keeps it because the alternatives (assigning distinct identities or deduplicating) change the ingested memory for 13 official items and therefore the measurement, which is outside an admission plan. Recorded as a known characteristic of the official file for the v0.2 value audit: if the repeated sessions are ever given distinct identities or dropped, that is a measurement change with its own baseline comparison.
+
+- 2026-09-14 Task_2 owns widened from the runner's pipeline.rs to crates/cmem-eval-runner/**: the zero-item rejection made a runner CLI test that used `[]` as its dataset fail before the output validation it proves, so its input becomes a minimal admitted record (orchestrator-authorized one-file edit, recorded here).
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
