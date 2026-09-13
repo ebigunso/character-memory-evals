@@ -155,7 +155,7 @@
   | qa `evidence` (alias `evidence_dialog_ids`) | every entry, always an array | empty list |
   | qa `answer` | 1542 entries; absent on 444 of the 446 category-5 (adversarial) entries, which carry `adversarial_answer` instead | absent |
   | qa `question_id` (aliases `qid`, `id`) | no entry | derived from sample id and position |
-  | admitted aliases the official file never uses: item `id`; `conversations`; conversation-array session objects with `session_id`/`session`/`id`, `timestamp`/`date`/`session_timestamp`, `session_summary`/`summary`, `observations`/`generated_observations`, `turns`/`dialog`/`conversation`; turn `dialog_id`/`id`, `role`, `content`/`utterance`, `image_urls`, `caption`, `search_query`; qa `q`, `a`, `question_type`/`type`, `evidence_dialog_ids`; wrapper keys `data`/`samples`/`items` | absent everywhere in the official file; admitted by the loader (loader tests cover them); every one stays admitted after Task_2. Not in this row and not kept: the untested `session_number` fallback, which stringified any JSON value into a session id and is not an identity alias under the Definition of Done |
+  | admitted aliases the official file never uses: item `id`; `conversations`; conversation-array session objects with `session_id`/`session`/`id`, `timestamp`/`date`/`session_timestamp`, `session_summary`/`summary`, `observations`/`generated_observations`, `turns`/`dialog`/`conversation`; turn `dialog_id`/`id`, `role`, `content`/`utterance`, `image_urls`, `caption`, `search_query`; qa `q`, `a`, `question_type`/`type`, `evidence_dialog_ids`; wrapper keys `data`/`samples`/`items` | absent everywhere in the official file; admitted by the loader today, most without a test; Task_2 adds an admission test for each and every one stays admitted. Not in this row and not kept: the untested `session_number` fallback, which stringified any JSON value into a session id and is not an identity alias under the Definition of Done |
 
   LongMemEval-S (500 items, question ids unique and non-blank; every field below is present in every item, so no loader default is exercised by the official file):
 
@@ -172,7 +172,7 @@
   | `answer_session_ids` | every item, never empty | empty list |
   | turn `role`, `content` | every turn (246750) | speaker absent, text empty |
   | turn `has_answer` | some turns (10960) | false |
-  | admitted aliases the official file never uses: item `id`, `type`; session objects with `session_id`/`id`, `date`/`timestamp`, `turns`/`messages`/`conversation`; turn `speaker`, `text`; wrapper keys `data`/`instances`/`questions` | absent everywhere in the official file (every session is a turn array); admitted by the loader (loader tests cover them); every one stays admitted after Task_2 |
+  | admitted aliases the official file never uses: item `id`, `type`; session objects with `session_id`/`id`, `date`/`timestamp`, `turns`/`messages`/`conversation`; turn `speaker`, `text`; wrapper keys `data`/`instances`/`questions` | absent everywhere in the official file (every session is a turn array); admitted by the loader today, most without a test; Task_2 adds an admission test for each and every one stays admitted |
 
   Answers:
   - A1 confirmed: zero "unknown" ids and zero zero-session items in either file.
