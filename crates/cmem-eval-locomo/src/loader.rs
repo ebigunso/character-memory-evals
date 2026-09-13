@@ -36,7 +36,6 @@ fn parse_sample(raw: Value) -> LoCoMoSample {
         speaker_a,
         speaker_b,
         qa: parse_qa(raw.get("qa"), &sample_id),
-        raw,
     }
 }
 

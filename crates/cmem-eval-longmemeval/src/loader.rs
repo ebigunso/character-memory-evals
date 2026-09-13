@@ -20,16 +20,16 @@ pub fn load_value(value: Value) -> Result<Vec<LongMemEvalInstance>> {
             .find_map(|key| value.get(*key).and_then(Value::as_array).cloned())
             .unwrap_or_default()
     };
-    rows.into_iter().map(parse_instance).collect()
+    Ok(rows.into_iter().map(parse_instance).collect())
 }
 
-fn parse_instance(raw: Value) -> Result<LongMemEvalInstance> {
+fn parse_instance(raw: Value) -> LongMemEvalInstance {
     let question_id =
         string_field(&raw, &["question_id", "id"]).unwrap_or_else(|| "unknown".into());
     let session_ids = string_array(raw.get("haystack_session_ids"));
     let dates = string_array(raw.get("haystack_dates"));
     let sessions = parse_sessions(raw.get("haystack_sessions"), &session_ids, &dates);
-    Ok(LongMemEvalInstance {
+    LongMemEvalInstance {
         question_id,
         question_type: string_field(&raw, &["question_type", "type"]),
         question: string_field(&raw, &["question"]).unwrap_or_default(),
@@ -37,8 +37,7 @@ fn parse_instance(raw: Value) -> Result<LongMemEvalInstance> {
         question_date: string_field(&raw, &["question_date"]),
         sessions,
         answer_session_ids: string_array(raw.get("answer_session_ids")),
-        raw,
-    })
+    }
 }
 
 fn parse_sessions(

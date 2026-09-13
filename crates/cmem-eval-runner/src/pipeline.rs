@@ -320,12 +320,12 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
         } else {
             Some(CharacterMemoryAdapter::new(&run_root, &config).await?)
         };
-        let enrichment_by_namespace = if S::USES_ENRICHMENT {
+        let enrichment_by_namespace = if S::USES_ENRICHMENT && !lexical {
             load_enrichment_by_namespace(&config)?
         } else {
             HashMap::new()
         };
-        let snapshots_by_item = if S::USES_ENRICHMENT {
+        let snapshots_by_item = if S::USES_ENRICHMENT && !lexical {
             load_snapshots_by_dataset_item(&config)?
         } else {
             HashMap::new()
@@ -2048,6 +2048,72 @@ mod tests {
             "{error:#}"
         );
         assert_eq!(fs::read(root.join("sentinel")).unwrap(), b"earlier run");
+    }
+
+    #[tokio::test]
+    async fn bm25_skips_missing_enrichment_inputs_while_hybrid_requires_them() {
+        use cmem_eval::RetrievalMode;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agent-work/evals-worker");
+        fs::create_dir_all(&root).unwrap();
+        for (source, dataset) in [
+            (
+                include_str!("../../../configs/locomo_bm25.toml"),
+                serde_json::json!([{
+                    "sample_id": "p1",
+                    "conversation": [{"session_id": "s1", "turns": [{"dia_id": "d1", "text": "jasmine tea"}]}],
+                    "qa": [{"question_id": "q1", "question": "tea", "evidence": ["d1"]}]
+                }]),
+            ),
+            (
+                include_str!("../../../configs/longmemeval_s_bm25.toml"),
+                serde_json::json!([{
+                    "question_id": "q1", "question": "tea",
+                    "haystack_session_ids": ["s1"],
+                    "haystack_sessions": [[{"content": "jasmine tea", "has_answer": true}]],
+                    "answer_session_ids": ["s1"]
+                }]),
+            ),
+        ] {
+            for snapshot in [false, true] {
+                for mode in [RetrievalMode::Bm25Only, RetrievalMode::Hybrid] {
+                    let directory = tempfile::tempdir_in(&root).unwrap();
+                    let mut config: BenchmarkRunConfig = toml::from_str(source).unwrap();
+                    config.retrieval.mode = mode;
+                    isolate_test_config(&mut config);
+                    if mode == RetrievalMode::Hybrid {
+                        config.backend.embedding.provider = EmbeddingProviderConfig::Deterministic;
+                    }
+                    let missing = directory.path().join("missing-enrichment.jsonl");
+                    let missing_path = missing.display().to_string();
+                    if snapshot {
+                        config.ingest.enrichment_snapshot_path = Some(missing_path.clone());
+                    } else {
+                        config.ingest.enrichment_path = Some(missing_path.clone());
+                    }
+                    let config_path = directory.path().join("config.toml");
+                    fs::write(&config_path, toml::to_string(&config).unwrap()).unwrap();
+                    let dataset_path = directory.path().join("dataset.json");
+                    fs::write(&dataset_path, serde_json::to_vec(&dataset).unwrap()).unwrap();
+                    let args = run_args(dataset_path, config_path, directory.path());
+                    let output = args.out.clone();
+                    let result = if config.dataset.as_str() == "locomo" {
+                        run_locomo(args).await
+                    } else {
+                        run_longmemeval(args).await
+                    };
+                    if mode == RetrievalMode::Bm25Only {
+                        result.unwrap();
+                        let rows = read_rows(&output);
+                        assert_eq!(rows.len(), 1);
+                        assert!(!rows[0].retrieved.is_empty());
+                    } else {
+                        let error = format!("{:#}", result.unwrap_err());
+                        assert!(error.contains(&missing_path), "{error}");
+                    }
+                }
+            }
+        }
     }
 
     #[tokio::test]

@@ -8,7 +8,6 @@ pub struct LoCoMoSample {
     pub speaker_b: Option<String>,
     pub sessions: Vec<LoCoMoSession>,
     pub qa: Vec<LoCoMoQa>,
-    pub raw: serde_json::Value,
 }
 
 impl LoCoMoSample {
