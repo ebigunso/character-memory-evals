@@ -12,8 +12,8 @@ warrant:
 depends_on: []
 implements: []
 supersedes: []
-superseded_by: "implementation/ADR-I-0004-one-shared-evaluation-crate-with-dataset-owned-extension-boundary.md"
-supersession_scope: null
+superseded_by: "../implementation/ADR-I-0004-one-shared-evaluation-crate-with-dataset-owned-extension-boundary.md"
+supersession_scope: full
 ---
 
 # ADR-I-0001: Backend-neutral core with dataset-owned extension boundary

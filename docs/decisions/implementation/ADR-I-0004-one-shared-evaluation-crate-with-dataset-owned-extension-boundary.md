@@ -5,8 +5,14 @@ date: 2026-09-13
 deciders: [ebigunso]
 consulted: ["Claude Fable 5.1"]
 informed: []
-supersedes: ["superseded/ADR-I-0001-backend-neutral-core-with-dataset-owned-extension-boundary--superseded-by-ADR-I-0004.md"]
+warrant:
+  warranted_by: "without this record, future work adding a dataset would likely put a convenient special case into the shared crate, or re-split the shared crate to host a second backend that does not exist"
+  detected_signals: "cross-boundary contract shape; rejected alternative likely to be re-proposed; a decider's ruling setting a durable governance default"
+  cost_of_violation: "each dataset dispatch arm in the shared crate erodes the extension boundary until dataset additions stop being additive"
+  cost_of_wrong_preservation: "if a second real backend must be evaluated through the same contract, keeping one crate forces backend-specific branches into shared code instead of a governed seam"
+supersedes: ["../superseded/ADR-I-0001-backend-neutral-core-with-dataset-owned-extension-boundary--superseded-by-ADR-I-0004.md"]
 superseded_by: null
+supersession_scope: full
 ---
 
 # ADR-I-0004: One shared evaluation crate holds the contracts and the library integration; each dataset owns its own crate
