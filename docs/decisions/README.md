@@ -24,7 +24,7 @@ Separate numbering per track; IDs are never reused.
 
 ## Lifecycle and the superseded/ archive
 - Active track directories list only governing decisions; numbering gaps signal archived history.
-- On full supersession or retirement, the record moves to `superseded/` — a single flat folder where the track prefix in the filename preserves identity — renamed with a self-describing suffix: `--superseded-by-ADR-X-NNNN` or `--retired`.
+- On full supersession or retirement, the record moves to `superseded/` (a record superseded by another carries `superseded` and reciprocal links; a record retired without a replacement carries `deprecated`) — a single flat folder where the track prefix in the filename preserves identity — renamed with a self-describing suffix: `--superseded-by-ADR-X-NNNN` or `--retired`.
 - Partial supersession stays in place: the record remains authoritative for its surviving clauses, with `supersession_scope` and reciprocal frontmatter links recording the split.
 
 ## Status values

@@ -309,6 +309,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Decision (declined review item, known ceiling): service collection identity derives from run id, namespace and the canonical run-root path, with the atomic root creation as the ownership token. Two hosts sharing one Qdrant service with identical absolute paths, run ids and namespaces could derive one collection name that their local ownership gates cannot coordinate; that deployment is outside this harness's use (one developer machine, one service) and is not solved now. Remedy, if it ever applies: a nonce generated at root creation, persisted in the root marker and the run header, folded into the remote identity.
 
+- 2026-09-13 Follow-up (loader re-audit list): the conventional pipeline loads enrichment inputs even when retrieval.mode is bm25_only, which never consumes them; the two BM25 configs set no enrichment path, so it is inert today. Gate the enrichment load on a mode that consumes it when the loader deletions are decided.
+
 ## Notes
 - Risks and mitigations: section 6 of the audit.
 - Edge cases: cited configs may become unparseable after key deletions; that is accepted, and re-runs are new evidence.
