@@ -16,8 +16,6 @@ use cmem_eval::{
     RetrievedContextPack, SourceProvenanceInput, Stability, SuppressionPolicyInput, ThreadStatus,
 };
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use serde_json::Value;
 
 use crate::{
     ContinuityEntityKind, ContinuityScenario, ExpectedRelevance, InteractionEvent, ScenarioPattern,
@@ -26,6 +24,19 @@ use crate::{
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContinuityQueryTrace {
+    #[serde(flatten)]
+    pub result: cmem_eval::PerQuestionResult,
+    pub fixture_id: String,
+    pub namespace: String,
+    pub event_id: String,
+    pub timestamp: chrono::DateTime<Utc>,
+    pub expected: ExpectedRelevanceRecord,
+    pub history_text: String,
+    pub restart_observations: Vec<RestartObservation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContinuityQueryObservation {
     pub fixture_id: String,
     pub namespace: String,
     pub pattern: ScenarioPattern,
@@ -59,7 +70,7 @@ impl From<&ExpectedRelevance> for ExpectedRelevanceRecord {
 
 #[derive(Debug, Default, PartialEq)]
 pub struct ContinuityScenarioRun {
-    pub traces: Vec<ContinuityQueryTrace>,
+    pub traces: Vec<ContinuityQueryObservation>,
     pub query_latencies_ms: BTreeMap<String, u128>,
     pub operation_counts: BTreeMap<String, usize>,
     pub restart_observations: Vec<RestartObservation>,
@@ -107,16 +118,19 @@ pub struct RestartObservation {
 }
 
 pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> Result<()> {
-    let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let mut file = File::create_new(path).with_context(|| format!("create {}", path.display()))?;
     for trace in traces {
         let mut canonical = trace.clone();
         canonical
+            .result
             .write_outcomes
             .sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
         canonical
+            .result
             .link_outcomes
             .sort_by(|a, b| a.operation_id.cmp(&b.operation_id));
         canonical
+            .result
             .lifecycle_outcomes
             .sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
         serde_json::to_writer(&mut file, &canonical)?;
@@ -815,7 +829,7 @@ pub async fn run_continuity_scenario(
                 let latency_ms = query_started_at.elapsed().as_millis();
                 increment(&mut run.operation_counts, "retrieve");
                 run.query_latencies_ms.insert(query_id.clone(), latency_ms);
-                run.traces.push(ContinuityQueryTrace {
+                run.traces.push(ContinuityQueryObservation {
                     fixture_id: scenario.fixture_id.clone(),
                     namespace: scenario.namespace.clone(),
                     pattern: scenario.pattern,
@@ -1058,12 +1072,10 @@ fn adapter_entity_type(fixture_entity_type: ContinuityEntityKind) -> EntityType 
 
 #[cfg(test)]
 mod tests {
-    use std::fs::OpenOptions;
 
     use super::*;
     use crate::{CHECKED_FIXTURE_SEED, generate_fixture_set};
     use cmem_eval::{RetrievalMode, RetrievalSectionBudgets, RetrievalSurfacePolicy};
-    use uuid::Uuid;
 
     async fn run_embedded(scenario: &ContinuityScenario) -> ContinuityScenarioRun {
         let directory = tempfile::tempdir().unwrap();
@@ -1097,10 +1109,7 @@ mod tests {
             config.backend.embedding.provider = cmem_eval::EmbeddingProviderConfig::Frozen;
             config.backend.embedding.vector_size = Some(store.vector_size());
             config.backend.embedding.store_path = Some(store_path.display().to_string());
-            EmbeddingRuntimeBinding::Frozen {
-                dimension_policy: store.dimension_policy(),
-                store,
-            }
+            EmbeddingRuntimeBinding::Frozen { store }
         };
         let mut runtime = ContinuityRuntime::new(directory.path(), &config, binding)
             .await
@@ -1132,7 +1141,7 @@ mod tests {
     }
 
     async fn run_all() -> (
-        Vec<ContinuityQueryTrace>,
+        Vec<ContinuityQueryObservation>,
         BTreeMap<String, usize>,
         Vec<RestartObservation>,
     ) {
@@ -1149,10 +1158,6 @@ mod tests {
             }
         }
         (traces, operation_counts, restart_observations)
-    }
-
-    fn temporary_trace_path() -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("cmem-continuity-{}.jsonl", Uuid::new_v4()))
     }
 
     #[tokio::test]
@@ -1452,112 +1457,6 @@ mod tests {
                 original_source_ref: Some("delivery-v1".to_string()),
             }
         );
-    }
-
-    #[tokio::test]
-    async fn trace_writer_canonicalizes_outcomes_by_operation() {
-        let (mut traces, _, _) = run_all().await;
-        let mut trace = traces.remove(0);
-        let template = trace.write_outcomes.first().unwrap().clone();
-        trace.write_outcomes = ["b", "c", "a"]
-            .into_iter()
-            .map(|id| {
-                let mut record = template.clone();
-                record.operation_id = id.into();
-                record
-            })
-            .collect();
-        let lifecycle_template = traces
-            .iter()
-            .flat_map(|trace| &trace.lifecycle_outcomes)
-            .next()
-            .unwrap()
-            .clone();
-        trace.lifecycle_outcomes = ["b", "c", "a"]
-            .into_iter()
-            .map(|id| {
-                let mut record = lifecycle_template.clone();
-                record.operation_id = id.into();
-                record
-            })
-            .collect();
-        let first_path = temporary_trace_path();
-        let second_path = temporary_trace_path();
-        write_continuity_traces(&first_path, std::slice::from_ref(&trace)).unwrap();
-        trace.write_outcomes.reverse();
-        trace.lifecycle_outcomes.reverse();
-        write_continuity_traces(&second_path, &[trace]).unwrap();
-
-        let first = std::fs::read_to_string(&first_path).unwrap();
-        assert_eq!(first, std::fs::read_to_string(&second_path).unwrap());
-        let value: Value = serde_json::from_str(first.trim()).unwrap();
-        for family in ["write_outcomes", "lifecycle_outcomes"] {
-            let operation_ids = value[family]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|outcome| outcome["operation_id"].as_str().unwrap())
-                .collect::<Vec<_>>();
-            assert_eq!(operation_ids, vec!["a", "b", "c"]);
-        }
-
-        std::fs::remove_file(first_path).unwrap();
-        std::fs::remove_file(second_path).unwrap();
-    }
-
-    #[tokio::test]
-    async fn trace_reader_rejects_corrupt_bytes_after_a_valid_trace() {
-        let (traces, _, _) = run_all().await;
-        let path = temporary_trace_path();
-        write_continuity_traces(&path, &traces[..1]).unwrap();
-        OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .unwrap()
-            .write_all(&[0xff, b'\n'])
-            .unwrap();
-
-        let error = read_continuity_traces(&path).unwrap_err().to_string();
-        std::fs::remove_file(&path).unwrap();
-        assert!(error.contains("read continuity trace line 2"), "{error}");
-    }
-
-    #[tokio::test]
-    async fn trace_reader_rejects_truncated_json_after_a_valid_trace() {
-        let (traces, _, _) = run_all().await;
-        let path = temporary_trace_path();
-        write_continuity_traces(&path, &traces[..1]).unwrap();
-        OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .unwrap()
-            .write_all(b"{")
-            .unwrap();
-
-        let error = read_continuity_traces(&path).unwrap_err().to_string();
-        std::fs::remove_file(&path).unwrap();
-        assert!(error.contains("parse continuity trace line 2"), "{error}");
-    }
-
-    #[tokio::test]
-    async fn trace_reader_accepts_additive_expected_fields() {
-        let (traces, _, _) = run_all().await;
-        let path = temporary_trace_path();
-        write_continuity_traces(&path, &traces[..1]).unwrap();
-        let decoded = read_continuity_traces(&path).unwrap();
-        assert_eq!(decoded.len(), 1);
-        assert_eq!(decoded[0].fixture_id, traces[0].fixture_id);
-        assert_eq!(decoded[0].query_id, traces[0].query_id);
-        let mut value = serde_json::to_value(&traces[0]).unwrap();
-        value["expected"]["future_annotation"] = serde_json::json!(true);
-        assert!(serde_json::from_value::<ExpectedRelevance>(value["expected"].clone()).is_err());
-        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
-        assert_eq!(
-            read_continuity_traces(&path).unwrap()[0].expected,
-            traces[0].expected
-        );
-
-        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

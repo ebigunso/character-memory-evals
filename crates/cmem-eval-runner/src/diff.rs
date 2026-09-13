@@ -195,13 +195,13 @@ mod tests {
     use super::*;
     use serde_json::{Value, json};
 
-    fn row(run_id: &str, latency_ms: u128, rank: usize) -> PerQuestionResult {
+    fn row(run_id: &str, latency_ms: u64, rank: usize) -> PerQuestionResult {
         row_with(run_id, latency_ms, rank, |_| {})
     }
 
     fn row_with(
         run_id: &str,
-        latency_ms: u128,
+        latency_ms: u64,
         rank: usize,
         edit: impl FnOnce(&mut Value),
     ) -> PerQuestionResult {

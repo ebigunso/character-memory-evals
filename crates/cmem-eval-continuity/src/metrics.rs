@@ -6,7 +6,7 @@ use cmem_eval::{
 };
 use serde_json::{Map, Value};
 
-use crate::{ContinuityQueryTrace, ContinuityScenario, InteractionEvent, ScenarioPattern};
+use crate::{ContinuityQueryObservation, ContinuityScenario, InteractionEvent, ScenarioPattern};
 
 const GAP_BUCKETS: [&str; 3] = ["short", "medium", "long"];
 const RATIONALE_CATEGORIES: [RationaleCategory; 8] = [
@@ -60,7 +60,7 @@ pub fn continuity_metric_family(
 pub fn insert_continuity_metrics(
     out: &mut Map<String, Value>,
     scenario: &ContinuityScenario,
-    trace: &ContinuityQueryTrace,
+    trace: &ContinuityQueryObservation,
     config: &MetricsConfig,
     mode: RetrievalMode,
 ) {
@@ -118,7 +118,7 @@ pub fn insert_continuity_metrics(
 fn insert_hub_metrics(
     out: &mut Map<String, Value>,
     scenario: &ContinuityScenario,
-    trace: &ContinuityQueryTrace,
+    trace: &ContinuityQueryObservation,
     graph_outcomes: &[RetrieveOutcome],
 ) {
     let hub_ids = scenario
@@ -201,7 +201,7 @@ fn insert_hub_metrics(
 fn insert_correction_metrics(
     out: &mut Map<String, Value>,
     scenario: &ContinuityScenario,
-    trace: &ContinuityQueryTrace,
+    trace: &ContinuityQueryObservation,
     retrieved_ids: &[String],
     graph_outcomes: &[RetrieveOutcome],
 ) {
@@ -255,7 +255,7 @@ fn insert_correction_metrics(
 
 fn insert_rationale_metrics(
     out: &mut Map<String, Value>,
-    trace: &ContinuityQueryTrace,
+    trace: &ContinuityQueryObservation,
     graph_outcomes: &[RetrieveOutcome],
 ) {
     let Some(categories) = &rationale_categories(graph_outcomes) else {
@@ -289,7 +289,7 @@ fn insert_rationale_metrics(
 
 fn insert_pollution_metrics(
     out: &mut Map<String, Value>,
-    trace: &ContinuityQueryTrace,
+    trace: &ContinuityQueryObservation,
     graph_outcomes: &[RetrieveOutcome],
 ) {
     let relevant = trace
@@ -431,7 +431,7 @@ fn ranked_ids_for_gold(items: &[RetrievedItem], gold_ids: &[String]) -> Vec<Stri
         .collect()
 }
 
-fn gap_days(scenario: &ContinuityScenario, trace: &ContinuityQueryTrace) -> Option<f64> {
+fn gap_days(scenario: &ContinuityScenario, trace: &ContinuityQueryObservation) -> Option<f64> {
     let relevant = trace
         .expected
         .relevant_external_ids
@@ -624,7 +624,7 @@ mod tests {
         }
     }
 
-    fn trace(pattern: ScenarioPattern) -> ContinuityQueryTrace {
+    fn trace(pattern: ScenarioPattern) -> ContinuityQueryObservation {
         let items = vec![item("relevant", 1), item("sampled-negative", 2)];
         let mut native_trace = RetrievalTrace::empty();
         native_trace.section_assignments = vec![
@@ -634,7 +634,7 @@ mod tests {
             ),
             assignment("sampled-negative", vec![RationaleCategory::Semantic]),
         ];
-        ContinuityQueryTrace {
+        ContinuityQueryObservation {
             fixture_id: "fixture".to_string(),
             namespace: "namespace".to_string(),
             pattern,
@@ -663,7 +663,7 @@ mod tests {
     }
 
     fn mutate_trace(
-        trace: &mut ContinuityQueryTrace,
+        trace: &mut ContinuityQueryObservation,
         mutate: impl FnOnce(&mut Option<RetrievalTrace>),
     ) {
         let (items, _, _, _, mut outcomes) = std::mem::take(&mut trace.retrieval).into_parts();
@@ -672,7 +672,7 @@ mod tests {
             RetrievedContextPack::from_ranked_items(items, outcomes, ContextRenderer::PlainText);
     }
 
-    fn replace_items(trace: &mut ContinuityQueryTrace, items: Vec<RetrievedItem>) {
+    fn replace_items(trace: &mut ContinuityQueryObservation, items: Vec<RetrievedItem>) {
         let (_, _, _, _, telemetry) = std::mem::take(&mut trace.retrieval).into_parts();
         trace.retrieval =
             RetrievedContextPack::from_ranked_items(items, telemetry, ContextRenderer::PlainText);

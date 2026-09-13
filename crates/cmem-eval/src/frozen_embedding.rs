@@ -10,29 +10,14 @@ use sha2::{Digest, Sha256};
 pub const FROZEN_EMBEDDING_STORE_SCHEMA_VERSION: u32 = 2;
 pub const FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum FrozenEmbeddingSource {
-    OpenAiApi,
-    TestFixture,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum FrozenEmbeddingDimensionPolicy {
-    ModelNative,
-    ExplicitNonstandard,
-    TestFixture,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct FrozenEmbeddingStore {
     pub schema_version: u32,
     pub model: String,
     pub vector_size: usize,
-    pub dimension_policy: FrozenEmbeddingDimensionPolicy,
-    pub source: FrozenEmbeddingSource,
+    pub dimension_policy: String,
+    pub source: String,
     pub entries: Vec<FrozenEmbeddingEntry>,
 }
 
@@ -47,20 +32,7 @@ pub struct FrozenEmbeddingEntry {
 impl FrozenEmbeddingStore {
     pub fn new(
         model: impl Into<String>,
-        source: FrozenEmbeddingSource,
-        embeddings: impl IntoIterator<Item = (String, Vec<f32>)>,
-    ) -> Result<Self> {
-        let dimension_policy = match source {
-            FrozenEmbeddingSource::OpenAiApi => FrozenEmbeddingDimensionPolicy::ModelNative,
-            FrozenEmbeddingSource::TestFixture => FrozenEmbeddingDimensionPolicy::TestFixture,
-        };
-        Self::new_with_dimension_policy(model, source, dimension_policy, embeddings)
-    }
-
-    pub fn new_with_dimension_policy(
-        model: impl Into<String>,
-        source: FrozenEmbeddingSource,
-        dimension_policy: FrozenEmbeddingDimensionPolicy,
+        source: impl Into<String>,
         embeddings: impl IntoIterator<Item = (String, Vec<f32>)>,
     ) -> Result<Self> {
         let model = model.into();
@@ -81,8 +53,8 @@ impl FrozenEmbeddingStore {
             schema_version: FROZEN_EMBEDDING_STORE_SCHEMA_VERSION,
             model,
             vector_size,
-            dimension_policy,
-            source,
+            dimension_policy: "provided_vectors".to_string(),
+            source: source.into(),
             entries,
         };
         store.validate()?;
@@ -117,33 +89,6 @@ impl FrozenEmbeddingStore {
         }
         if self.vector_size == 0 {
             bail!("frozen embedding store vector_size must be greater than zero");
-        }
-        match (self.source, self.dimension_policy) {
-            (
-                FrozenEmbeddingSource::OpenAiApi,
-                FrozenEmbeddingDimensionPolicy::ModelNative
-                | FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
-            ) => {
-                let expected_policy = classify_frozen_embedding_dimensions(
-                    &self.model,
-                    self.vector_size,
-                    self.dimension_policy == FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
-                )?;
-                if self.dimension_policy != expected_policy {
-                    bail!(
-                        "frozen embedding store dimension_policy={:?} is inconsistent with model {:?} and vector_size {}",
-                        self.dimension_policy,
-                        self.model,
-                        self.vector_size
-                    );
-                }
-            }
-            (FrozenEmbeddingSource::TestFixture, FrozenEmbeddingDimensionPolicy::TestFixture) => {}
-            (source, policy) => {
-                bail!(
-                    "frozen embedding store source={source:?} is incompatible with dimension_policy={policy:?}"
-                );
-            }
         }
         if self.entries.is_empty() {
             bail!("frozen embedding store must contain at least one entry");
@@ -206,23 +151,6 @@ pub fn model_native_embedding_vector_size(model: &str) -> Result<usize> {
     }
 }
 
-pub fn classify_frozen_embedding_dimensions(
-    model: &str,
-    vector_size: usize,
-    allow_nonstandard_dimensions: bool,
-) -> Result<FrozenEmbeddingDimensionPolicy> {
-    let canonical_width = model_native_embedding_vector_size(model)?;
-    if vector_size == canonical_width {
-        return Ok(FrozenEmbeddingDimensionPolicy::ModelNative);
-    }
-    if allow_nonstandard_dimensions {
-        return Ok(FrozenEmbeddingDimensionPolicy::ExplicitNonstandard);
-    }
-    bail!(
-        "embedding vector_size {vector_size} for model {model:?} differs from canonical width {canonical_width}; pass --allow-nonstandard-dimensions only to generate an explicit nonstandard test fixture; live Character Memory continuity requires canonical width {canonical_width}"
-    )
-}
-
 #[derive(Debug, Clone)]
 pub struct FrozenEmbeddingProvider {
     inner: Arc<FrozenEmbeddingProviderInner>,
@@ -283,12 +211,12 @@ impl FrozenEmbeddingProvider {
         self.inner.store.vector_size
     }
 
-    pub fn source(&self) -> FrozenEmbeddingSource {
-        self.inner.store.source
+    pub fn source(&self) -> &str {
+        &self.inner.store.source
     }
 
-    pub fn dimension_policy(&self) -> FrozenEmbeddingDimensionPolicy {
-        self.inner.store.dimension_policy
+    pub fn dimension_policy(&self) -> &str {
+        &self.inner.store.dimension_policy
     }
 
     pub fn store_sha256(&self) -> Result<String> {
@@ -465,45 +393,6 @@ impl FrozenEmbeddingManifest {
         provider: &FrozenEmbeddingProvider,
     ) -> Result<Vec<FrozenSimilarityMeasurement>> {
         self.validate()?;
-        let manifest_hashes = self
-            .unique_texts()?
-            .into_iter()
-            .map(|text| text_sha256(&text))
-            .collect::<BTreeSet<_>>();
-        let store_hashes = provider
-            .inner
-            .store
-            .entries
-            .iter()
-            .map(|entry| entry.text_sha256.clone())
-            .collect::<BTreeSet<_>>();
-        let missing = manifest_hashes
-            .difference(&store_hashes)
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        let extras = store_hashes
-            .difference(&manifest_hashes)
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        if !missing.is_empty() || !extras.is_empty() {
-            bail!(
-                "frozen embedding manifest/store must be a strict bijection: missing manifest entry count: {} (first SHA-256 keys: [{}]); extra store entry count: {} (first SHA-256 keys: [{}])",
-                missing.len(),
-                missing
-                    .iter()
-                    .take(5)
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                extras.len(),
-                extras
-                    .iter()
-                    .take(5)
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
         let texts_by_id = self
             .texts
             .iter()
@@ -611,50 +500,14 @@ mod tests {
     }
 
     #[test]
-    fn openai_store_dimension_policy_is_explicit_and_self_consistent() {
-        let native = FrozenEmbeddingStore::new(
-            "text-embedding-3-small",
-            FrozenEmbeddingSource::OpenAiApi,
-            [("native".to_string(), vec![0.0; 1_536])],
-        )
-        .unwrap();
-        assert_eq!(
-            native.dimension_policy,
-            FrozenEmbeddingDimensionPolicy::ModelNative
-        );
-
-        let error = FrozenEmbeddingStore::new(
-            "text-embedding-3-large",
-            FrozenEmbeddingSource::OpenAiApi,
-            [("reduced".to_string(), vec![0.0; 1_024])],
-        )
-        .unwrap_err()
-        .to_string();
-        for token in [
-            "text-embedding-3-large",
-            "1024",
-            "3072",
-            "--allow-nonstandard-dimensions",
-        ] {
-            assert!(error.contains(token), "missing {token:?} in {error}");
-        }
-
-        let reduced = FrozenEmbeddingStore::new_with_dimension_policy(
-            "text-embedding-3-large",
-            FrozenEmbeddingSource::OpenAiApi,
-            FrozenEmbeddingDimensionPolicy::ExplicitNonstandard,
-            [("reduced".to_string(), vec![0.0; 1_024])],
-        )
-        .unwrap();
-        assert_eq!(
-            reduced.dimension_policy,
-            FrozenEmbeddingDimensionPolicy::ExplicitNonstandard
-        );
-        assert!(
-            String::from_utf8(reduced.canonical_bytes().unwrap())
-                .unwrap()
-                .contains("\"dimension_policy\": \"explicit_nonstandard\"")
-        );
+    fn provenance_and_dimension_labels_are_opaque_descriptions() {
+        let mut store = smoke_store();
+        store.source = "another provider".into();
+        store.dimension_policy = "historical width description".into();
+        let bytes = store.canonical_bytes().unwrap();
+        let loaded: FrozenEmbeddingStore = serde_json::from_slice(&bytes).unwrap();
+        loaded.validate().unwrap();
+        assert_eq!(loaded, store);
     }
 
     #[test]
@@ -693,11 +546,11 @@ mod tests {
     }
 
     #[test]
-    fn manifest_validation_rejects_store_supersets() {
+    fn manifest_validation_accepts_store_supersets() {
         let extra_text = "This stale vector is not part of the runtime lookup set.";
         let store = FrozenEmbeddingStore::new(
             "task21-smoke-model",
-            FrozenEmbeddingSource::TestFixture,
+            "test_fixture",
             smoke_store()
                 .entries
                 .into_iter()
@@ -713,14 +566,16 @@ mod tests {
         )
         .unwrap();
 
-        let error = smoke_manifest()
-            .validate_store(&provider)
-            .unwrap_err()
-            .to_string();
-
-        assert!(error.contains("strict bijection"), "{error}");
-        assert!(error.contains("extra store entry count: 1"), "{error}");
-        assert!(error.contains(&text_sha256(extra_text)), "{error}");
+        assert_eq!(smoke_manifest().validate_store(&provider).unwrap().len(), 3);
+        let mut wrong_order = smoke_manifest();
+        wrong_order.similarity_orderings[0].descending_ids.reverse();
+        assert!(
+            wrong_order
+                .validate_store(&provider)
+                .unwrap_err()
+                .to_string()
+                .contains("similarity ordering")
+        );
     }
 
     #[test]
@@ -831,7 +686,7 @@ mod tests {
     fn smoke_store() -> FrozenEmbeddingStore {
         FrozenEmbeddingStore::new(
             "task21-smoke-model",
-            FrozenEmbeddingSource::TestFixture,
+            "test_fixture",
             [
                 (
                     "Where is the cobalt notebook?".to_string(),

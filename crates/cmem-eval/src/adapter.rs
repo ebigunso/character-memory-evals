@@ -5,13 +5,13 @@ use crate::{
     ControllableDimensionPolicy, ControllableSimilarityEmbeddingProvider,
     ControllableSimilarityFixture, CorrectMemoryInput, CorrectionTargetInput,
     DeterministicEmbeddingProvider, EmbeddingProviderConfig, EmbeddingRuntimeBinding, EpisodeInput,
-    ExternalSourceRefInput, ForgetMemoryInput, FrozenEmbeddingDimensionPolicy,
-    FrozenEmbeddingProvider, FrozenEmbeddingSource, GraphEnrichmentInput, LifecycleMutationResult,
-    LinkMemoryInput, LinkMemoryResult, LiveEmbeddingProvider, MemoryEndpointInput,
-    NamespaceLifecycleResult, ObservationInput, PrepareWriteInput, PreparedWritePlan,
-    RecordedOutcome, ReplacementDerivedMemoryInput, RetrievalMode, RetrievalSurfacePolicy,
-    RetrieveInput, RetrievedContextPack, RetrievedItem, SourceProvenanceInput, SupersessionResult,
-    VectorStoreMode, WriteResult, deterministic_operation_id,
+    ExternalSourceRefInput, ForgetMemoryInput, FrozenEmbeddingProvider, GraphEnrichmentInput,
+    LifecycleMutationResult, LinkMemoryInput, LinkMemoryResult, LiveEmbeddingProvider,
+    MemoryEndpointInput, NamespaceLifecycleResult, ObservationInput, PrepareWriteInput,
+    PreparedWritePlan, RecordedOutcome, ReplacementDerivedMemoryInput, RetrievalMode,
+    RetrievalSurfacePolicy, RetrieveInput, RetrievedContextPack, RetrievedItem,
+    SourceProvenanceInput, SupersessionResult, VectorStoreMode, WriteResult,
+    deterministic_operation_id,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
@@ -198,7 +198,7 @@ impl CharacterMemoryAdapter {
         config: &BenchmarkRunConfig,
         binding: EmbeddingRuntimeBinding,
     ) -> Result<Self> {
-        Self::validate_runtime_binding(config, &binding, false)?;
+        Self::validate_runtime_binding(config, &binding)?;
         Self::new_internal(run_root, config, binding).await
     }
 
@@ -271,39 +271,6 @@ impl CharacterMemoryAdapter {
         run_root: &Path,
         config: &BenchmarkRunConfig,
     ) -> Result<Self> {
-        Self::new_with_frozen_embeddings_internal(run_root, config, false).await
-    }
-
-    pub async fn new_with_frozen_embedding_provider(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        provider: FrozenEmbeddingProvider,
-    ) -> Result<Self> {
-        Self::new_with_frozen_embedding_provider_internal(run_root, config, provider, false).await
-    }
-
-    #[cfg(test)]
-    async fn new_with_test_frozen_embeddings(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-    ) -> Result<Self> {
-        Self::new_with_frozen_embeddings_internal(run_root, config, true).await
-    }
-
-    #[cfg(test)]
-    async fn new_with_test_frozen_embedding_provider(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        provider: FrozenEmbeddingProvider,
-    ) -> Result<Self> {
-        Self::new_with_frozen_embedding_provider_internal(run_root, config, provider, true).await
-    }
-
-    async fn new_with_frozen_embeddings_internal(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        allow_test_fixture: bool,
-    ) -> Result<Self> {
         config.validate()?;
         if config.backend.embedding.provider != EmbeddingProviderConfig::Frozen {
             bail!("new_with_frozen_embeddings requires backend.embedding.provider=frozen");
@@ -324,31 +291,18 @@ impl CharacterMemoryAdapter {
             &config.backend.embedding.model,
             vector_size,
         )?;
-        Self::new_with_frozen_embedding_provider_internal(
-            run_root,
-            config,
-            provider,
-            allow_test_fixture,
-        )
-        .await
+        Self::new_with_frozen_embedding_provider(run_root, config, provider).await
     }
 
-    async fn new_with_frozen_embedding_provider_internal(
+    pub async fn new_with_frozen_embedding_provider(
         run_root: &Path,
         config: &BenchmarkRunConfig,
         provider: FrozenEmbeddingProvider,
-        allow_test_fixture: bool,
     ) -> Result<Self> {
         config.validate()?;
         if config.backend.embedding.provider != EmbeddingProviderConfig::Frozen {
             bail!("new_with_frozen_embedding_provider requires backend.embedding.provider=frozen");
         }
-        let store_path = config
-            .backend
-            .embedding
-            .store_path
-            .as_deref()
-            .context("frozen embedding provider requires backend.embedding.store_path")?;
         let vector_size = config
             .backend
             .embedding
@@ -367,36 +321,10 @@ impl CharacterMemoryAdapter {
                 provider.vector_size()
             );
         }
-        if !allow_test_fixture && provider.source() != FrozenEmbeddingSource::OpenAiApi {
-            bail!(
-                "live frozen embedding adapter requires source=open_ai_api; store {store_path} declares source={:?}",
-                provider.source()
-            );
-        }
-        let dimension_policy = if provider.source() == FrozenEmbeddingSource::TestFixture {
-            FrozenEmbeddingDimensionPolicy::TestFixture
-        } else {
-            crate::classify_frozen_embedding_dimensions(
-                provider.model(),
-                provider.vector_size(),
-                false,
-            )?
-        };
-        Self::validate_runtime_binding(
-            config,
-            &EmbeddingRuntimeBinding::Frozen {
-                store: provider.clone(),
-                dimension_policy,
-            },
-            allow_test_fixture,
-        )?;
         Self::new_internal(
             run_root,
             config,
-            EmbeddingRuntimeBinding::Frozen {
-                store: provider,
-                dimension_policy,
-            },
+            EmbeddingRuntimeBinding::Frozen { store: provider },
         )
         .await
     }
@@ -433,7 +361,6 @@ impl CharacterMemoryAdapter {
     fn validate_runtime_binding(
         config: &BenchmarkRunConfig,
         binding: &EmbeddingRuntimeBinding,
-        allow_test_fixture: bool,
     ) -> Result<()> {
         config.validate()?;
         let configured_size = match config.backend.embedding.vector_size {
@@ -461,10 +388,7 @@ impl CharacterMemoryAdapter {
                     );
                 }
             }
-            EmbeddingRuntimeBinding::Frozen {
-                store,
-                dimension_policy,
-            } => {
+            EmbeddingRuntimeBinding::Frozen { store } => {
                 if store.model() != config.backend.embedding.model
                     || store.vector_size() != configured_size
                 {
@@ -473,16 +397,6 @@ impl CharacterMemoryAdapter {
                         store.model(),
                         store.vector_size(),
                         config.backend.embedding.model
-                    );
-                }
-                if !allow_test_fixture && store.source() != FrozenEmbeddingSource::OpenAiApi {
-                    bail!("live frozen embedding adapter requires source=open_ai_api");
-                }
-                if *dimension_policy == FrozenEmbeddingDimensionPolicy::TestFixture
-                    && store.source() != FrozenEmbeddingSource::TestFixture
-                {
-                    bail!(
-                        "frozen runtime binding declares test_fixture dimensions for a live store"
                     );
                 }
             }
@@ -3072,7 +2986,7 @@ mod tests {
             model: config.backend.embedding.model.clone(),
         };
 
-        CharacterMemoryAdapter::validate_runtime_binding(&config, &binding, false).unwrap();
+        CharacterMemoryAdapter::validate_runtime_binding(&config, &binding).unwrap();
     }
 
     #[test]
@@ -3095,7 +3009,7 @@ mod tests {
     async fn frozen_provider_uses_exact_fixture_text_after_runtime_prefixes() {
         let store = FrozenEmbeddingStore::new(
             "task21-smoke-model",
-            FrozenEmbeddingSource::TestFixture,
+            "test_fixture",
             [(
                 "The cobalt notebook is in the east cabinet.".to_string(),
                 vec![1.0, 0.0, 0.0],
@@ -3128,89 +3042,6 @@ mod tests {
         };
         assert!(detail.contains("frozen embedding cache miss"), "{detail}");
         assert!(detail.contains("cmem-eval embeddings generate"), "{detail}");
-    }
-
-    #[tokio::test]
-    async fn live_frozen_construction_and_reconstruction_reject_test_fixture_provenance() {
-        let run_directory = tempdir().unwrap();
-        let run_root = run_directory.path();
-        let directory = tempdir().unwrap();
-        let store_path = directory.path().join("test-fixture-store.json");
-        let store = FrozenEmbeddingStore::new(
-            "text-embedding-3-small",
-            FrozenEmbeddingSource::TestFixture,
-            [("fixture text".to_string(), vec![0.0; 1536])],
-        )
-        .unwrap();
-        fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
-        let mut config = adapter_config("frozen-provenance".to_string());
-        config.backend.embedding.provider = EmbeddingProviderConfig::Frozen;
-        config.backend.embedding.model = "text-embedding-3-small".to_string();
-        config.backend.embedding.vector_size = Some(1536);
-        config.backend.embedding.store_path = Some(store_path.display().to_string());
-        let provider =
-            FrozenEmbeddingProvider::load(&store_path, "text-embedding-3-small", 1536).unwrap();
-
-        let error =
-            match CharacterMemoryAdapter::new_with_frozen_embeddings(run_root, &config).await {
-                Ok(_) => panic!("live construction admitted test-fixture provenance"),
-                Err(error) => error.to_string(),
-            };
-        assert!(error.contains("source=open_ai_api"), "{error}");
-        assert!(error.contains("TestFixture"), "{error}");
-        assert!(error.contains(&store_path.display().to_string()), "{error}");
-
-        let error = match CharacterMemoryAdapter::reconstruct_with_frozen_embeddings(
-            run_root,
-            &config,
-            "continuity-frozen-provenance",
-        )
-        .await
-        {
-            Ok(_) => panic!("live reconstruction admitted test-fixture provenance"),
-            Err(error) => error.to_string(),
-        };
-        assert!(error.contains("source=open_ai_api"), "{error}");
-        assert!(error.contains("TestFixture"), "{error}");
-        assert!(error.contains(&store_path.display().to_string()), "{error}");
-
-        let error = match CharacterMemoryAdapter::new_with_frozen_embedding_provider(
-            run_root,
-            &config,
-            provider.clone(),
-        )
-        .await
-        {
-            Ok(_) => panic!("provider construction admitted test-fixture provenance"),
-            Err(error) => error.to_string(),
-        };
-        assert!(error.contains("source=open_ai_api"), "{error}");
-        assert!(error.contains("TestFixture"), "{error}");
-        assert!(error.contains(&store_path.display().to_string()), "{error}");
-
-        let error = match CharacterMemoryAdapter::reconstruct_with_frozen_embedding_provider(
-            run_root,
-            &config,
-            "continuity-frozen-provider-provenance",
-            provider.clone(),
-        )
-        .await
-        {
-            Ok(_) => panic!("provider reconstruction admitted test-fixture provenance"),
-            Err(error) => error.to_string(),
-        };
-        assert!(error.contains("source=open_ai_api"), "{error}");
-        assert!(error.contains("TestFixture"), "{error}");
-        assert!(error.contains(&store_path.display().to_string()), "{error}");
-
-        CharacterMemoryAdapter::new_with_test_frozen_embeddings(run_root, &config)
-            .await
-            .expect("the cfg(test)-only constructor should admit explicit test provenance");
-        CharacterMemoryAdapter::new_with_test_frozen_embedding_provider(
-            run_root, &config, provider,
-        )
-        .await
-        .expect("the cfg(test)-only provider constructor should admit explicit test provenance");
     }
 
     fn file_contains(path: &Path, needle: &[u8]) -> bool {
@@ -3826,7 +3657,7 @@ mod tests {
         let store_path = directory.path().join("strict-runtime-store.json");
         let store = FrozenEmbeddingStore::new(
             "text-embedding-3-small",
-            FrozenEmbeddingSource::TestFixture,
+            "test_fixture",
             [(runtime_lookup_text, vec![1.0; 1_536])],
         )
         .unwrap();
@@ -3837,8 +3668,7 @@ mod tests {
         config.backend.embedding.model = "text-embedding-3-small".to_string();
         config.backend.embedding.vector_size = Some(1_536);
         config.backend.embedding.store_path = Some(store_path.display().to_string());
-        let adapter = (CharacterMemoryAdapter::new_with_test_frozen_embeddings(run_root, &config)
-            .await)
+        let adapter = (CharacterMemoryAdapter::new_with_frozen_embeddings(run_root, &config).await)
             .expect("frozen drift-guard adapter construction");
         (adapter.open_namespace(namespace).await).expect("frozen drift-guard namespace open");
         let plan = (adapter

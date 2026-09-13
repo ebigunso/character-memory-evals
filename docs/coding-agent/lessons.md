@@ -902,3 +902,68 @@ Prevention:
 
 Evidence:
 - Accepted Copilot findings on CME #30; trace_reader_accepts_additive_expected_fields and header_accepts_additive_controllable_policy_fields; Worker artifact-type census.
+
+## 2026-09-13 — Store retention intent once in derived artifacts [tags: review, artifacts, invariants]
+
+Symptom:
+- A persisted run header could pair a retention flag with a contradictory optional reason after artifact readers adopted ordinary serde. Independently named output files also allowed duplicate destinations.
+
+Fix applied:
+- Persist retention as one optional reason; its presence means retention. Configuration still validates its existing flag/reason pair. Derive header.json and report.json beside the sole .jsonl output, so the three names cannot collide; existing-leaf links remain rejected.
+
+Prevention:
+- When simplifying readers, remove redundant artifact fields that encode the same choice. Exercise both retained and non-retained headers and output-name collisions at the producer; do not rebuild a validator for contradictions the artifact need not represent.
+
+Evidence:
+- Accepted Copilot findings on CME #28 and the Task_5 design ruling; cli_rejects_non_jsonl_output_before_creating_directories and continuity_run_cleans_or_retains_stores_on_success_and_admission_failure.
+
+## 2026-09-13 — Require fresh output names instead of permitting overwrite [tags: review, filesystem, artifacts]
+
+Symptom:
+- Two existing hard links named traces.jsonl and header.json passed output admission; writing the header then destroyed the trace while the run reported success.
+
+Root cause:
+- Admission rejected symbolic links but permitted regular-file overwrite. Hard links are regular files, so distinct names did not establish distinct writable objects.
+
+Fix applied:
+- Reject every existing output leaf by name before artifact writes, including regular files, links and directories. A caller chooses a fresh output directory or deliberately removes prior outputs.
+
+Prevention:
+- Treat fresh output names as the run contract; do not reintroduce overwrite admission. Keep the hard-link preservation regression and exercise each artifact name independently. The durable review hotspot is output ownership, including hard links as well as symbolic links.
+
+Evidence:
+- Reviewer P1 at 77cab7b and the Task_5 design ruling; hard_linked_outputs_fail_before_writing_artifacts and existing_output_files_and_directories_fail_admission.
+
+## 2026-09-13 — Enforce no-overwrite at file creation [tags: review, filesystem, artifacts]
+
+Symptom:
+- An output appearing after admission could still be truncated by an artifact writer.
+
+Root cause:
+- The absence check established a point-in-time observation, while File::create and fs::write still allowed replacement.
+
+Fix applied:
+- Every artifact writer uses File::create_new; writer regressions assert that existing bytes survive a failed write. Seal destination writers follow the same rule.
+
+Prevention:
+- Enforce ownership invariants in the filesystem operation itself as well as early admission; verify every concrete writer, including dataset-specific and seal writers.
+
+Evidence:
+- Accepted Copilot finding on CME #31; native-outcome, summary, report and merged-trace round trips plus the header retention regression.
+
+## 2026-09-13 — Update CI consumers when removing CLI flags [tags: review, cli, ci]
+
+Symptom:
+- The embedded smoke job still supplied three removed output flags and failed in clap before comparing results.
+
+Root cause:
+- The CLI and README changed without auditing the invocation inside the hidden .github directory.
+
+Fix applied:
+- The maintained CI smoke uses only --out and compares the merged JSONL artifacts.
+
+Prevention:
+- Search tracked workflow invocations alongside source and README when removing CLI arguments, then execute the changed workflow command lines locally.
+
+Evidence:
+- Accepted Copilot finding on CME #31; embedded-smoke job command replay and removed-flag census.

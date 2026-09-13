@@ -12,7 +12,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PerQuestionResult {
     pub run_id: String,
     pub question_id: String,
@@ -26,7 +26,7 @@ pub struct PerQuestionResult {
     pub link_outcomes: Vec<crate::RecordedOutcome<crate::LinkOutcome>>,
     pub lifecycle_outcomes: Vec<crate::RecordedOutcome<crate::LifecycleMutationOutcome>>,
     pub metrics: MetricsRecord,
-    pub latency_ms: u128,
+    pub latency_ms: u64,
     pub context_char_count: usize,
     pub context_word_count: usize,
     pub context: ResultContextMetrics,
@@ -37,7 +37,6 @@ pub struct PerQuestionResult {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RunSummary {
-    pub header: RunHeader,
     pub num_questions: usize,
     pub metrics: NumericMetricSummary,
     pub metric_support: MetricSupportSummary,
@@ -63,7 +62,7 @@ pub struct RunHeader {
     pub adapter: RunAdapterMetadata,
     pub storage_root: PathBuf,
     pub storage_root_sha256: String,
-    pub retain_stores: bool,
+    /// Stores are retained if and only if a reason is present.
     pub retain_reason: Option<String>,
 }
 
@@ -142,7 +141,7 @@ impl Default for RunAdapterMetadata {
 }
 
 pub fn write_jsonl(path: &Path, rows: &[PerQuestionResult]) -> Result<()> {
-    let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let mut file = File::create_new(path).with_context(|| format!("create {}", path.display()))?;
     for row in rows {
         serde_json::to_writer(&mut file, &canonical_row_value(row)?)?;
         file.write_all(b"\n")?;
@@ -165,7 +164,7 @@ fn canonical_row_value(row: &PerQuestionResult) -> serde_json::Result<Value> {
 }
 
 pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
-    let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let mut file = File::create_new(path).with_context(|| format!("create {}", path.display()))?;
     serde_json::to_writer_pretty(&mut file, summary)?;
     file.write_all(b"\n")?;
     Ok(())
@@ -189,7 +188,6 @@ pub fn reject_empty_run(rows: &[PerQuestionResult]) -> Result<()> {
 }
 
 pub fn summarize_rows(
-    header: RunHeader,
     rows: &[PerQuestionResult],
     metric_families: &[MetricFamily],
 ) -> Result<RunSummary> {
@@ -203,7 +201,6 @@ pub fn summarize_rows(
         .collect::<Vec<_>>();
     let degradation = summarize_degradation(rows);
     Ok(RunSummary {
-        header,
         num_questions: rows.len(),
         metrics: aggregate_numeric_metrics(&metric_rows),
         metric_support: metric_support_summary(&metric_rows),
@@ -254,13 +251,14 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<PerQuestionResult>> {
 mod tests {
     use super::*;
 
-    fn test_header() -> RunHeader {
-        RunHeader {
+    #[test]
+    fn header_accepts_additive_controllable_policy_fields() {
+        let mut header = RunHeader {
             run_id: "r".into(),
-            dataset: dataset(),
+            dataset: DatasetId::new("locomo").unwrap(),
             dataset_kind: DatasetKind::LoCoMo,
             input_sha256: crate::text_sha256("input"),
-            embedding_bindings: BTreeMap::from([("locomo".into(), embedding_binding())]),
+            embedding_bindings: BTreeMap::new(),
             harness_commit: "test".into(),
             library_commit: "test".into(),
             generated_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
@@ -269,14 +267,8 @@ mod tests {
             adapter: RunAdapterMetadata::live(),
             storage_root: "stores".into(),
             storage_root_sha256: "test".into(),
-            retain_stores: false,
             retain_reason: None,
-        }
-    }
-
-    #[test]
-    fn header_accepts_additive_controllable_policy_fields() {
-        let mut header = test_header();
+        };
         header.embedding_bindings.insert(
             "scenario".into(),
             EmbeddingBindingRecord::Controllable {
@@ -295,18 +287,6 @@ mod tests {
     fn empty_run_is_rejected_before_summary() {
         let error = reject_empty_run(&[]).unwrap_err().to_string();
         assert!(error.contains("produced no result rows"), "{error}");
-    }
-
-    fn dataset() -> DatasetId {
-        DatasetId::new("locomo").unwrap()
-    }
-
-    fn embedding_binding() -> EmbeddingBindingRecord {
-        EmbeddingBindingRecord::Live {
-            provider: crate::LiveEmbeddingProvider::Deterministic,
-            model: "text-embedding-3-small".into(),
-            vector_size: 1536,
-        }
     }
 
     fn metrics(value: Value) -> MetricsRecord {
@@ -358,7 +338,7 @@ mod tests {
             "suppressed_or_deleted_items_returned": null
         }));
 
-        let summary = summarize_rows(test_header(), &[row], &[]).unwrap();
+        let summary = summarize_rows(&[row], &[]).unwrap();
 
         assert!(summary.metric_support["suppressed_or_deleted_items_returned"].unsupported);
         assert_eq!(summary.registry_coverage.required_metrics_present, 0);
@@ -371,13 +351,12 @@ mod tests {
     }
 
     #[test]
-    fn summary_preserves_header_and_measures_latency() {
+    fn summary_measures_latency() {
         let mut row = row(serde_json::json!({"session_recall_any@5": 1.0}));
         row.latency_ms = 7;
         let family = crate::retrieval_metric_family("locomo", [("session", [5].as_slice())]);
 
-        let summary = summarize_rows(test_header(), &[row], &[family]).unwrap();
-        assert_eq!(summary.header, test_header());
+        let summary = summarize_rows(&[row], &[family]).unwrap();
         assert_eq!(summary.latency.latency_ms.p95, Some(7.0));
         assert!(!summary.metrics.contains_key("retrieval_latency_ms"));
         assert_eq!(summary.registry_coverage.required_metrics_present, 1);
@@ -448,6 +427,10 @@ mod tests {
             character_memory::StatsUpdateStatus::failed([], [], Vec::new());
         result.link_outcomes.push(link);
         assert!(summarize_degradation(&[result.clone()]).any_degradation);
+        let existing = std::fs::read(&path).unwrap();
+        assert!(write_jsonl(&path, &[result.clone()]).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), existing);
+        std::fs::remove_file(&path).unwrap();
         write_jsonl(&path, &[result.clone()]).unwrap();
         assert_eq!(
             read_jsonl(&path).unwrap()[0].link_outcomes,
@@ -544,13 +527,12 @@ mod tests {
     #[test]
     fn read_summary_round_trips_summary() {
         let path = temp_path("summary", "json");
-        let summary = summarize_rows(
-            test_header(),
-            &[row(serde_json::json!({"fixed_metric": 1.0}))],
-            &[],
-        )
-        .unwrap();
+        let summary =
+            summarize_rows(&[row(serde_json::json!({"fixed_metric": 1.0}))], &[]).unwrap();
         write_summary(&path, &summary).unwrap();
+        let existing = std::fs::read(&path).unwrap();
+        assert!(write_summary(&path, &summary).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), existing);
         assert_eq!(
             serde_json::to_value(read_summary(&path).unwrap()).unwrap(),
             serde_json::to_value(summary).unwrap()

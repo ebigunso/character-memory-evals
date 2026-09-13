@@ -247,6 +247,14 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_4 review round: trace expected labels use an artifact-side record with ordinary serde; the header's controllable dimension policy permits additive fields while runtime padding/admission stays unchanged. The nested-type census finds no other input DTO with unknown-field denial reachable from rows, traces, headers or reports. Fixture admission and persisted input bytes remain unchanged.
 
+- 2026-09-13 Task_5 worker implementation: continuity writes one JSONL trace with each query result flattened once, alongside header.json and report.json; conventional datasets keep row JSONL with the same standalone header/report layout. Restart observations belong to their probe trace, and the report retains only aggregate/per-scenario metrics and tuning observations with no positional pairing. Frozen stores retain their byte shape as model/text-hash caches; source and dimension policy are descriptive strings, while reuse merging, bijection and live-provenance rejection are deleted. Runtime controllable-vector padding/admission and the ordering validator remain. README documents the merged output and .jsonl admission rule. Final validation and reviewer acceptance are tracked in the Worker handoff.
+
+- 2026-09-13 Task_5 accepted Copilot follow-up: the sole .jsonl output plus fixed sibling header/report names prevents duplicate destinations; the existing CLI regression covers header.json and report.json collisions. RunHeader now carries retention only as optional retain_reason, so the artifact has no contradictory flag/reason pair; configuration retains its two validated keys.
+
+- 2026-09-13 Task_5 P1 correction: shared output admission rejects every existing artifact, header or report name, including regular files, hard links, symbolic links and directories. This replaces the earlier overwrite allowance. The hard-linked trace/header regression verifies rejection before any artifact write and preservation of both links; existing-file coverage now requires rejection. Task_6 follows this priority fix.
+
+- 2026-09-13 Task_5 review round: all JSONL, header and report writers create files atomically without overwrite, closing the gap after admission. Existing-byte preservation is asserted at each writer. The maintained embedded-smoke CI job uses only --out and compares merged artifacts; its command lines are replayed during validation. Task_6 inherits the fix and applies the same creation rule to seal files.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.
@@ -284,6 +292,7 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 - 2026-09-13 Proposed ADR-I-0005: sealed evidence is guaranteed as bytes by hash, never as parseability by the live binary; live readers deserialize only the current shape through derived serde, with no schema version and no unknown-field rejection, and every run states its provenance in one run header. Why: hashes protect bytes completely and the parser promise served no decision while costing a versioning ritual on every change. Replaces ADR-I-0002 in full (Task_4). Resurrection pointers inside a stack cite the pull request whose squash commit last carried the reader; the Orchestrator appends the hash after the stack merges. Status proposed until the decider accepts.
 
 - 2026-09-13 ADR-I-0005 accepted by the decider (ebigunso); status flipped from proposed to accepted before merge.
+- 2026-09-13 Decision (Task_5 contract): one artifact per run for every dataset kind, named by `--out` (which must end in `.jsonl`), with `header.json` and `report.json` derived beside it and no header embedded in any report; continuity rows merge into the trace records (one record per query, restart observations carried by their probe query, the report keeping only the aggregate restart count and dropping the details the traces carry); the frozen embedding store is a text-keyed cache with an ordering validator whose persisted policy and source fields are opaque descriptions, never enforcement. The register records that the tracked canonical configs stopped being the cited bytes in pull request #15 (found by the Task_4 preservation audit; no rewrite).
 
 ## Notes
 - Risks and mitigations: section 6 of the audit.

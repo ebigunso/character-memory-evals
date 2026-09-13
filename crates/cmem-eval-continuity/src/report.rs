@@ -1,30 +1,20 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use crate::ContinuityQueryTrace;
+use anyhow::{Context, Result};
 use cmem_eval::{
-    DegradationSummary, FanoutUtilizationTrace, MetricSupportSummary, NumericMetricSummary,
-    PerQuestionResult, RationaleCategory, RegistryCoverageSummary, RetrievedContextPack,
-    RunSummary, SelectivityTrace, aggregate_numeric_metrics, metric_support_summary,
-    registry_coverage_summary_for,
+    DegradationSummary, LatencySummary, MetricSupportSummary, NumericMetricSummary,
+    RegistryCoverageSummary, aggregate_numeric_metrics, metric_support_summary,
+    registry_coverage_summary_for, summarize_rows,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::{
-    ContinuityQueryTrace, ContinuityScenario, InteractionEvent, RestartObservation, ScenarioPattern,
-};
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContinuityReport {
-    pub header: cmem_eval::RunHeader,
-    pub content: ContinuityReportContent,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ContinuityReportContent {
     pub aggregate: AggregateContinuityReport,
     pub scenarios: BTreeMap<String, ScenarioContinuityReport>,
     pub tuning_observations: Vec<TuningObservation>,
@@ -38,247 +28,87 @@ pub struct AggregateContinuityReport {
     pub metrics: NumericMetricSummary,
     pub metric_support: MetricSupportSummary,
     pub registry_coverage: RegistryCoverageSummary,
+    pub latency: LatencySummary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ScenarioContinuityReport {
-    pub pattern: String,
     pub query_count: usize,
     pub metrics: NumericMetricSummary,
     pub metric_support: MetricSupportSummary,
     pub registry_coverage: RegistryCoverageSummary,
-    pub rationale_samples: Vec<QueryRationaleSample>,
-    pub fanout_decisions: Vec<QueryFanoutDecisions>,
-    pub stats_health_events: Vec<StatsHealthEvent>,
-    pub restart_observations: Vec<RestartObservation>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct QueryRationaleSample {
-    pub query_id: String,
-    pub query: String,
-    pub context_pack: RetrievedContextPack,
-    pub items: Vec<RationaleSampleItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RationaleSampleItem {
-    pub rank: usize,
-    pub object_id: String,
-    pub rationale: Vec<String>,
-    pub categories: Vec<RationaleCategory>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct QueryFanoutDecisions {
-    pub query_id: String,
-    pub utilization: Option<Vec<FanoutUtilizationTrace>>,
-    pub selectivity: Option<Vec<SelectivityTrace>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct StatsHealthEvent {
-    pub query_id: String,
-    pub status: String,
-    pub decision_count: Option<usize>,
-    pub scored_count: Option<usize>,
-    pub fallback_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TuningObservation {
     pub id: String,
     pub finding: String,
-    /// Dynamic-by-design description of the experiment-specific controls.
+    /// Experiment-specific controls used by this measurement.
     pub measurement_regime: Value,
-    /// Dynamic-by-design observation payload whose keys depend on the tuning finding.
+    /// Measurement keys depend on the tuning observation.
     pub observed: Value,
 }
 
 pub struct ContinuityReportInput<'a> {
-    /// Effective controls used to describe tuning measurements.
     pub config: Value,
-    pub scenarios: &'a [ContinuityScenario],
     pub traces: &'a [ContinuityQueryTrace],
-    pub rows: &'a [PerQuestionResult],
-    pub summary: &'a RunSummary,
     pub metric_family: &'a cmem_eval::MetricFamily,
-    pub restart_observations: &'a BTreeMap<String, Vec<RestartObservation>>,
 }
 
 pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<ContinuityReport> {
-    let restart_count = validate_restart_observations(input.scenarios, input.restart_observations)?;
-    let mut scenario_reports = BTreeMap::new();
-    for scenario in input.scenarios {
-        let scenario_traces = input
-            .traces
-            .iter()
-            .filter(|trace| trace.fixture_id == scenario.fixture_id)
-            .collect::<Vec<_>>();
-        let scenario_rows = input
-            .traces
-            .iter()
-            .zip(input.rows)
-            .filter_map(|(trace, row)| (trace.fixture_id == scenario.fixture_id).then_some(row))
-            .collect::<Vec<_>>();
-        let metric_rows = scenario_rows
-            .iter()
-            .map(|row| row.metrics.to_json_map())
-            .collect::<Vec<Map<String, Value>>>();
-        let rationale_samples = scenario_traces
-            .iter()
-            .map(|trace| rationale_sample(trace))
-            .collect();
-        let fanout_decisions = scenario_traces
-            .iter()
-            .map(|trace| {
-                let native_traces = trace
-                    .retrieval
-                    .outcomes()
-                    .iter()
-                    .filter_map(|outcome| outcome.trace.as_ref())
-                    .collect::<Vec<_>>();
-                QueryFanoutDecisions {
-                    query_id: trace.query_id.clone(),
-                    utilization: (!native_traces.is_empty()).then(|| {
-                        native_traces
-                            .iter()
-                            .flat_map(|trace| &trace.fanout_utilization)
-                            .cloned()
-                            .collect()
-                    }),
-                    selectivity: (!native_traces.is_empty()).then(|| {
-                        native_traces
-                            .iter()
-                            .flat_map(|trace| &trace.selectivity_decisions)
-                            .cloned()
-                            .collect()
-                    }),
-                }
-            })
-            .collect();
-        let stats_health_events = scenario_traces
-            .iter()
-            .map(|trace| stats_health_event(trace))
-            .collect();
-        scenario_reports.insert(
-            scenario.fixture_id.clone(),
-            ScenarioContinuityReport {
-                pattern: serde_json::to_value(scenario.pattern)?
-                    .as_str()
-                    .expect("ScenarioPattern serializes as a string")
-                    .to_string(),
-                query_count: scenario_traces.len(),
-                metrics: aggregate_numeric_metrics(&metric_rows),
-                metric_support: metric_support_summary(&metric_rows),
-                registry_coverage: registry_coverage_summary_for(
-                    &metric_rows,
-                    std::slice::from_ref(input.metric_family),
-                ),
-                rationale_samples,
-                fanout_decisions,
-                stats_health_events,
-                restart_observations: input
-                    .restart_observations
-                    .get(&scenario.fixture_id)
-                    .cloned()
-                    .unwrap_or_default(),
-            },
-        );
+    let rows = input
+        .traces
+        .iter()
+        .map(|trace| trace.result.clone())
+        .collect::<Vec<_>>();
+    let summary = summarize_rows(&rows, std::slice::from_ref(input.metric_family))?;
+    let mut grouped = BTreeMap::<String, Vec<Map<String, Value>>>::new();
+    for trace in input.traces {
+        grouped
+            .entry(trace.fixture_id.clone())
+            .or_default()
+            .push(trace.result.metrics.to_json_map());
     }
-    let tuning_observations = tuning_observation(&input.config, input.traces)
+    let scenarios = grouped
         .into_iter()
+        .map(|(fixture_id, metrics)| {
+            (
+                fixture_id,
+                ScenarioContinuityReport {
+                    query_count: metrics.len(),
+                    metrics: aggregate_numeric_metrics(&metrics),
+                    metric_support: metric_support_summary(&metrics),
+                    registry_coverage: registry_coverage_summary_for(
+                        &metrics,
+                        std::slice::from_ref(input.metric_family),
+                    ),
+                },
+            )
+        })
         .collect();
     Ok(ContinuityReport {
-        header: input.summary.header.clone(),
-        content: ContinuityReportContent {
-            aggregate: AggregateContinuityReport {
-                degradation: input.summary.degradation.clone(),
-                query_count: input.summary.num_questions,
-                restart_count,
-                metrics: input.summary.metrics.clone(),
-                metric_support: input.summary.metric_support.clone(),
-                registry_coverage: input.summary.registry_coverage.clone(),
-            },
-            scenarios: scenario_reports,
-            tuning_observations,
+        aggregate: AggregateContinuityReport {
+            degradation: summary.degradation,
+            query_count: summary.num_questions,
+            restart_count: input
+                .traces
+                .iter()
+                .map(|trace| trace.restart_observations.len())
+                .sum(),
+            metrics: summary.metrics,
+            metric_support: summary.metric_support,
+            registry_coverage: summary.registry_coverage,
+            latency: summary.latency,
         },
+        scenarios,
+        tuning_observations: tuning_observation(&input.config, input.traces)
+            .into_iter()
+            .collect(),
     })
 }
 
-fn validate_restart_observations(
-    scenarios: &[ContinuityScenario],
-    observations: &BTreeMap<String, Vec<RestartObservation>>,
-) -> Result<usize> {
-    let selected_fixture_ids = scenarios
-        .iter()
-        .map(|scenario| scenario.fixture_id.as_str())
-        .collect::<BTreeSet<_>>();
-    if let Some(unknown_fixture_id) = observations
-        .keys()
-        .find(|fixture_id| !selected_fixture_ids.contains(fixture_id.as_str()))
-    {
-        bail!(
-            "continuity report restart observations contain unknown or unselected fixture ID {unknown_fixture_id:?}"
-        );
-    }
-
-    let mut restart_count = 0;
-    for scenario in scenarios {
-        let expected = scenario
-            .events
-            .iter()
-            .filter_map(|event| match event {
-                InteractionEvent::Restart {
-                    event_id,
-                    timestamp,
-                    reopen_graph,
-                    reopen_stats,
-                } => Some((event_id, timestamp, reopen_graph, reopen_stats)),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let actual = observations
-            .get(&scenario.fixture_id)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        if actual.len() != expected.len() {
-            bail!(
-                "continuity report fixture {:?} has {} restart observations but scripts {} restart events",
-                scenario.fixture_id,
-                actual.len(),
-                expected.len()
-            );
-        }
-        for (index, (observation, (event_id, timestamp, reopen_graph, reopen_stats))) in
-            actual.iter().zip(expected.iter()).enumerate()
-        {
-            if observation.event_id != **event_id
-                || observation.timestamp != **timestamp
-                || observation.reopen_graph != **reopen_graph
-                || observation.reopen_stats != **reopen_stats
-            {
-                bail!(
-                    "continuity report fixture {:?} restart observation mismatch at index {index}: observation ({:?}, {}, {}, {}), scripted event ({:?}, {}, {}, {})",
-                    scenario.fixture_id,
-                    observation.event_id,
-                    observation.timestamp,
-                    observation.reopen_graph,
-                    observation.reopen_stats,
-                    event_id,
-                    timestamp,
-                    reopen_graph,
-                    reopen_stats
-                );
-            }
-        }
-        restart_count += expected.len();
-    }
-    Ok(restart_count)
-}
-
 pub fn write_continuity_report(path: &Path, report: &ContinuityReport) -> Result<()> {
-    let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let mut file = File::create_new(path).with_context(|| format!("create {}", path.display()))?;
     serde_json::to_writer_pretty(&mut file, report)?;
     file.write_all(b"\n")?;
     Ok(())
@@ -291,82 +121,20 @@ pub fn read_continuity_report(path: &Path) -> Result<ContinuityReport> {
         .with_context(|| format!("decode continuity report {}", path.display()))
 }
 
-fn rationale_sample(trace: &ContinuityQueryTrace) -> QueryRationaleSample {
-    let categories = crate::metrics::rationale_categories(trace.retrieval.outcomes());
-    QueryRationaleSample {
-        query_id: trace.query_id.clone(),
-        query: trace.query.clone(),
-        context_pack: trace.retrieval.clone(),
-        items: trace
-            .retrieval
-            .items()
-            .iter()
-            .map(|item| RationaleSampleItem {
-                rank: item.rank,
-                object_id: item
-                    .external_id
-                    .clone()
-                    .unwrap_or_else(|| format!("{}:{}", item.kind, item.internal_id)),
-                rationale: item.rationale.clone(),
-                categories: categories
-                    .as_ref()
-                    .and_then(|by_id| by_id.get(&item.internal_id))
-                    .cloned()
-                    .unwrap_or_default(),
-            })
-            .collect(),
-    }
-}
-
-fn stats_health_event(trace: &ContinuityQueryTrace) -> StatsHealthEvent {
-    let native_traces = trace
-        .retrieval
-        .outcomes()
-        .iter()
-        .filter_map(|outcome| outcome.trace.as_ref())
-        .collect::<Vec<_>>();
-    let has_trace = !native_traces.is_empty();
-    let decisions = native_traces
-        .iter()
-        .flat_map(|trace| &trace.selectivity_decisions);
-    let decision_count = has_trace.then(|| decisions.clone().count());
-    let scored_count = has_trace.then(|| {
-        decisions
-            .clone()
-            .filter(|decision| decision.score.is_some())
-            .count()
-    });
-    let fallback_count = has_trace.then(|| decisions.filter(|decision| decision.fallback).count());
-    let status = match (decision_count, scored_count, fallback_count) {
-        (None, _, _) => "unsupported",
-        (Some(0), _, _) => "no_decisions",
-        (Some(_), Some(0), Some(_)) => "fallback_only",
-        (Some(_), Some(_), Some(fallback)) if fallback > 0 => "scored_with_fallback",
-        _ => "scored",
-    };
-    StatsHealthEvent {
-        query_id: trace.query_id.clone(),
-        status: status.to_string(),
-        decision_count,
-        scored_count,
-        fallback_count,
-    }
-}
-
 fn tuning_observation(
     config: &Value,
     traces: &[ContinuityQueryTrace],
 ) -> Option<TuningObservation> {
     let hub_traces = traces
         .iter()
-        .filter(|trace| trace.pattern == ScenarioPattern::RecurringHubEntity)
+        .filter(|trace| trace.result.question_type.as_deref() == Some("recurring_hub_entity"))
         .collect::<Vec<_>>();
     let root_counter_samples = hub_traces
         .iter()
         .filter_map(|trace| {
             trace
-                .retrieval
-                .outcomes()
+                .result
+                .retrieval_outcomes
                 .iter()
                 .map(|outcome| {
                     let telemetry = &outcome.rationale.telemetry;
@@ -398,7 +166,7 @@ fn tuning_observation(
         .sum::<usize>();
     let decisions = hub_traces
         .iter()
-        .flat_map(|trace| trace.retrieval.outcomes())
+        .flat_map(|trace| &trace.result.retrieval_outcomes)
         .filter_map(|outcome| outcome.trace.as_ref())
         .flat_map(|trace| &trace.selectivity_decisions)
         .collect::<Vec<_>>();
@@ -438,7 +206,7 @@ fn tuning_observation(
 #[cfg(test)]
 mod tests {
     use chrono::{TimeZone, Utc};
-    use cmem_eval::{ContextRenderer, RetrievedContextPack};
+    use cmem_eval::PerQuestionResult;
     use uuid::Uuid;
 
     use super::*;
@@ -459,26 +227,37 @@ mod tests {
             .into_iter()
             .collect();
         ContinuityQueryTrace {
-            fixture_id: "recurring-hub-entity".to_string(),
-            namespace: "continuity:hub".to_string(),
-            pattern: ScenarioPattern::RecurringHubEntity,
-            event_id: "query-hub".to_string(),
-            query_id: "query-hub".to_string(),
+            result: PerQuestionResult {
+                run_id: "test".into(),
+                question_id: "query-hub".into(),
+                question_type: Some("recurring_hub_entity".into()),
+                question: "hub?".into(),
+                gold_episode_ids: Vec::new(),
+                gold_observation_ids: Vec::new(),
+                retrieved: Vec::new(),
+                context_text: String::new(),
+                write_outcomes: Vec::new(),
+                link_outcomes: Vec::new(),
+                lifecycle_outcomes: Vec::new(),
+                metrics: cmem_eval::MetricsRecord::default(),
+                latency_ms: 0,
+                context_char_count: 0,
+                context_word_count: 0,
+                context: Default::default(),
+                retrieval_outcomes: outcomes,
+                composition: Default::default(),
+                integrity: Default::default(),
+            },
+            fixture_id: "recurring-hub-entity".into(),
+            namespace: "continuity:hub".into(),
+            event_id: "query-hub".into(),
             timestamp: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
-            query: "What context is connected to the hub?".to_string(),
             expected: crate::ExpectedRelevanceRecord {
-                relevant_external_ids: vec!["relevant".to_string()],
-                irrelevant_external_ids: vec!["negative".to_string()],
+                relevant_external_ids: vec!["relevant".into()],
+                irrelevant_external_ids: vec!["negative".into()],
             },
             history_text: String::new(),
-            retrieval: RetrievedContextPack::from_ranked_items(
-                Vec::new(),
-                outcomes,
-                ContextRenderer::PlainText,
-            ),
-            write_outcomes: Vec::new(),
-            link_outcomes: Vec::new(),
-            lifecycle_outcomes: Vec::new(),
+            restart_observations: Vec::new(),
         }
     }
 
@@ -490,7 +269,7 @@ mod tests {
         };
         let mut trace = hub_trace(Some((21, 12, 9)));
         let outcomes = [false, true].map(|fallback| {
-            let [mut outcome] = trace.retrieval.outcomes().to_vec().try_into().unwrap();
+            let [mut outcome] = trace.result.retrieval_outcomes.clone().try_into().unwrap();
             outcome
                 .trace
                 .as_mut()
@@ -516,11 +295,7 @@ mod tests {
                 });
             outcome
         });
-        trace.retrieval = RetrievedContextPack::from_ranked_items(
-            Vec::new(),
-            outcomes.to_vec(),
-            ContextRenderer::PlainText,
-        );
+        trace.result.retrieval_outcomes = outcomes.to_vec();
         let observation = tuning_observation(
             &serde_json::json!({
                 "retrieval": {
@@ -545,55 +320,6 @@ mod tests {
                 "fallback_selectivity_count": 1,
             })
         );
-        let health = stats_health_event(&trace);
-        assert_eq!(
-            (
-                health.decision_count,
-                health.scored_count,
-                health.fallback_count
-            ),
-            (Some(2), Some(1), Some(1))
-        );
-        assert_eq!(health.status, "scored_with_fallback");
-
-        for (traces, counts, status) in [
-            (
-                [None, outcomes[1].trace.clone()],
-                (Some(1), Some(0), Some(1)),
-                "fallback_only",
-            ),
-            (
-                [None, Some(cmem_eval::RetrievalTrace::empty())],
-                (Some(0), Some(0), Some(0)),
-                "no_decisions",
-            ),
-            ([None, None], (None, None, None), "unsupported"),
-        ] {
-            let mut outcomes = outcomes.clone();
-            for (outcome, native_trace) in outcomes.iter_mut().zip(traces) {
-                outcome.trace = native_trace;
-            }
-            trace.retrieval = RetrievedContextPack::from_ranked_items(
-                Vec::new(),
-                outcomes.to_vec(),
-                ContextRenderer::PlainText,
-            );
-            let health = stats_health_event(&trace);
-            assert_eq!(
-                (
-                    health.decision_count,
-                    health.scored_count,
-                    health.fallback_count
-                ),
-                counts
-            );
-            assert_eq!(health.status, status);
-            let observation = tuning_observation(&serde_json::json!({}), &[trace.clone()]).unwrap();
-            assert_eq!(
-                observation.observed["selectivity_decision_count"],
-                counts.0.unwrap_or(0)
-            );
-        }
     }
 
     #[test]
@@ -610,56 +336,20 @@ mod tests {
             "cmem-continuity-report-shape-drift-{}.json",
             Uuid::new_v4()
         ));
-        let report = ContinuityReport {
-            header: cmem_eval::RunHeader {
-                run_id: "report".into(),
-                dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
-                dataset_kind: cmem_eval::DatasetKind::Continuity,
-                input_sha256: cmem_eval::text_sha256("input"),
-                embedding_bindings: BTreeMap::new(),
-                harness_commit: "test".into(),
-                library_commit: "test".into(),
-                generated_at: Utc::now(),
-                config: String::new(),
-                config_sha256: cmem_eval::text_sha256(""),
-                adapter: cmem_eval::RunAdapterMetadata::live(),
-                storage_root: "stores".into(),
-                storage_root_sha256: "test".into(),
-                retain_stores: false,
-                retain_reason: None,
-            },
-            content: ContinuityReportContent {
-                aggregate: AggregateContinuityReport {
-                    degradation: DegradationSummary::default(),
-                    query_count: 0,
-                    restart_count: 0,
-                    metrics: BTreeMap::new(),
-                    metric_support: BTreeMap::new(),
-                    registry_coverage: RegistryCoverageSummary::default(),
-                },
-                scenarios: BTreeMap::from([(
-                    "shape-drift".to_string(),
-                    ScenarioContinuityReport {
-                        pattern: "shape-drift".to_string(),
-                        query_count: 0,
-                        metrics: BTreeMap::new(),
-                        metric_support: BTreeMap::new(),
-                        registry_coverage: RegistryCoverageSummary::default(),
-                        rationale_samples: Vec::new(),
-                        fanout_decisions: vec![QueryFanoutDecisions {
-                            query_id: "q".to_string(),
-                            utilization: None,
-                            selectivity: None,
-                        }],
-                        stats_health_events: Vec::new(),
-                        restart_observations: Vec::new(),
-                    },
-                )]),
-                tuning_observations: Vec::new(),
-            },
-        };
+        let report = assemble_continuity_report(ContinuityReportInput {
+            config: serde_json::json!({}),
+            traces: &[hub_trace(Some((21, 12, 9)))],
+            metric_family: &cmem_eval::retrieval_metric_family(
+                "continuity",
+                [("session", [5].as_slice())],
+            ),
+        })
+        .unwrap();
 
         write_continuity_report(&path, &report).unwrap();
+        let existing = std::fs::read(&path).unwrap();
+        assert!(write_continuity_report(&path, &report).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), existing);
         assert_eq!(read_continuity_report(&path).unwrap(), report);
         std::fs::remove_file(path).unwrap();
     }
