@@ -868,6 +868,7 @@ dependencies = [
  "cmem-eval",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
 ]
 
@@ -880,6 +881,7 @@ dependencies = [
  "cmem-eval",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
 ]
 
