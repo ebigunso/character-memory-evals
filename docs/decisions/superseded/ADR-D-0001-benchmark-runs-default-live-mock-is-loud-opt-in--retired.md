@@ -1,5 +1,5 @@
 ---
-status: superseded
+status: deprecated
 adr_type: design
 date: 2026-07-24
 deciders: [ebigunso]
