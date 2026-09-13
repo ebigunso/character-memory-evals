@@ -642,3 +642,7 @@ The reference inputs were already tracked and remain unchanged; the promotion ad
 | Fixture | [crates/cmem-eval-continuity/fixtures/continuity_benchmarks_v1.json](../crates/cmem-eval-continuity/fixtures/continuity_benchmarks_v1.json) | `16C0EEF36FA0BCDE05A70B3A18B5C02D39D8169076BD3E60CF6DC4D47F7D9B49` |
 | Manifest | [crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_manifest.json](../crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_manifest.json) | `A63B35F0BA2EF4DEAC06DCF8805822765A0BB5FDCED8F43F91D0570A6D151714` |
 | Frozen store | [crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_store.json](../crates/cmem-eval-continuity/fixtures/embeddings/continuity_benchmarks_v1_store.json) | `C1F1EEAA45C1872E2284EC069FBD205ED3C1B1656EE89007ACCB3DD44657352B` |
+
+## Addendum (2026-09-13): resurrection pointer hashes after the stack merge
+
+The two addenda above that name pull requests as resurrection pointers are completed here without altering them: the 3.0.0 readers were last present on `main` at the squash commit of pull request #27, `7ea0ca1ccd3c44d99e37636d33a7f39419be38a7`; the strict 3.1.0 readers were last present on `main` at the squash commit of pull request #28, `d2ddd77c47998cf0420e9bf58e457fa059420144`.
