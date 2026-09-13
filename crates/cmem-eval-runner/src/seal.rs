@@ -3,8 +3,10 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write;
+use std::io::{self, BufReader, Read};
 use std::path::{Component, Path, PathBuf};
+
+const STREAM_BUFFER_SIZE: usize = 64 * 1024;
 
 fn file_name(name: &str) -> Result<()> {
     ensure!(
@@ -18,7 +20,7 @@ fn file_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn read_file(path: &Path) -> Result<Vec<u8>> {
+fn open_file(path: &Path) -> Result<BufReader<fs::File>> {
     let metadata =
         fs::symlink_metadata(path).with_context(|| format!("inspect {}", path.display()))?;
     ensure!(
@@ -26,18 +28,23 @@ fn read_file(path: &Path) -> Result<Vec<u8>> {
         "expected a regular file: {}",
         path.display()
     );
-    fs::read(path).with_context(|| format!("read {}", path.display()))
+    let file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
+    Ok(BufReader::with_capacity(STREAM_BUFFER_SIZE, file))
 }
 
-fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+fn hash_file(path: &Path) -> Result<String> {
+    let mut hash = Sha256::new();
+    io::copy(&mut open_file(path)?, &mut hash)
+        .with_context(|| format!("hash {}", path.display()))?;
+    Ok(format!("{:x}", hash.finalize()))
 }
 
-fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
-    fs::File::create_new(path)
-        .with_context(|| format!("create {} without overwrite", path.display()))?
-        .write_all(bytes)
-        .with_context(|| format!("write {}; partial file kept for inspection", path.display()))
+fn write_new(path: &Path, mut source: impl Read) -> Result<()> {
+    let mut file = fs::File::create_new(path)
+        .with_context(|| format!("create {} without overwrite", path.display()))?;
+    io::copy(&mut source, &mut file)
+        .with_context(|| format!("write {}; partial file kept for inspection", path.display()))?;
+    Ok(())
 }
 
 pub(crate) fn seal(run_dir: &Path, evidence_root: &Path) -> Result<PathBuf> {
@@ -60,26 +67,19 @@ pub(crate) fn seal(run_dir: &Path, evidence_root: &Path) -> Result<PathBuf> {
     file_name(&artifact_name)?;
     let mut artifacts = BTreeMap::new();
     for name in [&*artifact_name, "header.json", "report.json"] {
-        artifacts.insert(name, read_file(&run_dir.join(name))?);
+        artifacts.insert(name, run_dir.join(name));
     }
+    let mut header_bytes = Vec::new();
+    open_file(&artifacts["header.json"])?
+        .read_to_end(&mut header_bytes)
+        .context("read header.json")?;
     let header: serde_json::Value =
-        serde_json::from_slice(&artifacts["header.json"]).context("parse header.json")?;
+        serde_json::from_slice(&header_bytes).context("parse header.json")?;
     let run_id = header
         .get("run_id")
         .and_then(serde_json::Value::as_str)
         .context("header.json must be an object with a string run_id")?;
     file_name(run_id)?;
-    let hashes: BTreeMap<_, _> = artifacts
-        .iter()
-        .map(|(name, bytes)| (*name, sha256(bytes)))
-        .collect();
-    let mut seal_bytes = serde_json::to_vec_pretty(&serde_json::json!({
-        "header": header,
-        "files": hashes,
-        "sealed_at": chrono::Utc::now(),
-    }))?;
-    seal_bytes.push(b'\n');
-
     fs::create_dir_all(evidence_root)?;
     ensure!(
         !fs::symlink_metadata(evidence_root)?
@@ -96,13 +96,25 @@ pub(crate) fn seal(run_dir: &Path, evidence_root: &Path) -> Result<PathBuf> {
     })?;
     let mut written = Vec::new();
     let result = (|| -> Result<()> {
-        for (name, bytes) in &artifacts {
+        let mut hashes = BTreeMap::new();
+        for (name, source) in &artifacts {
             let path = destination.join(name);
-            write_new(&path, bytes)?;
+            if *name == "header.json" {
+                write_new(&path, header_bytes.as_slice())?;
+            } else {
+                write_new(&path, open_file(source)?)?;
+            }
             written.push(path.display().to_string());
+            hashes.insert(*name, hash_file(&path)?);
         }
+        let mut seal_bytes = serde_json::to_vec_pretty(&serde_json::json!({
+            "header": header,
+            "files": hashes,
+            "sealed_at": chrono::Utc::now(),
+        }))?;
+        seal_bytes.push(b'\n');
         for path in [run_dir.join("seal.json"), destination.join("seal.json")] {
-            write_new(&path, &seal_bytes)?;
+            write_new(&path, seal_bytes.as_slice())?;
             written.push(path.display().to_string());
         }
         Ok(())
@@ -119,16 +131,15 @@ pub(crate) fn verify(evidence_dir: &Path) -> Result<()> {
     struct Manifest {
         files: BTreeMap<String, String>,
     }
-    let manifest: Manifest = serde_json::from_slice(&read_file(&evidence_dir.join("seal.json"))?)
+    let manifest: Manifest = serde_json::from_reader(open_file(&evidence_dir.join("seal.json"))?)
         .context("parse seal.json")?;
     ensure!(!manifest.files.is_empty(), "seal contains no file hashes");
     let mut failures = Vec::new();
     for (name, expected) in manifest.files {
         file_name(&name)?;
         ensure!(name != "seal.json", "seal must not hash itself");
-        match read_file(&evidence_dir.join(&name)) {
-            Ok(bytes) => {
-                let actual = sha256(&bytes);
+        match hash_file(&evidence_dir.join(&name)) {
+            Ok(actual) => {
                 if actual != expected.to_ascii_lowercase() {
                     failures.push(format!("{name}: expected {expected}, got {actual}"));
                 }
@@ -146,6 +157,11 @@ pub(crate) fn verify(evidence_dir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Seek, SeekFrom, Write};
+
+    fn sha256(bytes: &[u8]) -> String {
+        format!("{:x}", Sha256::digest(bytes))
+    }
 
     fn tempdir() -> tempfile::TempDir {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agent-work/evals-worker");
@@ -170,7 +186,7 @@ mod tests {
         }
         let evidence_root = directory.path().join("evidence");
         let original_report = fs::read(run.join("report.json")).unwrap();
-        assert!(write_new(&run.join("report.json"), b"replacement").is_err());
+        assert!(write_new(&run.join("report.json"), b"replacement".as_slice()).is_err());
         assert_eq!(fs::read(run.join("report.json")).unwrap(), original_report);
         let evidence = seal(&run, &evidence_root).unwrap();
         for name in ["traces.jsonl", "header.json", "report.json", "seal.json"] {
@@ -211,6 +227,41 @@ mod tests {
         let error = verify(&evidence).unwrap_err().to_string();
         assert!(error.contains("traces.jsonl: expected"));
         assert!(error.contains("report.json: inspect"));
+    }
+
+    #[test]
+    fn seals_and_verifies_artifacts_larger_than_the_stream_buffer() {
+        let directory = tempdir();
+        let run = directory.path().join("run");
+        fs::create_dir(&run).unwrap();
+        let bytes = format!(
+            "{{\"payload\":\"{}\"}}\n",
+            "x".repeat(STREAM_BUFFER_SIZE * 3 + 17)
+        )
+        .into_bytes();
+        for name in ["traces.jsonl", "report.json"] {
+            fs::write(run.join(name), &bytes).unwrap();
+        }
+        fs::write(run.join("header.json"), r#"{"run_id":"large"}"#).unwrap();
+        let evidence = seal(&run, &directory.path().join("evidence")).unwrap();
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(evidence.join("seal.json")).unwrap()).unwrap();
+        for name in ["traces.jsonl", "report.json"] {
+            assert_eq!(manifest["files"][name], sha256(&bytes));
+            assert_eq!(fs::read(evidence.join(name)).unwrap(), bytes);
+        }
+        verify(&run).unwrap();
+        verify(&evidence).unwrap();
+        let mut artifact = fs::OpenOptions::new()
+            .write(true)
+            .open(evidence.join("traces.jsonl"))
+            .unwrap();
+        artifact
+            .seek(SeekFrom::Start((STREAM_BUFFER_SIZE + 5) as u64))
+            .unwrap();
+        artifact.write_all(b"y").unwrap();
+        drop(artifact);
+        assert!(verify(&evidence).is_err());
     }
 
     #[test]
