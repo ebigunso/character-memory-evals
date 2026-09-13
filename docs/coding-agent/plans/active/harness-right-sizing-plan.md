@@ -283,6 +283,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 - 2026-09-13 ADR-I-0004 accepted by the decider (ebigunso); status flipped from proposed to accepted before merge.
 - 2026-09-13 Proposed ADR-I-0005: sealed evidence is guaranteed as bytes by hash, never as parseability by the live binary; live readers deserialize only the current shape through derived serde, with no schema version and no unknown-field rejection, and every run states its provenance in one run header. Why: hashes protect bytes completely and the parser promise served no decision while costing a versioning ritual on every change. Replaces ADR-I-0002 in full (Task_4). Resurrection pointers inside a stack cite the pull request whose squash commit last carried the reader; the Orchestrator appends the hash after the stack merges. Status proposed until the decider accepts.
 
+- 2026-09-13 ADR-I-0005 accepted by the decider (ebigunso); status flipped from proposed to accepted before merge.
+
 ## Notes
 - Risks and mitigations: section 6 of the audit.
 - Edge cases: cited configs may become unparseable after key deletions; that is accepted, and re-runs are new evidence.
