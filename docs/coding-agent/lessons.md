@@ -1075,7 +1075,7 @@ Prevention:
 Evidence:
 - [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), Task_1 census and the correction recording 13 repeated LongMemEval session pairs; the plan Progress Log records subsequent alias and turn-ID additions. The plan's [review findings](plans/completed/dataset-admission-plan.md#review-findings-cme-37-independent-evaluation-reviewer-2026-09-14) record the resulting admission and preservation checks.
 
-## 2026-09-14 - Rebase a stacked branch onto the root tip before it moves a file the root changed [tags: orchestrator, git, stacking]
+## 2026-09-14 - Refresh a stack root to leaf before a branch moves a file the root changed [tags: orchestrator, git, stacking]
 
 Symptom:
 - GitHub reported the closeout pull request as conflicting although its base branch was an ancestor: the branch moved the plan file from active to completed, and the stack root had changed that file after the branch was cut.
@@ -1087,7 +1087,7 @@ Fix applied:
 - The implementation branch was rebased onto the plan tip and the closeout branch onto it, with the completed plan resolved to the closeout version; both were force-pushed with leases and the reviewer checkouts re-pinned.
 
 Prevention:
-- Before opening a stacked pull request that moves, deletes or edits a file the stack root changed since the branch was cut, rebase the branch onto the current root tip; check with a local merge-tree against the root, not only against the immediate base.
+- Before opening a stacked pull request that moves, deletes or edits a file the stack root changed since the branch was cut, refresh the stack from root to leaf: rebase each layer onto its updated immediate parent (here Task_2 onto the plan tip, then the closeout onto the refreshed Task_2), never a leaf directly onto the root, which would flatten the stack or replay the intermediate layer as different commits; then check with a local merge-tree against the root, not only against the immediate base.
 
 Evidence:
 - CME #39 mergeability at f181f87 (conflicting) versus 14481b6 (clean); [Dataset admission plan](plans/completed/dataset-admission-plan.md) closeout.
