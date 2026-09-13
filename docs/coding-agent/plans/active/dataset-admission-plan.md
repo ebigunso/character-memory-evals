@@ -1,6 +1,6 @@
 # Plan: Dataset Admission (strict on identity and structure, lenient on annotations)
 
-- status: draft
+- status: in_progress
 - generated: 2026-09-14
 - last_updated: 2026-09-14
 - work_type: code
@@ -78,7 +78,7 @@
   - kind: command
     required: true
     owner: worker
-    detail: "fmt; clippy --workspace --all-targets -D warnings; embedded workspace suite; the pre/post parse comparison on both official files; the maintained continuity smoke pair"
+    detail: "cargo fmt --all --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace (service-free, embedded adapter); the parse-dump comparison: serialize the parsed items of datasets/locomo10.json and datasets/longmemeval_s_cleaned.json through serde_json at the base commit and at the tip, then git diff --no-index on each pair must be empty (script and dump hashes retained under .agent-work/evals-worker/dataset-admission/); the README continuity smoke recipe (the two cargo run ... run continuity ... graded-similarity commands followed by cargo run -p cmem-eval-runner -- diff of the baseline and candidate trace files, all diff counts zero)"
   - kind: review
     required: true
     owner: reviewer
@@ -120,6 +120,9 @@
 - 2026-09-14 Second pre-approval round (evals-reviewer): the session rule preserves the admitted official encodings (LongMemEval object or turn-array sessions with ids from the record or the parallel array; LoCoMo keyed turn-array sessions with the key as id) and rejects only unsupported or malformed shapes; LoCoMo QA entries must be objects with a question under the admitted aliases; explicit LoCoMo QA ids are preserved and derivation applies only when an entry carries none.
 - 2026-09-14 Pre-approval review (evals-reviewer, plan integrity) and Copilot: the goal no longer claims version rejection (no discriminator exists); the strict set now names identity semantics (absent, null, wrong type, blank are missing; duplicate scopes), rejects non-object and id-less sessions instead of synthesizing or dropping them, and treats an empty QA array as structural; the converter's inheritance of loader admission is recorded as a confirmed assumption instead of an open question; validation owners use the canonical role names (worker, reviewer, orchestrator; the evaluation worker and reviewer agents fill them); Task_3 owns the completed plan path.
 
+- 2026-09-14 Task_1 done (census in the Decision Log; validation owner orchestrator). The decider approved the plan for execution the same day with the plan pull request held open and unmerged; Task_2 dispatched to the evaluation worker on task/dataset-admission, stacked on the plan branch; its duplicate-session finding and the ruling are in the Decision Log.
+- 2026-09-14 Copilot on the plan: status moved to in_progress to match execution; Task_2's command validation lists the exact repository baseline commands, the parse-dump comparison and the README smoke recipe; both census tables gained a row for the admitted aliases the official files never use, so Task_2 cannot drop one unnoticed.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-14 Task_1 census of the official files (`datasets/locomo10.json`, `datasets/longmemeval_s_cleaned.json`), read directly, not from memory.
@@ -147,6 +150,7 @@
   | qa `evidence` (alias `evidence_dialog_ids`) | every entry, always an array | empty list |
   | qa `answer` | 1542 entries; absent on 444 of the 446 category-5 (adversarial) entries, which carry `adversarial_answer` instead | absent |
   | qa `question_id` (aliases `qid`, `id`) | no entry | derived from sample id and position |
+  | admitted aliases the official file never uses: item `id`; `conversations`; conversation-array session objects with `session_id`/`session`/`id`/`session_number`, `timestamp`/`date`/`session_timestamp`, `session_summary`/`summary`, `observations`/`generated_observations`, `turns`/`dialog`/`conversation`; turn `dialog_id`/`id`, `role`, `content`/`utterance`, `image_urls`, `caption`, `search_query`; qa `q`, `a`, `question_type`/`type`, `evidence_dialog_ids`; wrapper keys `data`/`samples`/`items` | absent everywhere in the official file; exercised by loader tests only; every one stays admitted after Task_2 |
 
   LongMemEval-S (500 items, question ids unique and non-blank; every field below is present in every item, so no loader default is exercised by the official file):
 
@@ -163,6 +167,7 @@
   | `answer_session_ids` | every item, never empty | empty list |
   | turn `role`, `content` | every turn (246750) | speaker absent, text empty |
   | turn `has_answer` | some turns (10960) | false |
+  | admitted aliases the official file never uses: item `id`, `type`; session objects with `session_id`/`id`, `date`/`timestamp`, `turns`/`messages`/`conversation`; turn `speaker`, `text`; wrapper keys `data`/`instances`/`questions` | absent everywhere in the official file (every session is a turn array); exercised by loader tests only; every one stays admitted after Task_2 |
 
   Answers:
   - A1 confirmed: zero "unknown" ids and zero zero-session items in either file.
