@@ -313,6 +313,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Follow-up (loader re-audit list): the conventional pipeline loads enrichment inputs even when retrieval.mode is bm25_only, which never consumes them; the two BM25 configs set no enrichment path, so it is inert today. Gate the enrichment load on a mode that consumes it when the loader deletions are decided.
 
+- 2026-09-14 Decision (loader cleanup): delete the unread LoCoMoSample.raw and LongMemEvalInstance.raw fields and their assignments, return directly from the infallible private LongMemEval parse_instance parser, and load enrichment inputs only for retrieval modes that consume them; existing input leniency remains unchanged.
+
 ## Notes
 - Risks and mitigations: section 6 of the audit.
 - Edge cases: cited configs may become unparseable after key deletions; that is accepted, and re-runs are new evidence.
