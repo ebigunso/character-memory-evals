@@ -785,3 +785,20 @@ Prevention:
 
 Evidence:
 - Decider feedback 2026-09-13 in the orchestration session; the withdrawn brief `.agent-work/cm-worker/typed-settings-dispatch.txt` and its replacement `settings-follow-mode-dispatch.txt` in the library repository (transient).
+
+## 2026-09-13 — Validate every stack level against the library revision CI resolves [tags: ci, dependencies, stacks]
+
+Symptom:
+- Every evaluation pull request in the stack failed to compile when library main advanced beyond the locally validated branch pin. Library #82 removed candidate embedding text after the harness had validated against the #81 tip.
+
+Root cause:
+- Local validation used a fixed library branch tip, while CI resolves the library at main. The local pin did not constrain the dependency revision those pull requests would meet.
+
+Fix applied:
+- Remove the obsolete embedding-text argument and its text-only helpers at the stack base, retain target and provenance, and replay the higher branches while preserving their changes. Validate every level against library main `7528daf`.
+
+Prevention:
+- Before merging a harness stack, re-pin its local library checkout to the library main revision CI will resolve and run the required gates at every stack level. Record that library revision with each result; an earlier branch-pin result does not establish compatibility with a newer main.
+
+Evidence:
+- Stack-wide CI failure after library #82; the five VectorIndexCandidate constructor calls and the old candidate-text assertion in the Task_8 step 3 typed batch builder.

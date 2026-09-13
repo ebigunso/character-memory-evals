@@ -19,8 +19,8 @@ use character_memory::{
     ArchivePolicy, CandidateProvenance, CandidateValidation, CandidateValidationStatus,
     CharacterMemory, CommitOptions, ContinuitySectionLimits, CorrectMemoryDraft,
     CorrectionCascadePolicy, CorrectionLifecyclePolicy, CorrectionTarget, DEFAULT_SCHEMA_VERSION,
-    DerivedMemoryCandidate, DerivedMemoryDraft, DerivedType, EmbeddingProvider, EntityCandidate,
-    EntityDraft, EpisodeCandidate, EpisodeDraft, ExternalSourceReference, ForgetCascadePolicy,
+    DerivedMemoryCandidate, DerivedMemoryDraft, EmbeddingProvider, EntityCandidate, EntityDraft,
+    EpisodeCandidate, EpisodeDraft, ExternalSourceReference, ForgetCascadePolicy,
     ForgetLifecyclePolicy, ForgetMemoryDraft, LifecycleMutationOutcome, LifecycleTargetRef,
     MemoryCandidate, MemoryId, MemoryLinkCandidate, MemoryLinkDraft, MemoryObjectDraft,
     MemoryObjectRef, MemoryThreadCandidate, MemoryThreadDraft, ObjectType, ObservationCandidate,
@@ -2003,7 +2003,6 @@ fn typed_remember_plan_at(
                 vector_ids.push(id);
                 vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
                     MemoryObjectRef::new(ObjectType::Episode, id),
-                    prefixed_embedding_text("Episode summary", &draft.summary),
                     provenance.clone(),
                 )));
                 object_candidates.push(MemoryCandidate::Episode(EpisodeCandidate::new(
@@ -2017,7 +2016,6 @@ fn typed_remember_plan_at(
                 vector_ids.push(id);
                 vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
                     MemoryObjectRef::new(ObjectType::Observation, id),
-                    prefixed_embedding_text("Observation excerpt", &draft.text),
                     provenance.clone(),
                 )));
                 object_candidates.push(MemoryCandidate::Observation(ObservationCandidate::new(
@@ -2027,21 +2025,10 @@ fn typed_remember_plan_at(
             }
             MemoryObjectDraft::Entity(draft) => {
                 let id = required_draft_id(draft.id, "entity")?;
-                let aliases = if draft.aliases.is_empty() {
-                    String::new()
-                } else {
-                    format!("Aliases: {}", draft.aliases.join(", "))
-                };
-                let content = join_embedding_text([
-                    draft.name.as_str(),
-                    aliases.as_str(),
-                    draft.summary.as_deref().unwrap_or_default(),
-                ]);
                 object_ids.push(id);
                 vector_ids.push(id);
                 vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
                     MemoryObjectRef::new(ObjectType::Entity, id),
-                    prefixed_embedding_text("Entity", &content),
                     provenance.clone(),
                 )));
                 object_candidates.push(MemoryCandidate::Entity(EntityCandidate::new(
@@ -2051,12 +2038,10 @@ fn typed_remember_plan_at(
             }
             MemoryObjectDraft::MemoryThread(draft) => {
                 let id = required_draft_id(draft.id, "memory thread")?;
-                let content = join_embedding_text([draft.title.as_str(), draft.summary.as_str()]);
                 object_ids.push(id);
                 vector_ids.push(id);
                 vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
                     MemoryObjectRef::new(ObjectType::MemoryThread, id),
-                    prefixed_embedding_text("Thread summary", &content),
                     provenance.clone(),
                 )));
                 object_candidates.push(MemoryCandidate::MemoryThread(MemoryThreadCandidate::new(
@@ -2070,10 +2055,6 @@ fn typed_remember_plan_at(
                 vector_ids.push(id);
                 vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
                     MemoryObjectRef::new(ObjectType::DerivedMemory, id),
-                    prefixed_embedding_text(
-                        derived_embedding_label(draft.derived_type),
-                        &draft.text,
-                    ),
                     provenance.clone(),
                 )));
                 object_candidates.push(MemoryCandidate::DerivedMemory(
@@ -2224,43 +2205,6 @@ fn validate_remember_topology(
         );
     }
     Ok(())
-}
-
-fn prefixed_embedding_text(label: &str, text: &str) -> String {
-    let text = clean_embedding_text(text);
-    if text.is_empty() {
-        label.to_owned()
-    } else {
-        format!("{label}: {text}")
-    }
-}
-
-fn join_embedding_text<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
-    parts
-        .into_iter()
-        .map(clean_embedding_text)
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn clean_embedding_text(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-const fn derived_embedding_label(derived_type: DerivedType) -> &'static str {
-    match derived_type {
-        DerivedType::Reflection => "Reflection",
-        DerivedType::UserPreference => "User preference",
-        DerivedType::AssistantPreference => "Assistant preference",
-        DerivedType::Commitment => "Commitment",
-        DerivedType::OpenLoop => "Open loop",
-        DerivedType::CharacterSignal => "Character signal",
-        DerivedType::RelationshipNote => "Relationship note",
-        DerivedType::ProjectNote => "Project note",
-        DerivedType::Claim => "Claim",
-        DerivedType::Correction => "Correction",
-    }
 }
 
 fn deterministic_id(namespace: &str, kind: &str, external_id: &str) -> MemoryId {
@@ -2894,10 +2838,10 @@ mod tests {
         FrozenEmbeddingStore, MemoryLinkInput, RetrievalSurfacePolicy,
     };
     use character_memory::{
-        CURRENT_SCHEMA_VERSION, ContinuityContextPack, EntityType, Episode, LifecycleFilterAction,
-        LifecycleFilterDecision, LifecycleFilterReason, MemoryObjectRef, Modality, RelationType,
-        RetentionState, RetrievalRationale, RetrievalTrace, RetrieveOutcome, Stability,
-        VectorCandidateTrace, VectorSurface,
+        CURRENT_SCHEMA_VERSION, ContinuityContextPack, DerivedType, EntityType, Episode,
+        LifecycleFilterAction, LifecycleFilterDecision, LifecycleFilterReason, MemoryObjectRef,
+        Modality, RelationType, RetentionState, RetrievalRationale, RetrievalTrace,
+        RetrieveOutcome, Stability, VectorCandidateTrace, VectorSurface,
     };
     use std::io::Write;
     use std::process::Command;
@@ -3556,52 +3500,22 @@ mod tests {
             .candidates
             .iter()
             .filter_map(|candidate| match candidate {
-                MemoryCandidate::VectorIndex(candidate) => Some((
-                    candidate.target.object_type,
-                    candidate.target.id,
-                    candidate.embedding_text.as_str(),
-                )),
+                MemoryCandidate::VectorIndex(candidate) => {
+                    Some((candidate.target.object_type, candidate.target.id))
+                }
                 _ => None,
             })
             .collect::<Vec<_>>();
         assert_eq!(
             vector_candidates,
             vec![
-                (
-                    ObjectType::Episode,
-                    episode_a_id,
-                    "Episode summary: Episode one"
-                ),
-                (
-                    ObjectType::Episode,
-                    episode_b_id,
-                    "Episode summary: Episode two"
-                ),
-                (
-                    ObjectType::Observation,
-                    observation_a_id,
-                    "Observation excerpt: Observation one"
-                ),
-                (
-                    ObjectType::Observation,
-                    observation_b_id,
-                    "Observation excerpt: Observation two"
-                ),
-                (
-                    ObjectType::Entity,
-                    entity_id,
-                    "Entity: Kohta Aliases: K, Ko Fixture owner"
-                ),
-                (
-                    ObjectType::MemoryThread,
-                    thread_id,
-                    "Thread summary: Continuity Thread summary"
-                ),
-                (
-                    ObjectType::DerivedMemory,
-                    derived_id,
-                    "Reflection: Stable insight"
-                ),
+                (ObjectType::Episode, episode_a_id),
+                (ObjectType::Episode, episode_b_id),
+                (ObjectType::Observation, observation_a_id),
+                (ObjectType::Observation, observation_b_id),
+                (ObjectType::Entity, entity_id),
+                (ObjectType::MemoryThread, thread_id),
+                (ObjectType::DerivedMemory, derived_id),
             ]
         );
     }
