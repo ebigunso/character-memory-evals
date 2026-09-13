@@ -1022,7 +1022,7 @@ Prevention:
 - Preserve identity provenance until admission is complete and test record, parallel and both mixed orders, including a present but unused parallel array.
 
 Evidence:
-- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), duplicate-session ruling; CME #37 review finding F1 at 710b3e7, resolved at 9c2f2b3 and approved in DATASET_ADMISSION_REVIEW2.
+- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), duplicate-session ruling; [review finding F1](../plans/completed/dataset-admission-plan.md#review-findings-cme-37-independent-evaluation-reviewer-2026-09-14) at 710b3e7, resolved at 9c2f2b3.
 
 ## 2026-09-14 - Audit every caller before narrowing a parser helper [tags: review, dataset, annotations]
 
@@ -1039,7 +1039,7 @@ Prevention:
 - Audit every caller before tightening a parser helper and compare the typed annotations affected by the change using admitted inputs outside the official file.
 
 Evidence:
-- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), LoCoMo annotation-map census; CME #37 review finding F2 at 710b3e7, resolved at 9c2f2b3 with three byte-identical annotation comparisons in DATASET_ADMISSION_REVIEW2.
+- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), LoCoMo annotation-map census; [review finding F2](../plans/completed/dataset-admission-plan.md#review-findings-cme-37-independent-evaluation-reviewer-2026-09-14) at 710b3e7, resolved at 9c2f2b3 with three byte-identical annotation comparisons.
 
 ## 2026-09-14 - Assert each alias in its typed destination [tags: review, dataset, validation]
 
@@ -1056,7 +1056,7 @@ Prevention:
 - For every claimed preserved alias, supply a populated value and verify that value in the alias's own typed destination field.
 
 Evidence:
-- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), admitted-alias census rows; CME #37 review finding F3 at 710b3e7, resolved at 9c2f2b3 and approved in DATASET_ADMISSION_REVIEW2.
+- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), admitted-alias census rows; [review finding F3](../plans/completed/dataset-admission-plan.md#review-findings-cme-37-independent-evaluation-reviewer-2026-09-14) at 710b3e7, resolved at 9c2f2b3.
 
 ## 2026-09-14 - Census every loader field and identity scope [tags: orchestrator, planning, dataset]
 
@@ -1073,4 +1073,4 @@ Prevention:
 - Build the field census from loader source, enumerate every field and alias it reads, and check identity uniqueness at item, session, turn and QA scopes before dispatching strict admission work.
 
 Evidence:
-- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), Task_1 census and the correction recording 13 repeated LongMemEval session pairs; the plan Progress Log records subsequent alias and turn-ID additions. CME #37 review findings F1-F3 and DATASET_ADMISSION_REVIEW2 record the resulting admission and preservation checks.
+- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), Task_1 census and the correction recording 13 repeated LongMemEval session pairs; the plan Progress Log records subsequent alias and turn-ID additions. The plan's [review findings](../plans/completed/dataset-admission-plan.md#review-findings-cme-37-independent-evaluation-reviewer-2026-09-14) record the resulting admission and preservation checks.
