@@ -10,7 +10,7 @@ warrant:
   detected_signals: "deliberately bounded scope; cross-boundary contract shape; a decider's ruling setting a durable governance default"
   cost_of_violation: "a reader that inherits producer-derive tolerance admits shapes the producer can never emit, so corrupted or hand-edited evidence parses silently and hash-cited findings lose their fail-closed guarantee"
   cost_of_over_extension: "manual Deserialize scattered across non-evidence mirrors is a standing maintenance tax and drift surface justified by no trust boundary, and each instance passes review individually"
-depends_on: ["../implementation/ADR-I-0002-single-schema-artifact-contract-sealed-evidence-is-bytes-by-hash.md"]
+depends_on: ["ADR-I-0002-single-schema-artifact-contract-sealed-evidence-is-bytes-by-hash--superseded-by-ADR-I-0005.md"]
 supersedes: []
 superseded_by: null
 supersession_scope: null
@@ -38,7 +38,7 @@ Where serde attributes cannot express the required strictness, implement manual 
 
 ## Implementation Impact
 
-Evidence readers are strict fail-closed for the current schema (per [ADR-I-0002](../implementation/ADR-I-0002-single-schema-artifact-contract-sealed-evidence-is-bytes-by-hash.md)): duplicate-key rejection, unknown-shape rejection, and round-trip fidelity tests against every producer-emittable variant. Non-evidence mirrored types keep derived serde unless a future ruling establishes a new trust boundary.
+Evidence readers are strict fail-closed for the current schema (per [ADR-I-0002](ADR-I-0002-single-schema-artifact-contract-sealed-evidence-is-bytes-by-hash--superseded-by-ADR-I-0005.md)): duplicate-key rejection, unknown-shape rejection, and round-trip fidelity tests against every producer-emittable variant. Non-evidence mirrored types keep derived serde unless a future ruling establishes a new trust boundary.
 
 ## Considered Options
 

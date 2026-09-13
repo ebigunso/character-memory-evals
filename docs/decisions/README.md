@@ -28,4 +28,4 @@ Separate numbering per track; IDs are never reused.
 - Partial supersession stays in place: the record remains authoritative for its surviving clauses, with `supersession_scope` and reciprocal frontmatter links recording the split.
 
 ## Status values
-`accepted`, `rejected`, `superseded`, `deprecated`. Records capture decisions, not undecided proposals.
+`proposed` (branch only: a drafted record awaiting the decider's explicit acceptance; it never merges to `main` in this state), `accepted`, `rejected`, `superseded`, `deprecated`. Records capture decisions, not undecided proposals; a proposed record is a decision awaiting its yes, and the plan's Decision Log carries the proposal.

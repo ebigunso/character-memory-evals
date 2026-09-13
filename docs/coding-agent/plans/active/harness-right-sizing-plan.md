@@ -243,6 +243,10 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - 2026-09-13 Task_8 step 4 P1C correction: every named output leaf is inspected without following links; live and dangling symlinks and non-file leaves are rejected by name. Ordinary file overwrite remains supported. Admission compares canonical created parents with the acquired stores root and has no canonicalize-NotFound fallback. The dangling-summary reproduction fails before artifact writes and removes only the newly acquired root.
 
+- 2026-09-13 Task_4 implementation: rows, traces, summaries and reports use ordinary derived serde, without output schema dispatch, duplicate-key policing, required-option strictness or artifact-owned unknown-field rejection. Removed report normalization metadata and cross-artifact congruence checks. A single RunHeader owns identity, exact config/hash, input hash, root/hash, retention and scenario-keyed embedding bindings with known frozen store hash/source; rows retain run ID and measurements. Input fixture/config/frozen-store admission remains unchanged. README names `diff` as the comparison instrument. The branch records the strict-reader resurrection pointer in the findings register as the pull request whose squash commit last carries the readers (#28); the Orchestrator appends the hash after the stack merges.
+
+- 2026-09-13 Task_4 review round: trace expected labels use an artifact-side record with ordinary serde; the header's controllable dimension policy permits additive fields while runtime padding/admission stays unchanged. The nested-type census finds no other input DTO with unknown-field denial reachable from rows, traces, headers or reports. Fixture admission and persisted input bytes remain unchanged.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-02 Decision: adopt "strictness follows the claim, not the code" as the harness's standard.
@@ -277,6 +281,9 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 - 2026-09-13 Directive: sequential steps of one plan do not wait for the previous step's merge; each next step branches from the previous step's tip and its PR is linked into a GitHub stack; the decider merges the stack.
 
 - 2026-09-13 ADR-I-0004 accepted by the decider (ebigunso); status flipped from proposed to accepted before merge.
+- 2026-09-13 Proposed ADR-I-0005: sealed evidence is guaranteed as bytes by hash, never as parseability by the live binary; live readers deserialize only the current shape through derived serde, with no schema version and no unknown-field rejection, and every run states its provenance in one run header. Why: hashes protect bytes completely and the parser promise served no decision while costing a versioning ritual on every change. Replaces ADR-I-0002 in full (Task_4). Resurrection pointers inside a stack cite the pull request whose squash commit last carried the reader; the Orchestrator appends the hash after the stack merges. Status proposed until the decider accepts.
+
+- 2026-09-13 ADR-I-0005 accepted by the decider (ebigunso); status flipped from proposed to accepted before merge.
 
 ## Notes
 - Risks and mitigations: section 6 of the audit.

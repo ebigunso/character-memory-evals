@@ -62,7 +62,7 @@ pub enum DatasetKind {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[serde(rename_all = "snake_case")]
 pub enum ControllableDimensionPolicy {
     FixtureDeclared,
     Exact { vector_size: usize },
@@ -95,7 +95,7 @@ pub enum LiveEmbeddingProvider {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EmbeddingBindingRecord {
     Bm25,
     Controllable {
@@ -105,6 +105,7 @@ pub enum EmbeddingBindingRecord {
     },
     Frozen {
         store_sha256: String,
+        source: crate::FrozenEmbeddingSource,
         model: String,
         vector_size: usize,
         dimension_policy: FrozenEmbeddingDimensionPolicy,

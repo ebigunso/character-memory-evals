@@ -8,7 +8,6 @@ pub mod metrics;
 pub mod outcome;
 pub mod results;
 pub mod runtime;
-pub mod serde_contract;
 pub mod timing;
 pub mod token_count;
 

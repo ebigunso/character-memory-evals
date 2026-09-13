@@ -12,19 +12,10 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
-pub const RESULT_SCHEMA_VERSION: &str = "3.1.0";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct PerQuestionResult {
-    pub schema_version: String,
     pub run_id: String,
-    pub dataset: DatasetId,
-    pub dataset_kind: DatasetKind,
-    pub embedding_binding: EmbeddingBindingRecord,
-    pub adapter: RunAdapterMetadata,
     pub question_id: String,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub question_type: Option<String>,
     pub question: String,
     pub gold_episode_ids: Vec<String>,
@@ -45,18 +36,8 @@ pub struct PerQuestionResult {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RunSummary {
-    pub schema_version: String,
-    pub run_id: String,
-    pub dataset: DatasetId,
-    pub dataset_kind: DatasetKind,
-    pub adapter: RunAdapterMetadata,
-    /// Dynamic-by-design snapshot whose shape is owned by the selected runner
-    /// and backend configuration rather than the result schema.
-    pub config: Value,
     pub header: RunHeader,
-    pub embedding_bindings: Vec<EmbeddingBindingRecord>,
     pub num_questions: usize,
     pub metrics: NumericMetricSummary,
     pub metric_support: MetricSupportSummary,
@@ -66,8 +47,13 @@ pub struct RunSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct RunHeader {
+    pub run_id: String,
+    pub dataset: DatasetId,
+    pub dataset_kind: DatasetKind,
+    pub input_sha256: String,
+    /// Scenario id (continuity) or dataset id maps to the embedding used at runtime.
+    pub embedding_bindings: BTreeMap<String, EmbeddingBindingRecord>,
     pub harness_commit: String,
     pub library_commit: String,
     pub generated_at: chrono::DateTime<chrono::Utc>,
@@ -78,74 +64,53 @@ pub struct RunHeader {
     pub storage_root: PathBuf,
     pub storage_root_sha256: String,
     pub retain_stores: bool,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub retain_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct LatencySummary {
     pub latency_ms: NumericMetricAggregate,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ResultContextMetrics {
     pub retrieved_context_chars: usize,
     pub retrieved_context_words: usize,
     pub retrieved_context_tokens: usize,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub full_history_chars: Option<usize>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub full_history_words: Option<usize>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub full_history_tokens: Option<usize>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub compression_ratio: Option<f64>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub reduction_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ResultCompositionMetrics {
     pub total_items: usize,
     pub episodes: usize,
     pub observations: usize,
     pub derived_memories: usize,
     pub memory_threads: usize,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub entities: Option<usize>,
     pub items_with_rationale: usize,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub rationale_coverage: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ResultIntegrityDetails {
     pub returned_items_without_external_id: usize,
     pub returned_derived_memories_without_provenance: usize,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub suppressed_or_deleted_returned_count: Option<usize>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub superseded_current_returned_count: Option<usize>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub provenance_coverage: Option<f64>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub context_validation_pass_rate: Option<f64>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub suppressed_memory_leakage_rate: Option<f64>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub orphan_vector_leakage_rate: Option<f64>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub superseded_current_leakage_rate: Option<f64>,
-    #[serde(deserialize_with = "crate::serde_contract::required_option")]
     pub cross_store_id_validation_pass_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct RunAdapterMetadata {
     pub adapter: String,
     pub mode: String,
@@ -177,24 +142,15 @@ impl Default for RunAdapterMetadata {
 }
 
 pub fn write_jsonl(path: &Path, rows: &[PerQuestionResult]) -> Result<()> {
-    for (index, row) in rows.iter().enumerate() {
-        if row.schema_version != RESULT_SCHEMA_VERSION {
-            anyhow::bail!(
-                "result row at index {index} has schema_version {:?}; expected {:?}",
-                row.schema_version,
-                RESULT_SCHEMA_VERSION
-            );
-        }
-    }
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     for row in rows {
-        serde_json::to_writer(&mut file, &versioned_row_value(row)?)?;
+        serde_json::to_writer(&mut file, &canonical_row_value(row)?)?;
         file.write_all(b"\n")?;
     }
     Ok(())
 }
 
-fn versioned_row_value(row: &PerQuestionResult) -> serde_json::Result<Value> {
+fn canonical_row_value(row: &PerQuestionResult) -> serde_json::Result<Value> {
     let mut canonical = row.clone();
     canonical
         .write_outcomes
@@ -209,13 +165,6 @@ fn versioned_row_value(row: &PerQuestionResult) -> serde_json::Result<Value> {
 }
 
 pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
-    if summary.schema_version != RESULT_SCHEMA_VERSION {
-        anyhow::bail!(
-            "summary has schema_version {:?}; expected {:?}",
-            summary.schema_version,
-            RESULT_SCHEMA_VERSION
-        );
-    }
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     serde_json::to_writer_pretty(&mut file, summary)?;
     file.write_all(b"\n")?;
@@ -225,11 +174,6 @@ pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
 pub fn read_summary(path: &Path) -> Result<RunSummary> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("deserialize summary {}", path.display()))?;
-    let schema_version = crate::serde_contract::schema_version_from_str(&raw)
-        .with_context(|| format!("deserialize summary {}", path.display()))?;
-    validate_summary_schema(schema_version.as_deref())?;
-    crate::serde_contract::reject_duplicate_json_keys(&raw)
-        .with_context(|| format!("decode summary {}", path.display()))?;
     serde_json::from_str(&raw).with_context(|| format!("decode summary {}", path.display()))
 }
 
@@ -244,13 +188,7 @@ pub fn reject_empty_run(rows: &[PerQuestionResult]) -> Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)] // Explicit run header plus rows and their metric registry.
 pub fn summarize_rows(
-    run_id: String,
-    dataset: DatasetId,
-    dataset_kind: DatasetKind,
-    adapter: RunAdapterMetadata,
-    config: Value,
     header: RunHeader,
     rows: &[PerQuestionResult],
     metric_families: &[MetricFamily],
@@ -263,27 +201,9 @@ pub fn summarize_rows(
         .iter()
         .map(|row| row.latency_ms as f64)
         .collect::<Vec<_>>();
-    let embedding_bindings = rows
-        .iter()
-        .map(|row| row.embedding_binding.clone())
-        .fold(BTreeMap::new(), |mut bindings, binding| {
-            let key =
-                serde_json::to_string(&binding).expect("EmbeddingBindingRecord always serializes");
-            bindings.entry(key).or_insert(binding);
-            bindings
-        })
-        .into_values()
-        .collect();
     let degradation = summarize_degradation(rows);
     Ok(RunSummary {
-        schema_version: RESULT_SCHEMA_VERSION.to_string(),
-        run_id,
-        dataset,
-        dataset_kind,
-        adapter,
-        config,
         header,
-        embedding_bindings,
         num_questions: rows.len(),
         metrics: aggregate_numeric_metrics(&metric_rows),
         metric_support: metric_support_summary(&metric_rows),
@@ -325,34 +245,9 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<PerQuestionResult>> {
         if line.trim().is_empty() {
             continue;
         }
-        let schema_version = crate::serde_contract::schema_version_from_str(&line)?;
-        validate_row_schema(schema_version.as_deref())?;
-        crate::serde_contract::reject_duplicate_json_keys(&line)?;
         rows.push(serde_json::from_str(&line)?);
     }
     Ok(rows)
-}
-
-fn validate_row_schema(schema_version: Option<&str>) -> Result<()> {
-    match schema_version {
-        Some(RESULT_SCHEMA_VERSION) => Ok(()),
-        Some(version) => anyhow::bail!(
-            "unsupported result schema_version {version:?}; expected {RESULT_SCHEMA_VERSION:?}"
-        ),
-        None => {
-            anyhow::bail!("missing result schema_version; expected {RESULT_SCHEMA_VERSION:?}")
-        }
-    }
-}
-
-fn validate_summary_schema(schema_version: Option<&str>) -> Result<()> {
-    match schema_version {
-        Some(RESULT_SCHEMA_VERSION) => Ok(()),
-        Some(version) => anyhow::bail!(
-            "unsupported summary schema_version {version:?}; expected {RESULT_SCHEMA_VERSION:?}"
-        ),
-        None => anyhow::bail!("missing summary schema_version; expected {RESULT_SCHEMA_VERSION:?}"),
-    }
 }
 
 #[cfg(test)]
@@ -361,6 +256,11 @@ mod tests {
 
     fn test_header() -> RunHeader {
         RunHeader {
+            run_id: "r".into(),
+            dataset: dataset(),
+            dataset_kind: DatasetKind::LoCoMo,
+            input_sha256: crate::text_sha256("input"),
+            embedding_bindings: BTreeMap::from([("locomo".into(), embedding_binding())]),
             harness_commit: "test".into(),
             library_commit: "test".into(),
             generated_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
@@ -372,6 +272,23 @@ mod tests {
             retain_stores: false,
             retain_reason: None,
         }
+    }
+
+    #[test]
+    fn header_accepts_additive_controllable_policy_fields() {
+        let mut header = test_header();
+        header.embedding_bindings.insert(
+            "scenario".into(),
+            EmbeddingBindingRecord::Controllable {
+                fixture_sha256: "fixture".into(),
+                vector_size: 3,
+                dimension_policy: crate::ControllableDimensionPolicy::Exact { vector_size: 1536 },
+            },
+        );
+        let mut value = serde_json::to_value(&header).unwrap();
+        value["embedding_bindings"]["scenario"]["dimension_policy"]["exact"]["future_annotation"] =
+            serde_json::json!(true);
+        assert_eq!(serde_json::from_value::<RunHeader>(value).unwrap(), header);
     }
 
     #[test]
@@ -398,12 +315,7 @@ mod tests {
 
     fn row(metric_values: Value) -> PerQuestionResult {
         PerQuestionResult {
-            schema_version: RESULT_SCHEMA_VERSION.to_string(),
             run_id: "r".into(),
-            dataset: dataset(),
-            dataset_kind: DatasetKind::LoCoMo,
-            embedding_binding: embedding_binding(),
-            adapter: RunAdapterMetadata::live(),
             question_id: "q".into(),
             question_type: None,
             question: "question".into(),
@@ -436,12 +348,8 @@ mod tests {
     #[test]
     fn serializes_per_question_result() {
         let row = row(serde_json::json!({"recall_any@1": 1.0}));
-        let value = versioned_row_value(&row).unwrap();
+        let value = canonical_row_value(&row).unwrap();
         assert_eq!(value["question_id"], "q");
-        assert_eq!(value["schema_version"], RESULT_SCHEMA_VERSION);
-        assert_eq!(value["adapter"]["mode"], "live");
-        assert_eq!(value["dataset_kind"], "lo_co_mo");
-        assert_eq!(value["embedding_binding"]["kind"], "live");
     }
 
     #[test]
@@ -450,17 +358,7 @@ mod tests {
             "suppressed_or_deleted_items_returned": null
         }));
 
-        let summary = summarize_rows(
-            "r".into(),
-            dataset(),
-            DatasetKind::LoCoMo,
-            RunAdapterMetadata::live(),
-            serde_json::json!({}),
-            test_header(),
-            &[row],
-            &[],
-        )
-        .unwrap();
+        let summary = summarize_rows(test_header(), &[row], &[]).unwrap();
 
         assert!(summary.metric_support["suppressed_or_deleted_items_returned"].unsupported);
         assert_eq!(summary.registry_coverage.required_metrics_present, 0);
@@ -473,25 +371,13 @@ mod tests {
     }
 
     #[test]
-    fn summary_records_schema_binding_and_separate_latency() {
+    fn summary_preserves_header_and_measures_latency() {
         let mut row = row(serde_json::json!({"session_recall_any@5": 1.0}));
         row.latency_ms = 7;
         let family = crate::retrieval_metric_family("locomo", [("session", [5].as_slice())]);
 
-        let summary = summarize_rows(
-            "r".into(),
-            dataset(),
-            DatasetKind::LoCoMo,
-            RunAdapterMetadata::live(),
-            serde_json::json!({"backend": {"embedding": {"provider": "openai"}}}),
-            test_header(),
-            &[row],
-            &[family],
-        )
-        .unwrap();
-
-        assert_eq!(summary.schema_version, RESULT_SCHEMA_VERSION);
-        assert_eq!(summary.embedding_bindings, vec![embedding_binding()]);
+        let summary = summarize_rows(test_header(), &[row], &[family]).unwrap();
+        assert_eq!(summary.header, test_header());
         assert_eq!(summary.latency.latency_ms.p95, Some(7.0));
         assert!(!summary.metrics.contains_key("retrieval_latency_ms"));
         assert_eq!(summary.registry_coverage.required_metrics_present, 1);
@@ -589,33 +475,12 @@ mod tests {
     }
 
     #[test]
-    fn row_schema_is_exact_and_rejects_missing_or_unsupported_versions() {
-        validate_row_schema(Some(RESULT_SCHEMA_VERSION)).unwrap();
-        let missing = validate_row_schema(None).unwrap_err();
-        assert!(
-            missing
-                .to_string()
-                .contains("missing result schema_version")
-        );
-        for version in ["3.0.0", "1.0.0", "0.9.0"] {
-            let unsupported = validate_row_schema(Some(version)).unwrap_err();
-            let error = unsupported.to_string();
-            assert!(
-                error.contains("unsupported result schema_version"),
-                "{error}"
-            );
-            assert!(error.contains(version), "{error}");
-            assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
-        }
-    }
-
-    #[test]
-    fn read_jsonl_round_trips_current_and_rejects_superseded_schemas() {
+    fn read_jsonl_round_trips_results() {
         let path = temp_path("results", "jsonl");
         let result_row = row(serde_json::json!({"recall_any@1": 1.0}));
         let expected_bytes = format!(
             "{}\n",
-            serde_json::to_string(&versioned_row_value(&result_row).unwrap()).unwrap()
+            serde_json::to_string(&canonical_row_value(&result_row).unwrap()).unwrap()
         );
         write_jsonl(&path, std::slice::from_ref(&result_row)).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), expected_bytes);
@@ -623,22 +488,6 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].question_id, result_row.question_id);
 
-        let mut legacy = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        for version in ["1.0.0", "2.0.0"] {
-            legacy["schema_version"] = Value::String(version.into());
-            std::fs::write(
-                &path,
-                format!("{}\n", serde_json::to_string(&legacy).unwrap()),
-            )
-            .unwrap();
-            let error = read_jsonl(&path).unwrap_err().to_string();
-            assert!(
-                error.contains("unsupported result schema_version"),
-                "{error}"
-            );
-            assert!(error.contains(version), "{error}");
-            assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
-        }
         std::fs::remove_file(path).unwrap();
     }
 
@@ -679,69 +528,11 @@ mod tests {
     }
 
     #[test]
-    fn write_jsonl_rejects_unsupported_rows_before_replacing_the_destination() {
-        let path = temp_path("results-writer-schema", "jsonl");
-        for schema_version in ["1.0.0", "9.9.9"] {
-            let mut invalid = row(serde_json::json!({}));
-            invalid.schema_version = schema_version.to_string();
-            std::fs::write(&path, "preserved\n").unwrap();
-
-            let error = write_jsonl(&path, &[row(serde_json::json!({})), invalid])
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains("index 1"), "{error}");
-            assert!(error.contains(schema_version), "{error}");
-            assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), "preserved\n");
-        }
-        std::fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn result_reader_rejects_owned_shape_drift() {
-        let path = temp_path("result-shape", "jsonl");
-        let value = serde_json::to_value(row(serde_json::json!({}))).unwrap();
-        for field in [
-            "retrieval_outcomes",
-            "write_outcomes",
-            "link_outcomes",
-            "lifecycle_outcomes",
-            "metrics",
-            "context",
-        ] {
-            let mut missing = value.clone();
-            missing.as_object_mut().unwrap().remove(field);
-            std::fs::write(&path, serde_json::to_vec(&missing).unwrap()).unwrap();
-            assert!(read_jsonl(&path).is_err(), "missing {field}");
-        }
-        let mut unknown = value.clone();
-        unknown["unexpected_field"] = Value::Bool(true);
-        std::fs::write(&path, serde_json::to_vec(&unknown).unwrap()).unwrap();
-        assert!(read_jsonl(&path).is_err());
-        let mut wrong_metric = value;
-        wrong_metric["metrics"]["test"] = Value::Bool(true);
-        std::fs::write(&path, serde_json::to_vec(&wrong_metric).unwrap()).unwrap();
-        assert!(read_jsonl(&path).is_err());
-        let duplicate = r#"{"schema_version":"3.1.0","schema_version":"3.1.0"}"#;
-        std::fs::write(&path, duplicate).unwrap();
-        assert!(format!("{:#}", read_jsonl(&path).unwrap_err()).contains("duplicate"));
-        std::fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn read_jsonl_rejects_invalid_encoding_partial_input_and_bad_schema() {
+    fn read_jsonl_rejects_invalid_encoding_and_partial_input() {
         let path = temp_path("results-invalid", "jsonl");
         for (bytes, expected) in [
             (vec![0xff], "stream did not contain valid UTF-8"),
             (b"{".to_vec(), "EOF while parsing"),
-            (
-                br#"{"schema_version":"9.0.0"}"#.to_vec(),
-                "unsupported result schema_version",
-            ),
-            (
-                br#"{"run_id":"r"}"#.to_vec(),
-                "missing result schema_version",
-            ),
         ] {
             std::fs::write(&path, bytes).unwrap();
             let error = read_jsonl(&path).unwrap_err().to_string();
@@ -751,14 +542,9 @@ mod tests {
     }
 
     #[test]
-    fn read_summary_round_trips_current_schema_and_rejects_invalid_inputs() {
-        let path = temp_path("summary-schema", "json");
-        let mut summary = summarize_rows(
-            "r".into(),
-            dataset(),
-            DatasetKind::LoCoMo,
-            RunAdapterMetadata::live(),
-            serde_json::json!({}),
+    fn read_summary_round_trips_summary() {
+        let path = temp_path("summary", "json");
+        let summary = summarize_rows(
             test_header(),
             &[row(serde_json::json!({"fixed_metric": 1.0}))],
             &[],
@@ -766,115 +552,9 @@ mod tests {
         .unwrap();
         write_summary(&path, &summary).unwrap();
         assert_eq!(
-            read_summary(&path).unwrap().schema_version,
-            RESULT_SCHEMA_VERSION
+            serde_json::to_value(read_summary(&path).unwrap()).unwrap(),
+            serde_json::to_value(summary).unwrap()
         );
-
-        summary.schema_version = "9.9.9".to_string();
-        std::fs::write(&path, "preserved\n").unwrap();
-        let error = write_summary(&path, &summary).unwrap_err().to_string();
-        assert!(error.contains("9.9.9"), "{error}");
-        assert!(error.contains(RESULT_SCHEMA_VERSION), "{error}");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "preserved\n");
-        summary.schema_version = RESULT_SCHEMA_VERSION.to_string();
-
-        let raw = serde_json::to_string(&summary).unwrap();
-        let mut missing_reason = serde_json::to_value(&summary).unwrap();
-        missing_reason["header"]
-            .as_object_mut()
-            .unwrap()
-            .remove("retain_reason");
-        std::fs::write(&path, serde_json::to_vec(&missing_reason).unwrap()).unwrap();
-        assert!(format!("{:#}", read_summary(&path).unwrap_err()).contains("retain_reason"));
-        let duplicate_root = raw.replacen(r#""run_id":"r""#, r#""run_id":"r","run_id":"r""#, 1);
-        std::fs::write(&path, duplicate_root).unwrap();
-        let error = format!("{:#}", read_summary(&path).unwrap_err());
-        assert!(error.contains("duplicate JSON object key"), "{error}");
-
-        summary.config = serde_json::json!({"nested": {"mode": "strict"}});
-        let raw = serde_json::to_string(&summary).unwrap();
-        let duplicate_dynamic_value = raw.replacen(
-            r#""mode":"strict""#,
-            r#""mode":"strict","mode":"strict""#,
-            1,
-        );
-        assert_ne!(raw, duplicate_dynamic_value);
-        std::fs::write(&path, duplicate_dynamic_value).unwrap();
-        let error = format!("{:#}", read_summary(&path).unwrap_err());
-        assert!(error.contains("duplicate JSON object key"), "{error}");
-
-        for (bytes, expected) in [
-            (vec![0xff], "deserialize summary"),
-            (b"{".to_vec(), "deserialize summary"),
-            (
-                serde_json::to_vec(&serde_json::json!({})).unwrap(),
-                "missing summary schema_version",
-            ),
-            (
-                serde_json::to_vec(&serde_json::json!({"schema_version": "0.9.0"})).unwrap(),
-                "unsupported summary schema_version",
-            ),
-            (
-                serde_json::to_vec(&serde_json::json!({"schema_version": "2.0.0"})).unwrap(),
-                "unsupported summary schema_version",
-            ),
-        ] {
-            std::fs::write(&path, bytes).unwrap();
-            let error = read_summary(&path).unwrap_err().to_string();
-            assert!(error.contains(expected), "{error}");
-        }
-
-        let mut drifted = serde_json::to_value(&summary).unwrap();
-        drifted["unexpected_field"] = Value::Bool(true);
-        std::fs::write(&path, serde_json::to_vec(&drifted).unwrap()).unwrap();
-        let error = format!("{:#}", read_summary(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut incomplete = serde_json::to_value(&summary).unwrap();
-        incomplete
-            .as_object_mut()
-            .unwrap()
-            .remove("embedding_bindings");
-        std::fs::write(&path, serde_json::to_vec(&incomplete).unwrap()).unwrap();
-        let error = format!("{:#}", read_summary(&path).unwrap_err());
-        assert!(
-            error.contains("missing field `embedding_bindings`"),
-            "{error}"
-        );
-
-        let mut malformed_latency = serde_json::to_value(&summary).unwrap();
-        malformed_latency["latency"] = Value::Null;
-        std::fs::write(&path, serde_json::to_vec(&malformed_latency).unwrap()).unwrap();
-        let error = format!("{:#}", read_summary(&path).unwrap_err());
-        assert!(error.contains("invalid type"), "{error}");
-
-        let mut incomplete_latency = serde_json::to_value(&summary).unwrap();
-        incomplete_latency["latency"]["latency_ms"]
-            .as_object_mut()
-            .unwrap()
-            .remove("p95");
-        std::fs::write(&path, serde_json::to_vec(&incomplete_latency).unwrap()).unwrap();
-        let error = format!("{:#}", read_summary(&path).unwrap_err());
-        assert!(error.contains("missing field `p95`"), "{error}");
-
-        let mut malformed_coverage = serde_json::to_value(&summary).unwrap();
-        malformed_coverage["registry_coverage"] = Value::String("open".to_string());
-        std::fs::write(&path, serde_json::to_vec(&malformed_coverage).unwrap()).unwrap();
-        let error = format!("{:#}", read_summary(&path).unwrap_err());
-        assert!(error.contains("invalid type"), "{error}");
-
-        let mut drifted_support = serde_json::to_value(&summary).unwrap();
-        drifted_support["metric_support"]["fixed_metric"]["unexpected_field"] = Value::Bool(true);
-        std::fs::write(&path, serde_json::to_vec(&drifted_support).unwrap()).unwrap();
-        let error = format!("{:#}", read_summary(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut drifted_metric = serde_json::to_value(&summary).unwrap();
-        drifted_metric["metrics"]["fixed_metric"]["unexpected_field"] = Value::Bool(true);
-        std::fs::write(&path, serde_json::to_vec(&drifted_metric).unwrap()).unwrap();
-        let error = format!("{:#}", read_summary(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
         std::fs::remove_file(path).unwrap();
     }
 }
