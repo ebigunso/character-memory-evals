@@ -51,10 +51,11 @@ Archived continuity inputs are `continuity_retrieval.toml`, `continuity_baseline
 
 ### Run a service-free continuity smoke
 
-`configs/continuity_smoke.toml` is the maintained, unsealed inner-loop config and may change with the current CLI. Run its frozen `graded-similarity` scenario with the embedded adapter, then compare its merged traces with a previous run produced by the current artifact shape:
+`configs/continuity_smoke.toml` is the maintained, unsealed inner-loop config and may change with the current CLI. Run its frozen `graded-similarity` scenario with the embedded adapter, then run it a second time and compare the two merged trace files (the first run is the baseline; keep any earlier run as the baseline instead to compare across changes) produced by the current artifact shape:
 
 ```bash
-mkdir -p .agent-work/continuity-smoke/candidate
+mkdir -p .agent-work/continuity-smoke/baseline .agent-work/continuity-smoke/candidate
+cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/baseline/traces.jsonl
 cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/candidate/traces.jsonl
 cargo run -p cmem-eval-runner -- diff ./.agent-work/continuity-smoke/baseline/traces.jsonl ./.agent-work/continuity-smoke/candidate/traces.jsonl
 ```
