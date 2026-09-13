@@ -6,7 +6,7 @@
 - work_type: code
 
 ## Goal
-- An official dataset file that fails the strict set below is rejected before any embedding call or store mutation, with a typed error naming the item and the field, while every valid official record (including records that legitimately omit optional annotations) is admitted unchanged. No version discriminator exists in these files, so no version claim is made: the guarantee is exactly the strict set.
+- An official dataset file that fails the strict set below is rejected before any embedding call or store mutation, with a typed error naming the location (the file root for a top-level shape failure; otherwise the item, by index or id, and the field), while every valid official record (including records that legitimately omit optional annotations) is admitted unchanged. No version discriminator exists in these files, so no version claim is made: the guarantee is exactly the strict set.
 
 ## Definition of Done
 - Both dataset loaders (LoCoMo, LongMemEval) reject exactly this strict set, at load and before the pipeline creates a run root or calls a provider:
@@ -69,7 +69,7 @@
   - README.md
 - depends_on: [Task_1]
 - description: |
-  Each loader returns a typed admission error (item index or id, field, reason) for the strict set in the Definition of Done; optional annotations and the tested key aliases stay as they are; the synthetic session id fallback and the silent drop of malformed sessions are removed in favour of rejection. The runner surfaces a load failure before creating the run root or calling any provider. README's dataset section states the contract.
+  Each loader returns a typed admission error whose location is either the file root (top-level shape failures, where no item exists yet) or an item (index or id) with the field and reason, for the strict set in the Definition of Done; optional annotations and the tested key aliases stay as they are; the synthetic session id fallback and the silent drop of malformed sessions are removed in favour of rejection. The runner surfaces a load failure before creating the run root or calling any provider. README's dataset section states the contract.
 - acceptance:
   - Every strict-set case has a rejection test with the named field; every optional-annotation case has an admission test.
   - The full official files are admitted with parsed items byte-identical to the pre-plan parse (comparison script retained as evidence).
@@ -114,6 +114,7 @@
 ## Progress Log (append-only)
 
 - 2026-09-14 Plan drafted from the decider's ruling (option 3 of the dataset-handling question raised during the loader cleanup): strict on identity and structure, lenient on annotations, done now rather than folded into v0.2 planning.
+- 2026-09-14 Copilot on the census: the LoCoMo table now covers every field the loader reads (session-object timestamp, summary and observation aliases; the top-level summary and observation maps; turn query), and the admission error location distinguishes root-level from item-level failures so a top-level shape rejection needs no placeholder item identity.
 - 2026-09-14 Copilot on the plan: effective LoCoMo QA ids (explicit or derived) must be unique across the file, since they become result identities the diff command indexes; the duplicate-session promise is scoped to value-sourced ids because serde collapses repeated object keys before the loader sees them, and a source-text parser for that case is not worth adding.
 - 2026-09-14 Third pre-approval round (evals-reviewer): the LoCoMo object-session form (a conversation array of session objects with record ids) is named among the admitted shapes beside the keyed turn-array form, so the session rule matches every encoding the loader and its fixtures admit today.
 - 2026-09-14 Second pre-approval round (evals-reviewer): the session rule preserves the admitted official encodings (LongMemEval object or turn-array sessions with ids from the record or the parallel array; LoCoMo keyed turn-array sessions with the key as id) and rejects only unsupported or malformed shapes; LoCoMo QA entries must be objects with a question under the admitted aliases; explicit LoCoMo QA ids are preserved and derivation applies only when an entry carries none.
@@ -135,8 +136,15 @@
   | `session_<N>_date_time` | 288 keys; 16 of them (conv-26, session_20 to session_35) have no matching `session_<N>` array | ignored when no session matches |
   | turn `speaker`, `dia_id`, `text` | every turn (5882) | speaker absent, dia_id derived, text empty |
   | turn `img_url`, `blip_caption` | some turns (910 and 1226) | absent |
+  | turn `query` (alias `search_query`) | 888 turns carry `query`; none carries `search_query` | absent |
+  | session `timestamp`/`date`/`session_timestamp`, `session_summary`/`summary`, `observation`/`observations`/`generated_observations` on a session object | never (the official file has no session objects; sessions are keyed turn arrays) | absent, absent, empty |
+  | top-level `session_summary` map | every item, one entry per session, keyed `session_<N>_summary` | the loader looks up `session_<N>` or `<N>`, so no official entry matches and every session summary stays absent today |
+  | top-level `observation` map | every item, one entry per session, keyed `session_<N>_observation` (a speaker-keyed object of observation lists) | same key mismatch; every session's generated observations stay empty today |
+  | top-level `event_summary` | every item, keyed `events_session_<N>` | not read |
   | `qa` | every item, 105 to 260 entries, 1986 in total | empty list |
-  | qa `question`, `evidence`, `category` | every entry | question empty |
+  | qa `question` (alias `q`) | every entry, non-blank | empty string |
+  | qa `category` (aliases `question_type`, `type`) | every entry | absent |
+  | qa `evidence` (alias `evidence_dialog_ids`) | every entry, always an array | empty list |
   | qa `answer` | 1542 entries; absent on 444 of the 446 category-5 (adversarial) entries, which carry `adversarial_answer` instead | absent |
   | qa `question_id` (aliases `qid`, `id`) | no entry | derived from sample id and position |
 
@@ -161,6 +169,7 @@
   - Q1: no LongMemEval item lacks an answer. The 30 abstention items (question ids ending in `_abs`, for example `0862e8bf_abs`) carry a textual answer ("The information provided is not enough." or "You did not mention this information...") and non-empty `answer_session_ids`. Abstention is signalled by the id suffix and the answer text, never by a missing answer, so `answer` stays an optional annotation and no abstention rule enters the strict set.
   - Q2: zero items with zero sessions, zero items with an absent or empty QA array, zero QA entries without a question, zero duplicate item ids, and the derived LoCoMo QA ids are unique. The strict set rejects nothing in either official file, so no decider ruling is needed before Task_2.
   - Discovery folded into the Definition of Done: conv-26 carries 16 `session_<N>_date_time` annotation keys without a session array. Today the loader ignores them because only keys that parse as `session_<N>` are session slots. The keyed-session rejection is therefore scoped to `session_<N>` keys, and an orphan date-time key stays ignored as an annotation, otherwise the strict set would reject an official file.
+  - Discovery recorded, no rule change: the official LoCoMo file keys its top-level `session_summary` and `observation` maps as `session_<N>_summary` and `session_<N>_observation`, which the loader's `session_<N>` and `<N>` lookups never match, so summaries and generated observations are absent for every official session today. These are annotations, outside the strict set; Task_2's byte-preservation check keeps them absent, and whether the lookup should learn those key forms is a separate enrichment question for the decider, not part of this plan.
   - Discovery recorded, no rule change: 444 LoCoMo adversarial QA entries carry `adversarial_answer` and no `answer`; the loader reads `answer` (alias `a`) as an optional annotation and never reads `adversarial_answer`, so nothing changes.
 
 
