@@ -49,6 +49,6 @@ pub struct LongMemEvalTurn {
 
 #[derive(Debug, Clone)]
 pub struct LongMemEvalMemoryInputs {
-    pub episodes: Vec<cmem_eval_core::EpisodeInput>,
-    pub observations: Vec<cmem_eval_core::ObservationInput>,
+    pub episodes: Vec<cmem_eval::EpisodeInput>,
+    pub observations: Vec<cmem_eval::ObservationInput>,
 }

@@ -97,6 +97,7 @@ pub enum LiveEmbeddingProvider {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EmbeddingBindingRecord {
+    Bm25,
     Controllable {
         fixture_sha256: String,
         vector_size: usize,

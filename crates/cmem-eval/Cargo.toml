@@ -1,7 +1,10 @@
 [package]
-name = "cmem-eval-core"
+name = "cmem-eval"
 version = "0.1.0"
 edition = "2024"
+
+[features]
+service-tests = []
 
 [dependencies]
 anyhow.workspace = true
@@ -14,3 +17,12 @@ tiktoken-rs.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+
+character-memory.workspace = true
+config = "0.15"
+qdrant-client = "1.19.0"
+reqwest.workspace = true
+tempfile = "3"
+
+[dev-dependencies]
+cmem-eval-continuity = { path = "../cmem-eval-continuity" }

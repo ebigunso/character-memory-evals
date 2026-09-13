@@ -1,11 +1,7 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use clap::Args;
-use serde::de::IgnoredAny;
-use serde::{Deserialize, Deserializer};
-use serde_json::Value;
+use cmem_eval::{PerQuestionResult, RetrievedItem};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -31,86 +27,11 @@ pub(crate) fn run(args: DiffArgs) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Deserialize)]
-struct DiffRow {
-    run_id: String,
-    question_id: String,
-    // The fields the comparison is about are required: a row missing them is
-    // not "no identities / no degradation", it is an incomparable artifact.
-    // Retired or unknown fields are still ignored.
-    retrieved: Vec<DiffRetrievedItem>,
-    write_outcomes: Vec<DiffWriteOutcome>,
-    lifecycle_outcomes: Vec<DiffLifecycleOutcome>,
-    metrics: Value,
-    latency_ms: u128,
-    #[serde(default, rename = "reader", deserialize_with = "present")]
-    reader_present: bool,
+fn read_rows(path: &Path) -> Result<Vec<PerQuestionResult>> {
+    cmem_eval::read_jsonl(path)
 }
 
-#[derive(Debug, Deserialize)]
-struct DiffRetrievedItem {
-    kind: Value,
-    internal_id: String,
-    #[serde(default)]
-    external_id: Option<String>,
-    #[serde(default)]
-    episode_external_id: Option<String>,
-    rank: usize,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct DiffStatsUpdateStatus {
-    #[serde(default)]
-    failure: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct DiffWriteOutcome {
-    #[serde(default)]
-    vector_indexing_failure: Option<Value>,
-    #[serde(default)]
-    stats_update_status: DiffStatsUpdateStatus,
-    #[serde(default)]
-    repair_needed: Vec<Value>,
-    #[serde(default, rename = "attempt_index", deserialize_with = "present")]
-    attempt_index_present: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct DiffLifecycleOutcome {
-    #[serde(default)]
-    vector_maintenance_failures: Vec<Value>,
-    #[serde(default)]
-    stats_update_status: DiffStatsUpdateStatus,
-    #[serde(default, rename = "attempt_index", deserialize_with = "present")]
-    attempt_index_present: bool,
-}
-
-fn present<'de, D>(deserializer: D) -> std::result::Result<bool, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    IgnoredAny::deserialize(deserializer)?;
-    Ok(true)
-}
-
-fn read_rows(path: &Path) -> Result<Vec<DiffRow>> {
-    let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
-    let mut rows = Vec::new();
-    for (line_index, line) in BufReader::new(file).lines().enumerate() {
-        let line =
-            line.with_context(|| format!("read {} line {}", path.display(), line_index + 1))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        rows.push(serde_json::from_str(&line).with_context(|| {
-            format!("parse {} line {} for diff", path.display(), line_index + 1)
-        })?);
-    }
-    Ok(rows)
-}
-
-fn normalize(mut rows: Vec<DiffRow>) -> Vec<DiffRow> {
+fn normalize(mut rows: Vec<PerQuestionResult>) -> Vec<PerQuestionResult> {
     for row in &mut rows {
         row.run_id = "__RUN__".to_string();
         row.latency_ms = 0;
@@ -121,7 +42,6 @@ fn normalize(mut rows: Vec<DiffRow>) -> Vec<DiffRow> {
 #[derive(Debug, Default)]
 struct DiffReport {
     details: Vec<String>,
-    informational_fields: Vec<String>,
     queries: usize,
     differing_queries: usize,
     missing_from_a: usize,
@@ -135,12 +55,6 @@ struct DiffReport {
 impl DiffReport {
     fn render(&self) -> String {
         let mut lines = Vec::new();
-        if !self.informational_fields.is_empty() {
-            lines.push(format!(
-                "informational: fields absent on one side: {}",
-                self.informational_fields.join(", ")
-            ));
-        }
         lines.extend(self.details.iter().cloned());
         let mut output = lines.join("\n");
         if !output.is_empty() {
@@ -161,7 +75,7 @@ impl DiffReport {
     }
 }
 
-fn compare(run_a: Vec<DiffRow>, run_b: Vec<DiffRow>) -> Result<DiffReport> {
+fn compare(run_a: Vec<PerQuestionResult>, run_b: Vec<PerQuestionResult>) -> Result<DiffReport> {
     if run_a.is_empty() || run_b.is_empty() {
         bail!(
             "refusing to compare: run A has {} rows and run B has {} rows; an empty run is a failed or missing evaluation, not a zero-difference proof",
@@ -169,8 +83,6 @@ fn compare(run_a: Vec<DiffRow>, run_b: Vec<DiffRow>) -> Result<DiffReport> {
             run_b.len()
         );
     }
-    let fields_a = field_presence(&run_a);
-    let fields_b = field_presence(&run_b);
     let run_a = index(run_a, "run A")?;
     let run_b = index(run_b, "run B")?;
     let query_ids = run_a
@@ -180,16 +92,6 @@ fn compare(run_a: Vec<DiffRow>, run_b: Vec<DiffRow>) -> Result<DiffReport> {
         .collect::<BTreeSet<_>>();
     let mut report = DiffReport {
         queries: query_ids.len(),
-        informational_fields: fields_a
-            .union(&fields_b)
-            .filter_map(
-                |field| match (fields_a.contains(field), fields_b.contains(field)) {
-                    (true, false) => Some(format!("{field} (run B)")),
-                    (false, true) => Some(format!("{field} (run A)")),
-                    _ => None,
-                },
-            )
-            .collect(),
         ..Default::default()
     };
 
@@ -248,31 +150,7 @@ fn compare(run_a: Vec<DiffRow>, run_b: Vec<DiffRow>) -> Result<DiffReport> {
     Ok(report)
 }
 
-fn field_presence(rows: &[DiffRow]) -> BTreeSet<String> {
-    let mut fields = BTreeSet::new();
-    for row in rows {
-        if row.reader_present {
-            fields.insert("reader".to_string());
-        }
-        if row
-            .write_outcomes
-            .iter()
-            .any(|outcome| outcome.attempt_index_present)
-        {
-            fields.insert("write_outcomes[].attempt_index".to_string());
-        }
-        if row
-            .lifecycle_outcomes
-            .iter()
-            .any(|outcome| outcome.attempt_index_present)
-        {
-            fields.insert("lifecycle_outcomes[].attempt_index".to_string());
-        }
-    }
-    fields
-}
-
-fn index(rows: Vec<DiffRow>, label: &str) -> Result<BTreeMap<String, DiffRow>> {
+fn index(rows: Vec<PerQuestionResult>, label: &str) -> Result<BTreeMap<String, PerQuestionResult>> {
     let mut indexed = BTreeMap::new();
     for row in rows {
         let question_id = row.question_id.clone();
@@ -283,13 +161,13 @@ fn index(rows: Vec<DiffRow>, label: &str) -> Result<BTreeMap<String, DiffRow>> {
     Ok(indexed)
 }
 
-fn identities(items: &[DiffRetrievedItem]) -> Vec<String> {
+fn identities(items: &[RetrievedItem]) -> Vec<String> {
     let mut identities = items.iter().map(identity).collect::<Vec<_>>();
     identities.sort();
     identities
 }
 
-fn ranks(items: &[DiffRetrievedItem]) -> Vec<(String, usize)> {
+fn ranks(items: &[RetrievedItem]) -> Vec<(String, usize)> {
     let mut ranks = items
         .iter()
         .map(|item| (identity(item), item.rank))
@@ -298,7 +176,7 @@ fn ranks(items: &[DiffRetrievedItem]) -> Vec<(String, usize)> {
     ranks
 }
 
-fn identity(item: &DiffRetrievedItem) -> String {
+fn identity(item: &RetrievedItem) -> String {
     serde_json::to_string(&(
         &item.kind,
         &item.internal_id,
@@ -308,64 +186,75 @@ fn identity(item: &DiffRetrievedItem) -> String {
     .expect("retrieved item identity always serializes")
 }
 
-fn degraded(row: &DiffRow) -> bool {
-    row.write_outcomes.iter().any(|outcome| {
-        outcome.vector_indexing_failure.is_some()
-            || outcome.stats_update_status.failure.is_some()
-            || !outcome.repair_needed.is_empty()
-    }) || row.lifecycle_outcomes.iter().any(|outcome| {
-        !outcome.vector_maintenance_failures.is_empty()
-            || outcome.stats_update_status.failure.is_some()
-    })
+fn degraded(row: &PerQuestionResult) -> bool {
+    cmem_eval::summarize_degradation(std::slice::from_ref(row)).any_degradation
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
-    fn row(run_id: &str, latency_ms: u128, rank: usize, legacy_fields: bool) -> DiffRow {
-        row_with(run_id, latency_ms, rank, legacy_fields, |_| {})
+    fn row(run_id: &str, latency_ms: u128, rank: usize) -> PerQuestionResult {
+        row_with(run_id, latency_ms, rank, |_| {})
     }
 
     fn row_with(
         run_id: &str,
         latency_ms: u128,
         rank: usize,
-        legacy_fields: bool,
         edit: impl FnOnce(&mut Value),
-    ) -> DiffRow {
-        let mut value = json!({
-            "schema_version": "2",
-            "run_id": run_id,
-            "question_id": "q1",
-            "retrieved": [{
-                "kind": "episode",
-                "internal_id": "one",
-                "external_id": "one",
-                "episode_external_id": "one",
-                "rank": rank,
-                "score": 1.0
+    ) -> PerQuestionResult {
+        let result = PerQuestionResult {
+            schema_version: cmem_eval::RESULT_SCHEMA_VERSION.into(),
+            run_id: run_id.into(),
+            question_id: "q1".into(),
+            dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
+            dataset_kind: cmem_eval::DatasetKind::Continuity,
+            embedding_binding: cmem_eval::EmbeddingBindingRecord::Bm25,
+            adapter: Default::default(),
+            question_type: None,
+            question: "query".into(),
+            gold_episode_ids: Vec::new(),
+            gold_observation_ids: Vec::new(),
+            retrieved: vec![RetrievedItem {
+                kind: cmem_eval::ObjectType::Episode,
+                internal_id: "one".into(),
+                external_id: Some("one".into()),
+                episode_external_id: Some("one".into()),
+                rank,
+                score: Some(1.0),
+                rationale: Vec::new(),
+                text: None,
             }],
-            "write_outcomes": [{
-                "operation_id": "write-1",
-                "vector_indexing_failure": null,
-                "stats_update_status": {"failure": null},
-                "repair_needed": []
+            context_text: String::new(),
+            context_char_count: 0,
+            context_word_count: 0,
+            context: Default::default(),
+            composition: Default::default(),
+            integrity: Default::default(),
+            retrieval_outcomes: Vec::new(),
+            link_outcomes: Vec::new(),
+            lifecycle_outcomes: Vec::new(),
+            write_outcomes: vec![cmem_eval::RecordedOutcome {
+                operation_id: "write-1".into(),
+                outcome: cmem_eval::RememberOutcome {
+                    persisted_object_ids: Vec::new(),
+                    persisted_link_ids: Vec::new(),
+                    vector_indexed_object_ids: Vec::new(),
+                    vector_indexing_failure: None,
+                    stats_update_status: Default::default(),
+                    repair_needed: Vec::new(),
+                    diagnostics: Default::default(),
+                },
             }],
-            "lifecycle_outcomes": [{
-                "operation_id": "lifecycle-1",
-                "vector_maintenance_failures": [],
-                "stats_update_status": {"failure": null}
-            }],
-            "metrics": {"recall_any@1": 1.0},
-            "latency_ms": latency_ms
-        });
-        if legacy_fields {
-            value["reader"] = json!({"model": null, "answer": null});
-            value["write_outcomes"][0]["attempt_index"] = json!(0);
-            value["lifecycle_outcomes"][0]["attempt_index"] = json!(0);
-        }
+            metrics: cmem_eval::MetricsRecord::try_from(
+                json!({"recall_any@1":1.0}).as_object().unwrap().clone(),
+            )
+            .unwrap(),
+            latency_ms,
+        };
+        let mut value = serde_json::to_value(result).unwrap();
         edit(&mut value);
         serde_json::from_value(value).unwrap()
     }
@@ -389,8 +278,8 @@ mod tests {
         // A different object at the same rank changes the identity list and,
         // because ranks are keyed by identity, the rank list too.
         let report = compare(
-            normalize(vec![row("a", 1, 1, false)]),
-            normalize(vec![row_with("b", 1, 1, false, |value| {
+            normalize(vec![row("a", 1, 1)]),
+            normalize(vec![row_with("b", 1, 1, |value| {
                 value["retrieved"][0]["internal_id"] = json!("two");
                 value["retrieved"][0]["external_id"] = json!("two");
                 value["retrieved"][0]["episode_external_id"] = json!("two");
@@ -411,8 +300,8 @@ mod tests {
     #[test]
     fn metric_only_change_is_reported_once() {
         let report = compare(
-            normalize(vec![row("a", 1, 1, false)]),
-            normalize(vec![row_with("b", 1, 1, false, |value| {
+            normalize(vec![row("a", 1, 1)]),
+            normalize(vec![row_with("b", 1, 1, |value| {
                 value["metrics"] = json!({"recall_any@1": 0.0});
             })]),
         )
@@ -433,10 +322,18 @@ mod tests {
     #[test]
     fn degradation_only_change_is_reported_once() {
         let report = compare(
-            normalize(vec![row("a", 1, 1, false)]),
-            normalize(vec![row_with("b", 1, 1, false, |value| {
-                value["write_outcomes"][0]["vector_indexing_failure"] =
-                    json!({"kind": "zero_norm"});
+            normalize(vec![row("a", 1, 1)]),
+            normalize(vec![row_with("b", 1, 1, |value| {
+                value["write_outcomes"][0]["outcome"]["vector_indexing_failure"] =
+                    serde_json::to_value(cmem_eval::character_memory::VectorIndexingFailure {
+                        unindexed_objects: Vec::new(),
+                        cause:
+                            cmem_eval::character_memory::VectorIndexingCause::CardinalityMismatch {
+                                expected: 1,
+                                actual: 0,
+                            },
+                    })
+                    .unwrap();
             })]),
         )
         .unwrap();
@@ -455,8 +352,8 @@ mod tests {
     #[test]
     fn run_identity_and_latency_are_the_only_normalized_fields() {
         let report = compare(
-            normalize(vec![row("a", 1, 1, false)]),
-            normalize(vec![row("b", 99, 1, false)]),
+            normalize(vec![row("a", 1, 1)]),
+            normalize(vec![row("b", 99, 1)]),
         )
         .unwrap();
         assert_eq!(report.differing_queries, 0);
@@ -467,49 +364,32 @@ mod tests {
     }
 
     #[test]
-    fn prior_fields_are_informational_and_do_not_create_semantic_differences() {
-        let report = compare(
-            normalize(vec![row("parent", 1, 1, true)]),
-            normalize(vec![row("candidate", 2, 1, false)]),
-        )
-        .unwrap();
-        assert_eq!(report.differing_queries, 0);
-        assert_eq!(report.identity_changes, 0);
-        assert_eq!(report.rank_changes, 0);
-        assert_eq!(report.metric_changes, 0);
-        assert_eq!(report.degradation_changes, 0);
-        assert_eq!(
-            report.informational_fields,
-            vec![
-                "lifecycle_outcomes[].attempt_index (run B)",
-                "reader (run B)",
-                "write_outcomes[].attempt_index (run B)",
-            ]
-        );
-        assert!(
-            report
-                .render()
-                .starts_with("informational: fields absent on one side:")
-        );
-    }
-
-    #[test]
-    fn rows_missing_a_compared_field_are_rejected_not_defaulted() {
-        let mut value = serde_json::to_value(json!({
-            "run_id": "a", "question_id": "q1", "latency_ms": 1,
-            "write_outcomes": [], "lifecycle_outcomes": [], "metrics": {}
-        }))
-        .unwrap();
-        assert!(
-            serde_json::from_value::<DiffRow>(value.clone()).is_err(),
-            "retrieved is required"
-        );
-        value["retrieved"] = json!([]);
-        value.as_object_mut().unwrap().remove("metrics");
-        assert!(
-            serde_json::from_value::<DiffRow>(value).is_err(),
-            "metrics is required"
-        );
+    fn rows_missing_a_compared_field_or_native_outcome_are_rejected() {
+        let valid = serde_json::to_value(row("a", 1, 1)).unwrap();
+        for field in [
+            "retrieved",
+            "metrics",
+            "write_outcomes",
+            "link_outcomes",
+            "lifecycle_outcomes",
+        ] {
+            let mut value = valid.clone();
+            value.as_object_mut().unwrap().remove(field);
+            assert!(
+                serde_json::from_value::<PerQuestionResult>(value).is_err(),
+                "missing {field}"
+            );
+        }
+        let mut missing = valid.clone();
+        missing["write_outcomes"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("outcome");
+        assert!(serde_json::from_value::<PerQuestionResult>(missing).is_err());
+        let mut malformed = valid;
+        malformed["write_outcomes"][0]["outcome"]["vector_indexing_failure"] =
+            json!({"unknown":"cause"});
+        assert!(serde_json::from_value::<PerQuestionResult>(malformed).is_err());
     }
 
     fn write_rows(directory: &std::path::Path, name: &str, rows: &[Value]) -> PathBuf {
@@ -527,16 +407,10 @@ mod tests {
     }
 
     fn row_value(run_id: &str, metric: f64) -> Value {
-        json!({
-            "schema_version": "2",
-            "run_id": run_id,
-            "question_id": "q1",
-            "retrieved": [],
-            "write_outcomes": [],
-            "lifecycle_outcomes": [],
-            "metrics": {"x": metric},
-            "latency_ms": 1
-        })
+        serde_json::to_value(row_with(run_id, 1, 1, |value| {
+            value["metrics"] = json!({"x":metric});
+        }))
+        .unwrap()
     }
 
     #[test]
@@ -567,7 +441,7 @@ mod tests {
     fn empty_runs_are_rejected_rather_than_reported_equivalent() {
         let error = compare(Vec::new(), Vec::new()).unwrap_err().to_string();
         assert!(error.contains("refusing to compare"), "{error}");
-        let error = compare(vec![row("a", 1, 0, false)], Vec::new())
+        let error = compare(vec![row("a", 1, 0)], Vec::new())
             .unwrap_err()
             .to_string();
         assert!(error.contains("run B has 0 rows"), "{error}");
@@ -576,8 +450,8 @@ mod tests {
     #[test]
     fn rank_only_change_is_reported_once() {
         let report = compare(
-            normalize(vec![row("a", 1, 1, false)]),
-            normalize(vec![row("b", 2, 2, false)]),
+            normalize(vec![row("a", 1, 1)]),
+            normalize(vec![row("b", 2, 2)]),
         )
         .unwrap();
         assert_eq!(report.differing_queries, 1);

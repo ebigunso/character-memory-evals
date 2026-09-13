@@ -7,7 +7,7 @@ pub use loader::{load_path, load_value};
 pub use types::*;
 
 use anyhow::{Result, bail};
-use cmem_eval_core::{BenchmarkRunConfig, MetricFamily, MetricsConfig, retrieval_metric_family};
+use cmem_eval::{BenchmarkRunConfig, MetricFamily, MetricsConfig, retrieval_metric_family};
 
 pub fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
     if config.dataset.as_str() != "longmemeval_s" {

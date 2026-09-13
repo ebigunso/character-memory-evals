@@ -2,13 +2,14 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "orchestrator"
-last_updated: "2026-09-02"
+last_updated: "2026-09-13"
 ---
 
 # Orchestrator Repository Rules
 
 ## Repo-Specific Orchestrator Policies
 
+- Every ruling or brief that authorizes a change, of any size and in any layer, is decided on what is best for the overall product and architectural design: state the design intent it serves (decision records, philosophy, README consumer path, phase documents), what it would make worse, and the alternative rejected; audit text, plan text and worker findings are inputs, not decisions, and a worker's "blocked, need X" is a symptom to diagnose, not a specification to forward (decider feedback 2026-09-13; lessons.md same date).
 - When the handoff describes a forthcoming external public API, treat that API as the target contract and isolate current unavailability behind mocks or documented feature gates.
 - When the shared checkout is occupied by a worker, give reviewers isolated `git worktree` checkouts pinned at the review commit instead of asking anyone to switch branches.
 

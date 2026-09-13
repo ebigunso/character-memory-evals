@@ -683,3 +683,122 @@ Prevention:
 
 Evidence:
 - CME #25 follow-up after the CharacterMemory v0.1.6 merge (2026-09-10).
+
+## 2026-09-13 — Verify child-test execution after moving Rust modules [tags: validation, crate-layout]
+
+Symptom:
+- The first workspace run after merging the adapter crate reported success for an environment-isolation test whose child process selected zero tests.
+
+Root cause:
+- The exact child-test filter still used the old crate-root module path; Rust's test harness exits successfully when an exact filter matches nothing.
+
+Fix applied:
+- Updated the filter to `adapter::tests::oxigraph_env_cannot_redirect_graph_path_probe` and required the child output to report one passed test.
+
+Prevention:
+- When moving a Rust test module, update literal subprocess filters and assert that the intended child test executed, in addition to checking its exit status.
+
+Evidence:
+- Task_8 step 3 validation under `.agent-work/evals-worker/task8-step3/`; the execution-count assertion remains in `crates/cmem-eval/src/adapter.rs`.
+
+## 2026-09-13 — Retain evaluation evidence, clean up evaluation stores [tags: lifecycle, cleanup, evaluation]
+
+Symptom:
+- Cross-mode and A/B runs left 222 `cmem_eval` service collections that had to be deleted by hand on 2026-09-13.
+
+Root cause:
+- Evaluation store lifetimes extended beyond the runs even though retrospective evidence was already recorded in result artifacts.
+
+Decider ruling and prevention:
+- Evaluation runs clean up every store they create when the run ends, including service collections, embedded store directories, graph files and retrieval-stat files, unless the configuration explicitly retains them for retrospective inspection.
+- A run's evidence is its result rows, traces and report, never its stores.
+- Cleanup enabled by default, an explicit retain switch and per-run directories are Task_8 step 4 implementation work. This step records the policy and leaves the current cleanup behavior unchanged.
+
+Evidence:
+- Decider ruling relayed by the orchestrator on 2026-09-13, citing the manual removal of 222 collections left by the cross-mode and A/B runs.
+
+## 2026-09-13 — Audit every consumer when one outcome becomes a collection [tags: review, aggregation, validation]
+
+Symptom:
+- Vector-only retrieval retained one native outcome per selected kind, but restart snapshots and report aggregates read only the first outcome. Single-kind and hybrid checks did not reveal the omission.
+
+Root cause:
+- The native-type migration preserved singleton assumptions in downstream consumers; the review did not exercise two outcomes that both contributed trace data.
+
+Fix applied:
+- Summed all native outcomes, flattened their traces, and preserved query-level sample counts. Added an embedded episode-plus-observation restart/report regression with links that make both kinds emit fanout decisions; extended existing checks for selectivity and an absent first trace.
+
+Prevention:
+- When a result becomes a collection, census every first-element/index reader through the final report and test at least two contributing outcomes. Distinguish no trace from an empty trace, and retain the intended sample unit when summing counters. Derive test expectations from the producer's supported behavior: these vector-only kinds emit fanout, while native selectivity requires Entity roots.
+
+Evidence:
+- CME #27 Copilot round: `.agent-work/evals-worker/task8-step3-copilot/`; the embedded regression reproduced a count of 2 instead of 4 before the fix.
+
+## 2026-09-13 — Preserve measurement units and support when replacing telemetry [tags: review, metrics, validation]
+
+Symptom:
+- Native missing-object decisions were counted as objects, including the stale-omission and lifecycle entries emitted for the same missing candidate. Continuity also emitted numeric graph-integrity values for raw retrieval baselines that the conventional pipeline correctly marked unsupported.
+
+Root cause:
+- Replacing mirrored counters with native traces changed the source of measurements without retaining the object-identity unit and retrieval-mode support boundary. Trace presence alone did not establish graph validation of the returned baseline items.
+
+Fix applied and prevention:
+- Deduplicate both returned and omitted missing-object counts by stable ID. Gate continuity integrity on the same retrieval mode as conventional rows. The leakage regression repeats decisions within and across outcomes; an embedded CLI test checks numeric hybrid integrity and null vector-only integrity while preserving item-derived metrics.
+- When replacing telemetry projections, trace each count's identity unit and each metric's support condition through all row producers. Keep retry identity and canonical serialization order distinct from execution order in documentation.
+
+Evidence:
+- CME #27 Copilot round 2: `metrics::tests::context_validation_rate_accounts_for_lifecycle_leakage` and `commands::pipeline::tests::continuity_integrity_support_follows_retrieval_mode`. The pre-fix checks reproduced a validation rate of 0 instead of 0.5 and a vector-only graph-integrity value of 1.0 instead of null.
+
+## 2026-09-13 — Census dataset metrics when enforcing retrieval support [tags: review, metrics, validation]
+
+Symptom:
+- The common integrity fields correctly became null for raw retrieval, but continuity still emitted numeric graph-derived correction, hub-expansion and rationale metrics.
+
+Root cause:
+- The previous support-boundary fix and its regression covered common row fields without auditing the dataset-specific metric producers. Native traces existed even when they did not describe the returned raw candidates.
+
+Fix applied and prevention:
+- Gate native outcome inputs once at the continuity metric entry point. Preserve label/item-derived metrics and retain native evidence in traces and report samples.
+- Census every metric family through its actual input producer when changing retrieval support. Exercise representative scenarios for each producer and verify both unsupported nulls and supported numeric values; a generic scenario cannot establish coverage for conditional metric families.
+
+Evidence:
+- CME #27 Copilot round 2B: the extended mode regression reproduced `rationale_category_share_entity = 0.0` instead of null before the fix. Existing correction coverage now checks all 19 native-derived fields in hybrid, vector-only and BM25 modes; the embedded CLI regression covers recurring-hub and entrenched-correction scenarios.
+
+## 2026-09-13 — The Orchestrator Decides Every Change On Product And Architectural Design  [tags: orchestrator, design, delegation, rulings]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md` (Task_8 step 4) and the library's settings construction
+- Task/Wave: Task_8 step 4 / Wave 6
+- Roles involved: Orchestrator, Worker (evaluation and library)
+
+Symptom:
+- The evaluation worker reported its typed-construction item as blocked on a library API, and the right-sizing audit's wording assumed a "typed construction surface" should exist, so the Orchestrator dispatched a new public options constructor to the library. The decider had to ask for a design scrutiny; the scrutiny showed the library's intent is externalized configuration through the config crate, the real defect was three settings required in modes that never use them, and the library already held the right rule (the service connection string is optional and validated only in service mode). A second constructor for one consumer would have been sub-par design, and a design decision had been delegated to audit text and a worker's blocker.
+
+Root cause:
+- The Orchestrator treated inputs (audit wording, plan text, a worker's "blocked, need X") as decisions instead of deciding itself from the product and architectural design; the design check was skipped because the request looked like execution.
+
+Fix applied:
+- The typed-constructor dispatch was withdrawn before any edit; the library change was narrowed to "settings are required only by the selected mode" (graph path only in persistent mode; OpenAI key and model only for the OpenAI constructor; an injected provider supplies its own dimension), with no new construction path; the evaluation adapter drops its placeholders and keeps the config-crate path.
+
+Prevention:
+- Every ruling or brief that authorizes a change, of any size and in any layer, is decided on what is best for the overall product and architectural design: the Orchestrator states the design intent it serves (decision records, philosophy, README consumer path, phase documents), what the change would make worse, and the alternative it rejected. Audit text, plan text and worker findings are inputs, not decisions; a worker's "blocked, need X" is a symptom to diagnose, not a specification to forward. A change whose only justification is "the plan or audit says so" is not authorized until that check is written.
+
+Evidence:
+- Decider feedback 2026-09-13 in the orchestration session; the withdrawn brief `.agent-work/cm-worker/typed-settings-dispatch.txt` and its replacement `settings-follow-mode-dispatch.txt` in the library repository (transient).
+
+## 2026-09-13 — Validate every stack level against the library revision CI resolves [tags: ci, dependencies, stacks]
+
+Symptom:
+- Every evaluation pull request in the stack failed to compile when library main advanced beyond the locally validated branch pin. Library #82 removed candidate embedding text after the harness had validated against the #81 tip.
+
+Root cause:
+- Local validation used a fixed library branch tip, while CI resolves the library at main. The local pin did not constrain the dependency revision those pull requests would meet.
+
+Fix applied:
+- Remove the obsolete embedding-text argument and its text-only helpers at the stack base, retain target and provenance, and replay the higher branches while preserving their changes. Validate every level against library main `7528daf`.
+
+Prevention:
+- Before merging a harness stack, re-pin its local library checkout to the library main revision CI will resolve and run the required gates at every stack level. Record that library revision with each result; an earlier branch-pin result does not establish compatibility with a newer main.
+
+Evidence:
+- Stack-wide CI failure after library #82; the five VectorIndexCandidate constructor calls and the old candidate-text assertion in the Task_8 step 3 typed batch builder.

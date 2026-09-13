@@ -1,9 +1,9 @@
 #[path = "pipeline.rs"]
 mod pipeline;
 
-use anyhow::{Context, Result, bail};
-use clap::{Args, Parser, Subcommand, ValueEnum};
-use cmem_eval_core::{BenchmarkRunConfig, RetrievalMode, RunAdapterMetadata};
+use anyhow::{Context, Result};
+use clap::{Args, Parser, Subcommand};
+use cmem_eval::BenchmarkRunConfig;
 use std::fs;
 use std::path::PathBuf;
 
@@ -77,54 +77,6 @@ pub(crate) struct RunArgs {
     pub(crate) out: PathBuf,
     #[arg(long = "summary-out")]
     pub(crate) summary_out: PathBuf,
-    #[arg(long, value_enum)]
-    pub(crate) adapter: Option<AdapterKind>,
-    #[arg(long)]
-    pub(crate) allow_mock_benchmark: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub(crate) enum AdapterKind {
-    Mock,
-    Real,
-}
-
-impl RunArgs {
-    pub(crate) fn selected_adapter(&self) -> AdapterKind {
-        self.adapter.unwrap_or(AdapterKind::Real)
-    }
-
-    pub(crate) fn validate_adapter_selection(&self, config: &BenchmarkRunConfig) -> Result<()> {
-        if self.selected_adapter() == AdapterKind::Mock && !self.allow_mock_benchmark {
-            bail!(
-                "mock adapter is test/smoke-only; pass `--allow-mock-benchmark` to make mock output explicit, or omit `--adapter` for the default live Character Memory run"
-            );
-        }
-        if config.retrieval.mode == RetrievalMode::Bm25Only
-            && self.selected_adapter() != AdapterKind::Mock
-        {
-            bail!(
-                "retrieval.mode=bm25_only is service-free and requires `--adapter mock --allow-mock-benchmark`; refusing to create a live adapter"
-            );
-        }
-        if config.retrieval.mode == RetrievalMode::VectorOnly
-            && self.selected_adapter() == AdapterKind::Mock
-        {
-            bail!(
-                "retrieval.mode=vector_only is a live vector-recall baseline and cannot run with `--adapter mock`; omit `--adapter` or pass `--adapter real`"
-            );
-        }
-        Ok(())
-    }
-}
-
-impl AdapterKind {
-    pub(crate) fn metadata(self) -> RunAdapterMetadata {
-        match self {
-            AdapterKind::Mock => RunAdapterMetadata::mock_smoke(),
-            AdapterKind::Real => RunAdapterMetadata::live(),
-        }
-    }
 }
 
 pub(crate) fn read_config(path: &PathBuf) -> Result<BenchmarkRunConfig> {

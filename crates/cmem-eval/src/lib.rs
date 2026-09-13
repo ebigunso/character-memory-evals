@@ -5,12 +5,12 @@ pub mod deterministic_embedding;
 pub mod frozen_embedding;
 pub mod memory_adapter;
 pub mod metrics;
+pub mod outcome;
 pub mod results;
 pub mod runtime;
 pub mod serde_contract;
 pub mod timing;
 pub mod token_count;
-pub mod verdict;
 
 pub use config::*;
 pub use controllable_similarity_embedding::*;
@@ -18,8 +18,15 @@ pub use deterministic_embedding::*;
 pub use frozen_embedding::*;
 pub use memory_adapter::*;
 pub use metrics::*;
+pub use outcome::*;
 pub use results::*;
 pub use runtime::*;
 pub use timing::*;
 pub use token_count::*;
-pub use verdict::*;
+
+pub mod adapter;
+pub mod fs_util;
+pub mod openai_embedding;
+pub use adapter::CharacterMemoryAdapter;
+
+pub use character_memory;

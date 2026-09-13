@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
-use cmem_eval_adapter_cmem::fs_util::atomic_replace;
-use cmem_eval_adapter_cmem::openai_embedding::{EmbeddingRetryPolicy, OpenAiEmbeddingClient};
-use cmem_eval_core::{
+use cmem_eval::fs_util::atomic_replace;
+use cmem_eval::openai_embedding::{EmbeddingRetryPolicy, OpenAiEmbeddingClient};
+use cmem_eval::{
     FrozenEmbeddingDimensionPolicy, FrozenEmbeddingManifest, FrozenEmbeddingProvider,
     FrozenEmbeddingSource, FrozenEmbeddingStore, classify_frozen_embedding_dimensions,
     model_native_embedding_vector_size,
@@ -273,7 +273,7 @@ fn write_store(path: &Path, bytes: &[u8]) -> Result<()> {
     atomic_replace(path, bytes, "frozen embedding store")
 }
 
-fn print_measurements(measurements: &[cmem_eval_core::FrozenSimilarityMeasurement]) {
+fn print_measurements(measurements: &[cmem_eval::FrozenSimilarityMeasurement]) {
     for measurement in measurements {
         println!(
             "similarity description={:?} anchor={} candidate={} cosine={:.9}",
@@ -291,7 +291,7 @@ mod tests {
     use std::io::Write;
 
     use super::*;
-    use cmem_eval_adapter_cmem::fs_util::{atomic_replace_with_before_persist, persist_with_retry};
+    use cmem_eval::fs_util::{atomic_replace_with_before_persist, persist_with_retry};
 
     #[test]
     fn failed_store_write_preserves_preexisting_bytes() {
@@ -474,8 +474,8 @@ mod tests {
         let reuse_path = directory.path().join("reuse.json");
         let output_path = directory.path().join("output.json");
         let manifest = FrozenEmbeddingManifest {
-            schema_version: cmem_eval_core::FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION,
-            texts: vec![cmem_eval_core::FrozenEmbeddingText {
+            schema_version: cmem_eval::FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION,
+            texts: vec![cmem_eval::FrozenEmbeddingText {
                 id: "kept".to_string(),
                 text: "kept".to_string(),
             }],
@@ -527,8 +527,8 @@ mod tests {
         let reuse_path = directory.path().join("reuse.json");
         let output_path = directory.path().join("output.json");
         let manifest = FrozenEmbeddingManifest {
-            schema_version: cmem_eval_core::FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION,
-            texts: vec![cmem_eval_core::FrozenEmbeddingText {
+            schema_version: cmem_eval::FROZEN_EMBEDDING_MANIFEST_SCHEMA_VERSION,
+            texts: vec![cmem_eval::FrozenEmbeddingText {
                 id: "kept".to_string(),
                 text: "kept".to_string(),
             }],
@@ -562,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn all_committed_stores_validate_without_a_mock_or_network() {
+    fn all_committed_stores_validate_without_network() {
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../cmem-eval-continuity/fixtures/embeddings");
         for pair in ["task21_smoke", "task22_real", "continuity_benchmarks_v1"] {

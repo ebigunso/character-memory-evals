@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
-use cmem_eval_core::{ControllableSimilarityFixture, SimilarityConceptFixture};
+use cmem_eval::{ControllableSimilarityFixture, SimilarityConceptFixture};
 
 use crate::{
     CONTINUITY_FIXTURE_SCHEMA_VERSION, ContinuityEntityKind, ContinuityFixtureSet,
@@ -2311,8 +2311,7 @@ mod tests {
 
         let embedding = scale.embedding.controllable_similarity().unwrap();
         let provider =
-            cmem_eval_core::ControllableSimilarityEmbeddingProvider::new(embedding.clone())
-                .unwrap();
+            cmem_eval::ControllableSimilarityEmbeddingProvider::new(embedding.clone()).unwrap();
         let routine_cluster_counts = routine
             .iter()
             .map(|(text, _)| {
@@ -2605,8 +2604,7 @@ mod tests {
                 continue;
             };
             let provider =
-                cmem_eval_core::ControllableSimilarityEmbeddingProvider::new(embedding.clone())
-                    .unwrap();
+                cmem_eval::ControllableSimilarityEmbeddingProvider::new(embedding.clone()).unwrap();
             for event in &scenario.events {
                 let text = match event {
                     InteractionEvent::Remember { text, .. }

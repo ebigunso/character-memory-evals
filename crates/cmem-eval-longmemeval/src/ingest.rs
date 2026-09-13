@@ -1,5 +1,5 @@
 use crate::{LongMemEvalInstance, LongMemEvalMemoryInputs};
-use cmem_eval_core::{EpisodeInput, ObservationInput};
+use cmem_eval::{EpisodeInput, ObservationInput};
 
 pub fn to_memory_inputs(instance: &LongMemEvalInstance) -> LongMemEvalMemoryInputs {
     let namespace = instance.namespace();

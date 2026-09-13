@@ -1,8 +1,7 @@
 use crate::{
-    DatasetId, DatasetKind, DegradationSummary, EmbeddingBindingRecord, LifecycleOutcomeRecord,
-    MetricFamily, MetricSupportSummary, MetricsRecord, NumericMetricAggregate,
-    NumericMetricSummary, RegistryCoverageSummary, RetrievalTelemetry, RetrievedItem,
-    WriteOutcomeRecord, aggregate_numeric_metrics, metric_support_summary,
+    DatasetId, DatasetKind, DegradationSummary, EmbeddingBindingRecord, MetricFamily,
+    MetricSupportSummary, MetricsRecord, NumericMetricAggregate, NumericMetricSummary,
+    RegistryCoverageSummary, RetrievedItem, aggregate_numeric_metrics, metric_support_summary,
     registry_coverage_summary_for,
 };
 use anyhow::{Context, Result};
@@ -13,7 +12,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
-pub const RESULT_SCHEMA_VERSION: &str = "2.2.0";
+pub const RESULT_SCHEMA_VERSION: &str = "3.0.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,14 +31,15 @@ pub struct PerQuestionResult {
     pub gold_observation_ids: Vec<String>,
     pub retrieved: Vec<RetrievedItem>,
     pub context_text: String,
-    pub write_outcomes: Vec<WriteOutcomeRecord>,
-    pub lifecycle_outcomes: Vec<LifecycleOutcomeRecord>,
+    pub write_outcomes: Vec<crate::RecordedOutcome<crate::RememberOutcome>>,
+    pub link_outcomes: Vec<crate::RecordedOutcome<crate::LinkOutcome>>,
+    pub lifecycle_outcomes: Vec<crate::RecordedOutcome<crate::LifecycleMutationOutcome>>,
     pub metrics: MetricsRecord,
     pub latency_ms: u128,
     pub context_char_count: usize,
     pub context_word_count: usize,
     pub context: ResultContextMetrics,
-    pub telemetry: RetrievalTelemetry,
+    pub retrieval_outcomes: Vec<crate::RetrieveOutcome>,
     pub composition: ResultCompositionMetrics,
     pub integrity: ResultIntegrityDetails,
 }
@@ -131,7 +131,6 @@ pub struct ResultIntegrityDetails {
 pub struct RunAdapterMetadata {
     pub adapter: String,
     pub mode: String,
-    pub is_mock: bool,
 }
 
 impl RunAdapterMetadata {
@@ -139,15 +138,13 @@ impl RunAdapterMetadata {
         Self {
             adapter: "real".to_string(),
             mode: "live".to_string(),
-            is_mock: false,
         }
     }
 
-    pub fn mock_smoke() -> Self {
+    pub fn bm25() -> Self {
         Self {
-            adapter: "mock".to_string(),
-            mode: "mock_smoke".to_string(),
-            is_mock: true,
+            adapter: "bm25".to_string(),
+            mode: "lexical".to_string(),
         }
     }
 }
@@ -157,7 +154,6 @@ impl Default for RunAdapterMetadata {
         Self {
             adapter: "unknown".to_string(),
             mode: "unknown".to_string(),
-            is_mock: false,
         }
     }
 }
@@ -185,6 +181,9 @@ fn versioned_row_value(row: &PerQuestionResult) -> serde_json::Result<Value> {
     canonical
         .write_outcomes
         .sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
+    canonical
+        .link_outcomes
+        .sort_by(|a, b| a.operation_id.cmp(&b.operation_id));
     canonical
         .lifecycle_outcomes
         .sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
@@ -275,24 +274,24 @@ pub fn summarize_rows(
     })
 }
 
-fn summarize_degradation(rows: &[PerQuestionResult]) -> DegradationSummary {
-    let degraded_write = rows
-        .iter()
-        .flat_map(|row| &row.write_outcomes)
-        .any(|outcome| {
-            outcome.vector_indexing_failure.is_some()
-                || outcome.stats_update_status.failure.is_some()
-                || !outcome.repair_needed.is_empty()
-        });
-    let degraded_lifecycle = rows
-        .iter()
-        .flat_map(|row| &row.lifecycle_outcomes)
-        .any(|outcome| {
-            !outcome.vector_maintenance_failures.is_empty()
-                || outcome.stats_update_status.failure.is_some()
-        });
+pub fn summarize_degradation(rows: &[PerQuestionResult]) -> DegradationSummary {
     DegradationSummary {
-        any_degradation: degraded_write || degraded_lifecycle,
+        any_degradation: rows.iter().any(|row| {
+            row.write_outcomes.iter().any(|record| {
+                let outcome = &record.outcome;
+                outcome.vector_indexing_failure.is_some()
+                    || outcome.stats_update_status.failure.is_some()
+                    || !outcome.repair_needed.is_empty()
+            }) || row
+                .link_outcomes
+                .iter()
+                .any(|record| record.outcome.stats_update_status.failure.is_some())
+                || row.lifecycle_outcomes.iter().any(|record| {
+                    let outcome = &record.outcome;
+                    outcome.vector_maintenance_failure.is_some()
+                        || outcome.stats_update_status.failure.is_some()
+                })
+        }),
     }
 }
 
@@ -340,39 +339,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn not_requested_completeness_rejects_unknown_fields_like_every_other_variant() {
-        use crate::memory_adapter::VectorRecallCompleteness;
-        let valid = serde_json::from_value::<VectorRecallCompleteness>(
-            serde_json::json!({"kind": "not_requested"}),
-        )
-        .unwrap();
-        assert_eq!(valid, VectorRecallCompleteness::NotRequested {});
-        assert_eq!(
-            serde_json::to_value(valid).unwrap(),
-            serde_json::json!({"kind": "not_requested"})
-        );
-        for mut value in [
-            serde_json::json!({"kind": "not_requested"}),
-            serde_json::json!({"kind": "exhaustive", "scanned": 1}),
-            serde_json::json!({"kind": "boundary_tie_closed", "fetched": 1}),
-            serde_json::json!({"kind": "boundary_tie_open", "fetched": 1, "fetch_bound": 2}),
-        ] {
-            let valid = serde_json::from_value::<VectorRecallCompleteness>(value.clone()).unwrap();
-            assert_eq!(serde_json::to_value(valid).unwrap(), value);
-            value["unexpected"] = serde_json::json!(true);
-            assert!(
-                serde_json::from_value::<VectorRecallCompleteness>(value.clone()).is_err(),
-                "{value} accepted an unknown field"
-            );
-        }
-    }
-
-    #[test]
     fn empty_run_is_rejected_before_summary() {
         let error = reject_empty_run(&[]).unwrap_err().to_string();
         assert!(error.contains("produced no result rows"), "{error}");
     }
-    use crate::RepairMarkerRecord;
 
     fn dataset() -> DatasetId {
         DatasetId::new("locomo").unwrap()
@@ -397,7 +367,7 @@ mod tests {
             dataset: dataset(),
             dataset_kind: DatasetKind::LoCoMo,
             embedding_binding: embedding_binding(),
-            adapter: RunAdapterMetadata::mock_smoke(),
+            adapter: RunAdapterMetadata::live(),
             question_id: "q".into(),
             question_type: None,
             question: "question".into(),
@@ -406,13 +376,14 @@ mod tests {
             retrieved: Vec::new(),
             context_text: String::new(),
             write_outcomes: Vec::new(),
+            link_outcomes: Vec::new(),
             lifecycle_outcomes: Vec::new(),
             metrics: metrics(metric_values),
             latency_ms: 1,
             context_char_count: 0,
             context_word_count: 0,
             context: ResultContextMetrics::default(),
-            telemetry: RetrievalTelemetry::default(),
+            retrieval_outcomes: Vec::new(),
             composition: ResultCompositionMetrics::default(),
             integrity: ResultIntegrityDetails::default(),
         }
@@ -432,7 +403,7 @@ mod tests {
         let value = versioned_row_value(&row).unwrap();
         assert_eq!(value["question_id"], "q");
         assert_eq!(value["schema_version"], RESULT_SCHEMA_VERSION);
-        assert_eq!(value["adapter"]["mode"], "mock_smoke");
+        assert_eq!(value["adapter"]["mode"], "live");
         assert_eq!(value["dataset_kind"], "lo_co_mo");
         assert_eq!(value["embedding_binding"]["kind"], "live");
     }
@@ -447,7 +418,7 @@ mod tests {
             "r".into(),
             dataset(),
             DatasetKind::LoCoMo,
-            RunAdapterMetadata::mock_smoke(),
+            RunAdapterMetadata::live(),
             serde_json::json!({}),
             &[row],
             &[],
@@ -474,7 +445,7 @@ mod tests {
             "r".into(),
             dataset(),
             DatasetKind::LoCoMo,
-            RunAdapterMetadata::mock_smoke(),
+            RunAdapterMetadata::live(),
             serde_json::json!({"backend": {"embedding": {"provider": "openai"}}}),
             &[row],
             &[family],
@@ -488,155 +459,95 @@ mod tests {
         assert_eq!(summary.registry_coverage.required_metrics_present, 1);
     }
 
+    fn write_outcome(operation_id: &str) -> crate::RecordedOutcome<crate::RememberOutcome> {
+        crate::RecordedOutcome {
+            operation_id: operation_id.into(),
+            outcome: crate::RememberOutcome {
+                persisted_object_ids: Vec::new(),
+                persisted_link_ids: Vec::new(),
+                vector_indexed_object_ids: Vec::new(),
+                vector_indexing_failure: None,
+                stats_update_status: Default::default(),
+                repair_needed: Vec::new(),
+                diagnostics: Default::default(),
+            },
+        }
+    }
+
+    fn lifecycle_outcome(
+        operation_id: &str,
+    ) -> crate::RecordedOutcome<crate::LifecycleMutationOutcome> {
+        crate::RecordedOutcome {
+            operation_id: operation_id.into(),
+            outcome: crate::LifecycleMutationOutcome {
+                graph_mutated_object_ids: Vec::new(),
+                graph_mutated_link_ids: Vec::new(),
+                vector_maintained_object_ids: Vec::new(),
+                vector_maintenance_failure: None,
+                stats_update_status: Default::default(),
+                trace: None,
+                diagnostics: Default::default(),
+            },
+        }
+    }
+
     #[test]
-    fn summary_reports_any_degradation() {
-        let object = crate::ObjectRefRecord {
-            object_type: crate::ObjectType::Episode,
-            internal_id: "episode-1".into(),
-            external_id: Some("source-1".into()),
-        };
-        let mut write = WriteOutcomeRecord::clean(
-            "write-operation-1",
-            crate::WriteOperationKind::ExplicitCommit,
-        );
-        write.repair_needed.push(RepairMarkerRecord::StatsUpdate {
-            object_internal_ids: vec![object.internal_id.clone()],
-            causes: vec![crate::StatsUpdateCauseRecord::HealthCheck {
-                error: crate::RetrievalStatsStoreErrorRecord::Sqlite {
-                    detail: "unavailable".into(),
-                },
-            }],
-        });
-        let mut lifecycle = LifecycleOutcomeRecord::clean(
-            "lifecycle-operation-1",
-            crate::LifecycleOperationKind::Forget,
-        );
-        lifecycle
-            .vector_maintenance_failures
-            .push(crate::VectorMaintenanceFailureItemRecord {
-                operation: crate::VectorMaintenanceOperation::Delete,
-                objects: vec![object],
-                cause: crate::VectorIndexingCauseRecord::CardinalityMismatch {
-                    expected: 1,
-                    actual: 0,
+    fn native_outcomes_preserve_failures_and_drive_degradation() {
+        let mut result = row(serde_json::json!({}));
+        result.write_outcomes.push(write_outcome("write"));
+        result
+            .lifecycle_outcomes
+            .push(lifecycle_outcome("lifecycle"));
+        assert!(!summarize_degradation(&[result.clone()]).any_degradation);
+        result.write_outcomes[0].outcome.vector_indexing_failure =
+            Some(character_memory::VectorIndexingFailure {
+                unindexed_objects: Vec::new(),
+                cause: character_memory::VectorIndexingCause::ZeroNormEmbedding {
+                    object: character_memory::MemoryObjectRef::new(
+                        crate::ObjectType::Episode,
+                        uuid::Uuid::nil(),
+                    ),
                 },
             });
-        lifecycle.stats_update_status = crate::StatsUpdateStatusRecord {
-            updated_object_internal_ids: Vec::new(),
-            failure: Some(crate::StatsUpdateFailureRecord {
-                failed_object_internal_ids: vec!["episode-1".into()],
-                causes: vec![crate::StatsUpdateCauseRecord::HealthCheck {
-                    error: crate::RetrievalStatsStoreErrorRecord::Sqlite {
-                        detail: "unavailable".into(),
-                    },
-                }],
-            }),
-        };
-        let mut first = row(serde_json::json!({}));
-        first.write_outcomes.push(write.clone());
-        first.lifecycle_outcomes.push(lifecycle.clone());
-        let mut second = row(serde_json::json!({}));
-        second.question_id = "q2".into();
-        second.write_outcomes.push(write.clone());
-        second.write_outcomes.push(write);
-        second.lifecycle_outcomes.push(lifecycle.clone());
-        second.lifecycle_outcomes.push(lifecycle);
-
-        let summary = summarize_rows(
-            "r".into(),
-            dataset(),
-            DatasetKind::LoCoMo,
-            RunAdapterMetadata::mock_smoke(),
-            serde_json::json!({}),
-            &[first, second],
-            &[],
-        )
-        .unwrap();
-
-        assert!(summary.degradation.any_degradation);
-    }
-
-    #[test]
-    fn summary_keeps_clean_lifecycle_outcomes_non_degraded() {
-        let original = crate::ObjectRefRecord {
-            object_type: crate::ObjectType::DerivedMemory,
-            internal_id: "derived-original".into(),
-            external_id: Some("delivery-v1".into()),
-        };
-        let replacement = crate::ObjectRefRecord {
-            object_type: crate::ObjectType::DerivedMemory,
-            internal_id: "derived-replacement".into(),
-            external_id: Some("delivery-v2".into()),
-        };
-        let mut retry = LifecycleOutcomeRecord::clean(
-            "correction-operation",
-            crate::LifecycleOperationKind::Correct,
-        );
-        retry.requested_targets.push(original.clone());
-        retry.vector_maintained_objects = vec![original, replacement];
-        retry.stats_update_status.updated_object_internal_ids =
-            vec!["derived-original".into(), "derived-replacement".into()];
-
-        assert!(retry.graph_mutated_objects.is_empty());
-        assert!(retry.graph_mutated_link_internal_ids.is_empty());
-        assert!(retry.superseded.is_empty());
-        assert_eq!(retry.vector_maintained_objects.len(), 2);
+        assert!(summarize_degradation(&[result.clone()]).any_degradation);
+        let path = temp_path("native-outcomes", "jsonl");
+        write_jsonl(&path, &[result.clone()]).unwrap();
+        let decoded = read_jsonl(&path).unwrap();
+        assert_eq!(decoded[0].write_outcomes, result.write_outcomes);
+        result.write_outcomes.clear();
+        result.lifecycle_outcomes[0].outcome.stats_update_status =
+            character_memory::StatsUpdateStatus::failed([], [], Vec::new());
+        assert!(summarize_degradation(&[result.clone()]).any_degradation);
+        result.lifecycle_outcomes.clear();
+        let mut link = link_outcome("link");
+        link.outcome.stats_update_status =
+            character_memory::StatsUpdateStatus::failed([], [], Vec::new());
+        result.link_outcomes.push(link);
+        assert!(summarize_degradation(&[result.clone()]).any_degradation);
+        write_jsonl(&path, &[result.clone()]).unwrap();
         assert_eq!(
-            retry.stats_update_status.updated_object_internal_ids.len(),
-            2
+            read_jsonl(&path).unwrap()[0].link_outcomes,
+            result.link_outcomes
         );
-        assert!(retry.stats_update_status.failure.is_none());
-
-        let mut first = row(serde_json::json!({}));
-        first.lifecycle_outcomes.push(retry.clone());
-        let mut second = row(serde_json::json!({}));
-        second.question_id = "q2".into();
-        second.lifecycle_outcomes.push(retry);
-
-        let summary = summarize_rows(
-            "r".into(),
-            dataset(),
-            DatasetKind::LoCoMo,
-            RunAdapterMetadata::mock_smoke(),
-            serde_json::json!({}),
-            &[first, second],
-            &[],
-        )
-        .unwrap();
-
-        assert!(!summary.degradation.any_degradation);
+        std::fs::remove_file(path).unwrap();
     }
 
-    #[test]
-    fn summary_counts_lifecycle_stats_projection_failure_without_vector_failure() {
-        let mut lifecycle = LifecycleOutcomeRecord::clean(
-            "lifecycle-stats-operation",
-            crate::LifecycleOperationKind::Correct,
-        );
-        lifecycle.stats_update_status = crate::StatsUpdateStatusRecord {
-            updated_object_internal_ids: Vec::new(),
-            failure: Some(crate::StatsUpdateFailureRecord {
-                failed_object_internal_ids: vec!["episode-1".into()],
-                causes: vec![crate::StatsUpdateCauseRecord::HealthCheck {
-                    error: crate::RetrievalStatsStoreErrorRecord::LockPoisoned,
-                }],
-            }),
-        };
-        let mut result = row(serde_json::json!({}));
-        result.lifecycle_outcomes.push(lifecycle);
-
-        let summary = summarize_rows(
-            "r".into(),
-            dataset(),
-            DatasetKind::LoCoMo,
-            RunAdapterMetadata::mock_smoke(),
-            serde_json::json!({}),
-            &[result],
-            &[],
-        )
-        .unwrap();
-
-        assert!(summary.degradation.any_degradation);
+    fn link_outcome(operation_id: &str) -> crate::RecordedOutcome<crate::LinkOutcome> {
+        crate::RecordedOutcome {
+            operation_id: operation_id.into(),
+            outcome: crate::LinkOutcome {
+                link: character_memory::MemoryLinkDraft::new(
+                    crate::ObjectType::Episode,
+                    uuid::Uuid::from_u128(1),
+                    crate::RelationType::Mentions,
+                    crate::ObjectType::Entity,
+                    uuid::Uuid::from_u128(2),
+                )
+                .into_domain()
+                .unwrap(),
+                stats_update_status: character_memory::StatsUpdateStatus::default(),
+            },
+        }
     }
 
     #[test]
@@ -694,69 +605,28 @@ mod tests {
     }
 
     #[test]
-    fn zero_norm_embedding_cause_round_trips_through_result_rows() {
-        let object = crate::ObjectRefRecord {
-            object_type: crate::ObjectType::Episode,
-            internal_id: "internal-episode".into(),
-            external_id: Some("external-episode".into()),
-        };
-        let mut outcome = WriteOutcomeRecord::clean(
-            "zero-norm-embedding",
-            crate::WriteOperationKind::ExplicitCommit,
-        );
-        outcome.vector_indexing_failure = Some(crate::VectorIndexingFailureRecord {
-            unindexed_objects: vec![object.clone()],
-            cause: crate::VectorIndexingCauseRecord::ZeroNormEmbedding { object },
-        });
-        let mut result_row = row(serde_json::json!({}));
-        result_row.write_outcomes.push(outcome);
-        let path = temp_path("zero-norm-embedding", "jsonl");
-        write_jsonl(&path, std::slice::from_ref(&result_row)).unwrap();
-        let wire: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(
-            wire["write_outcomes"][0]["vector_indexing_failure"]["cause"],
-            serde_json::json!({
-                "cause": "zero_norm_embedding",
-                "detail": {"object": {
-                    "object_type": "episode",
-                    "internal_id": "internal-episode",
-                    "external_id": "external-episode"
-                }}
-            })
-        );
-        let decoded = read_jsonl(&path).unwrap();
-        assert_eq!(decoded.len(), 1);
-        assert_eq!(decoded[0].write_outcomes, result_row.write_outcomes);
-        std::fs::remove_file(path).unwrap();
-    }
-
-    #[test]
     fn write_jsonl_canonicalizes_outcomes_by_operation() {
         let first_path = temp_path("results-canonical-first", "jsonl");
         let second_path = temp_path("results-canonical-second", "jsonl");
         let mut result = row(serde_json::json!({}));
         for operation_id in ["b", "c", "a"] {
-            result.write_outcomes.push(WriteOutcomeRecord::clean(
-                operation_id,
-                crate::WriteOperationKind::ExplicitCommit,
-            ));
+            result.write_outcomes.push(write_outcome(operation_id));
+            result.link_outcomes.push(link_outcome(operation_id));
             result
                 .lifecycle_outcomes
-                .push(LifecycleOutcomeRecord::clean(
-                    operation_id,
-                    crate::LifecycleOperationKind::Correct,
-                ));
+                .push(lifecycle_outcome(operation_id));
         }
 
         write_jsonl(&first_path, std::slice::from_ref(&result)).unwrap();
         result.write_outcomes.reverse();
+        result.link_outcomes.reverse();
         result.lifecycle_outcomes.reverse();
         write_jsonl(&second_path, &[result]).unwrap();
 
         let first = std::fs::read_to_string(&first_path).unwrap();
         assert_eq!(first, std::fs::read_to_string(&second_path).unwrap());
         let value: Value = serde_json::from_str(first.trim()).unwrap();
-        for family in ["write_outcomes", "lifecycle_outcomes"] {
+        for family in ["write_outcomes", "link_outcomes", "lifecycle_outcomes"] {
             let operation_ids = value[family]
                 .as_array()
                 .unwrap()
@@ -790,163 +660,33 @@ mod tests {
     }
 
     #[test]
-    fn scoped_vector_completeness_round_trips_and_rejects_missing_scope() {
-        let path = temp_path("scoped-completeness", "jsonl");
-        let mut value = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        let valid = serde_json::json!([
-            {"scope": ["episode"], "completeness": {"kind": "exhaustive", "scanned": 3}},
-            {"scope": ["observation"], "completeness": {"kind": "boundary_tie_open", "fetched": 5, "fetch_bound": 5}}
-        ]);
-        value["telemetry"]["vector_recall_completeness"] = valid.clone();
-        std::fs::write(&path, format!("{value}\n")).unwrap();
-        let rows = read_jsonl(&path).unwrap();
-        write_jsonl(&path, &rows).unwrap();
-        let reread = read_jsonl(&path).unwrap();
-        assert_eq!(
-            serde_json::to_value(&reread[0].telemetry.vector_recall_completeness).unwrap(),
-            valid
-        );
-        for invalid in [
-            Value::Null,
-            serde_json::json!([]),
-            serde_json::json!([{"scope": [], "completeness": {"kind": "exhaustive", "scanned": 0}}]),
-            serde_json::json!([{"scope": ["episode"], "completeness": {"kind": "not_requested"}}]),
-            serde_json::json!([{"completeness": {"kind": "exhaustive", "scanned": 0}}]),
-            serde_json::json!([{"scope": [], "completeness": {"kind": "not_requested"}}, {"scope": ["episode"], "completeness": {"kind": "exhaustive", "scanned": 0}}]),
+    fn result_reader_rejects_owned_shape_drift() {
+        let path = temp_path("result-shape", "jsonl");
+        let value = serde_json::to_value(row(serde_json::json!({}))).unwrap();
+        for field in [
+            "retrieval_outcomes",
+            "write_outcomes",
+            "link_outcomes",
+            "lifecycle_outcomes",
+            "metrics",
+            "context",
         ] {
-            value["telemetry"]["vector_recall_completeness"] = invalid.clone();
-            std::fs::write(&path, format!("{value}\n")).unwrap();
-            assert!(read_jsonl(&path).is_err(), "accepted {invalid}");
+            let mut missing = value.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            std::fs::write(&path, serde_json::to_vec(&missing).unwrap()).unwrap();
+            assert!(read_jsonl(&path).is_err(), "missing {field}");
         }
-        value["telemetry"]
-            .as_object_mut()
-            .unwrap()
-            .remove("vector_recall_completeness");
-        std::fs::write(&path, format!("{value}\n")).unwrap();
+        let mut unknown = value.clone();
+        unknown["unexpected_field"] = Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&unknown).unwrap()).unwrap();
         assert!(read_jsonl(&path).is_err());
-        std::fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn v2_result_reader_rejects_shape_drift() {
-        let path = temp_path("results-shape-drift", "jsonl");
-
-        let mut completeness = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        completeness["telemetry"]["vector_recall_completeness"] = serde_json::json!([{ "scope": ["episode"], "completeness": {"kind": "exhaustive", "scanned": 3} }]);
-        std::fs::write(&path, format!("{completeness}\n")).unwrap();
-        assert_eq!(read_jsonl(&path).unwrap().len(), 1);
-        completeness["telemetry"]["vector_recall_completeness"][0]["completeness"]["unexpected_field"] =
-            Value::Bool(true);
-        std::fs::write(&path, format!("{completeness}\n")).unwrap();
-        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
-        assert!(
-            error.contains("unknown field `unexpected_field`"),
-            "{error}"
-        );
-
-        let current = serde_json::to_string(&row(serde_json::json!({}))).unwrap();
-        let duplicate_root = current.replacen(r#""run_id":"r""#, r#""run_id":"r","run_id":"r""#, 1);
-        std::fs::write(&path, format!("{duplicate_root}\n")).unwrap();
-        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
-        assert!(error.contains("duplicate JSON object key"), "{error}");
-
-        let mut verdict_row = row(serde_json::json!({}));
-        let mut outcome = WriteOutcomeRecord::clean(
-            "duplicate-verdict",
-            crate::WriteOperationKind::ExplicitCommit,
-        );
-        outcome.vector_indexing_failure = Some(crate::VectorIndexingFailureRecord {
-            unindexed_objects: Vec::new(),
-            cause: crate::VectorIndexingCauseRecord::VectorDatabase(
-                crate::VectorDatabaseErrorRecord {
-                    backend: "qdrant".to_string(),
-                    kind: crate::VectorDatabaseErrorKind::Response,
-                    status: None,
-                    message: "rejected".to_string(),
-                    retry_after_seconds: None,
-                },
-            ),
-        });
-        verdict_row.write_outcomes.push(outcome);
-        verdict_row
-            .lifecycle_outcomes
-            .push(LifecycleOutcomeRecord::clean(
-                "required-attempt-index",
-                crate::LifecycleOperationKind::Correct,
-            ));
-        let current = serde_json::to_string(&verdict_row).unwrap();
-        let duplicate_nested_verdict = current.replacen(
-            r#""kind":"response""#,
-            r#""kind":"response","kind":"response""#,
-            1,
-        );
-        assert_ne!(current, duplicate_nested_verdict);
-        std::fs::write(&path, format!("{duplicate_nested_verdict}\n")).unwrap();
-        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
-        assert!(error.contains("duplicate JSON object key"), "{error}");
-
-        let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        current["unexpected_v2_field"] = Value::Bool(true);
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&current).unwrap()),
-        )
-        .unwrap();
-        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        current.as_object_mut().unwrap().remove("context");
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&current).unwrap()),
-        )
-        .unwrap();
-        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
-        assert!(error.contains("missing field `context`"), "{error}");
-
-        let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        current["context"]["unexpected_v2_field"] = Value::Bool(true);
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&current).unwrap()),
-        )
-        .unwrap();
-        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
-        assert!(error.contains("unknown field"), "{error}");
-
-        let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        current["context"]
-            .as_object_mut()
-            .unwrap()
-            .remove("retrieved_context_chars");
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&current).unwrap()),
-        )
-        .unwrap();
-        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
-        assert!(
-            error.contains("missing field `retrieved_context_chars`"),
-            "{error}"
-        );
-
-        let mut current = versioned_row_value(&row(serde_json::json!({}))).unwrap();
-        current["context"]
-            .as_object_mut()
-            .unwrap()
-            .remove("full_history_chars");
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&current).unwrap()),
-        )
-        .unwrap();
-        let error = format!("{:#}", read_jsonl(&path).unwrap_err());
-        assert!(
-            error.contains("missing field `full_history_chars`"),
-            "{error}"
-        );
-
+        let mut wrong_metric = value;
+        wrong_metric["metrics"]["test"] = Value::Bool(true);
+        std::fs::write(&path, serde_json::to_vec(&wrong_metric).unwrap()).unwrap();
+        assert!(read_jsonl(&path).is_err());
+        let duplicate = r#"{"schema_version":"3.0.0","schema_version":"3.0.0"}"#;
+        std::fs::write(&path, duplicate).unwrap();
+        assert!(format!("{:#}", read_jsonl(&path).unwrap_err()).contains("duplicate"));
         std::fs::remove_file(path).unwrap();
     }
 
@@ -979,7 +719,7 @@ mod tests {
             "r".into(),
             dataset(),
             DatasetKind::LoCoMo,
-            RunAdapterMetadata::mock_smoke(),
+            RunAdapterMetadata::live(),
             serde_json::json!({}),
             &[row(serde_json::json!({"fixed_metric": 1.0}))],
             &[],
