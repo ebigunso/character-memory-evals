@@ -1,8 +1,8 @@
 # Plan: Harness Right-Sizing (strictness follows the claim)
 
-- status: approved
+- status: completed
 - generated: 2026-09-02
-- last_updated: 2026-09-02
+- last_updated: 2026-09-13
 - work_type: mixed
 
 ## Goal
