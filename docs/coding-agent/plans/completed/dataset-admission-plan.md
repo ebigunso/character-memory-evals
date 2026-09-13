@@ -150,6 +150,8 @@
 
 - 2026-09-14 Task_3 done: the Orchestrator's closeout dispatch extends the task to four lessons and the curated alias_destination_assertion hotspot; the reviewer rule also names dataset loaders among public input parsers. The latest binding plan text from ca4eb5b is closed with these progress entries and moved to completed. Rule wording, lessons and closeout validation remain Orchestrator-owned; no repository plan validator is available, so the Orchestrator runs the plan validator.
 
+- 2026-09-14 Closeout addendum: the closeout pull request carries a fifth lesson beyond the four Task_3 lessons, an orchestrator stacking lesson from the closeout itself (rebase a stacked branch onto the root tip before it moves a file the root changed), recorded in the same change because it was learned while landing this plan.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-14 Task_1 census of the official files (`datasets/locomo10.json`, `datasets/longmemeval_s_cleaned.json`), read directly, not from memory.
