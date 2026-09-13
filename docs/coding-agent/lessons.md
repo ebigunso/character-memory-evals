@@ -984,3 +984,25 @@ Prevention:
 
 Evidence:
 - Accepted Copilot finding on CME #32; seals_and_verifies_artifacts_larger_than_the_stream_buffer and the existing seal/verify preservation tests.
+
+## 2026-09-14 — A Merge Authorization Covers Only The Pull Requests It Was Given For  [tags: orchestrator, git, authorization]
+
+Context:
+- Plan: `docs/coding-agent/plans/completed/harness-right-sizing-plan.md` (closed); follow-up pull requests after the stack merge
+- Task/Wave: post-closeout follow-ups
+- Roles involved: Orchestrator
+
+Symptom:
+- The decider authorized merging the pull requests then open once their titles carried a gitmoji and CI was green; the Orchestrator then merged three later follow-up pull requests under the "same rule" and was about to merge a fourth.
+
+Root cause:
+- A conditional authorization was read as a standing policy instead of a decision scoped to the work immediately at hand.
+
+Fix applied:
+- The rule is recorded in the orchestrator rules of both repositories; the loader cleanup pull request waits for explicit approval.
+
+Prevention:
+- Record the scope of every merge authorization (which pull requests) when it is given; when a later pull request becomes mergeable, report it and ask, never merge on a prior condition.
+
+Evidence:
+- Decider feedback 2026-09-14 in the orchestration session.

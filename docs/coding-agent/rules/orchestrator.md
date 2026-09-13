@@ -2,13 +2,14 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "orchestrator"
-last_updated: "2026-09-13"
+last_updated: "2026-09-14"
 ---
 
 # Orchestrator Repository Rules
 
 ## Repo-Specific Orchestrator Policies
 
+- A merge authorization from the decider, conditional or not, covers only the pull requests named or in flight when it was given; every later pull request, however small, waits for its own explicit approval before merging (decider feedback 2026-09-14).
 - Sequential steps of one plan do not wait for the previous step's merge: the next step branches from the previous step's tip and its PR is linked into a GitHub stack on the previous PR (`gh stack link`); the stack decides merge order and the decider merges the stack (user directive 2026-09-13).
 - Every ruling or brief that authorizes a change, of any size and in any layer, is decided on what is best for the overall product and architectural design: state the design intent it serves (decision records, philosophy, README consumer path, phase documents), what it would make worse, and the alternative rejected; audit text, plan text and worker findings are inputs, not decisions, and a worker's "blocked, need X" is a symptom to diagnose, not a specification to forward (decider feedback 2026-09-13; lessons.md same date).
 - When the handoff describes a forthcoming external public API, treat that API as the target contract and isolate current unavailability behind mocks or documented feature gates.
