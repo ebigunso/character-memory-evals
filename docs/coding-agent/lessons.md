@@ -465,7 +465,7 @@ Evidence:
 ## 2026-09-02 — Confirm Decision Consumers Before Deleting Features  [tags: design-audit, scope, decisions, baselines]
 
 Context:
-- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md`
+- Plan: `docs/coding-agent/plans/completed/harness-right-sizing-plan.md`
 - Task/Wave: Task_2 / Wave 2
 - Roles involved: Decider | Orchestrator | Worker
 
@@ -487,7 +487,7 @@ Evidence:
 ## 2026-09-02 — Census Every Consumer When Deleting Harness Features  [tags: deletion, review, validation, docs, compatibility]
 
 Context:
-- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md`
+- Plan: `docs/coding-agent/plans/completed/harness-right-sizing-plan.md`
 - Task/Wave: Task_2 and Task_3 / Wave 2 review
 - Roles involved: Worker | Reviewer | Orchestrator
 
@@ -602,7 +602,7 @@ Evidence:
 ## 2026-09-03 — Gate Commits On The Tool's Exit Status, Never On Grep Of Its Output  [tags: workflow, validation, git, orchestrator]
 
 Context:
-- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md`
+- Plan: `docs/coding-agent/plans/completed/harness-right-sizing-plan.md`
 - Task/Wave: Copilot review round 2 on the waves 1–2 PR
 - Roles involved: Orchestrator
 
@@ -624,7 +624,7 @@ Evidence:
 ## 2026-09-06 — Cross-Mode Evaluation Against A Pre-Merge Library Tip  [tags: evaluation, environment, windows, serde, isolation, planning]
 
 Context:
-- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md` (Task_8 step 1, re-sequenced by decider ruling to run before the library's phase merge)
+- Plan: `docs/coding-agent/plans/completed/harness-right-sizing-plan.md` (Task_8 step 1, re-sequenced by decider ruling to run before the library's phase merge)
 - Task/Wave: Task_8 step 1 / Wave 6
 - Roles involved: Worker | Orchestrator | Reviewer
 
@@ -651,7 +651,7 @@ Evidence:
 ## 2026-09-10 — Source-Check The Exact Live-Gate Variable Before A Forced-Live Run  [tags: review, validation, environment, evidence]
 
 Context:
-- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md` (Task_8 step 1 follow-up review)
+- Plan: `docs/coding-agent/plans/completed/harness-right-sizing-plan.md` (Task_8 step 1 follow-up review)
 - Task/Wave: Task_8 step 1 / Wave 6
 - Roles involved: Reviewer
 
@@ -767,7 +767,7 @@ Evidence:
 ## 2026-09-13 — The Orchestrator Decides Every Change On Product And Architectural Design  [tags: orchestrator, design, delegation, rulings]
 
 Context:
-- Plan: `docs/coding-agent/plans/active/harness-right-sizing-plan.md` (Task_8 step 4) and the library's settings construction
+- Plan: `docs/coding-agent/plans/completed/harness-right-sizing-plan.md` (Task_8 step 4) and the library's settings construction
 - Task/Wave: Task_8 step 4 / Wave 6
 - Roles involved: Orchestrator, Worker (evaluation and library)
 

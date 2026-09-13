@@ -173,7 +173,7 @@
 - owns:
   - .github/workflows/ci.yml
   - README.md
-  - docs/coding-agent/plans/active/harness-right-sizing-plan.md
+  - docs/coding-agent/plans/completed/harness-right-sizing-plan.md
 - depends_on: [Task_6]
 - description: |
   Add a Qdrant service job that executes the feature-gated service-mode tests. Keep the default embedded job unchanged and use the same resolved library revision in both jobs. Document the CI split and record why ignoring live tests no longer applies.
@@ -265,6 +265,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 - 2026-09-13 Task_6 done (stacked on Task_5): `seal <run-dir>` writes `seal.json` (run header as an object, per-file SHA-256 hashes, sealing time) and copies the artifact, header, report and seal into the tracked `evidence/<run-id>/` directory, never overwriting; `verify <evidence-dir>` recomputes the hashes and fails on mismatch. The register's reference pair is promoted into `evidence/` as bytes with promotion-note seals; the register gains one dated addendum mapping each cited raw hash to its evidence file and each derived identity to its source file and offline derivation. Reviewer verdict recorded on the pull request.
 
 - 2026-09-13 Task_7 implementation: the dedicated `Service-mode tests (Qdrant)` job starts the library CI's Qdrant image, waits for readiness and executes the `service-tests` feature's `service_mode_` tests. It shares the resolved library revision with the unchanged embedded job, needs no embedding secret and fails on service unavailability. Worker evidence records the exact local command and executed test names under the exclusive Qdrant window.
+
+- 2026-09-13 Plan closed: Tasks 1 through 8 are merged to main (stack #29: pull requests #27, #28, #30, #31, #32, #33, on library main 7528daf). The definition of done holds: `run` plus `diff` serve the inner loop with no sealing, no schema versioning and no two-run ritual; `seal` and `verify` serve durable claims with the reference evidence tracked as bytes; every deletion listed carries its zero-hit census on its pull request; the process rules are narrowed as listed; the hash-cited evidence is byte-identical and its reference pair is promoted. Open for the decider: the Task_8 loader re-audit deletion list (Decision Log, 2026-09-13). The plan moves to completed.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
