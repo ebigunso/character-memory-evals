@@ -1006,3 +1006,71 @@ Prevention:
 
 Evidence:
 - Decider feedback 2026-09-14 in the orchestration session.
+
+## 2026-09-14 - Preserve identity source until duplicate admission [tags: review, dataset, identity]
+
+Symptom:
+- LongMemEval admitted repeated record IDs and mixed record/parallel collisions with identical turns, although the exception applies only to identities obtained from the parallel array.
+
+Root cause:
+- The duplicate map retained the effective ID and raw turns but discarded the ID source before applying the source-dependent exception.
+
+Fix applied:
+- Retain whether each effective ID came from a record; reject record/record and mixed collisions, and admit parallel-only repeats only when their raw turn arrays match.
+
+Prevention:
+- Preserve identity provenance until admission is complete and test record, parallel and both mixed orders, including a present but unused parallel array.
+
+Evidence:
+- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), duplicate-session ruling; CME #37 review finding F1 at 710b3e7, resolved at 9c2f2b3 and approved in DATASET_ADMISSION_REVIEW2.
+
+## 2026-09-14 - Audit every caller before narrowing a parser helper [tags: review, dataset, annotations]
+
+Symptom:
+- LoCoMo array records named session_01 or session_+1 lost their summaries and observations even though those record IDs remained admitted.
+
+Root cause:
+- Canonical decimal validation was added to a shared helper used by both keyed-session admission and numeric annotation lookup; the official file did not exercise the affected annotation encodings.
+
+Fix applied:
+- Separate canonical key validation from the existing numeric annotation lookup and compare complete parsed records for session_1, session_01 and session_+1 against the baseline.
+
+Prevention:
+- Audit every caller before tightening a parser helper and compare the typed annotations affected by the change using admitted inputs outside the official file.
+
+Evidence:
+- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), LoCoMo annotation-map census; CME #37 review finding F2 at 710b3e7, resolved at 9c2f2b3 with three byte-identical annotation comparisons in DATASET_ADMISSION_REVIEW2.
+
+## 2026-09-14 - Assert each alias in its typed destination [tags: review, dataset, validation]
+
+Symptom:
+- The LoCoMo session alias loop admitted session_id, session and id but never asserted the resulting session_id, repeating the earlier alias-evidence gap.
+
+Root cause:
+- Successful loading, a case-to-test table and assertions on neighbouring fields were treated as proof that the alias reached its destination.
+
+Fix applied:
+- Assert the exact session_id for every alias in the loop and add the alias_destination_assertion reviewer hotspot.
+
+Prevention:
+- For every claimed preserved alias, supply a populated value and verify that value in the alias's own typed destination field.
+
+Evidence:
+- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), admitted-alias census rows; CME #37 review finding F3 at 710b3e7, resolved at 9c2f2b3 and approved in DATASET_ADMISSION_REVIEW2.
+
+## 2026-09-14 - Census every loader field and identity scope [tags: orchestrator, planning, dataset]
+
+Symptom:
+- The Task_1 census missed session-ID repeats, admitted alias rows and turn-ID constraints; later Worker or Copilot findings required census and plan amendments.
+
+Root cause:
+- The census followed fields present in the official files and checked item-ID uniqueness without enumerating every loader read or every identity scope.
+
+Fix applied:
+- Amend the census and admission rules with the repeated-session, alias and turn-ID findings; Task_2 verifies typed admission cases, alias destinations and complete official parsed-byte preservation.
+
+Prevention:
+- Build the field census from loader source, enumerate every field and alias it reads, and check identity uniqueness at item, session, turn and QA scopes before dispatching strict admission work.
+
+Evidence:
+- [Dataset admission plan Decision Log](plans/completed/dataset-admission-plan.md#decision-log-append-only-re-plans-and-major-discoveries), Task_1 census and the correction recording 13 repeated LongMemEval session pairs; the plan Progress Log records subsequent alias and turn-ID additions. CME #37 review findings F1-F3 and DATASET_ADMISSION_REVIEW2 record the resulting admission and preservation checks.

@@ -1,6 +1,6 @@
 # Plan: Dataset Admission (strict on identity and structure, lenient on annotations)
 
-- status: in_progress
+- status: done
 - generated: 2026-09-14
 - last_updated: 2026-09-14
 - work_type: code
@@ -89,19 +89,21 @@
 - type: docs
 - owns:
   - docs/coding-agent/rules/reviewer.md
+  - docs/coding-agent/lessons.md
   - docs/coding-agent/plans/active/dataset-admission-plan.md
   - docs/coding-agent/plans/completed/dataset-admission-plan.md
 - depends_on: [Task_2]
 - description: |
-  Add dataset loaders to the fail-closed input surfaces in the reviewer hotspot; close the plan with the censuses and move it to completed.
+  Add dataset loaders to the fail-closed input surfaces and record the alias destination assertion in the reviewer hotspots; append the four dataset-admission lessons, close the plan with the censuses and move it to completed.
 - acceptance:
   - The reviewer rule names dataset loaders beside fixtures, configs and frozen stores.
+  - The alias destination assertion is a reviewer hotspot, and lessons record identity-source preservation, parser-helper callers, alias evidence and census completeness.
   - The plan is in completed with its final progress entry.
 - validation:
   - kind: review
     required: true
     owner: orchestrator
-    detail: "Rule wording and closeout entry"
+    detail: "Rule wording, four lessons and closeout entry"
 
 ## Task Waves (explicit parallel dispatch sets)
 
@@ -143,6 +145,10 @@
 - 2026-09-14 Task_2 owns widened from the runner's pipeline.rs to crates/cmem-eval-runner/**: the zero-item rejection made a runner CLI test that used `[]` as its dataset fail before the output validation it proves, so its input becomes a minimal admitted record (orchestrator-authorized one-file edit, recorded here).
 
 - 2026-09-14 Copilot on the exception's reach: the identical-repeat exception is scoped to the LongMemEval parallel-id form only; a repeated LoCoMo session-record id is rejected outright (no official file needs it, and such records could differ in timestamp, summary or observations under one identity). The earlier turn-id extension of the exception is therefore moot and withdrawn.
+
+- 2026-09-14 Task_2 done at 9c2f2b3 (CME #37): Reviewer APPROVED in DATASET_ADMISSION_REVIEW2 after findings F1-F3 and documentation/test adjustments A-B were resolved. Both complete official parsed files and three annotation probes are byte-identical to their baselines; all four malformed/empty CLI cases reject before output creation; 73 loader tests, both runner regressions, fmt, strict Clippy and the README smoke pair pass. The workspace suite reports 317 passed, one standing OS 1314 symlink-privilege failure and zero ignored tests; the privilege-dependent check remains CI-owned under the existing ruling. Evidence is retained under .agent-work/evals-worker/dataset-admission/ and .agent-work/evals-reviewer/dataset-admission/fix1/ until #37 merges; merge approval remains with the decider.
+
+- 2026-09-14 Task_3 done: the Orchestrator's closeout dispatch extends the task to four lessons and the curated alias_destination_assertion hotspot; the reviewer rule also names dataset loaders among public input parsers. The latest binding plan text from ca4eb5b is closed with these progress entries and moved to completed. Rule wording, lessons and closeout validation remain Orchestrator-owned; no repository plan validator is available, so the Orchestrator runs the plan validator.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
