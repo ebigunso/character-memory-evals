@@ -157,32 +157,45 @@ pub struct RetrievalSurfacePolicy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum VectorOnlySurfacePolicyError {
-    UnsupportedObjectTypes { object_types: Vec<ObjectType> },
-    ZeroSelectedSurfaceBudget { object_type: ObjectType },
+pub enum BaselineSurfacePolicyError {
+    UnsupportedObjectTypes {
+        mode: crate::RetrievalMode,
+        object_types: Vec<ObjectType>,
+    },
+    ZeroSelectedSurfaceBudget {
+        mode: crate::RetrievalMode,
+        object_type: ObjectType,
+    },
 }
 
-impl fmt::Display for VectorOnlySurfacePolicyError {
+impl fmt::Display for BaselineSurfacePolicyError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mode_name = |mode: &crate::RetrievalMode| match mode {
+            crate::RetrievalMode::VectorOnly => "vector_only",
+            crate::RetrievalMode::Bm25Only => "bm25_only",
+            crate::RetrievalMode::Hybrid => "hybrid",
+        };
         match self {
-            Self::UnsupportedObjectTypes { object_types } => write!(
+            Self::UnsupportedObjectTypes { mode, object_types } => write!(
                 formatter,
-                "retrieval.mode=vector_only supports only episode and observation object_types; unsupported selections: {}",
+                "retrieval.mode={} supports only episode and observation object_types; unsupported selections: {}",
+                mode_name(mode),
                 object_types
                     .iter()
                     .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Self::ZeroSelectedSurfaceBudget { object_type } => write!(
+            Self::ZeroSelectedSurfaceBudget { mode, object_type } => write!(
                 formatter,
-                "retrieval.mode=vector_only selected {object_type} with a zero section budget"
+                "retrieval.mode={} selected {object_type} with a zero section budget",
+                mode_name(mode)
             ),
         }
     }
 }
 
-impl std::error::Error for VectorOnlySurfacePolicyError {}
+impl std::error::Error for BaselineSurfacePolicyError {}
 
 impl RetrievalSurfacePolicy {
     pub fn validate(&self) -> Result<()> {
@@ -201,6 +214,14 @@ impl RetrievalSurfacePolicy {
     }
 
     pub fn validate_for_vector_only(&self) -> Result<()> {
+        self.validate_for_text_baseline(crate::RetrievalMode::VectorOnly)
+    }
+
+    pub fn validate_for_bm25_only(&self) -> Result<()> {
+        self.validate_for_text_baseline(crate::RetrievalMode::Bm25Only)
+    }
+
+    fn validate_for_text_baseline(&self, mode: crate::RetrievalMode) -> Result<()> {
         self.validate()?;
         let unsupported = self
             .object_types
@@ -211,7 +232,8 @@ impl RetrievalSurfacePolicy {
             })
             .collect::<Vec<_>>();
         if !unsupported.is_empty() {
-            return Err(VectorOnlySurfacePolicyError::UnsupportedObjectTypes {
+            return Err(BaselineSurfacePolicyError::UnsupportedObjectTypes {
+                mode,
                 object_types: unsupported,
             }
             .into());
@@ -221,7 +243,8 @@ impl RetrievalSurfacePolicy {
             (ObjectType::Observation, self.sections.salient_observations),
         ] {
             if self.object_types.contains(&object_type) && budget == 0 {
-                return Err(VectorOnlySurfacePolicyError::ZeroSelectedSurfaceBudget {
+                return Err(BaselineSurfacePolicyError::ZeroSelectedSurfaceBudget {
+                    mode,
                     object_type,
                 }
                 .into());

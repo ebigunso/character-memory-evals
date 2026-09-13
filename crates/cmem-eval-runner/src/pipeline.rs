@@ -1,4 +1,6 @@
-use crate::commands::{ContinuityRunArgs, RunArgs, read_config};
+#[cfg(test)]
+use crate::commands::read_config;
+use crate::commands::{ContinuityRunArgs, RunArgs};
 use crate::enrichment;
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
@@ -77,7 +79,7 @@ fn live_embedding_binding(config: &BenchmarkRunConfig) -> Result<EmbeddingBindin
 }
 
 pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
-    let config = read_config(&args.run.config)?;
+    let (config, config_source) = super::read_config_source(&args.run.config)?;
     ContinuitySpec::validate_config(&config)?;
     let fixture = load_continuity_fixture(&args.run.dataset)?;
     let fixture_schema_version = fixture.schema_version;
@@ -87,6 +89,7 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
     run_continuity_pipeline(
         args,
         config,
+        config_source,
         fixture_schema_version,
         fixture_seed,
         scenarios,
@@ -294,7 +297,7 @@ trait DatasetSpec {
 }
 
 async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
-    let config = read_config(&args.config)?;
+    let (config, config_source) = super::read_config_source(&args.config)?;
     config.validate()?;
     S::validate_config(&config)?;
     let dataset = dataset_descriptor(&config.dataset)?;
@@ -311,212 +314,228 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
     } else {
         RunAdapterMetadata::live()
     };
-    let adapter = if lexical {
-        None
-    } else {
-        Some(adapter(&config).await?)
-    };
-    let enrichment_by_namespace = if S::USES_ENRICHMENT {
-        load_enrichment_by_namespace(&config)?
-    } else {
-        HashMap::new()
-    };
-    let snapshots_by_item = if S::USES_ENRICHMENT {
-        load_snapshots_by_dataset_item(&config)?
-    } else {
-        HashMap::new()
-    };
-    let total_questions = S::total_questions(&source_items);
-    let progress = RunProgress::new(
-        &config.dataset,
-        source_items.len(),
-        S::REPORT_QA_PROGRESS.then_some(total_questions),
-    );
-    let mut rows = Vec::with_capacity(total_questions);
-    let mut namespaces_to_cleanup = Vec::with_capacity(source_items.len());
-    let mut completed_questions = 0usize;
+    let run_root = create_run_root(&args.out, &[("summary-out", &args.summary_out)])?;
+    let mut adapter = None;
+    let namespaces_to_cleanup = source_items.iter().map(S::namespace).collect::<Vec<_>>();
+    let result = async {
+        let header = run_header(config_source, &run_root, &config, adapter_metadata.clone())?;
+        adapter = if lexical {
+            None
+        } else {
+            Some(CharacterMemoryAdapter::new(&run_root, &config).await?)
+        };
+        let enrichment_by_namespace = if S::USES_ENRICHMENT {
+            load_enrichment_by_namespace(&config)?
+        } else {
+            HashMap::new()
+        };
+        let snapshots_by_item = if S::USES_ENRICHMENT {
+            load_snapshots_by_dataset_item(&config)?
+        } else {
+            HashMap::new()
+        };
+        let total_questions = S::total_questions(&source_items);
+        let progress = RunProgress::new(
+            &config.dataset,
+            source_items.len(),
+            S::REPORT_QA_PROGRESS.then_some(total_questions),
+        );
+        let mut rows = Vec::with_capacity(total_questions);
+        let mut completed_questions = 0usize;
 
-    for (item_index, item) in source_items.into_iter().enumerate() {
-        let item_number = item_index + 1;
-        let namespace = S::namespace(&item);
-        let item_label = S::item_id(&item).to_string();
-        let item_timer = Timer::start();
-        progress.item_started(item_number, &item_label);
-        let batch = S::memory_inputs(&item, &config);
-        let baseline = lexical
-            .then(|| cmem_eval::bm25::Bm25Baseline::new(&batch.episodes, &batch.observations));
-        let ingest_detail = S::ingest_progress_detail(&batch);
-        let episode_count = batch.episodes.len();
-        let observation_count = batch.observations.len();
-        let mut write_outcomes = Vec::new();
-        if let Some(adapter) = &adapter {
-            prepare_fresh_namespace(adapter.as_ref(), &namespace).await?;
-            if !batch.episodes.is_empty() {
-                write_outcomes.push(adapter.remember_episodes(batch.episodes).await?.outcome);
-            }
-            progress.phase_done(
-                item_number,
-                &item_label,
-                "ingest-episodes",
-                &format!("count={episode_count}"),
-            );
-            if !batch.observations.is_empty() {
-                write_outcomes.push(
-                    adapter
-                        .remember_observations(batch.observations)
-                        .await?
-                        .outcome,
-                );
-            }
-            progress.phase_done(
-                item_number,
-                &item_label,
-                "ingest-observations",
-                &format!("count={observation_count}"),
-            );
-            progress.phase_done(item_number, &item_label, "ingest", &ingest_detail);
-
-            if let Some(enrichment) = S::enrichment(
-                &item,
-                &namespace,
-                batch.derived_memories,
-                &config,
-                &enrichment_by_namespace,
-                &snapshots_by_item,
-            )? {
-                write_outcomes.extend(adapter.remember_enrichment(enrichment).await?);
-                progress.phase_done(item_number, &item_label, "enrichment", "done");
-            }
-        }
-        let full_history = S::full_history_text(&item);
-        let full_history_metrics = full_history_context_metrics(Some(&full_history));
-        let questions = S::questions(&item);
-        let item_question_count = questions.len();
-        for (question_index, question) in questions.into_iter().enumerate() {
-            let question_timer = Timer::start();
-            if S::REPORT_QA_PROGRESS {
-                progress.qa_started(
-                    item_number,
-                    &item_label,
-                    question_index + 1,
-                    item_question_count,
-                );
-            }
-            let input = RetrieveInput {
-                mode: config.retrieval.mode,
-                namespace: namespace.clone(),
-                query: S::question_text(question).to_string(),
-                query_date: S::query_date(question),
-                surface_policy: config.retrieval.surface_policy.clone(),
-            };
-            let pack = if let Some(baseline) = &baseline {
-                baseline.retrieve(&input)
-            } else {
-                adapter
-                    .as_ref()
-                    .expect("library retrieval has an adapter")
-                    .retrieve(input)
-                    .await?
-            };
-            if S::REPORT_QA_PROGRESS {
-                progress.qa_retrieved(
-                    item_number,
-                    &item_label,
-                    question_index + 1,
-                    item_question_count,
-                    pack.items().len(),
-                );
-            } else {
+        for (item_index, item) in source_items.into_iter().enumerate() {
+            let item_number = item_index + 1;
+            let namespace = S::namespace(&item);
+            let item_label = S::item_id(&item).to_string();
+            let item_timer = Timer::start();
+            progress.item_started(item_number, &item_label);
+            let batch = S::memory_inputs(&item, &config);
+            let baseline = lexical
+                .then(|| cmem_eval::bm25::Bm25Baseline::new(&batch.episodes, &batch.observations));
+            let ingest_detail = S::ingest_progress_detail(&batch);
+            let episode_count = batch.episodes.len();
+            let observation_count = batch.observations.len();
+            let mut write_outcomes = Vec::new();
+            if let Some(adapter) = &adapter {
+                prepare_fresh_namespace(adapter, &namespace).await?;
+                if !batch.episodes.is_empty() {
+                    write_outcomes.push(adapter.remember_episodes(batch.episodes).await?.outcome);
+                }
                 progress.phase_done(
                     item_number,
                     &item_label,
-                    "retrieve",
-                    &format!("items={}", pack.items().len()),
+                    "ingest-episodes",
+                    &format!("count={episode_count}"),
                 );
-            }
-
-            let context = context_metrics_with_full_history(&pack, full_history_metrics);
-            let composition = composition_metrics(pack.items());
-            let integrity = if config.retrieval.mode == cmem_eval::RetrievalMode::Hybrid {
-                integrity_details_from_outcomes(pack.items(), pack.outcomes())
-            } else {
-                // Raw vector and lexical baselines do not surface the graph-validated pack.
-                cmem_eval::integrity_details(pack.items())
-            };
-            let latency_ms = if S::LATENCY_INCLUDES_INGEST {
-                item_timer.elapsed_ms()
-            } else {
-                question_timer.elapsed_ms()
-            };
-            let metrics = S::score(&item, question, pack.items(), &config);
-            let mut metrics = metrics
-                .as_object()
-                .cloned()
-                .context("dataset scorer must return a JSON object before metrics admission")?;
-            insert_common_metrics(
-                &mut metrics,
-                &context,
-                &composition,
-                &integrity,
-                std::slice::from_ref(&metric_family),
-            );
-            let metrics = MetricsRecord::try_from(metrics)?;
-            let (retrieved, context_text, _, _, retrieval_outcomes) = pack.into_parts();
-            rows.push(PerQuestionResult {
-                schema_version: cmem_eval::RESULT_SCHEMA_VERSION.to_string(),
-                run_id: config.run_id.clone(),
-                dataset: config.dataset.clone(),
-                dataset_kind: dataset.kind,
-                embedding_binding: embedding_binding.clone(),
-                adapter: adapter_metadata.clone(),
-                question_id: S::question_id(question).to_string(),
-                question_type: S::question_type(question),
-                question: S::question_text(question).to_string(),
-                gold_episode_ids: S::gold_episode_ids(&item, question),
-                gold_observation_ids: S::gold_observation_ids(&item, question),
-                retrieved,
-                context_text,
-                write_outcomes: write_outcomes.clone(),
-                link_outcomes: Vec::new(),
-                lifecycle_outcomes: Vec::new(),
-                metrics,
-                latency_ms,
-                context_char_count: context.retrieved_context_chars,
-                context_word_count: context.retrieved_context_words,
-                context,
-                retrieval_outcomes,
-                composition,
-                integrity,
-            });
-            completed_questions += 1;
-            if S::REPORT_QA_PROGRESS {
-                progress.qa_finished(
+                if !batch.observations.is_empty() {
+                    write_outcomes.push(
+                        adapter
+                            .remember_observations(batch.observations)
+                            .await?
+                            .outcome,
+                    );
+                }
+                progress.phase_done(
                     item_number,
                     &item_label,
-                    completed_questions,
-                    question_timer.elapsed_ms(),
+                    "ingest-observations",
+                    &format!("count={observation_count}"),
                 );
+                progress.phase_done(item_number, &item_label, "ingest", &ingest_detail);
+
+                if let Some(enrichment) = S::enrichment(
+                    &item,
+                    &namespace,
+                    batch.derived_memories,
+                    &config,
+                    &enrichment_by_namespace,
+                    &snapshots_by_item,
+                )? {
+                    write_outcomes.extend(adapter.remember_enrichment(enrichment).await?);
+                    progress.phase_done(item_number, &item_label, "enrichment", "done");
+                }
+            }
+            let full_history = S::full_history_text(&item);
+            let full_history_metrics = full_history_context_metrics(Some(&full_history));
+            let questions = S::questions(&item);
+            let item_question_count = questions.len();
+            for (question_index, question) in questions.into_iter().enumerate() {
+                let question_timer = Timer::start();
+                if S::REPORT_QA_PROGRESS {
+                    progress.qa_started(
+                        item_number,
+                        &item_label,
+                        question_index + 1,
+                        item_question_count,
+                    );
+                }
+                let input = RetrieveInput {
+                    mode: config.retrieval.mode,
+                    namespace: namespace.clone(),
+                    query: S::question_text(question).to_string(),
+                    query_date: S::query_date(question),
+                    surface_policy: config.retrieval.surface_policy.clone(),
+                };
+                let pack = if let Some(baseline) = &baseline {
+                    baseline.retrieve(&input)
+                } else {
+                    adapter
+                        .as_ref()
+                        .expect("library retrieval has an adapter")
+                        .retrieve(input)
+                        .await?
+                };
+                if S::REPORT_QA_PROGRESS {
+                    progress.qa_retrieved(
+                        item_number,
+                        &item_label,
+                        question_index + 1,
+                        item_question_count,
+                        pack.items().len(),
+                    );
+                } else {
+                    progress.phase_done(
+                        item_number,
+                        &item_label,
+                        "retrieve",
+                        &format!("items={}", pack.items().len()),
+                    );
+                }
+
+                let context = context_metrics_with_full_history(&pack, full_history_metrics);
+                let composition = composition_metrics(pack.items());
+                let integrity = if config.retrieval.mode == cmem_eval::RetrievalMode::Hybrid {
+                    integrity_details_from_outcomes(pack.items(), pack.outcomes())
+                } else {
+                    // Raw vector and lexical baselines do not surface the graph-validated pack.
+                    cmem_eval::integrity_details(pack.items())
+                };
+                let latency_ms = if S::LATENCY_INCLUDES_INGEST {
+                    item_timer.elapsed_ms()
+                } else {
+                    question_timer.elapsed_ms()
+                };
+                let metrics = S::score(&item, question, pack.items(), &config);
+                let mut metrics = metrics
+                    .as_object()
+                    .cloned()
+                    .context("dataset scorer must return a JSON object before metrics admission")?;
+                insert_common_metrics(
+                    &mut metrics,
+                    &context,
+                    &composition,
+                    &integrity,
+                    std::slice::from_ref(&metric_family),
+                );
+                let metrics = MetricsRecord::try_from(metrics)?;
+                let (retrieved, context_text, _, _, retrieval_outcomes) = pack.into_parts();
+                rows.push(PerQuestionResult {
+                    schema_version: cmem_eval::RESULT_SCHEMA_VERSION.to_string(),
+                    run_id: config.run_id.clone(),
+                    dataset: config.dataset.clone(),
+                    dataset_kind: dataset.kind,
+                    embedding_binding: embedding_binding.clone(),
+                    adapter: adapter_metadata.clone(),
+                    question_id: S::question_id(question).to_string(),
+                    question_type: S::question_type(question),
+                    question: S::question_text(question).to_string(),
+                    gold_episode_ids: S::gold_episode_ids(&item, question),
+                    gold_observation_ids: S::gold_observation_ids(&item, question),
+                    retrieved,
+                    context_text,
+                    write_outcomes: write_outcomes.clone(),
+                    link_outcomes: Vec::new(),
+                    lifecycle_outcomes: Vec::new(),
+                    metrics,
+                    latency_ms,
+                    context_char_count: context.retrieved_context_chars,
+                    context_word_count: context.retrieved_context_words,
+                    context,
+                    retrieval_outcomes,
+                    composition,
+                    integrity,
+                });
+                completed_questions += 1;
+                if S::REPORT_QA_PROGRESS {
+                    progress.qa_finished(
+                        item_number,
+                        &item_label,
+                        completed_questions,
+                        question_timer.elapsed_ms(),
+                    );
+                }
+            }
+            if let Some(adapter) = &adapter {
+                adapter.detach_namespace(&namespace).await?;
+            }
+            progress.item_finished(item_number, &item_label, item_timer.elapsed_ms());
+        }
+
+        progress.write_outputs_started(rows.len());
+        write_outputs(args, config.clone(), rows, &[metric_family], header)?;
+        Ok(())
+    }
+    .await;
+    let mut cleanup_error = None;
+    if let Some(adapter) = &adapter {
+        for namespace in &namespaces_to_cleanup {
+            if let Err(error) = adapter.cleanup_namespace(namespace).await {
+                cleanup_error.get_or_insert(error);
             }
         }
-        if let Some(adapter) = &adapter {
-            adapter.detach_namespace(&namespace).await?;
+        if let Err(error) = adapter.release_namespaces().await {
+            cleanup_error.get_or_insert(error);
         }
-        namespaces_to_cleanup.push(namespace);
-        progress.item_finished(item_number, &item_label, item_timer.elapsed_ms());
     }
-
-    progress.write_outputs_started(rows.len());
-    write_outputs(args, config.clone(), rows, &[metric_family])?;
-    progress.cleanup_started(namespaces_to_cleanup.len());
-    if let Some(adapter) = &adapter {
-        cleanup_namespaces_after_artifacts(adapter.as_ref(), &config, &namespaces_to_cleanup)
-            .await?;
-    }
-    Ok(())
+    finish_run(
+        result,
+        cleanup_error,
+        &run_root,
+        config.backend.retain_stores,
+    )
 }
 
 async fn prepare_fresh_namespace(adapter: &CharacterMemoryAdapter, namespace: &str) -> Result<()> {
-    adapter.reset_namespace(namespace).await?;
     adapter.open_namespace(namespace).await?;
     Ok(())
 }
@@ -537,7 +556,10 @@ impl DatasetSpec for ContinuitySpec {
 
     fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
         validate_dataset_name(config, "continuity")?;
-        config.validate_for_dataset_kind(DatasetKind::Continuity)?;
+        if config.retrieval.mode == cmem_eval::RetrievalMode::Bm25Only {
+            bail!("continuity does not support retrieval.mode=bm25_only");
+        }
+        config.validate()?;
         if !config.retrieval.surface_policy.include_debug_rationale {
             bail!(
                 "continuity dataset requires retrieval.surface_policy.include_debug_rationale=true because continuity traces and rationale-derived metrics are mandatory"
@@ -650,6 +672,7 @@ impl DatasetSpec for ContinuitySpec {
 async fn run_continuity_pipeline(
     args: ContinuityRunArgs,
     config: BenchmarkRunConfig,
+    config_source: String,
     fixture_schema_version: u32,
     fixture_seed: u64,
     scenarios: Vec<ContinuityScenario>,
@@ -663,119 +686,136 @@ async fn run_continuity_pipeline(
     let mut traces = Vec::with_capacity(total_queries);
     let mut operation_counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut restart_observations: BTreeMap<String, Vec<RestartObservation>> = BTreeMap::new();
-    let mut runtimes = config
-        .backend
-        .cleanup
-        .enabled
-        .then(|| Vec::with_capacity(scenarios.len()));
-
-    for (index, scenario) in scenarios.iter().enumerate() {
-        let item_number = index + 1;
-        progress.item_started(item_number, &scenario.fixture_id);
-        let frozen_embedding_provider = if scenario.embedding.provider_name() == "frozen" {
-            let store_path = config
-                .backend
-                .embedding
-                .store_path
-                .as_deref()
-                .context("frozen continuity runtime requires backend.embedding.store_path")?;
-            let provider = frozen_embedding_providers
+    let run_root = create_run_root(
+        &args.run.out,
+        &[
+            ("summary-out", &args.run.summary_out),
+            ("trace-out", &args.trace_out),
+            ("report-out", &args.report_out),
+        ],
+    )?;
+    let mut runtimes = Vec::with_capacity(scenarios.len());
+    let result = async {
+        let header = run_header(config_source, &run_root, &config, adapter_metadata.clone())?;
+        for (index, scenario) in scenarios.iter().enumerate() {
+            let item_number = index + 1;
+            progress.item_started(item_number, &scenario.fixture_id);
+            let frozen_embedding_provider =
+                if scenario.embedding.provider_name() == "frozen" {
+                    let store_path = config.backend.embedding.store_path.as_deref().context(
+                        "frozen continuity runtime requires backend.embedding.store_path",
+                    )?;
+                    let provider = frozen_embedding_providers
                 .get(Path::new(store_path))
                 .cloned()
                 .with_context(|| {
                     format!("frozen continuity runtime has no preflight provider for {store_path}")
                 })?;
-            Some(provider)
-        } else {
-            None
-        };
-        let (embedding_binding, embedding_binding_record) =
-            continuity_embedding_binding(&config, scenario, frozen_embedding_provider)?;
-        let mut runtime = ContinuityRuntime::new(&config, embedding_binding).await?;
-        let run = run_continuity_scenario(&mut runtime, scenario, &config.retrieval).await?;
-        restart_observations.insert(scenario.fixture_id.clone(), run.restart_observations);
-        for (operation, count) in run.operation_counts {
-            *operation_counts.entry(operation).or_default() += count;
-        }
-        for trace in run.traces {
-            let latency_ms = run
-                .query_latencies_ms
-                .get(&trace.query_id)
-                .copied()
-                .with_context(|| {
-                    format!(
-                        "missing measured retrieval latency for continuity query {:?}",
-                        trace.query_id
-                    )
-                })?;
-            rows.push(continuity_result_row(
-                &config,
-                &adapter_metadata,
-                &metric_family,
-                scenario,
-                &trace,
-                &embedding_binding_record,
-                latency_ms,
-            )?);
-            traces.push(trace);
-        }
-        progress.item_finished(item_number, &scenario.fixture_id, 0);
-        if let Some(runtimes) = &mut runtimes {
+                    Some(provider)
+                } else {
+                    None
+                };
+            let (embedding_binding, embedding_binding_record) =
+                continuity_embedding_binding(&config, scenario, frozen_embedding_provider)?;
+            let runtime = ContinuityRuntime::new(&run_root, &config, embedding_binding).await?;
             runtimes.push((scenario.namespace.clone(), runtime));
+            let runtime = &mut runtimes.last_mut().expect("just stored runtime").1;
+            let run = run_continuity_scenario(runtime, scenario, &config.retrieval).await?;
+            restart_observations.insert(scenario.fixture_id.clone(), run.restart_observations);
+            for (operation, count) in run.operation_counts {
+                *operation_counts.entry(operation).or_default() += count;
+            }
+            for trace in run.traces {
+                let latency_ms = run
+                    .query_latencies_ms
+                    .get(&trace.query_id)
+                    .copied()
+                    .with_context(|| {
+                        format!(
+                            "missing measured retrieval latency for continuity query {:?}",
+                            trace.query_id
+                        )
+                    })?;
+                rows.push(continuity_result_row(
+                    &config,
+                    &adapter_metadata,
+                    &metric_family,
+                    scenario,
+                    &trace,
+                    &embedding_binding_record,
+                    latency_ms,
+                )?);
+                traces.push(trace);
+            }
+            progress.item_finished(item_number, &scenario.fixture_id, 0);
+            runtime
+                .adapter()
+                .detach_namespace(&scenario.namespace)
+                .await?;
+        }
+
+        if let Some(parent) = args.trace_out.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        if let Some(parent) = args.report_out.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        cmem_eval::reject_empty_run(&rows)?;
+        progress.write_outputs_started(rows.len());
+        write_continuity_traces(&args.trace_out, &traces)?;
+        let config_value = serde_json::to_value(&config)?;
+        let summary = summarize_rows(
+            config.run_id.clone(),
+            config.dataset.clone(),
+            DatasetKind::Continuity,
+            adapter_metadata.clone(),
+            config_value.clone(),
+            header.clone(),
+            &rows,
+            std::slice::from_ref(&metric_family),
+        )?;
+        let report = assemble_continuity_report(ContinuityReportInput {
+            generated_at: Utc::now(),
+            fixture_schema_version,
+            fixture_seed,
+            config: config_value,
+            adapter: adapter_metadata,
+            scenarios: &scenarios,
+            traces: &traces,
+            rows: &rows,
+            summary: &summary,
+            metric_family: &metric_family,
+            restart_observations: &restart_observations,
+        })?;
+        write_continuity_report(&args.report_out, &report)?;
+        write_outputs(
+            args.run,
+            config.clone(),
+            rows,
+            std::slice::from_ref(&metric_family),
+            header,
+        )?;
+        eprintln!(
+            "[cmem-eval][continuity][operations] {}",
+            serde_json::to_string(&operation_counts)?
+        );
+
+        Ok(())
+    }
+    .await;
+    progress.cleanup_started(runtimes.len());
+    let mut cleanup_error = None;
+    for (namespace, runtime) in runtimes {
+        if let Err(error) = runtime.cleanup(&namespace).await {
+            cleanup_error.get_or_insert(error);
         }
     }
-
-    if let Some(parent) = args.trace_out.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    if let Some(parent) = args.report_out.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    cmem_eval::reject_empty_run(&rows)?;
-    progress.write_outputs_started(rows.len());
-    write_continuity_traces(&args.trace_out, &traces)?;
-    let config_value = serde_json::to_value(&config)?;
-    let summary = summarize_rows(
-        config.run_id.clone(),
-        config.dataset.clone(),
-        DatasetKind::Continuity,
-        adapter_metadata.clone(),
-        config_value.clone(),
-        &rows,
-        std::slice::from_ref(&metric_family),
-    )?;
-    let report = assemble_continuity_report(ContinuityReportInput {
-        generated_at: Utc::now(),
-        fixture_schema_version,
-        fixture_seed,
-        config: config_value,
-        adapter: adapter_metadata,
-        scenarios: &scenarios,
-        traces: &traces,
-        rows: &rows,
-        summary: &summary,
-        metric_family: &metric_family,
-        restart_observations: &restart_observations,
-    })?;
-    write_continuity_report(&args.report_out, &report)?;
-    write_outputs(
-        args.run,
-        config.clone(),
-        rows,
-        std::slice::from_ref(&metric_family),
-    )?;
-    eprintln!(
-        "[cmem-eval][continuity][operations] {}",
-        serde_json::to_string(&operation_counts)?
-    );
-
-    progress.cleanup_started(runtimes.as_ref().map_or(0, Vec::len));
-    if let Some(runtimes) = runtimes {
-        for (namespace, runtime) in runtimes {
-            runtime.adapter().cleanup_namespace(&namespace).await?;
-        }
-    }
-    Ok(())
+    finish_run(
+        result,
+        cleanup_error,
+        &run_root,
+        config.backend.retain_stores,
+    )
 }
 
 fn continuity_result_row(
@@ -1179,21 +1219,140 @@ fn context_metrics_with_full_history(
     }
 }
 
-async fn adapter(config: &BenchmarkRunConfig) -> Result<Box<CharacterMemoryAdapter>> {
-    Ok(Box::new(CharacterMemoryAdapter::new(config).await?))
+#[derive(Debug)]
+struct OutputPathInStores {
+    name: &'static str,
+    path: PathBuf,
+    root: PathBuf,
 }
 
-async fn cleanup_namespaces_after_artifacts(
-    adapter: &CharacterMemoryAdapter,
-    config: &BenchmarkRunConfig,
-    namespaces: &[String],
-) -> Result<()> {
-    if config.backend.cleanup.enabled {
-        for namespace in namespaces {
-            adapter.cleanup_namespace(namespace).await?;
-        }
+impl std::fmt::Display for OutputPathInStores {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "output {} ({}) must not be inside reserved run stores {}",
+            self.name,
+            self.path.display(),
+            self.root.display()
+        )
     }
-    Ok(())
+}
+
+impl std::error::Error for OutputPathInStores {}
+
+fn create_run_root(
+    results_path: &Path,
+    other_outputs: &[(&'static str, &Path)],
+) -> Result<PathBuf> {
+    let output_dir = results_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(output_dir)?;
+    let root = output_dir.join("stores");
+    fs::create_dir(&root).with_context(|| format!("create run stores {}; existing retained or crashed stores must be inspected before choosing a new output directory", root.display()))?;
+    let admission = (|| -> Result<()> {
+        let canonical_root = fs::canonicalize(&root)?;
+        for (name, path) in
+            std::iter::once(("out", results_path)).chain(other_outputs.iter().copied())
+        {
+            let parent = path
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            fs::create_dir_all(parent)?;
+            let canonical_parent = fs::canonicalize(parent)?;
+            match fs::symlink_metadata(path) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    bail!("{name} must not be a symbolic link: {}", path.display());
+                }
+                Ok(metadata) if !metadata.is_file() => {
+                    bail!("{name} must name a regular file: {}", path.display());
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("inspect {name} {}", path.display()));
+                }
+            }
+            if canonical_parent.starts_with(&canonical_root) {
+                return Err(OutputPathInStores {
+                    name,
+                    path: path.to_path_buf(),
+                    root: root.clone(),
+                }
+                .into());
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = admission {
+        // This invocation acquired root before creating any output parents inside it.
+        return finish_run(Err(error), None, &root, false).map(|()| root);
+    }
+    std::path::absolute(root).map_err(Into::into)
+}
+
+fn finish_run(
+    result: Result<()>,
+    mut cleanup_error: Option<anyhow::Error>,
+    root: &Path,
+    retain: bool,
+) -> Result<()> {
+    if !retain
+        && cleanup_error.is_none()
+        && let Err(error) = fs::remove_dir_all(root)
+            .with_context(|| format!("remove run stores {}", root.display()))
+    {
+        cleanup_error = Some(error);
+    }
+    match (result, cleanup_error) {
+        (Ok(()), None) => Ok(()),
+        (Err(error), None) => Err(error),
+        (Ok(()), Some(error)) => Err(error),
+        (Err(error), Some(cleanup)) => Err(error.context(format!(
+            "run also failed to clean up {}: {cleanup:#}",
+            root.display()
+        ))),
+    }
+}
+
+fn run_header(
+    config_source: String,
+    run_root: &Path,
+    config: &BenchmarkRunConfig,
+    adapter: RunAdapterMetadata,
+) -> Result<cmem_eval::RunHeader> {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let commit = |path: &Path| -> Result<String> {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .with_context(|| format!("read commit at {}", path.display()))?;
+        if !output.status.success() {
+            bail!(
+                "read commit at {}: {}",
+                path.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        Ok(String::from_utf8(output.stdout)?.trim().to_string())
+    };
+    Ok(cmem_eval::RunHeader {
+        harness_commit: commit(&workspace)?,
+        library_commit: commit(&workspace.join("../CharacterMemory"))?,
+        generated_at: Utc::now(),
+        config_sha256: cmem_eval::text_sha256(&config_source),
+        config: config_source,
+        adapter,
+        storage_root: run_root.to_path_buf(),
+        storage_root_sha256: cmem_eval::adapter::run_root_sha256(run_root)?,
+        retain_stores: config.backend.retain_stores,
+        retain_reason: config.backend.retain_reason.clone(),
+    })
 }
 
 fn write_outputs(
@@ -1201,6 +1360,7 @@ fn write_outputs(
     config: BenchmarkRunConfig,
     rows: Vec<PerQuestionResult>,
     metric_families: &[MetricFamily],
+    header: cmem_eval::RunHeader,
 ) -> Result<()> {
     if let Some(parent) = args.out.parent() {
         fs::create_dir_all(parent)?;
@@ -1217,6 +1377,7 @@ fn write_outputs(
             .map(|row| row.adapter.clone())
             .unwrap_or_else(RunAdapterMetadata::live),
         serde_json::to_value(&config)?,
+        header,
         &rows,
         metric_families,
     )?;
@@ -1412,15 +1573,6 @@ mod tests {
         let mut config = current_continuity_config();
         config.backend.vector_store_mode = cmem_eval::VectorStoreMode::Embedded;
         config.backend.qdrant_connection_string = None;
-        config.backend.namespace_prefix = Some("cmem_eval_restart".into());
-        config.backend.cleanup.enabled = true;
-        config.backend.cleanup.require_collection_prefix = Some("cmem_eval_restart".into());
-        config.backend.identity_registry_dir =
-            Some(directory.path().join("identities").display().to_string());
-        config.backend.oxigraph_persistence_path =
-            Some(directory.path().join("oxigraph").display().to_string());
-        config.backend.retrieval_stats_path =
-            Some(directory.path().join("stats.sqlite").display().to_string());
         let fixture =
             cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
                 .unwrap();
@@ -1430,7 +1582,9 @@ mod tests {
             .find(|scenario| scenario.fixture_id == "cross-store-stress")
             .unwrap();
         let (binding, _) = continuity_embedding_binding(&config, scenario, None).unwrap();
-        let mut runtime = ContinuityRuntime::new(&config, binding).await.unwrap();
+        let mut runtime = ContinuityRuntime::new(directory.path(), &config, binding)
+            .await
+            .unwrap();
         let run = run_continuity_scenario(&mut runtime, scenario, &config.retrieval)
             .await
             .unwrap();
@@ -1487,7 +1641,7 @@ mod tests {
         );
         let config_path = directory.join("continuity-config.toml");
         let mut config: BenchmarkRunConfig = toml::from_str(&config).unwrap();
-        isolate_test_config(&mut config, directory);
+        isolate_test_config(&mut config);
         fs::write(&config_path, toml::to_string(&config).unwrap()).unwrap();
         ContinuityRunArgs {
             run: RunArgs {
@@ -1502,15 +1656,9 @@ mod tests {
         }
     }
 
-    fn isolate_test_config(config: &mut BenchmarkRunConfig, directory: &Path) {
+    fn isolate_test_config(config: &mut BenchmarkRunConfig) {
         config.backend.vector_store_mode = cmem_eval::VectorStoreMode::Embedded;
         config.backend.qdrant_connection_string = Some("http://127.0.0.1:1".into());
-        config.backend.identity_registry_dir =
-            Some(directory.join("identities").display().to_string());
-        config.backend.oxigraph_persistence_path =
-            Some(directory.join("graph").display().to_string());
-        config.backend.retrieval_stats_path =
-            Some(directory.join("stats.sqlite").display().to_string());
     }
 
     fn service_free_config(source: &str, directory: &Path) -> PathBuf {
@@ -1522,19 +1670,21 @@ mod tests {
             .join("\n");
         let path = directory.join("config.toml");
         let mut config: BenchmarkRunConfig = toml::from_str(&config).unwrap();
-        isolate_test_config(&mut config, directory);
+        isolate_test_config(&mut config);
         config.backend.embedding.provider = EmbeddingProviderConfig::Deterministic;
         fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
         path
     }
 
     #[tokio::test]
-    async fn fresh_namespace_preparation_discards_stale_state() {
+    async fn fresh_namespace_preparation_refuses_existing_state() {
         let directory = tempfile::tempdir().unwrap();
         let mut config = current_continuity_config();
-        isolate_test_config(&mut config, directory.path());
+        isolate_test_config(&mut config);
         config.backend.embedding.provider = EmbeddingProviderConfig::Deterministic;
-        let adapter = CharacterMemoryAdapter::new(&config).await.unwrap();
+        let adapter = CharacterMemoryAdapter::new(directory.path(), &config)
+            .await
+            .unwrap();
         adapter.open_namespace("stale").await.unwrap();
         adapter
             .remember_episode(EpisodeInput {
@@ -1549,7 +1699,10 @@ mod tests {
             .await
             .unwrap();
 
-        prepare_fresh_namespace(&adapter, "stale").await.unwrap();
+        let error = prepare_fresh_namespace(&adapter, "stale")
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("stale"), "{error:#}");
         let pack = adapter
             .retrieve(RetrieveInput {
                 namespace: "stale".into(),
@@ -1560,8 +1713,358 @@ mod tests {
             })
             .await
             .unwrap();
-        assert!(pack.items().is_empty());
+        assert!(
+            pack.items()
+                .iter()
+                .any(|item| item.external_id.as_deref() == Some("old"))
+        );
         adapter.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn continuity_run_cleans_or_retains_stores_on_success_and_admission_failure() {
+        for retain in [false, true] {
+            for fail_output in [false, true] {
+                let directory = tempfile::tempdir().unwrap();
+                let mut args = continuity_args(directory.path());
+                args.scenario = Some("graded-similarity".into());
+                let mut config = read_config(&args.run.config).unwrap();
+                config.backend.retain_stores = retain;
+                config.backend.retain_reason = retain.then(|| "inspect regression evidence".into());
+                let source = toml::to_string(&config).unwrap();
+                fs::write(&args.run.config, &source).unwrap();
+                if fail_output {
+                    args.report_out = directory.path().to_path_buf();
+                }
+                let root = directory.path().join("stores");
+                let result = run_continuity(args.clone()).await;
+                assert_eq!(result.is_err(), fail_output, "{result:?}");
+                assert_eq!(
+                    root.exists(),
+                    retain && !fail_output,
+                    "retain={retain}, fail_output={fail_output}"
+                );
+                if !fail_output {
+                    let summary = cmem_eval::read_summary(&args.run.summary_out).unwrap();
+                    assert_eq!(summary.header.storage_root, root);
+                    assert_eq!(summary.header.storage_root_sha256.len(), 64);
+                    if retain {
+                        assert_eq!(
+                            summary.header.storage_root_sha256,
+                            cmem_eval::adapter::run_root_sha256(&root).unwrap()
+                        );
+                    }
+                    assert_eq!(summary.header.retain_stores, retain);
+                    assert_eq!(summary.header.retain_reason, config.backend.retain_reason);
+                    assert_eq!(summary.header.config, source);
+                    assert_eq!(
+                        summary.header.config_sha256,
+                        cmem_eval::text_sha256(&source)
+                    );
+                    assert_eq!(summary.header.harness_commit.len(), 40);
+                    assert_eq!(summary.header.library_commit.len(), 40);
+                    let report =
+                        cmem_eval_continuity::read_continuity_report(&args.report_out).unwrap();
+                    assert_eq!(report.metadata.header, summary.header);
+                }
+                if retain && !fail_output {
+                    let sentinel = root.join("preserve-me");
+                    fs::write(&sentinel, b"retained run").unwrap();
+                    let error = run_continuity(args).await.unwrap_err();
+                    assert!(format!("{error:#}").contains("stores"), "{error:#}");
+                    assert_eq!(fs::read(sentinel).unwrap(), b"retained run");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn output_write_failure_respects_store_retention_after_admission() {
+        for retain in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let output = directory.path().join("results.jsonl");
+            let root = create_run_root(&output, &[]).unwrap();
+            fs::create_dir(&output).unwrap();
+            let write_result = fs::write(&output, b"result").map_err(Into::into);
+            assert!(finish_run(write_result, None, &root, retain).is_err());
+            assert_eq!(root.exists(), retain);
+        }
+    }
+
+    #[tokio::test]
+    async fn continuity_rejects_bm25_before_fixture_or_embedding_setup() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut args = continuity_args(directory.path());
+        let mut config = read_config(&args.run.config).unwrap();
+        config.retrieval.mode = cmem_eval::RetrievalMode::Bm25Only;
+        fs::write(&args.run.config, toml::to_string(&config).unwrap()).unwrap();
+        args.run.dataset = directory.path().join("missing-fixture.json");
+        let error = run_continuity(args).await.unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("continuity does not support retrieval.mode=bm25_only"),
+            "{error:#}"
+        );
+        assert!(!directory.path().join("stores").exists());
+    }
+
+    #[test]
+    fn derived_outputs_cannot_enter_the_reserved_stores_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("not-created/results.jsonl");
+        for suffix in [
+            "stores/header.json",
+            "nested/../stores/header.json",
+            "stores/./nested/header.json",
+        ] {
+            let header = output.with_file_name(suffix);
+            let error = create_run_root(&output, &[("header", &header)]).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<OutputPathInStores>().unwrap().name,
+                "header"
+            );
+            assert!(!output.exists());
+            assert!(!output.parent().unwrap().join("stores").exists());
+        }
+        if cfg!(windows) {
+            let header = output.with_file_name("STORES/header.json");
+            assert!(create_run_root(&output, &[("header", &header)]).is_err());
+            assert!(!output.exists());
+            assert!(!output.parent().unwrap().join("stores").exists());
+        }
+        let report = output.with_file_name("stores-sibling/report.json");
+        let root = create_run_root(&output, &[("report", &report)]).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn every_output_is_admitted_before_writing_artifacts() {
+        let directory = tempfile::tempdir().unwrap();
+        for name in ["out", "summary-out", "trace-out", "report-out"] {
+            let mut args = continuity_args(directory.path());
+            args.scenario = Some("correction-chains".into());
+            let output_dir = directory.path().join(name);
+            args.run.out = output_dir.join("rows.jsonl");
+            args.run.summary_out = output_dir.join("summary.json");
+            args.trace_out = output_dir.join("traces.jsonl");
+            args.report_out = output_dir.join("report.json");
+            let forbidden = output_dir.join("stores/artifact.json");
+            match name {
+                "out" => args.run.out = output_dir.join("stores"),
+                "summary-out" => args.run.summary_out = forbidden,
+                "trace-out" => args.trace_out = forbidden,
+                "report-out" => args.report_out = forbidden,
+                _ => unreachable!(),
+            }
+            let error = run_continuity(args).await.unwrap_err();
+            if name == "out" {
+                assert!(
+                    error
+                        .to_string()
+                        .starts_with("out must name a regular file:")
+                );
+            } else {
+                assert_eq!(
+                    error.downcast_ref::<OutputPathInStores>().unwrap().name,
+                    name
+                );
+            }
+            assert!(!output_dir.join("stores").exists());
+            assert!(fs::read_dir(&output_dir).unwrap().next().is_none());
+        }
+        let dataset = directory.path().join("locomo.json");
+        fs::write(&dataset, "[]").unwrap();
+        for name in ["out", "summary-out"] {
+            let output_dir = directory.path().join(format!("locomo-{name}"));
+            let mut args = run_args(
+                dataset.clone(),
+                service_free_config("../../configs/locomo_retrieval.toml", directory.path()),
+                &output_dir,
+            );
+            if name == "out" {
+                args.out = output_dir.join("stores");
+            } else {
+                args.summary_out = output_dir.join("stores/summary.json");
+            }
+            let error = run_locomo(args).await.unwrap_err();
+            if name == "out" {
+                assert!(
+                    error
+                        .to_string()
+                        .starts_with("out must name a regular file:")
+                );
+            } else {
+                assert_eq!(
+                    error.downcast_ref::<OutputPathInStores>().unwrap().name,
+                    name
+                );
+            }
+            assert!(!output_dir.join("stores").exists());
+            assert!(fs::read_dir(&output_dir).unwrap().next().is_none());
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[tokio::test]
+    async fn output_leaf_links_are_rejected_before_writing_artifacts() {
+        #[cfg(unix)]
+        use std::os::unix::fs::symlink as symlink_file;
+        #[cfg(windows)]
+        use std::os::windows::fs::symlink_file;
+
+        let directory = tempfile::tempdir().unwrap();
+        let output_dir = directory.path().join("outputs");
+        fs::create_dir(&output_dir).unwrap();
+        let target = output_dir.join("stores/summary.json");
+        let mut args = continuity_args(directory.path());
+        args.run.out = output_dir.join("results.jsonl");
+        args.run.summary_out = output_dir.join("summary.json");
+        args.trace_out = output_dir.join("traces.jsonl");
+        args.report_out = output_dir.join("report.json");
+        symlink_file(&target, &args.run.summary_out).unwrap();
+        let error = run_continuity(args).await.unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with("summary-out must not be a symbolic link:")
+        );
+        assert!(!output_dir.join("stores").exists());
+        assert_eq!(fs::read_dir(&output_dir).unwrap().count(), 1);
+        fs::remove_file(output_dir.join("summary.json")).unwrap();
+
+        // All callers share the guard, including links to ordinary existing files.
+        for existing in [false, true] {
+            let target = directory.path().join("target.json");
+            if existing {
+                fs::write(&target, "original").unwrap();
+            }
+            for name in ["out", "summary-out", "trace-out", "report-out"] {
+                let leaf = output_dir.join("link.json");
+                symlink_file(&target, &leaf).unwrap();
+                let output = output_dir.join("results.jsonl");
+                let error = if name == "out" {
+                    create_run_root(&leaf, &[])
+                } else {
+                    create_run_root(&output, &[(name, &leaf)])
+                }
+                .unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .starts_with(&format!("{name} must not be a symbolic link:"))
+                );
+                assert!(!output_dir.join("stores").exists());
+                fs::remove_file(leaf).unwrap();
+            }
+            if existing {
+                assert_eq!(fs::read_to_string(target).unwrap(), "original");
+            }
+        }
+    }
+
+    #[test]
+    fn existing_regular_output_files_remain_writable() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("results.jsonl");
+        let summary = directory.path().join("summary.json");
+        let trace = directory.path().join("trace.jsonl");
+        let report = directory.path().join("report.json");
+        let outputs = [&output, &summary, &trace, &report];
+        for path in outputs {
+            fs::write(path, "original").unwrap();
+        }
+        let root = create_run_root(
+            &output,
+            &[
+                ("summary-out", &summary),
+                ("trace-out", &trace),
+                ("report-out", &report),
+            ],
+        )
+        .unwrap();
+        for path in outputs {
+            fs::write(path, "replacement").unwrap();
+            assert_eq!(fs::read_to_string(path).unwrap(), "replacement");
+        }
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn unicode_case_alias_cannot_place_output_in_stores() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut args = continuity_args(directory.path());
+        args.scenario = Some("correction-chains".into());
+        let output_dir = directory.path().join("\u{e9}valuation");
+        args.run.out = output_dir.join("results.jsonl");
+        args.run.summary_out = directory.path().join("\u{c9}valuation/stores/summary.json");
+        args.trace_out = output_dir.join("traces.jsonl");
+        args.report_out = output_dir.join("report.json");
+        let error = run_continuity(args).await.unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<OutputPathInStores>().unwrap().name,
+            "summary-out"
+        );
+        assert!(fs::read_dir(output_dir).unwrap().next().is_none());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn junction_alias_cannot_place_output_in_stores() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut args = continuity_args(directory.path());
+        args.scenario = Some("correction-chains".into());
+        let output_dir = directory.path().join("real-output");
+        let alias = directory.path().join("output-alias");
+        fs::create_dir(&output_dir).unwrap();
+        let created = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&alias)
+            .arg(&output_dir)
+            .output()
+            .unwrap();
+        assert!(created.status.success(), "{created:?}");
+        let same_identity =
+            fs::canonicalize(&alias).unwrap() == fs::canonicalize(&output_dir).unwrap();
+        args.run.out = output_dir.join("results.jsonl");
+        args.run.summary_out = alias.join("stores/summary.json");
+        args.trace_out = output_dir.join("traces.jsonl");
+        args.report_out = output_dir.join("report.json");
+        let result = run_continuity(args).await;
+        fs::remove_dir(&alias).unwrap();
+        assert!(same_identity);
+        let error = result.unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<OutputPathInStores>().unwrap().name,
+            "summary-out"
+        );
+        assert!(fs::read_dir(output_dir).unwrap().next().is_none());
+    }
+    #[test]
+    fn run_root_admission_preserves_an_existing_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("stores");
+        let results_path = directory.path().join("results.jsonl");
+        let barrier = std::sync::Barrier::new(2);
+        let admissions = std::thread::scope(|scope| {
+            let acquire = || {
+                barrier.wait();
+                create_run_root(&results_path, &[])
+            };
+            let first = scope.spawn(acquire);
+            let second = scope.spawn(acquire);
+            [first.join().unwrap(), second.join().unwrap()]
+        });
+        assert_eq!(admissions.iter().filter(|result| result.is_ok()).count(), 1);
+        assert!(fs::read_dir(&root).unwrap().next().is_none());
+        fs::write(root.join("sentinel"), b"earlier run").unwrap();
+        let error = create_run_root(&directory.path().join("results.jsonl"), &[]).unwrap_err();
+        assert!(
+            format!("{error:#}").contains(&root.display().to_string()),
+            "{error:#}"
+        );
+        assert_eq!(fs::read(root.join("sentinel")).unwrap(), b"earlier run");
     }
 
     #[tokio::test]
@@ -1604,7 +2107,13 @@ mod tests {
         let output = args.out.clone();
         let summary_output = args.summary_out.clone();
 
-        run_longmemeval(args).await.unwrap();
+        run_longmemeval(args.clone()).await.unwrap();
+        assert!(!dir.path().join("stores").exists());
+        let mut failing_args = args;
+        failing_args.out = dir.path().join("output-directory");
+        fs::create_dir(&failing_args.out).unwrap();
+        assert!(run_longmemeval(failing_args).await.is_err());
+        assert!(!dir.path().join("stores").exists());
 
         let rows = read_rows(&output);
         assert_eq!(rows.len(), 1);
@@ -1687,9 +2196,6 @@ mod tests {
                 config.retrieval.surface_policy.object_types =
                     vec![ObjectType::Episode, ObjectType::Observation];
             }
-            config.backend.cleanup.enabled = true;
-            config.backend.cleanup.require_collection_prefix =
-                config.backend.namespace_prefix.clone();
             fs::write(&args.run.config, toml::to_string(&config).unwrap()).unwrap();
             let output = args.run.out.clone();
             run_continuity(args).await.unwrap();
@@ -1804,8 +2310,6 @@ mod tests {
         config.retrieval.mode = RetrievalMode::VectorOnly;
         config.retrieval.surface_policy.object_types =
             vec![ObjectType::Episode, ObjectType::Observation];
-        config.backend.cleanup.enabled = true;
-        config.backend.cleanup.require_collection_prefix = config.backend.namespace_prefix.clone();
         fs::write(&args.run.config, toml::to_string(&config).unwrap()).unwrap();
         let trace_path = args.trace_out.clone();
         let report_path = args.report_out.clone();
@@ -2443,6 +2947,13 @@ mod tests {
             DatasetKind::Continuity,
             adapter.clone(),
             config_value.clone(),
+            run_header(
+                toml::to_string(&config).unwrap(),
+                directory.path(),
+                &config,
+                RunAdapterMetadata::live(),
+            )
+            .unwrap(),
             &rows,
             std::slice::from_ref(&metric_family),
         )

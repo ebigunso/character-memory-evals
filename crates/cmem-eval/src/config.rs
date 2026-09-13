@@ -1,4 +1,4 @@
-use crate::{DatasetId, DatasetKind, RetrievalSurfacePolicy};
+use crate::{DatasetId, RetrievalSurfacePolicy};
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
@@ -42,23 +42,6 @@ impl BenchmarkRunConfig {
         self.backend.validate()?;
         Ok(())
     }
-
-    pub fn validate_for_dataset_kind(&self, dataset_kind: DatasetKind) -> Result<()> {
-        self.validate()?;
-        if dataset_kind == DatasetKind::Continuity {
-            if self.backend.oxigraph_persistence_path.is_none() {
-                bail!(
-                    "continuity dataset requires backend.oxigraph_persistence_path for restart durability"
-                );
-            }
-            if self.backend.retrieval_stats_path.is_none() {
-                bail!(
-                    "continuity dataset requires backend.retrieval_stats_path for restart durability"
-                );
-            }
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -67,19 +50,13 @@ pub struct BackendConfig {
     #[serde(default)]
     pub vector_store_mode: VectorStoreMode,
     #[serde(default)]
-    pub namespace_prefix: Option<String>,
-    #[serde(default)]
     pub qdrant_connection_string: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oxigraph_persistence_path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retrieval_stats_path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub identity_registry_dir: Option<String>,
     #[serde(default = "default_openai_api_key_env")]
     pub openai_api_key_env: String,
     #[serde(default)]
-    pub cleanup: CleanupConfig,
+    pub retain_stores: bool,
+    #[serde(default)]
+    pub retain_reason: Option<String>,
     #[serde(default)]
     pub embedding: EmbeddingConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -90,13 +67,10 @@ impl Default for BackendConfig {
     fn default() -> Self {
         Self {
             vector_store_mode: VectorStoreMode::default(),
-            namespace_prefix: None,
             qdrant_connection_string: None,
-            oxigraph_persistence_path: None,
-            retrieval_stats_path: None,
-            identity_registry_dir: None,
             openai_api_key_env: default_openai_api_key_env(),
-            cleanup: CleanupConfig::default(),
+            retain_stores: false,
+            retain_reason: None,
             embedding: EmbeddingConfig::default(),
             character_memory: None,
         }
@@ -105,7 +79,14 @@ impl Default for BackendConfig {
 
 impl BackendConfig {
     pub fn validate(&self) -> Result<()> {
-        self.cleanup.validate()?;
+        match (self.retain_stores, self.retain_reason.as_deref()) {
+            (true, Some(reason)) if !reason.trim().is_empty() => {}
+            (true, _) => {
+                bail!("backend.retain_stores=true requires a nonempty backend.retain_reason")
+            }
+            (false, Some(_)) => bail!("backend.retain_reason requires backend.retain_stores=true"),
+            (false, None) => {}
+        }
         if self.embedding.vector_size == Some(0) {
             bail!("backend.embedding.vector_size must be greater than zero");
         }
@@ -133,49 +114,13 @@ impl BackendConfig {
                 );
             }
         }
-        for (field, value) in [
-            (
-                "backend.oxigraph_persistence_path",
-                self.oxigraph_persistence_path.as_deref(),
-            ),
-            (
-                "backend.retrieval_stats_path",
-                self.retrieval_stats_path.as_deref(),
-            ),
-            (
-                "backend.identity_registry_dir",
-                self.identity_registry_dir.as_deref(),
-            ),
-            (
-                "backend.embedding.store_path",
-                self.embedding.store_path.as_deref(),
-            ),
-        ] {
-            if value.is_some_and(|value| value.trim().is_empty()) {
-                bail!("{field} must not be empty when configured");
-            }
-        }
-        if self.cleanup.enabled {
-            let Some(namespace_prefix) = self
-                .namespace_prefix
-                .as_deref()
-                .map(str::trim)
-                .filter(|prefix| !prefix.is_empty())
-            else {
-                bail!("backend.cleanup.enabled=true requires backend.namespace_prefix");
-            };
-            let cleanup_prefix = self
-                .cleanup
-                .require_collection_prefix
-                .as_deref()
-                .expect("cleanup validation already required a prefix");
-            if sanitized_collection_prefix(namespace_prefix)
-                != sanitized_collection_prefix(cleanup_prefix)
-            {
-                bail!(
-                    "backend.cleanup.require_collection_prefix must match backend.namespace_prefix"
-                );
-            }
+        if self
+            .embedding
+            .store_path
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            bail!("backend.embedding.store_path must not be empty when configured");
         }
         if let Some(character_memory) = &self.character_memory {
             character_memory.validate()?;
@@ -380,36 +325,6 @@ fn validate_optional_positive_f64(field: &str, value: Option<f64>) -> Result<()>
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(deny_unknown_fields)]
-pub struct CleanupConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub require_collection_prefix: Option<String>,
-}
-
-impl CleanupConfig {
-    pub fn validate(&self) -> Result<()> {
-        if self.enabled {
-            let Some(prefix) = self
-                .require_collection_prefix
-                .as_deref()
-                .map(str::trim)
-                .filter(|prefix| !prefix.is_empty())
-            else {
-                bail!(
-                    "backend.cleanup.enabled=true requires backend.cleanup.require_collection_prefix"
-                );
-            };
-            if sanitized_collection_prefix(prefix).len() < 3 {
-                bail!("backend.cleanup.require_collection_prefix is too broad");
-            }
-        }
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct EmbeddingConfig {
@@ -480,7 +395,8 @@ impl RetrievalConfig {
     pub fn validate(&self) -> Result<()> {
         match self.mode {
             RetrievalMode::VectorOnly => self.surface_policy.validate_for_vector_only(),
-            RetrievalMode::Hybrid | RetrievalMode::Bm25Only => self.surface_policy.validate(),
+            RetrievalMode::Bm25Only => self.surface_policy.validate_for_bm25_only(),
+            RetrievalMode::Hybrid => self.surface_policy.validate(),
         }
     }
 }
@@ -584,19 +500,6 @@ fn require_non_empty(name: &str, values: &[usize]) -> Result<()> {
     Ok(())
 }
 
-fn sanitized_collection_prefix(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -634,8 +537,8 @@ mod tests {
                 "oxigraph_path",
             ),
             (
-                serde_json::json!({"backend": {"cleanup": {"cleanup_typo": true}}}),
-                "cleanup_typo",
+                serde_json::json!({"backend": {"retain_store": true}}),
+                "retain_store",
             ),
             (
                 serde_json::json!({"backend": {"embedding": {"embedding_typo": true}}}),
@@ -739,15 +642,11 @@ mod tests {
             "dataset": "continuity",
             "backend": {
                 "embedding": {"provider": "openai"},
-                "oxigraph_persistence_path": "runs/continuity/oxigraph",
-                "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
             }
         }))
         .unwrap();
 
-        config
-            .validate_for_dataset_kind(DatasetKind::Continuity)
-            .unwrap();
+        config.validate().unwrap();
 
         config.backend.embedding = EmbeddingConfig {
             provider: EmbeddingProviderConfig::Deterministic,
@@ -755,9 +654,7 @@ mod tests {
             vector_size: Some(3072),
             store_path: None,
         };
-        config
-            .validate_for_dataset_kind(DatasetKind::Continuity)
-            .unwrap();
+        config.validate().unwrap();
 
         config.backend.embedding = EmbeddingConfig {
             provider: EmbeddingProviderConfig::ControllableSimilarity,
@@ -765,9 +662,7 @@ mod tests {
             vector_size: Some(8),
             store_path: None,
         };
-        config
-            .validate_for_dataset_kind(DatasetKind::Continuity)
-            .unwrap();
+        config.validate().unwrap();
 
         config.backend.embedding = EmbeddingConfig {
             provider: EmbeddingProviderConfig::Frozen,
@@ -775,9 +670,7 @@ mod tests {
             vector_size: Some(3072),
             store_path: Some("fixtures/embeddings/continuity.json".into()),
         };
-        config
-            .validate_for_dataset_kind(DatasetKind::Continuity)
-            .unwrap();
+        config.validate().unwrap();
     }
 
     #[test]
@@ -790,8 +683,6 @@ mod tests {
                     "provider": "frozen",
                     "model": "text-embedding-3-large"
                 },
-                "oxigraph_persistence_path": "runs/continuity/oxigraph",
-                "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
             }
         }))
         .unwrap();
@@ -807,71 +698,6 @@ mod tests {
         let error = config.validate().unwrap_err().to_string();
         assert!(error.contains("backend.embedding.store_path"), "{error}");
         assert!(error.contains("must not be empty"), "{error}");
-    }
-
-    #[test]
-    fn continuity_dataset_requires_each_persistent_store_path() {
-        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
-            "run_id": "continuity-run",
-            "dataset": "continuity",
-            "backend": {
-                "embedding": {
-                    "provider": "controllable_similarity",
-                    "model": "fixture-declared",
-                    "vector_size": 8
-                },
-                "oxigraph_persistence_path": "runs/continuity/oxigraph",
-                "retrieval_stats_path": "runs/continuity/retrieval.sqlite"
-            }
-        }))
-        .unwrap();
-
-        let mut missing_oxigraph = config.clone();
-        missing_oxigraph.backend.oxigraph_persistence_path = None;
-        let error = missing_oxigraph
-            .validate_for_dataset_kind(DatasetKind::Continuity)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("backend.oxigraph_persistence_path"));
-        assert!(error.contains("restart durability"));
-
-        let mut missing_stats = config;
-        missing_stats.backend.retrieval_stats_path = None;
-        let error = missing_stats
-            .validate_for_dataset_kind(DatasetKind::Continuity)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("backend.retrieval_stats_path"));
-        assert!(error.contains("restart durability"));
-    }
-
-    #[test]
-    fn parses_restart_persistence_paths_and_rejects_empty_values() {
-        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
-            "run_id": "r",
-            "dataset": "synthetic",
-            "backend": {
-                "oxigraph_persistence_path": "runs/r/oxigraph",
-                "retrieval_stats_path": "runs/r/retrieval.sqlite",
-                "identity_registry_dir": "runs/r/identities"
-            }
-        }))
-        .unwrap();
-        config.validate().unwrap();
-        assert_eq!(
-            config.backend.identity_registry_dir.as_deref(),
-            Some("runs/r/identities")
-        );
-
-        let mut invalid = config;
-        invalid.backend.retrieval_stats_path = Some("  ".to_string());
-        assert!(
-            invalid
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("backend.retrieval_stats_path")
-        );
     }
 
     #[test]
@@ -1116,7 +942,7 @@ mod tests {
 
     #[test]
     fn parses_bm25_retrieval_mode() {
-        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
+        let mut config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
             "run_id": "r",
             "dataset": "locomo",
             "retrieval": {"mode": "bm25_only"}
@@ -1124,81 +950,99 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.retrieval.mode, RetrievalMode::Bm25Only);
+        config.retrieval.surface_policy.object_types =
+            vec![crate::ObjectType::Episode, crate::ObjectType::Observation];
         config.validate().unwrap();
     }
 
     #[test]
-    fn vector_only_rejects_object_types_outside_its_episode_observation_capability() {
-        let mut retrieval = RetrievalConfig {
-            mode: RetrievalMode::VectorOnly,
-            surface_policy: RetrievalSurfacePolicy {
-                object_types: vec![crate::ObjectType::Episode, crate::ObjectType::DerivedMemory],
-                ..RetrievalSurfacePolicy::default()
-            },
-        };
+    fn text_baselines_rejects_object_types_outside_its_episode_observation_capability() {
+        for mode in [RetrievalMode::VectorOnly, RetrievalMode::Bm25Only] {
+            let mut retrieval = RetrievalConfig {
+                mode,
+                surface_policy: RetrievalSurfacePolicy {
+                    object_types: vec![
+                        crate::ObjectType::Episode,
+                        crate::ObjectType::DerivedMemory,
+                        crate::ObjectType::Entity,
+                        crate::ObjectType::MemoryThread,
+                    ],
+                    ..RetrievalSurfacePolicy::default()
+                },
+            };
 
-        let error = retrieval.validate().unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<crate::VectorOnlySurfacePolicyError>(),
-            Some(
-                &crate::VectorOnlySurfacePolicyError::UnsupportedObjectTypes {
-                    object_types: vec![crate::ObjectType::DerivedMemory],
-                }
-            )
-        );
+            let error = retrieval.validate().unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<crate::BaselineSurfacePolicyError>(),
+                Some(&crate::BaselineSurfacePolicyError::UnsupportedObjectTypes {
+                    mode,
+                    object_types: vec![
+                        crate::ObjectType::DerivedMemory,
+                        crate::ObjectType::Entity,
+                        crate::ObjectType::MemoryThread
+                    ],
+                })
+            );
 
-        retrieval.surface_policy.object_types = vec![crate::ObjectType::Observation];
-        retrieval.validate().unwrap();
+            retrieval.surface_policy.object_types = vec![crate::ObjectType::Observation];
+            retrieval.validate().unwrap();
+        }
     }
 
     #[test]
-    fn vector_only_rejects_zero_budget_for_a_selected_episode_surface() {
-        let mut retrieval = RetrievalConfig {
-            mode: RetrievalMode::VectorOnly,
-            surface_policy: RetrievalSurfacePolicy {
-                object_types: vec![crate::ObjectType::Episode],
-                ..RetrievalSurfacePolicy::default()
-            },
-        };
-        retrieval.surface_policy.sections.relevant_episodes = 0;
+    fn text_baselines_rejects_zero_budget_for_a_selected_episode_surface() {
+        for mode in [RetrievalMode::VectorOnly, RetrievalMode::Bm25Only] {
+            let mut retrieval = RetrievalConfig {
+                mode,
+                surface_policy: RetrievalSurfacePolicy {
+                    object_types: vec![crate::ObjectType::Episode],
+                    ..RetrievalSurfacePolicy::default()
+                },
+            };
+            retrieval.surface_policy.sections.relevant_episodes = 0;
 
-        let error = retrieval.validate().unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<crate::VectorOnlySurfacePolicyError>(),
-            Some(
-                &crate::VectorOnlySurfacePolicyError::ZeroSelectedSurfaceBudget {
-                    object_type: crate::ObjectType::Episode,
-                }
-            )
-        );
+            let error = retrieval.validate().unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<crate::BaselineSurfacePolicyError>(),
+                Some(
+                    &crate::BaselineSurfacePolicyError::ZeroSelectedSurfaceBudget {
+                        mode,
+                        object_type: crate::ObjectType::Episode,
+                    }
+                )
+            );
 
-        retrieval.surface_policy.object_types = vec![crate::ObjectType::Observation];
-        retrieval.validate().unwrap();
+            retrieval.surface_policy.object_types = vec![crate::ObjectType::Observation];
+            retrieval.validate().unwrap();
+        }
     }
 
     #[test]
-    fn vector_only_rejects_zero_budget_for_a_selected_observation_surface() {
-        let mut retrieval = RetrievalConfig {
-            mode: RetrievalMode::VectorOnly,
-            surface_policy: RetrievalSurfacePolicy {
-                object_types: vec![crate::ObjectType::Observation],
-                ..RetrievalSurfacePolicy::default()
-            },
-        };
-        retrieval.surface_policy.sections.salient_observations = 0;
+    fn text_baselines_rejects_zero_budget_for_a_selected_observation_surface() {
+        for mode in [RetrievalMode::VectorOnly, RetrievalMode::Bm25Only] {
+            let mut retrieval = RetrievalConfig {
+                mode,
+                surface_policy: RetrievalSurfacePolicy {
+                    object_types: vec![crate::ObjectType::Observation],
+                    ..RetrievalSurfacePolicy::default()
+                },
+            };
+            retrieval.surface_policy.sections.salient_observations = 0;
 
-        let error = retrieval.validate().unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<crate::VectorOnlySurfacePolicyError>(),
-            Some(
-                &crate::VectorOnlySurfacePolicyError::ZeroSelectedSurfaceBudget {
-                    object_type: crate::ObjectType::Observation,
-                }
-            )
-        );
+            let error = retrieval.validate().unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<crate::BaselineSurfacePolicyError>(),
+                Some(
+                    &crate::BaselineSurfacePolicyError::ZeroSelectedSurfaceBudget {
+                        mode,
+                        object_type: crate::ObjectType::Observation,
+                    }
+                )
+            );
 
-        retrieval.surface_policy.object_types = vec![crate::ObjectType::Episode];
-        retrieval.validate().unwrap();
+            retrieval.surface_policy.object_types = vec![crate::ObjectType::Episode];
+            retrieval.validate().unwrap();
+        }
     }
 
     #[test]
@@ -1341,66 +1185,45 @@ mod tests {
     }
 
     #[test]
-    fn rejects_cleanup_without_required_prefix() {
-        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
-            "run_id": "r",
-            "dataset": "synthetic",
-            "backend": {
-                "cleanup": {
-                    "enabled": true
-                }
-            }
-        }))
-        .unwrap();
-
+    fn store_retention_requires_a_reason_and_rejects_retired_path_policy() {
+        let mut backend = BackendConfig::default();
+        assert!(!backend.retain_stores);
+        backend.validate().unwrap();
+        backend.retain_stores = true;
+        for reason in [None, Some("".into()), Some("  ".into())] {
+            backend.retain_reason = reason;
+            assert!(
+                backend
+                    .validate()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("retain_reason")
+            );
+        }
+        backend.retain_reason = Some("inspect failed correction".into());
+        backend.validate().unwrap();
+        backend.retain_stores = false;
         assert!(
-            config
+            backend
                 .validate()
                 .unwrap_err()
                 .to_string()
-                .contains("require_collection_prefix")
+                .contains("retain_stores")
         );
-    }
-
-    #[test]
-    fn accepts_cleanup_with_required_prefix() {
-        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
-            "run_id": "r",
-            "dataset": "synthetic",
-            "backend": {
-                "namespace_prefix": "bench:synthetic",
-                "cleanup": {
-                    "enabled": true,
-                    "require_collection_prefix": "bench:synthetic"
-                }
-            }
-        }))
-        .unwrap();
-
-        config.validate().unwrap();
-    }
-
-    #[test]
-    fn rejects_cleanup_prefix_that_does_not_match_namespace_prefix() {
-        let config: BenchmarkRunConfig = serde_json::from_value(serde_json::json!({
-            "run_id": "r",
-            "dataset": "synthetic",
-            "backend": {
-                "namespace_prefix": "bench:synthetic",
-                "cleanup": {
-                    "enabled": true,
-                    "require_collection_prefix": "other"
-                }
-            }
-        }))
-        .unwrap();
-
-        assert!(
-            config
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("namespace_prefix")
-        );
+        for key in [
+            "namespace_prefix",
+            "cleanup",
+            "oxigraph_persistence_path",
+            "retrieval_stats_path",
+            "identity_registry_dir",
+        ] {
+            let value = serde_json::json!({key: "retired"});
+            assert!(
+                serde_json::from_value::<BackendConfig>(value)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(key)
+            );
+        }
     }
 }

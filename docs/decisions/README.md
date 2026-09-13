@@ -8,9 +8,9 @@ docs/decisions/
   README.md
   template.md
   design/
-    ADR-D-0001-...
+    (none)
   implementation/
-    ADR-I-0001-...
+    ADR-I-0004-...
   superseded/
     ADR-D-0002-...--superseded-by-ADR-D-0009.md
     ADR-I-0003-...--retired.md

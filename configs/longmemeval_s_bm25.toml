@@ -2,11 +2,7 @@ run_id = "longmemeval_s_v0_1_bm25"
 dataset = "longmemeval_s"
 
 [backend]
-namespace_prefix = "bench:lme_bm25"
 
-[backend.cleanup]
-enabled = false
-require_collection_prefix = "bench:lme_bm25"
 
 [backend.embedding]
 provider = "openai"

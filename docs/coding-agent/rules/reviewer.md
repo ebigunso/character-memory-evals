@@ -14,6 +14,8 @@ last_updated: "2026-09-13"
 
 ## Review Risk Hotspots
 
+- path_identity: any admission or cleanup decision that compares paths must canonicalize both sides through the filesystem and compare by components; spelling and case folding do not establish identity.
+
 - Optional-diagnostics metric staging: every emitted metric binds to exactly one named stage of the chained limiter pipeline (eligible -> hub cap -> fanout cap); enumerate per-stage producer cardinality before approving optional diagnostics.
 
 - admission_before_side_effect: public parsers/readers (fixture, trace) must reject malformed, partial, wrong-version, or contract-violating input before any backend I/O or state mutation.

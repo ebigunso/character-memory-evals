@@ -79,11 +79,16 @@ pub(crate) struct RunArgs {
     pub(crate) summary_out: PathBuf,
 }
 
+#[cfg(test)]
 pub(crate) fn read_config(path: &PathBuf) -> Result<BenchmarkRunConfig> {
+    read_config_source(path).map(|(config, _)| config)
+}
+
+pub(crate) fn read_config_source(path: &PathBuf) -> Result<(BenchmarkRunConfig, String)> {
     let content = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
     let value: toml::Value = toml::from_str(&content)?;
     let json = serde_json::to_value(value)?;
-    Ok(serde_json::from_value(json)?)
+    Ok((serde_json::from_value(json)?, content))
 }
 
 #[cfg(test)]

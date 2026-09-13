@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded
 adr_type: design
 date: 2026-07-24
 deciders: [ebigunso]
@@ -17,6 +17,8 @@ supersession_scope: null
 ---
 
 # ADR-D-0001: Benchmark runs default to the live adapter; mock is loud opt-in
+
+Retired on 2026-09-13; nothing in it still binds: the mock adapter no longer exists, every benchmark run exercises the library (service-free through its embedded vector store), and the only non-library retrieval, the BM25 baseline, is selected explicitly by retrieval mode and labelled as such.
 
 ## Context and Problem Statement
 

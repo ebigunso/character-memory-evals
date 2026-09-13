@@ -10,9 +10,9 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-pub const RESULT_SCHEMA_VERSION: &str = "3.0.0";
+pub const RESULT_SCHEMA_VERSION: &str = "3.1.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -55,6 +55,7 @@ pub struct RunSummary {
     /// Dynamic-by-design snapshot whose shape is owned by the selected runner
     /// and backend configuration rather than the result schema.
     pub config: Value,
+    pub header: RunHeader,
     pub embedding_bindings: Vec<EmbeddingBindingRecord>,
     pub num_questions: usize,
     pub metrics: NumericMetricSummary,
@@ -62,6 +63,23 @@ pub struct RunSummary {
     pub registry_coverage: RegistryCoverageSummary,
     pub latency: LatencySummary,
     pub degradation: DegradationSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RunHeader {
+    pub harness_commit: String,
+    pub library_commit: String,
+    pub generated_at: chrono::DateTime<chrono::Utc>,
+    /// Exact TOML supplied to the runner, before defaults are applied.
+    pub config: String,
+    pub config_sha256: String,
+    pub adapter: RunAdapterMetadata,
+    pub storage_root: PathBuf,
+    pub storage_root_sha256: String,
+    pub retain_stores: bool,
+    #[serde(deserialize_with = "crate::serde_contract::required_option")]
+    pub retain_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -226,12 +244,14 @@ pub fn reject_empty_run(rows: &[PerQuestionResult]) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // Explicit run header plus rows and their metric registry.
 pub fn summarize_rows(
     run_id: String,
     dataset: DatasetId,
     dataset_kind: DatasetKind,
     adapter: RunAdapterMetadata,
     config: Value,
+    header: RunHeader,
     rows: &[PerQuestionResult],
     metric_families: &[MetricFamily],
 ) -> Result<RunSummary> {
@@ -262,6 +282,7 @@ pub fn summarize_rows(
         dataset_kind,
         adapter,
         config,
+        header,
         embedding_bindings,
         num_questions: rows.len(),
         metrics: aggregate_numeric_metrics(&metric_rows),
@@ -337,6 +358,21 @@ fn validate_summary_schema(schema_version: Option<&str>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_header() -> RunHeader {
+        RunHeader {
+            harness_commit: "test".into(),
+            library_commit: "test".into(),
+            generated_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+            config: String::new(),
+            config_sha256: crate::text_sha256(""),
+            adapter: RunAdapterMetadata::live(),
+            storage_root: "stores".into(),
+            storage_root_sha256: "test".into(),
+            retain_stores: false,
+            retain_reason: None,
+        }
+    }
 
     #[test]
     fn empty_run_is_rejected_before_summary() {
@@ -420,6 +456,7 @@ mod tests {
             DatasetKind::LoCoMo,
             RunAdapterMetadata::live(),
             serde_json::json!({}),
+            test_header(),
             &[row],
             &[],
         )
@@ -447,6 +484,7 @@ mod tests {
             DatasetKind::LoCoMo,
             RunAdapterMetadata::live(),
             serde_json::json!({"backend": {"embedding": {"provider": "openai"}}}),
+            test_header(),
             &[row],
             &[family],
         )
@@ -559,7 +597,7 @@ mod tests {
                 .to_string()
                 .contains("missing result schema_version")
         );
-        for version in ["1.0.0", "0.9.0"] {
+        for version in ["3.0.0", "1.0.0", "0.9.0"] {
             let unsupported = validate_row_schema(Some(version)).unwrap_err();
             let error = unsupported.to_string();
             assert!(
@@ -641,7 +679,7 @@ mod tests {
     }
 
     #[test]
-    fn write_jsonl_rejects_non_v2_rows_before_replacing_the_destination() {
+    fn write_jsonl_rejects_unsupported_rows_before_replacing_the_destination() {
         let path = temp_path("results-writer-schema", "jsonl");
         for schema_version in ["1.0.0", "9.9.9"] {
             let mut invalid = row(serde_json::json!({}));
@@ -684,7 +722,7 @@ mod tests {
         wrong_metric["metrics"]["test"] = Value::Bool(true);
         std::fs::write(&path, serde_json::to_vec(&wrong_metric).unwrap()).unwrap();
         assert!(read_jsonl(&path).is_err());
-        let duplicate = r#"{"schema_version":"3.0.0","schema_version":"3.0.0"}"#;
+        let duplicate = r#"{"schema_version":"3.1.0","schema_version":"3.1.0"}"#;
         std::fs::write(&path, duplicate).unwrap();
         assert!(format!("{:#}", read_jsonl(&path).unwrap_err()).contains("duplicate"));
         std::fs::remove_file(path).unwrap();
@@ -713,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn read_summary_round_trips_v2_and_rejects_invalid_inputs() {
+    fn read_summary_round_trips_current_schema_and_rejects_invalid_inputs() {
         let path = temp_path("summary-schema", "json");
         let mut summary = summarize_rows(
             "r".into(),
@@ -721,6 +759,7 @@ mod tests {
             DatasetKind::LoCoMo,
             RunAdapterMetadata::live(),
             serde_json::json!({}),
+            test_header(),
             &[row(serde_json::json!({"fixed_metric": 1.0}))],
             &[],
         )
@@ -740,6 +779,13 @@ mod tests {
         summary.schema_version = RESULT_SCHEMA_VERSION.to_string();
 
         let raw = serde_json::to_string(&summary).unwrap();
+        let mut missing_reason = serde_json::to_value(&summary).unwrap();
+        missing_reason["header"]
+            .as_object_mut()
+            .unwrap()
+            .remove("retain_reason");
+        std::fs::write(&path, serde_json::to_vec(&missing_reason).unwrap()).unwrap();
+        assert!(format!("{:#}", read_summary(&path).unwrap_err()).contains("retain_reason"));
         let duplicate_root = raw.replacen(r#""run_id":"r""#, r#""run_id":"r","run_id":"r""#, 1);
         std::fs::write(&path, duplicate_root).unwrap();
         let error = format!("{:#}", read_summary(&path).unwrap_err());
@@ -779,7 +825,7 @@ mod tests {
         }
 
         let mut drifted = serde_json::to_value(&summary).unwrap();
-        drifted["unexpected_v2_field"] = Value::Bool(true);
+        drifted["unexpected_field"] = Value::Bool(true);
         std::fs::write(&path, serde_json::to_vec(&drifted).unwrap()).unwrap();
         let error = format!("{:#}", read_summary(&path).unwrap_err());
         assert!(error.contains("unknown field"), "{error}");
@@ -818,14 +864,13 @@ mod tests {
         assert!(error.contains("invalid type"), "{error}");
 
         let mut drifted_support = serde_json::to_value(&summary).unwrap();
-        drifted_support["metric_support"]["fixed_metric"]["unexpected_v2_field"] =
-            Value::Bool(true);
+        drifted_support["metric_support"]["fixed_metric"]["unexpected_field"] = Value::Bool(true);
         std::fs::write(&path, serde_json::to_vec(&drifted_support).unwrap()).unwrap();
         let error = format!("{:#}", read_summary(&path).unwrap_err());
         assert!(error.contains("unknown field"), "{error}");
 
         let mut drifted_metric = serde_json::to_value(&summary).unwrap();
-        drifted_metric["metrics"]["fixed_metric"]["unexpected_v2_field"] = Value::Bool(true);
+        drifted_metric["metrics"]["fixed_metric"]["unexpected_field"] = Value::Bool(true);
         std::fs::write(&path, serde_json::to_vec(&drifted_metric).unwrap()).unwrap();
         let error = format!("{:#}", read_summary(&path).unwrap_err());
         assert!(error.contains("unknown field"), "{error}");

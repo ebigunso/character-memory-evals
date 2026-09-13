@@ -802,3 +802,86 @@ Prevention:
 
 Evidence:
 - Stack-wide CI failure after library #82; the five VectorIndexCandidate constructor calls and the old candidate-text assertion in the Task_8 step 3 typed batch builder.
+
+## 2026-09-13 — Keep Windows engine paths short and dependency checkouts pinned [tags: windows, validation, persistence]
+
+Symptom:
+- RocksDB-backed validation failed in a deeply nested reviewer worktree, and concurrent library edits changed the dependency source seen by the evaluation checkout.
+
+Fix applied and prevention:
+- Use a short evaluation worktree such as `C:/w/cme`, with `C:/w/CharacterMemory` pointing to an isolated sibling checkout pinned at the reviewed library commit. Keep run output paths short too: the stores live beside their result artifacts under `OUT_DIR/stores`.
+- Pass ordinary absolute filesystem paths to the engine; a verbatim Windows path does not remove the engine's path restrictions. Record both commits in validation evidence. Isolate the checkout and dependency before Cargo starts; do not redirect the dependency in the working manifest while another agent edits the sibling repository.
+
+Evidence:
+- Task_8 step 3 reviewer validation used the short-worktree and sibling-junction arrangement. Step 4 retains that arrangement for embedded and service validation.
+
+## 2026-09-13 — Use the acquired run root to isolate service resources [tags: review, lifecycle, concurrency, ownership]
+
+Symptom:
+- Two runs with the same run ID and namespace but different fresh output roots raced through Qdrant collection admission; the rejected run's cleanup deleted the successful run's collection.
+
+Root cause:
+- The local namespace directory was treated as ownership of a service collection whose name omitted the acquired run root. A preceding existence check could not establish ownership across concurrent runs.
+
+Fix applied:
+- Keep atomic `create_dir` admission of `OUT_DIR/stores` as the ownership boundary. Include a short hash of its canonical absolute path in every service collection name and record the full hash in the run header. Different roots own different collections; a second admission to the same root fails before creating namespace resources. The library continues to own collection creation and schema details.
+
+Prevention:
+- When cleanup authority follows a local token, derive every remote resource identity from that token and test simultaneous acquisition as well as sequential reuse. The regression opens the same run ID and namespace concurrently in two roots and checks that each cleanup preserves the other collection; the runner regression proves exactly one same-root admission succeeds.
+- No new rule candidate: this is the executable application of the existing owned-state lifecycle rule; keep the regression with the admission and cleanup code.
+
+Evidence:
+- Step 4 reviewer public-adapter race probe at parent `0581b79`; Orchestrator design ruling 2026-09-13; `service_mode_concurrent_runs_with_same_identity_preserve_each_other` and `run_root_admission_preserves_an_existing_directory`.
+
+## 2026-09-13 — Check output disposition before storage admission and preserve cleanup scope [tags: review, lifecycle, cleanup, outputs]
+
+Symptom:
+- A caller could place a report or trace under the run's disposable `stores` directory, so successful cleanup deleted the requested artifact. With retention enabled, cleaning one namespace closed every open namespace.
+
+Root cause:
+- Output writers and store cleanup were reviewed separately. The retention branch reused a run-wide release operation despite the namespace-scoped API; earlier sibling coverage exercised deletion but not retained cleanup.
+
+Fix applied:
+- Admit every named output against the reserved store root before creating the output directory or stores, including normalized parent components and Windows case variations. Retained cleanup removes and closes only the named namespace and leaves durable files intact; run-wide release remains explicit.
+
+Prevention:
+- Follow each artifact through creation and cleanup when changing output placement. Exercise a surviving open sibling for both deletion and retention, including repeated cleanup of an already detached namespace. The existing reviewer lifecycle rule covers surviving siblings for destructive scope; the Worker proposes extending it explicitly to retained cleanup.
+
+Evidence:
+- Accepted Copilot findings on CME #28; `every_output_is_admitted_before_creating_the_run_directory`, `derived_outputs_cannot_enter_the_reserved_stores_root`, and `retained_cleanup_closes_only_the_named_namespace`.
+
+
+## 2026-09-13 — Resolve path identity through the filesystem [tags: review, paths, cleanup]
+
+Symptom:
+- The reviewer used lowercase e-acute in the output parent and uppercase E-acute in the summary parent on Windows. The summary passed lexical admission, landed under the same stores directory, and was deleted on cleanup.
+
+Root cause:
+- ASCII case folding compared path spellings instead of the filesystem identities that the writers and cleanup used.
+
+Fix applied:
+- Acquire the reserved root atomically, create required output parents, canonicalize both sides through the filesystem, and compare path components. On rejection, remove only the root acquired by this invocation before any artifact write.
+
+Prevention:
+- Admission and cleanup decisions comparing paths must canonicalize both sides and compare components; never infer identity from spelling or case folding. The reviewer hotspot and Unicode-alias regression carry this rule.
+
+Evidence:
+- Step 4 P1B reviewer finding on 13932a6 and unicode_case_alias_cannot_place_output_in_stores, with plain nested-output and existing-root ownership regressions.
+
+## 2026-09-13 — Inspect output leaves without following links [tags: review, paths, cleanup]
+
+Symptom:
+- A dangling summary-output symlink into the future stores root passed admission, then the writer followed it and cleanup deleted the artifact.
+
+Root cause:
+- A canonicalize NotFound result was treated as proof of a nonexistent output leaf. It also describes a dangling symlink, whose later write can target disposable state.
+
+Fix applied:
+- Inspect every named output leaf with symlink_metadata. Reject all links and non-file leaves by output name, preserve regular-file overwrite, and compare only canonical existing parents with the acquired root. Remove the leaf canonicalization fallback.
+
+Prevention:
+- Test absent leaves, regular files, live links and dangling links whenever write admission depends on the destination. A missing target does not mean the link itself is absent. The existing path-identity rule remains applicable; this lesson adds the leaf-state regression to its execution.
+- On Windows, the file-link regression requires Developer Mode or the symlink privilege; keep the test unconditional and report a missing privilege as an environment failure.
+
+Evidence:
+- Step 4 P1C reviewer finding on 9e9c0ae; output_leaf_links_are_rejected_before_writing_artifacts and existing_regular_output_files_remain_writable.

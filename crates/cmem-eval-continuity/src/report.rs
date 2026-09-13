@@ -20,7 +20,7 @@ use crate::{
     RestartObservation, ScenarioPattern,
 };
 
-pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "3.0.0";
+pub const CONTINUITY_REPORT_SCHEMA_VERSION: &str = "3.1.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +46,7 @@ pub struct ContinuityReportMetadata {
     pub fixture_ids: Vec<String>,
     /// Dynamic-by-design snapshot of the selected runner and backend configuration.
     pub config: Value,
+    pub header: cmem_eval::RunHeader,
     pub schema_versions: BTreeMap<String, String>,
     pub normalization: ReportNormalization,
 }
@@ -373,6 +374,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             .map_or(input.summary.dataset_kind, |row| row.dataset_kind),
         input.summary.adapter.clone(),
         input.summary.config.clone(),
+        input.summary.header.clone(),
         input.rows,
         std::slice::from_ref(input.metric_family),
     )?;
@@ -522,6 +524,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             embedding_seeds,
             fixture_ids,
             config: input.config.clone(),
+            header: input.summary.header.clone(),
             schema_versions,
             normalization: ReportNormalization {
                 nondeterministic_paths: vec![
@@ -1021,6 +1024,18 @@ mod tests {
                 embedding_seeds: BTreeMap::new(),
                 fixture_ids: Vec::new(),
                 config: serde_json::json!({}),
+                header: cmem_eval::RunHeader {
+                    harness_commit: "test".into(),
+                    library_commit: "test".into(),
+                    generated_at: Utc::now(),
+                    config: String::new(),
+                    config_sha256: cmem_eval::text_sha256(""),
+                    adapter: RunAdapterMetadata::live(),
+                    storage_root: "stores".into(),
+                    storage_root_sha256: "test".into(),
+                    retain_stores: false,
+                    retain_reason: None,
+                },
                 schema_versions: BTreeMap::new(),
                 normalization: ReportNormalization {
                     nondeterministic_paths: Vec::new(),
@@ -1069,8 +1084,8 @@ mod tests {
 
         let raw = serde_json::to_string(&report).unwrap();
         let duplicate_root = raw.replacen(
-            r#""schema_version":"3.0.0""#,
-            r#""schema_version":"3.0.0","schema_version":"3.0.0""#,
+            r#""schema_version":"3.1.0""#,
+            r#""schema_version":"3.1.0","schema_version":"3.1.0""#,
             1,
         );
         assert_ne!(raw, duplicate_root);
