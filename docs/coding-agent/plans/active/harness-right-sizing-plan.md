@@ -276,6 +276,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 - 2026-09-13 Proposed ADR-I-0004: one shared evaluation crate holds the contracts and the library integration; datasets own their crates. Constraint: no dataset dispatch in the shared crate and no shared-crate edit in a dataset addition. Why: the only second implementation of the contract was the deleted mock. Replaces ADR-I-0001; ADR-D-0001 is retired because nothing in it binds once the mock is gone. Status proposed until the decider accepts.
 - 2026-09-13 Directive: sequential steps of one plan do not wait for the previous step's merge; each next step branches from the previous step's tip and its PR is linked into a GitHub stack; the decider merges the stack.
 
+- 2026-09-13 ADR-I-0004 accepted by the decider (ebigunso); status flipped from proposed to accepted before merge.
+
 ## Notes
 - Risks and mitigations: section 6 of the audit.
 - Edge cases: cited configs may become unparseable after key deletions; that is accepted, and re-runs are new evidence.
