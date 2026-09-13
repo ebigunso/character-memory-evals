@@ -37,7 +37,6 @@ fn parse_instance(raw: Value) -> Result<LongMemEvalInstance> {
         question_date: string_field(&raw, &["question_date"]),
         sessions,
         answer_session_ids: string_array(raw.get("answer_session_ids")),
-        raw,
     })
 }
 

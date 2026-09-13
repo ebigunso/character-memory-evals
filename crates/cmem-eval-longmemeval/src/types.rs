@@ -9,7 +9,6 @@ pub struct LongMemEvalInstance {
     pub question_date: Option<String>,
     pub sessions: Vec<LongMemEvalSession>,
     pub answer_session_ids: Vec<String>,
-    pub raw: serde_json::Value,
 }
 
 impl LongMemEvalInstance {
