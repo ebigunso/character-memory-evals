@@ -71,7 +71,7 @@
 - description: |
   Each loader returns a typed admission error whose location is either the file root (top-level shape failures, where no item exists yet) or an item (index or id) with the field and reason, for the strict set in the Definition of Done; optional annotations and the tested key aliases stay as they are; the synthetic session id fallback and the silent drop of malformed sessions are removed in favour of rejection. The runner surfaces a load failure before creating the run root or calling any provider. README's dataset section states the contract.
 - acceptance:
-  - Every strict-set case has a rejection test with the named field; every optional-annotation case has an admission test.
+  - Every strict-set case has a rejection test that matches the typed admission-error variant and asserts its location (Root, or the item index or id) and field, not a message string; every optional-annotation case has an admission test.
   - Every alias named in the census alias rows (item, wrapper, session, turn and QA aliases) has an admission test in its loader crate, so no admitted encoding can be dropped while the gates pass.
   - The full official files are admitted with parsed items byte-identical to the pre-plan parse (comparison script retained as evidence).
   - A malformed file fails before any run root exists (census of the output directory after the failure).
