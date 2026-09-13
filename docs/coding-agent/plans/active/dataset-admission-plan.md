@@ -72,6 +72,7 @@
   Each loader returns a typed admission error whose location is either the file root (top-level shape failures, where no item exists yet) or an item (index or id) with the field and reason, for the strict set in the Definition of Done; optional annotations and the tested key aliases stay as they are; the synthetic session id fallback and the silent drop of malformed sessions are removed in favour of rejection. The runner surfaces a load failure before creating the run root or calling any provider. README's dataset section states the contract.
 - acceptance:
   - Every strict-set case has a rejection test with the named field; every optional-annotation case has an admission test.
+  - Every alias named in the census alias rows (item, wrapper, session, turn and QA aliases) has an admission test in its loader crate, so no admitted encoding can be dropped while the gates pass.
   - The full official files are admitted with parsed items byte-identical to the pre-plan parse (comparison script retained as evidence).
   - A malformed file fails before any run root exists (census of the output directory after the failure).
 - validation:
@@ -124,6 +125,8 @@
 - 2026-09-14 Copilot on the plan: status moved to in_progress to match execution; Task_2's command validation lists the exact repository baseline commands, the parse-dump comparison and the README smoke recipe; both census tables gained a row for the admitted aliases the official files never use, so Task_2 cannot drop one unnoticed.
 
 - 2026-09-14 Worker precision on the alias rows: the LoCoMo `session_number` fallback (any JSON value stringified into a session id, no test) is not an admitted identity alias; the Definition of Done's session_id/session/id list is binding and the census row is corrected. Task_2 removes the fallback and adds the rejection test.
+
+- 2026-09-14 Copilot on the alias rows: Task_2 acceptance now requires an admission test per census-listed alias (wrapper keys included), closing the gap where an alias could be dropped with the gates still passing; the session_number question was already settled at 27a8224.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
