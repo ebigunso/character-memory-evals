@@ -19,7 +19,7 @@ supersession_scope: full
 
 ## Context and Problem Statement
 
-Evaluation artifacts (result rows, traces, summaries, reports) change shape as the harness shrinks, and sealed evidence cited by the findings register must stay trustworthy across those changes. Two guarantees were once conflated: that sealed bytes are preserved and verifiable, and that the live binary can parse every sealed artifact. Keeping the second guarantee forced strict versioned readers, version bumps on every shape change, and resurrection rituals that served no tier-1 or tier-2 decision.
+Evaluation artifacts (result rows, traces, summaries, reports) change shape as the harness shrinks, and sealed evidence cited by the findings register must stay trustworthy across those changes. Two guarantees were once conflated: that sealed bytes are preserved and verifiable, and that the live binary can parse every sealed artifact. Keeping the second guarantee forced strict versioned readers, version bumps on every shape change, and resurrection rituals, none of which any everyday decision needs: running the evaluation and comparing two runs, or judging a tuning or regression question, never requires the live binary to read an artifact from an older shape; only a durable claim cited in a decision record does, and that claim is served by the sealed bytes and their hashes.
 
 ## Decision
 
@@ -27,7 +27,7 @@ Sealed evidence is guaranteed as bytes verified by the hashes the findings regis
 
 ## Why
 
-The evidence the register protects is bytes, and hashes protect bytes completely; a parser promise on top of that buys nothing for the decisions the harness serves and costs a versioning ritual on every change.
+The evidence the register protects is bytes, and hashes protect bytes completely; a parser promise on top of that buys nothing for the everyday run-and-compare and tuning decisions the harness serves, and costs a versioning ritual on every change.
 
 ## Rejected Alternatives
 
