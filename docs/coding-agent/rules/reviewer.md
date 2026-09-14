@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "reviewer"
-last_updated: "2026-09-13"
+last_updated: "2026-09-14"
 ---
 
 # Reviewer Repository Rules
@@ -18,7 +18,8 @@ last_updated: "2026-09-13"
 
 - Optional-diagnostics metric staging: every emitted metric binds to exactly one named stage of the chained limiter pipeline (eligible -> hub cap -> fanout cap); enumerate per-stage producer cardinality before approving optional diagnostics.
 
-- admission_before_side_effect: public input parsers (fixture, config, frozen store) must reject malformed, partial, or contract-violating input before any backend I/O or state mutation; artifact readers (rows, traces, summaries, reports) are derived serde with no version or unknown-field rejection (ADR-I-0005), so "wrong-version" is not an admission concern for them.
+- admission_before_side_effect: public input parsers (dataset loaders, fixture, config, frozen store) must reject malformed, partial, or contract-violating input before any backend I/O or state mutation; artifact readers (rows, traces, summaries, reports) are derived serde with no version or unknown-field rejection (ADR-I-0005), so "wrong-version" is not an admission concern for them.
+- alias_destination_assertion: a claimed preserved dataset input alias requires a test that supplies the alias and asserts its value in its own typed destination field; admission alone or an assertion on a neighbouring field is not evidence (recurred 2026-09-14, CME #37 review F3).
 - coupled_config_invariants: coupled configuration invariants must be validated consistently at configuration admission, artifact production, persisted metadata, and the production-reachable live consumer (recurred 2026-07-12/2026-07-20).
 - recursive_config_admission: configuration schema changes that introduce or tighten nested overrides must audit fail-closed unknown-field admission through every deserialized container from the edited leaf to the run-config root, testing incomplete atomic groups plus a typo at each covered level (recurred 2026-07-17/2026-07-21).
 - label_conflict_precedence: metrics that project labels across provenance or grouping boundaries must define and test precedence for conflicting explicit-object and derived-root labels (broken pollution metric, 2026-07-17).

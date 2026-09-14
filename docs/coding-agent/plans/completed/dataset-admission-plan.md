@@ -1,6 +1,6 @@
 # Plan: Dataset Admission (strict on identity and structure, lenient on annotations)
 
-- status: in_progress
+- status: done
 - generated: 2026-09-14
 - last_updated: 2026-09-14
 - work_type: code
@@ -89,19 +89,21 @@
 - type: docs
 - owns:
   - docs/coding-agent/rules/reviewer.md
+  - docs/coding-agent/lessons.md
   - docs/coding-agent/plans/active/dataset-admission-plan.md
   - docs/coding-agent/plans/completed/dataset-admission-plan.md
 - depends_on: [Task_2]
 - description: |
-  Add dataset loaders to the fail-closed input surfaces in the reviewer hotspot; close the plan with the censuses and move it to completed.
+  Add dataset loaders to the fail-closed input surfaces and record the alias destination assertion in the reviewer hotspots; append the four dataset-admission lessons, close the plan with the censuses and move it to completed.
 - acceptance:
   - The reviewer rule names dataset loaders beside fixtures, configs and frozen stores.
+  - The alias destination assertion is a reviewer hotspot, and lessons record identity-source preservation, parser-helper callers, alias evidence and census completeness.
   - The plan is in completed with its final progress entry.
 - validation:
   - kind: review
     required: true
     owner: orchestrator
-    detail: "Rule wording and closeout entry"
+    detail: "Rule wording, four lessons and closeout entry"
 
 ## Task Waves (explicit parallel dispatch sets)
 
@@ -143,6 +145,12 @@
 - 2026-09-14 Task_2 owns widened from the runner's pipeline.rs to crates/cmem-eval-runner/**: the zero-item rejection made a runner CLI test that used `[]` as its dataset fail before the output validation it proves, so its input becomes a minimal admitted record (orchestrator-authorized one-file edit, recorded here).
 
 - 2026-09-14 Copilot on the exception's reach: the identical-repeat exception is scoped to the LongMemEval parallel-id form only; a repeated LoCoMo session-record id is rejected outright (no official file needs it, and such records could differ in timestamp, summary or observations under one identity). The earlier turn-id extension of the exception is therefore moot and withdrawn.
+
+- 2026-09-14 Task_2 done at 9c2f2b3 (CME #37): Reviewer APPROVED in DATASET_ADMISSION_REVIEW2 after findings F1-F3 and documentation/test adjustments A-B were resolved. Both complete official parsed files and three annotation probes are byte-identical to their baselines; all four malformed/empty CLI cases reject before output creation; 73 loader tests, both runner regressions, fmt, strict Clippy and the README smoke pair pass. The workspace suite reports 317 passed, one standing OS 1314 symlink-privilege failure and zero ignored tests; the privilege-dependent check remains CI-owned under the existing ruling. Evidence is retained under .agent-work/evals-worker/dataset-admission/ and .agent-work/evals-reviewer/dataset-admission/fix1/ until #37 merges; merge approval remains with the decider.
+
+- 2026-09-14 Task_3 done: the Orchestrator's closeout dispatch extends the task to four lessons and the curated alias_destination_assertion hotspot; the reviewer rule also names dataset loaders among public input parsers. The latest binding plan text from ca4eb5b is closed with these progress entries and moved to completed. Rule wording, lessons and closeout validation remain Orchestrator-owned; no repository plan validator is available, so the Orchestrator runs the plan validator.
+
+- 2026-09-14 Closeout addendum: the closeout pull request carries a fifth lesson beyond the four Task_3 lessons, an orchestrator stacking lesson from the closeout itself (refresh a stack from root to leaf, each layer onto its updated immediate parent, before a branch moves a file the root changed), recorded in the same change because it was learned while landing this plan.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
@@ -201,6 +209,16 @@
 
 
 - 2026-09-14 Duplicate session ids in the official LongMemEval-S file (found by evals-worker during Task_2, missed by the Task_1 census, which checked item-id uniqueness only): 13 of 500 items each carry one repeated `haystack_session_ids` entry (first: item index 3, id 58bf7951, session 07b7a667_1 at positions 17 and 47, dated 2023/05/23 and 2023/05/29; also 1e043500/d5d1f9c4 and 001be529/sharegpt_SYbLHTK_0), 13 pairs in total. Every pair has byte-identical turn arrays including `has_answer`; every pair has a different `haystack_dates` entry; none is an answer session. The strict set as written would reject the official file. Decider ruling: a repeated session id is rejected only when the turn arrays differ (an identity defect); identical turn arrays are admitted unchanged, so the parsed official items stay byte-identical to the pre-plan parse and haystack fidelity is kept. The date is an annotation and does not take part in the comparison. Alternatives declined: dropping the rule entirely (a differing-content repeat would pass silently) and collapsing identical pairs to one session (moves the parsed items and any measurement baseline for 13 items).
+
+## Review findings (CME #37, independent evaluation reviewer, 2026-09-14)
+
+Recorded here because the review reports and agent messages are transient evidence deleted at merge; this section is their durable record.
+
+- F1 (P2, resolved at 9c2f2b3): the LongMemEval identical-repeat exception was applied to every effective session id; the binding plan scopes it to ids sourced from the parallel `haystack_session_ids` array. Fix: the id source is kept until duplicate admission; record/record and mixed record/parallel repeats reject; parallel-only identical repeats keep both copies. Verified by 53 independent probes including both mixed orders and a third-occurrence collision.
+- F2 (P2, resolved at 9c2f2b3): canonical decimal validation of `session_<N>` keys had also narrowed the numeric lookup of the top-level summary and observation maps for conversation-array record ids such as `session_01`, dropping their annotations. Fix: canonical validation applies to keyed entries only and the numeric annotation lookup is restored; the session_1, session_01 and session_+1 parsed dumps are byte-identical to the baseline.
+- F3 (P3, resolved at 9c2f2b3): the LoCoMo session alias test admitted session_id, session and id without asserting the resulting session id. Fix: the destination field is asserted for every alias; the alias_destination_assertion reviewer hotspot records the rule.
+- Design answers A to C: the new runner and loader tests use the ordinary temporary-directory pattern (the agent-scratch root is only for tests that open embedded stores); the README keeps a short consumer paragraph and the exact encoding rules live in each loader crate's rustdoc; each dataset crate owns its std error type with root-level and item-level admission locations, propagated through anyhow with no converter or shared-crate edit.
+- Verdicts: NEEDS_REVISION at 710b3e7 (DATASET_ADMISSION_REVIEW), APPROVED at 9c2f2b3 (DATASET_ADMISSION_REVIEW2): both official files parse byte-identically, four CLI rejections leave no output state, fmt, clippy and rustdoc gates pass.
 
 ## Notes
 - Known official-file characteristic, unchanged by this plan: 13 LongMemEval-S items repeat one session id with identical turns and a different date; ingest maps both copies onto the same deterministic ids, so the library sees one identity with two dates and resolves it deterministically within one commit. Changing that is a measurement decision, not an admission one.
