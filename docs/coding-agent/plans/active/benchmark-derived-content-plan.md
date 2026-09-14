@@ -83,6 +83,7 @@
   - scripts/enrichment/build_snapshots.py
   - scripts/enrichment/build_source_only.py
   - scripts/enrichment/README.md
+  - crates/cmem-eval/src/metrics.rs
 - depends_on: []
 - description: |
   One crate helper derives the identity assignment from the item; ingest and scoring use it; the snapshot builders adopt it and bind the artifact to its dataset; the LongMemEval snapshot is regenerated locally after the bare-id pair is preserved. The design notes below are the reviewed shape; a simpler implementation that meets the acceptance is welcome and is reported as a deviation.
@@ -189,6 +190,8 @@
 - 2026-09-14 Baseline episode text: the lexical and vector-only baselines keep the generic descriptive sentence as LoCoMo episode text, as today, so the baselines do not move with this plan; making episode text the session's turns would change what the hurdle measures and is left to the v0.2 value audit.
 - 2026-09-14 Plan-time versus implementation-time findings (decider direction after 29 review rounds): a plan fixes scope, contracts, ownership and how done is judged; findings that only choose an implementation shape (error placement, file naming, counter plumbing, fixture contents, wording) are input to the worker briefs and the implementation review. The reviewed shapes gathered so far are kept as per-task design notes so nothing validated is lost.
 - 2026-09-14 Decider approved the plan at 63f9aff. Q1: LoCoMo generated observations are ingested as `DerivedType::Claim` (a factual statement about a person or event derived from dialog evidence; Reflection stays the type of the session summary, and none of the preference, commitment or note types fits a third-party factual statement). Q2: the re-baseline runs of Task_3, including the hybrid provider runs, are authorized by the decider for this plan.
+
+- 2026-09-14 Duplicate credit belongs in the shared metric: the shared retrieval metrics deduplicated recall hits but counted a repeated gold id in DCG at every rank, so mapping two copies onto one session id would have double-counted. Ruling (worker alert during Task_2): the shared DCG gains a seen-id set so a repeated retrieved id never earns credit twice for any dataset, and the LongMemEval scorer maps exact identities only; Task_2 owns that one shared change and its unit test. No existing measurement moves, since retrieved lists carried unique ids before this plan.
 
 ## Notes
 - The README's enrichment section already describes the LoCoMo default as indexing summaries and observations; this plan makes that true end to end. The BM25 baseline config had both flags on and silently ran without the content; by the decider's ruling the baseline searches the chat log only, so its flags go off; for the official file the base commit never loaded the top-level summaries and the tip projects them away, so the lexical corpus is expected to be unchanged; a file carrying record-level summary annotations would already have them in the base corpus, so the re-baseline compares the projection change and records any difference with its cause rather than assuming none.
