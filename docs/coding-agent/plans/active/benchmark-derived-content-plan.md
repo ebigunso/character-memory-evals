@@ -1,6 +1,6 @@
 # Plan: Benchmark-Derived Content (LoCoMo dataset summaries and observations; LongMemEval repeated sessions as distinct memories)
 
-- status: draft
+- status: in_progress
 - generated: 2026-09-14
 - last_updated: 2026-09-14
 - work_type: code
@@ -32,8 +32,8 @@
 - Design record consulted and deviations from its acceptance: ADR-I-0004 (dataset crates own their loaders and ingest; the runner changes only where the consumer paths live) and ADR-I-0005 (artifact readers unaffected). No deviation.
 
 ## Open Questions (max 3)
-- Q1: Which `DerivedType` the generated observations use. Task_1 picks the closest neutral type and reports the rationale; the orchestrator records it in the Decision Log; the summary keeps Reflection as today.
-- Q2: Whether the hybrid re-baseline runs (paid provider calls) are authorized; the decider authorizes provider runs per run. Task_3 asks before running; the lexical runs need no authorization.
+- Q1 (settled 2026-09-14, Decision Log): generated observations use `DerivedType::Claim`; the summary keeps Reflection.
+- Q2 (settled 2026-09-14, Decision Log): the decider authorized the re-baseline runs of this plan, including the hybrid provider runs.
 
 ## Assumptions
 - A1: Official LoCoMo carries 272 summaries and 2541 observation pairs (evidence a string in 2531 and a list in 10; after splitting comma-separated ids, 2561 references with zero unresolved) — source: censuses 2026-09-14; re-checked by Task_1's opt-in official-file census.
@@ -138,6 +138,8 @@
 
 ## Progress Log (append-only)
 
+- 2026-09-14 Plan approved by the decider at 63f9aff; Task_1 dispatched to evals-worker on task/bdc-locomo and Task_2 to evals-worker2 on task/bdc-longmemeval, both stacked on the plan branch (PR #40 stays open until the stack merges).
+
 - 2026-09-14 Plan drafted from two decider rulings: LoCoMo uses the dataset's summaries and observations (with a library-generated source kept open for later); the 13 repeated LongMemEval sessions are distinct memories because the date changes graph retrieval and must not be overridden.
 - 2026-09-14 Plan review (evals-reviewer and Copilot) applied: the consumer paths are in scope (the enrichment snapshot path discarded mapped derived memories and the lexical baseline never indexed them, so the flags alone delivered nothing in the maintained configs); evidence strings with comma-separated dialog ids are normalized (2561 references, zero unresolved); the LongMemEval identity policy is collision-safe and reversible through ingest data rather than suffix parsing, covers both scoring families, and collapses duplicate credit; the derived-type rationale flows through the worker report; three cross-mode configs; task types within the allowed set.
 - 2026-09-14 Decider ruling: the lexical baseline stays a crude search over the chat log; derived-memory indexing is removed from the plan (Decision Log).
@@ -176,6 +178,8 @@
 - 2026-09-14 Restructured on the decider's direction: the Definition of Done is reduced to contract level (content, consumers, baselines, identities, snapshot, re-baseline, README) and the validated implementation detail from the review rounds moves into per-task design notes that the workers may follow or improve on; no requirement is dropped. Further implementation-level review findings go into the worker briefs and the implementation review, not into this plan.
 
 ## Decision Log (append-only; re-plans and major discoveries)
+
+- 2026-09-14 Decider approved the plan at 63f9aff. Q1: LoCoMo generated observations are ingested as `DerivedType::Claim` (a factual statement about a person or event derived from dialog evidence; Reflection stays the type of the session summary, and none of the preference, commitment or note types fits a third-party factual statement). Q2: the re-baseline runs of Task_3, including the hybrid provider runs, are authorized by the decider for this plan.
 
 - 2026-09-14 Recorded for the v0.2 value audit, not decided here: whether a retrieved LoCoMo derived memory carrying evidence provenance should count toward evidence recall; today only retrieved observations count.
 - 2026-09-14 Snapshot precedence (LoCoMo): a configured enrichment snapshot adds graph on top of the item's own content; dataset-derived memories are the item's own content and are ingested with it. Merging is the runner's job; regenerating the LoCoMo snapshot is not required because its ids and the dataset-derived ids are disjoint. The LongMemEval snapshot is the exception recorded below, regenerated because bare ids no longer preserve repeated-session provenance.
