@@ -4,10 +4,130 @@ use cmem_eval::{
     MemoryThreadInput,
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::io::{BufRead, BufReader, Seek};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum EnrichmentError {
+    MissingManifest {
+        path: PathBuf,
+    },
+    WrongWorkflow {
+        expected: &'static str,
+        actual: Option<String>,
+    },
+    ArtifactHashMismatch {
+        expected: Option<String>,
+        actual: String,
+    },
+    MissingDatasetHash,
+    DatasetHashMismatch {
+        expected: String,
+        actual: String,
+    },
+    DuplicateExternalId {
+        kind: &'static str,
+        external_id: String,
+    },
+}
+
+impl std::fmt::Display for EnrichmentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingManifest { path } => {
+                write!(f, "missing snapshot manifest {}", path.display())
+            }
+            Self::WrongWorkflow { expected, actual } => {
+                write!(f, "snapshot workflow must be {expected}, got {actual:?}")
+            }
+            Self::ArtifactHashMismatch { expected, actual } => write!(
+                f,
+                "snapshot artifact hash mismatch: expected {expected:?}, got {actual}"
+            ),
+            Self::MissingDatasetHash => write!(f, "v2 snapshot manifest requires dataset.sha256"),
+            Self::DatasetHashMismatch { expected, actual } => write!(
+                f,
+                "snapshot dataset hash mismatch: expected {expected}, got {actual}"
+            ),
+            Self::DuplicateExternalId { kind, external_id } => write!(
+                f,
+                "duplicate enrichment external_id {external_id} for {kind}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for EnrichmentError {}
+
+fn admitted_snapshot_file(path: &Path, dataset: &str, input_sha256: &str) -> Result<File> {
+    let expected_workflow = match dataset {
+        "locomo" => "deterministic-exact-source-replay-v1",
+        "longmemeval_s" => "deterministic-exact-source-replay-v2",
+        _ => bail!("unsupported snapshot dataset {dataset:?}"),
+    };
+    let mut name = path
+        .file_stem()
+        .context("snapshot path needs a file stem")?
+        .to_os_string();
+    name.push("_manifest.json");
+    let manifest_path = path.with_file_name(name);
+    let manifest_file = File::open(&manifest_path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            anyhow::Error::from(EnrichmentError::MissingManifest {
+                path: manifest_path.clone(),
+            })
+        } else {
+            anyhow::Error::from(error).context(format!("open {}", manifest_path.display()))
+        }
+    })?;
+    let manifest: Value = serde_json::from_reader(BufReader::new(manifest_file))
+        .with_context(|| format!("parse {}", manifest_path.display()))?;
+    let workflow = manifest["workflow_id"].as_str();
+    if workflow != Some(expected_workflow) {
+        return Err(EnrichmentError::WrongWorkflow {
+            expected: expected_workflow,
+            actual: workflow.map(ToOwned::to_owned),
+        }
+        .into());
+    }
+    match manifest["dataset"].get("sha256") {
+        Some(expected)
+            if expected
+                .as_str()
+                .is_none_or(|hash| !hash.eq_ignore_ascii_case(input_sha256)) =>
+        {
+            return Err(EnrichmentError::DatasetHashMismatch {
+                expected: expected
+                    .as_str()
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| expected.to_string()),
+                actual: input_sha256.to_string(),
+            }
+            .into());
+        }
+        None if dataset == "longmemeval_s" => {
+            return Err(EnrichmentError::MissingDatasetHash.into());
+        }
+        _ => {}
+    }
+    let mut file = File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let mut hash = Sha256::new();
+    std::io::copy(&mut BufReader::new(&mut file), &mut hash)?;
+    let actual = format!("{:x}", hash.finalize());
+    let expected = manifest["artifact"]["sha256"].as_str();
+    if expected.is_none_or(|expected| !expected.eq_ignore_ascii_case(&actual)) {
+        return Err(EnrichmentError::ArtifactHashMismatch {
+            expected: expected.map(ToOwned::to_owned),
+            actual,
+        }
+        .into());
+    }
+    file.rewind()?;
+    Ok(file)
+}
 
 const FORBIDDEN_KEYS: &[&str] = &[
     "answer",
@@ -58,8 +178,12 @@ pub fn load_enrichment_path(path: &Path) -> Result<HashMap<String, GraphEnrichme
     Ok(by_namespace)
 }
 
-pub fn load_snapshot_path(path: &Path) -> Result<HashMap<String, GraphSnapshotInput>> {
-    let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
+pub fn load_snapshot_path(
+    path: &Path,
+    dataset: &str,
+    input_sha256: &str,
+) -> Result<HashMap<String, GraphSnapshotInput>> {
+    let file = admitted_snapshot_file(path, dataset, input_sha256)?;
     let reader = BufReader::new(file);
     let mut by_dataset_item: HashMap<String, GraphSnapshotInput> = HashMap::new();
     for (line_idx, line) in reader.lines().enumerate() {
@@ -164,11 +288,15 @@ pub fn merge_enrichment(
     validate_enrichment(base)
 }
 
-fn insert_id(ids: &mut HashSet<String>, kind: &str, external_id: &str) -> Result<()> {
+fn insert_id(ids: &mut HashSet<String>, kind: &'static str, external_id: &str) -> Result<()> {
     require_non_empty("external_id", external_id)?;
     let key = format!("{kind}\0{external_id}");
     if !ids.insert(key) {
-        bail!("duplicate enrichment external_id {external_id} for {kind}");
+        return Err(EnrichmentError::DuplicateExternalId {
+            kind,
+            external_id: external_id.to_string(),
+        }
+        .into());
     }
     Ok(())
 }

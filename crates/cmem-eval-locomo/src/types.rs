@@ -8,6 +8,8 @@ pub struct LoCoMoSample {
     pub speaker_b: Option<String>,
     pub sessions: Vec<LoCoMoSession>,
     pub qa: Vec<LoCoMoQa>,
+    pub unresolved_evidence_references: usize,
+    pub dropped_observation_entries: usize,
 }
 
 impl LoCoMoSample {
@@ -66,8 +68,15 @@ pub struct LoCoMoSession {
     pub raw_timestamp: Option<String>,
     pub timestamp: Option<String>,
     pub summary: Option<String>,
-    pub generated_observations: Vec<String>,
+    pub generated_observations: Vec<LoCoMoGeneratedObservation>,
     pub turns: Vec<LoCoMoTurn>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LoCoMoGeneratedObservation {
+    pub speaker: Option<String>,
+    pub statement: String,
+    pub evidence_dialog_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

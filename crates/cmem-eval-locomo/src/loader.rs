@@ -1,4 +1,7 @@
-use crate::{AdmissionLocation, LoCoMoQa, LoCoMoSample, LoCoMoSession, LoCoMoTurn, LoadError};
+use crate::{
+    AdmissionLocation, LoCoMoGeneratedObservation, LoCoMoQa, LoCoMoSample, LoCoMoSession,
+    LoCoMoTurn, LoadError,
+};
 use chrono::{DateTime, NaiveDateTime, SecondsFormat, Utc};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -67,13 +70,17 @@ fn parse_sample(raw: Value, index: usize) -> Result<LoCoMoSample, LoadError> {
         .unwrap_or(&Value::Null);
     let speaker_a = string_field(conversation, &["speaker_a"]);
     let speaker_b = string_field(conversation, &["speaker_b"]);
-    Ok(LoCoMoSample {
+    let mut sample = LoCoMoSample {
         sample_id: sample_id.clone(),
         sessions: parse_sessions(&raw, &location)?,
         speaker_a,
         speaker_b,
         qa: parse_qa(raw.get("qa"), &sample_id, &location)?,
-    })
+        unresolved_evidence_references: 0,
+        dropped_observation_entries: 0,
+    };
+    apply_benchmark_derived_fields(&raw, &mut sample);
+    Ok(sample)
 }
 
 fn parse_sessions(
@@ -84,7 +91,7 @@ fn parse_sessions(
         .get("conversation")
         .or_else(|| raw.get("conversations"))
         .unwrap_or(&Value::Null);
-    let mut sessions = match source {
+    let sessions = match source {
         Value::Array(items) => {
             let mut ids = HashSet::new();
             items
@@ -166,7 +173,6 @@ fn parse_sessions(
             }
         }
     }
-    apply_benchmark_derived_fields(raw, &mut sessions);
     Ok(sessions)
 }
 
@@ -241,7 +247,7 @@ fn parse_session_with_context(
         timestamp: normalize_timestamp(raw_timestamp.as_deref()),
         raw_timestamp,
         summary,
-        generated_observations: generated_observations(value),
+        generated_observations: Vec::new(),
         turns,
     })
 }
@@ -255,32 +261,137 @@ fn turn_values(value: &Value) -> Option<&Vec<Value>> {
         .and_then(Value::as_array)
 }
 
-fn apply_benchmark_derived_fields(raw: &Value, sessions: &mut [LoCoMoSession]) {
-    if let Some(summary_map) = raw.get("session_summary").and_then(Value::as_object) {
-        for session in sessions.iter_mut() {
-            if session.summary.is_none() {
-                session.summary = summary_map
-                    .get(&session.session_id)
-                    .or_else(|| {
-                        session_number(&session.session_id)
-                            .and_then(|n| summary_map.get(&n.to_string()))
-                    })
-                    .and_then(scalar_or_joined_strings);
-            }
+fn apply_benchmark_derived_fields(raw: &Value, sample: &mut LoCoMoSample) {
+    let turn_ids = sample
+        .sessions
+        .iter()
+        .flat_map(|session| &session.turns)
+        .map(|turn| turn.dialog_id.clone())
+        .collect::<HashSet<_>>();
+    let records = raw
+        .get("conversation")
+        .or_else(|| raw.get("conversations"))
+        .and_then(Value::as_array);
+    let mut parser = ObservationParser {
+        turn_ids,
+        unresolved: 0,
+        dropped: 0,
+    };
+    if raw
+        .get("observation")
+        .is_some_and(|value| !value.is_object())
+    {
+        parser.dropped += 1;
+    }
+    for (index, session) in sample.sessions.iter_mut().enumerate() {
+        if session.summary.is_none() {
+            session.summary =
+                annotation(raw.get("session_summary"), &session.session_id, "summary")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned);
+        }
+        if let Some(record) = records.and_then(|records| records.get(index))
+            && let Some(value) = ["observation", "observations", "generated_observations"]
+                .iter()
+                .find_map(|key| record.get(*key))
+        {
+            parser.append(value, &mut session.generated_observations);
+        }
+        if let Some(value) = annotation(raw.get("observation"), &session.session_id, "observation")
+        {
+            parser.append(value, &mut session.generated_observations);
         }
     }
-    if let Some(observation_map) = raw.get("observation").and_then(Value::as_object) {
-        for session in sessions.iter_mut() {
-            let observations = observation_map
-                .get(&session.session_id)
-                .or_else(|| {
-                    session_number(&session.session_id)
-                        .and_then(|n| observation_map.get(&n.to_string()))
-                })
-                .map(generated_observations_from_value)
-                .unwrap_or_default();
-            session.generated_observations.extend(observations);
+    sample.unresolved_evidence_references = parser.unresolved;
+    sample.dropped_observation_entries = parser.dropped;
+}
+
+fn annotation<'a>(map: Option<&'a Value>, session_id: &str, suffix: &str) -> Option<&'a Value> {
+    let map = map?.as_object()?;
+    map.get(session_id).or_else(|| {
+        let number = session_number(session_id)?;
+        map.get(&format!("session_{number}_{suffix}"))
+            .or_else(|| map.get(&number.to_string()))
+    })
+}
+
+struct ObservationParser {
+    turn_ids: HashSet<String>,
+    unresolved: usize,
+    dropped: usize,
+}
+
+impl ObservationParser {
+    fn append(&mut self, value: &Value, output: &mut Vec<LoCoMoGeneratedObservation>) {
+        match value {
+            Value::Object(speakers) => {
+                for (speaker, entries) in speakers {
+                    if let Some(entries) = entries.as_array() {
+                        for entry in entries {
+                            self.entry(entry, Some(speaker), output);
+                        }
+                    } else {
+                        self.dropped += 1;
+                    }
+                }
+            }
+            Value::Array(entries) => {
+                for entry in entries {
+                    self.entry(entry, None, output);
+                }
+            }
+            entry => self.entry(entry, None, output),
         }
+    }
+
+    fn entry(
+        &mut self,
+        value: &Value,
+        speaker: Option<&str>,
+        output: &mut Vec<LoCoMoGeneratedObservation>,
+    ) {
+        let parsed = match value {
+            Value::String(statement) => Some((statement.as_str(), Vec::new())),
+            Value::Array(pair) if pair.len() == 2 => pair[0].as_str().and_then(|statement| {
+                let evidence = match &pair[1] {
+                    Value::String(id) => Some(vec![id.as_str()]),
+                    Value::Array(ids) => ids.iter().map(Value::as_str).collect::<Option<Vec<_>>>(),
+                    _ => None,
+                }?;
+                Some((statement, evidence))
+            }),
+            _ => None,
+        };
+        let Some((statement, evidence)) =
+            parsed.filter(|(statement, _)| !statement.trim().is_empty())
+        else {
+            self.dropped += 1;
+            return;
+        };
+        let mut evidence_dialog_ids = Vec::new();
+        for evidence in evidence {
+            // Dialog IDs are opaque: an exact ID containing a comma stays whole.
+            if self.turn_ids.contains(evidence) {
+                evidence_dialog_ids.push(evidence.to_string());
+            } else {
+                evidence_dialog_ids.extend(
+                    evidence
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                        .map(ToOwned::to_owned),
+                );
+            }
+        }
+        self.unresolved += evidence_dialog_ids
+            .iter()
+            .filter(|id| !self.turn_ids.contains(*id))
+            .count();
+        output.push(LoCoMoGeneratedObservation {
+            speaker: speaker.map(ToOwned::to_owned),
+            statement: statement.to_string(),
+            evidence_dialog_ids,
+        });
     }
 }
 
@@ -368,36 +479,6 @@ fn evidence_ids(value: Option<&Value>) -> Vec<String> {
         Some(value) => scalar_value(value).into_iter().collect(),
         _ => Vec::new(),
     }
-}
-
-fn generated_observations(value: &Value) -> Vec<String> {
-    ["observation", "observations", "generated_observations"]
-        .iter()
-        .find_map(|key| value.get(*key).map(generated_observations_from_value))
-        .unwrap_or_default()
-}
-
-fn generated_observations_from_value(value: &Value) -> Vec<String> {
-    match value {
-        Value::Array(items) => items.iter().filter_map(scalar_or_joined_strings).collect(),
-        Value::Object(map) => map.values().filter_map(scalar_or_joined_strings).collect(),
-        value => scalar_or_joined_strings(value).into_iter().collect(),
-    }
-}
-
-fn scalar_or_joined_strings(value: &Value) -> Option<String> {
-    scalar_value(value).or_else(|| {
-        value
-            .as_array()
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(scalar_value)
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .filter(|text| !text.trim().is_empty())
-    })
 }
 
 fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
@@ -535,7 +616,11 @@ mod tests {
             Some("They discussed a trip.")
         );
         assert_eq!(
-            rows[0].sessions[0].generated_observations,
+            rows[0].sessions[0]
+                .generated_observations
+                .iter()
+                .map(|observation| observation.statement.as_str())
+                .collect::<Vec<_>>(),
             vec!["A likes quiet cafes."]
         );
     }

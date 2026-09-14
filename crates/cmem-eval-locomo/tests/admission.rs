@@ -372,7 +372,14 @@ fn preserves_numeric_annotation_lookup_for_noncanonical_record_ids() {
         let session = &rows[0].sessions[0];
         assert_eq!(session.session_id, session_id);
         assert_eq!(session.summary.as_deref(), Some("Retained summary"));
-        assert_eq!(session.generated_observations, ["Retained observation"]);
+        assert_eq!(
+            session
+                .generated_observations
+                .iter()
+                .map(|observation| observation.statement.as_str())
+                .collect::<Vec<_>>(),
+            ["Retained observation"]
+        );
     }
 }
 
@@ -403,7 +410,11 @@ fn admits_session_annotation_aliases() {
         row["conversation"][0][alias] = json!(["A fact"]);
         let rows = load_value(json!([row])).unwrap();
         assert_eq!(
-            rows[0].sessions[0].generated_observations,
+            rows[0].sessions[0]
+                .generated_observations
+                .iter()
+                .map(|observation| observation.statement.as_str())
+                .collect::<Vec<_>>(),
             vec!["A fact"],
             "{alias}"
         );
