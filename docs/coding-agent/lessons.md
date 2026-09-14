@@ -1095,7 +1095,7 @@ Evidence:
 ## 2026-09-14 - Triage plan-review findings by what a plan is for [tags: orchestrator, planning, review]
 
 Symptom:
-- The benchmark-derived-content plan went through 29 revision commits over two reviewers before the decider approved it, growing from about 1,800 to 7,500 words with one Definition of Done bullet of 5,700 characters; each round moved the plan further into implementation design (error enum placement, sidecar file conventions, counter plumbing, fixture contents, wording nits).
+- The benchmark-derived-content plan went through 29 revision commits over two reviewers while still awaiting the decider's approval, growing from about 1,800 to 7,500 words with one Definition of Done bullet of 5,700 characters; each round moved the plan further into implementation design (error enum placement, sidecar file conventions, counter plumbing, fixture contents, wording nits).
 
 Root cause:
 - Every valid-looking finding was treated as a plan defect. The question that should have been asked first, whether the finding changes what a worker is authorized to do or how done is judged, was never asked; findings that only chose an implementation shape were written into the plan instead of the worker brief. Copilot reviews a plan as if it were code, and the plan reviewer confirmed each round rather than ranking it, so nothing in the loop pushed back.
