@@ -869,7 +869,9 @@ impl DatasetSpec for LongMemEvalSpec {
     }
 
     fn load(source: &str) -> Result<Vec<Self::Item>> {
-        cmem_eval_longmemeval::load_value(serde_json::from_str(source)?)
+        Ok(cmem_eval_longmemeval::load_value(serde_json::from_str(
+            source,
+        )?)?)
     }
 
     fn item_id(item: &Self::Item) -> &str {
@@ -983,7 +985,7 @@ impl DatasetSpec for LoCoMoSpec {
     }
 
     fn load(source: &str) -> Result<Vec<Self::Item>> {
-        cmem_eval_locomo::load_value(serde_json::from_str(source)?)
+        Ok(cmem_eval_locomo::load_value(serde_json::from_str(source)?)?)
     }
 
     fn item_id(item: &Self::Item) -> &str {
@@ -1841,7 +1843,10 @@ mod tests {
     async fn cli_rejects_non_jsonl_output_before_creating_directories() {
         let directory = tempfile::tempdir().unwrap();
         let dataset = directory.path().join("locomo.json");
-        fs::write(&dataset, "[]").unwrap();
+        fs::write(
+            &dataset,
+            r#"[{"sample_id":"p1","conversation":{"session_1":[{"dia_id":"d1","text":""}]},"qa":[{"question":"What?"}]}]"#,
+        ).unwrap();
         for filename in ["header.json", "HEADER.JSON", "report.json", "results"] {
             let output_dir = directory.path().join(filename).join("run");
             let mut args = continuity_args(directory.path());
@@ -2048,6 +2053,50 @@ mod tests {
             "{error:#}"
         );
         assert_eq!(fs::read(root.join("sentinel")).unwrap(), b"earlier run");
+    }
+
+    #[tokio::test]
+    async fn malformed_datasets_fail_before_output_admission() {
+        for locomo in [true, false] {
+            for source in ["{\"unexpected\": []}", "[]"] {
+                let directory = tempfile::tempdir().unwrap();
+                let dataset = directory.path().join("malformed.json");
+                fs::write(&dataset, source).unwrap();
+                let config = Path::new(env!("CARGO_MANIFEST_DIR")).join(if locomo {
+                    "../../configs/locomo_retrieval.toml"
+                } else {
+                    "../../configs/longmemeval_s_retrieval.toml"
+                });
+                let output = directory.path().join("uncreated-output");
+                let args = run_args(dataset, config, &output);
+                let error = if locomo {
+                    run_locomo(args).await.unwrap_err()
+                } else {
+                    run_longmemeval(args).await.unwrap_err()
+                };
+                if locomo {
+                    assert!(matches!(
+                        error.downcast_ref::<cmem_eval_locomo::LoadError>(),
+                        Some(cmem_eval_locomo::LoadError::Admission {
+                            location: cmem_eval_locomo::AdmissionLocation::Root,
+                            field,
+                            ..
+                        }) if field == "root"
+                    ));
+                } else {
+                    assert!(matches!(
+                        error.downcast_ref::<cmem_eval_longmemeval::LoadError>(),
+                        Some(cmem_eval_longmemeval::LoadError::Admission {
+                            location: cmem_eval_longmemeval::AdmissionLocation::Root,
+                            field,
+                            ..
+                        }) if field == "root"
+                    ));
+                }
+                assert!(!output.exists(), "load failure created output state");
+                assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+            }
+        }
     }
 
     #[tokio::test]

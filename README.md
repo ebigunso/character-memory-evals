@@ -224,6 +224,8 @@ OpenAI resources unless sharing that load is intentional.
 
 LongMemEval-S and LoCoMo expect local dataset files:
 
+Dataset loading rejects structural and identity defects with a typed error naming the file root or the item and field, before any provider call or creation of a run root, store or output artifact. Optional annotations stay optional, and admitted aliases remain supported. The [LoCoMo](crates/cmem-eval-locomo/src/lib.rs) and [LongMemEval-S](crates/cmem-eval-longmemeval/src/lib.rs) loader crates document the exact encoding rules.
+
 ```bash
 cargo run -p cmem-eval-runner -- run longmemeval-s \
   --dataset ./datasets/longmemeval_s_cleaned.json \
