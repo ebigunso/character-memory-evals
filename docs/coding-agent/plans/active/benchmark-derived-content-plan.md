@@ -6,45 +6,49 @@
 - work_type: code
 
 ## Goal
-- LoCoMo runs ingest the summaries and observations the official dataset provides, as provenanced memories, so the harness measures Character Memory over the full benchmark content while leaving the door open for library-generated reflections later; LongMemEval-S ingests the 13 repeated sessions as distinct memories with their own dates, because the date changes how the graph retrieves a memory and must not be overridden (decider rulings 2026-09-14).
+- LoCoMo runs ingest the summaries and observations the official dataset provides, as provenanced memories that reach every consumer (the library ingest, the precomputed-enrichment path and the lexical baseline), so the harness measures Character Memory over the full benchmark content while leaving the door open for library-generated reflections later; LongMemEval-S ingests the 13 repeated sessions as distinct memories with their own dates, because the date changes how the graph retrieves a memory and must not be overridden (decider rulings 2026-09-14).
 
 ## Definition of Done
-- LoCoMo: the loader reads the official top-level `session_summary` map (keys `session_<N>_summary`, one string per session) and `observation` map (keys `session_<N>_observation`; per speaker, a list of `[statement, evidence]` pairs where evidence is a dialog id or a list of dialog ids); every official session parses with its summary and its typed generated observations (speaker, statement, evidence dialog ids). The numeric and bare-id lookups that never matched official data are removed.
-- LoCoMo ingest: the session summary is the episode summary and, under `index_session_summaries`, a derived memory as today; each generated observation becomes one derived memory whose text is the statement alone, with provenance to the session episode and to the observations named by its evidence dialog ids that exist in the sample (an evidence id naming no turn is dropped from provenance and counted), attached to the speaker entity when ingest creates one. The two ingest flags keep their names and meaning: they select dataset-provided content; a library-generated source is the v0.2 comparison and is not built here.
-- LoCoMo configs: the maintained benchmark configs (`configs/locomo_retrieval.toml`, `configs/locomo_vector.toml`, `configs/locomo_bm25.toml`, the four cross-mode configs) index summaries and observations; no hash-cited config is edited (only continuity configs are hash-cited in the register).
-- LongMemEval-S ingest: a session id that repeats within an item keeps its bare id for the first occurrence and gets `<id>#<n>` (n from 2) for later occurrences, on the episode and its observations; every copy keeps its own date. Scoring maps a retrieved episode id back to the benchmark session id by stripping that suffix, so a hit on any copy of an answer session counts. The loader's admission exception for identical repeats is unchanged.
-- Re-baseline: for each of the two datasets, the lexical baseline config and the hybrid retrieval config run once at the base commit and once at the tip (same library pin, cleanup on), diffed with the runner's diff command; headline metrics and the diff counts are recorded in this plan's Decision Log. LongMemEval differences are confined to items among the 13.
-- README's dataset section states both behaviours; the plan closes in completed.
+- LoCoMo loader: reads the official top-level `session_summary` map (keys `session_<N>_summary`, one string per session) and `observation` map (keys `session_<N>_observation`; per speaker, a list of `[statement, evidence]` pairs where evidence is a string of one or more comma-separated dialog ids, or a list of such strings); every official session parses with its summary and its typed generated observations (speaker, statement, evidence dialog ids normalized by splitting on commas and trimming). The numeric and bare-id lookups that never matched official data are removed, and the crate rustdoc states the admitted key forms.
+- LoCoMo ingest: the session summary is the episode summary and, under `index_session_summaries`, a Reflection derived memory as today; under `index_generated_observations`, each generated observation becomes one derived memory whose text is the statement alone, with provenance to the session episode and to the observations named by its normalized evidence ids that exist in the sample (an evidence id naming no turn is dropped from provenance and counted), and, only if ingest already emits speaker entities, attached to that entity (no new entity plumbing). The two flags keep their names and meaning: they select dataset-provided content; a library-generated source is the v0.2 comparison and is not built here.
+- LoCoMo consumers: with a precomputed enrichment snapshot configured, the run ingests the dataset-derived memories and the snapshot graph together (the runner merges them; external ids are disjoint by construction since dataset-derived ids carry `:derived:`; a collision is a typed failure), instead of the snapshot discarding them; the lexical baseline indexes derived memories beside episodes and observations, so the hurdle sees the same text Character Memory ingests. A consumer-level test proves both paths carry the observations.
+- LoCoMo configs: the maintained benchmark configs (`configs/locomo_retrieval.toml`, `configs/locomo_vector.toml`, `configs/locomo_bm25.toml`, `configs/locomo_crossmode_embedded.toml`, `configs/locomo_crossmode_service.toml`, `configs/locomo_crossmode_service_repeat.toml`) index summaries and observations; no hash-cited config is edited (only continuity configs are hash-cited in the register).
+- LongMemEval-S identities: ingest assigns every episode an external id that is unique within the item without narrowing admission: a session id that occurs once keeps its bare id; a later occurrence gets the bare id plus a `#<ordinal>` suffix, and if that string is itself present among the item's session ids the ordinal is raised until the id is unused. Observation ids follow their episode id. Every copy keeps its own date. Ingest returns the mapping from episode external id to benchmark session id as data; nothing parses the suffix back.
+- LongMemEval-S scoring: both metric families use that mapping. Retrieved episode ids map to benchmark session ids; retrieved observation ids map by replacing their episode-id prefix through the same mapping so a turn of any copy matches its bare gold turn id; after mapping, repeated ids are collapsed to their first rank so a session retrieved as two copies earns credit once and every metric stays within its bounds.
+- Re-baseline: for each dataset, the lexical baseline config and the hybrid retrieval config run once at the base commit and once at the tip (same library pin, cleanup on), diffed with the runner's diff command; headline metrics, diff counts and the changed item sets are recorded in this plan's Decision Log. LongMemEval differences are confined to items among the 13.
+- README's dataset and enrichment sections state both behaviours; the plan closes in completed.
 
 ## Scope / Non-goals
-- Scope: `crates/cmem-eval-locomo` (loader types, loader, ingest, tests), `crates/cmem-eval-longmemeval` (ingest, scoring, tests), the LoCoMo benchmark configs, README dataset section, the re-baseline runs and their record.
-- Non-goals: any scoring change for LoCoMo (evidence recall stays measured on observations; whether a retrieved derived memory with evidence provenance should count is a v0.2 value-audit question, recorded below); any library change; a library-generated summary or observation source; edits to sealed evidence or hash-cited configs; the loader's admission rules.
+- Scope: `crates/cmem-eval-locomo` (types, loader, ingest, rustdoc, tests), `crates/cmem-eval-runner/src/pipeline.rs` (snapshot merge and lexical-baseline inputs for LoCoMo), `crates/cmem-eval/src/bm25.rs` (derived memories as indexed items), `crates/cmem-eval-longmemeval` (ingest, scoring, types, tests), the LoCoMo benchmark configs, README, the re-baseline runs and their record.
+- Non-goals: any LoCoMo scoring change (evidence recall stays measured on retrieved observations; whether a retrieved derived memory with evidence provenance should count is a v0.2 value-audit question, recorded below); any library change; a library-generated summary or observation source; new entity plumbing; regenerating enrichment snapshots; edits to sealed evidence or hash-cited configs; the loaders' admission rules.
 
 ## Compatibility stance (required if a contract/interface/persisted format is touched)
-- surface: parsed LoCoMo items (summaries and observations now populated; the generated-observation type gains fields), LoCoMo derived-memory identities, LongMemEval episode identities for repeated sessions, benchmark measurement baselines
+- surface: parsed LoCoMo items (summaries and observations now populated; the generated-observation type becomes structured), LoCoMo derived-memory identities, the lexical baseline's indexed item set, LongMemEval episode and observation identities for repeated sessions, benchmark measurement baselines
 - stance: break
 - justification: the harness is pinned to a library version and old artifacts are old, not a compatibility surface (harness strictness follows the claim); every consumer of these types is in this workspace; sealed evidence is untouched by construction (new runs write new files).
 
 ## Context (workspace)
-- Related files/areas: `crates/cmem-eval-locomo/src/loader.rs` (`apply_benchmark_derived_fields`, `generated_observations_from_value`), `crates/cmem-eval-locomo/src/types.rs` (`LoCoMoSession.generated_observations: Vec<String>` today), `crates/cmem-eval-locomo/src/ingest.rs` (summary and observation derived memories, flags), `crates/cmem-eval-longmemeval/src/ingest.rs` (episode and observation external ids from `session_id`), `crates/cmem-eval-longmemeval/src/scoring.rs` (session metrics compare retrieved episode external ids with `answer_session_ids`), `configs/locomo_*.toml`, README "Precomputed Graph Enrichment" (which already claims the default LoCoMo config indexes summaries and observations; false today).
-- Existing patterns or references: derived memories carry source episode or observation external ids (README enrichment rule); LoCoMo turn ids (`dia_id`) are the observation external ids at ingest, so observation evidence ids resolve to provenance directly; the dataset admission plan's Decision Log records the census that found the key mismatch and the 13 repeated sessions.
-- Design record consulted and deviations from its acceptance: ADR-I-0004 (dataset crates own their loaders and ingest; no shared-crate edit), ADR-I-0005 (artifact readers unaffected). Library ADR-I-0029 for outcome shapes is not touched. No deviation.
+- Related files/areas: `crates/cmem-eval-locomo/src/loader.rs` (`apply_benchmark_derived_fields`, `generated_observations_from_value`, which today joins a `[statement, evidence]` pair into one string), `crates/cmem-eval-locomo/src/types.rs` (`LoCoMoSession.generated_observations: Vec<String>`), `crates/cmem-eval-locomo/src/ingest.rs` (summary and observation derived memories, flags, participants), `crates/cmem-eval-runner/src/pipeline.rs` (`LoCoMoSpec::enrichment` returns the snapshot graph and drops the mapped derived memories; `Bm25Baseline::new` receives episodes and observations only), `crates/cmem-eval/src/bm25.rs`, `crates/cmem-eval-longmemeval/src/ingest.rs` (episode and observation external ids from `session_id`), `crates/cmem-eval-longmemeval/src/scoring.rs` (session metrics on retrieved episode ids against `answer_session_ids`; turn metrics on retrieved observation ids against gold turn ids), `crates/cmem-eval/src/metrics.rs` (`retrieval_metrics`, `insert_retrieval_metrics`), `configs/locomo_*.toml`, README "Precomputed Graph Enrichment" (already claims the default LoCoMo config indexes summaries and observations; false today).
+- Existing patterns or references: derived memories carry source episode or observation external ids (README enrichment rule); LoCoMo turn ids (`dia_id`) are the observation external ids at ingest, so evidence ids resolve to provenance directly; the dataset admission plan's Decision Log records the census that found the key mismatch and the 13 repeated sessions.
+- Design record consulted and deviations from its acceptance: ADR-I-0004 (dataset crates own their loaders and ingest; the runner and the shared crate change only where the consumer paths live) and ADR-I-0005 (artifact readers unaffected). No deviation.
 
 ## Open Questions (max 3)
-- Q1: Which `DerivedType` the generated observations use (the library vocabulary: Reflection, UserPreference, AssistantPreference, Commitment, OpenLoop, CharacterSignal, RelationshipNote, ProjectNote, ...). Task_1 picks the closest neutral type with a one-line rationale in the Decision Log; the summary keeps Reflection as today.
+- Q1: Which `DerivedType` the generated observations use (library vocabulary: Reflection, UserPreference, AssistantPreference, Commitment, OpenLoop, CharacterSignal, RelationshipNote, ProjectNote, and the rest). Task_1 picks the closest neutral type and reports the rationale; the orchestrator records it in the Decision Log; the summary keeps Reflection as today.
 - Q2: Whether the hybrid re-baseline runs (paid provider calls) are authorized; the decider authorizes provider runs per run. Task_3 asks before running; the lexical runs need no authorization.
 
 ## Assumptions
-- A1: Official LoCoMo carries 272 summaries and 2541 observation entries, all `[statement, evidence]` pairs, evidence a string in 2531 and a list in 10 — source: census 2026-09-14 (orchestration session), re-checked by Task_1's parser tests over the full file.
-- A2: The 13 LongMemEval repeats are never answer sessions — source: dataset admission plan Decision Log; re-checked by Task_2's census.
-- A3: No benchmark config is hash-cited in `reports/v0-1-5-findings-register.md` (only continuity configs are) — source: register grep 2026-09-14.
+- A1: Official LoCoMo carries 272 summaries and 2541 observation pairs, evidence a string in 2531 and a list in 10, and after splitting on commas the evidence references number 2561 with zero unresolved — source: censuses 2026-09-14 (orchestration session and plan review); re-checked by Task_1's parser tests over the full file.
+- A2: The 13 LongMemEval repeats are never answer sessions and no official session id contains `#` — source: plan review census 2026-09-14; re-checked by Task_2's census.
+- A3: No benchmark config is hash-cited in `reports/v0-1-5-findings-register.md` (only continuity configs are) — source: register grep 2026-09-14, confirmed at plan review.
 
 ## Tasks
 
-### Task_1: LoCoMo dataset summaries and observations as provenanced memories
+### Task_1: LoCoMo dataset summaries and observations reach every consumer
 - type: impl
 - owns:
   - crates/cmem-eval-locomo/**
+  - crates/cmem-eval-runner/src/pipeline.rs
+  - crates/cmem-eval/src/bm25.rs
   - configs/locomo_retrieval.toml
   - configs/locomo_vector.toml
   - configs/locomo_bm25.toml
@@ -53,10 +57,11 @@
   - configs/locomo_crossmode_service_repeat.toml
 - depends_on: []
 - description: |
-  Read the official key forms; type the generated observations (speaker, statement, evidence dialog ids) instead of flattening them to strings; remove the lookups that never matched official data; ingest each observation as one derived memory with provenance to the episode and to the evidence observations, attached to the speaker entity when one exists; count and report evidence ids that name no turn; keep the flags and turn them on in the owned configs; tests over the full official file prove every session carries its summary and its observations with resolved provenance.
+  Read the official key forms; type the generated observations (speaker, statement, normalized evidence dialog ids) instead of flattening them; remove the lookups that never matched official data and state the admitted forms in the crate rustdoc; ingest each observation as one derived memory with provenance to the episode and to the resolved evidence observations, attached to the speaker entity only if ingest already emits one; count and report unresolved evidence ids; merge dataset-derived memories with a configured enrichment snapshot in the runner instead of discarding them; index derived memories in the lexical baseline; keep the flags and turn them on in the owned configs; report the chosen derived type with its rationale.
 - acceptance:
-  - Parsing the official file yields 272 summaries and 2541 typed observations with evidence ids; a census of unresolved evidence ids is reported.
-  - Ingest tests prove one derived memory per observation with the statement as text and provenance to the episode plus the resolved evidence observations, and the summary as episode summary and Reflection derived memory under the flag.
+  - Parsing the official file yields 272 summaries and 2541 typed observations carrying 2561 evidence references with zero unresolved; a comma-separated evidence string is a regression case.
+  - Ingest tests prove one derived memory per observation with the statement as text and provenance to the episode plus the resolved evidence observations, and the summary as episode summary and Reflection derived memory under its flag.
+  - A runner-level test proves that with a snapshot configured the item's memory inputs contain both the dataset-derived memories and the snapshot graph, with a typed failure on an external-id collision; a lexical-baseline test proves derived memories are indexed and retrievable.
   - The dataset admission strict set is unchanged (its tests pass); optional-annotation leniency still holds for files without the maps.
   - The owned configs index summaries and observations; no other config changes.
 - validation:
@@ -67,7 +72,7 @@
   - kind: review
     required: true
     owner: reviewer
-    detail: "Diff review; independent census of summaries, observations and unresolved evidence ids over the official file; provenance check on a sample of derived memories"
+    detail: "Diff review; independent census of summaries, observations and evidence references over the official file; provenance check on a sample of derived memories; snapshot-merge and lexical-index consumer checks"
 
 ### Task_2: LongMemEval repeated sessions as distinct memories
 - type: impl
@@ -75,33 +80,33 @@
   - crates/cmem-eval-longmemeval/**
 - depends_on: []
 - description: |
-  Ingest gives later occurrences of a repeated session id the `<id>#<n>` identity on the episode and its observations, keeping each copy's date; a shared helper derives the benchmark session id from an episode id; scoring uses it so any copy of an answer session counts; tests cover an item with a repeated session (identities, dates, scoring) and prove first occurrences keep bare ids.
+  Ingest assigns collision-safe unique episode ids per item (bare id for a single occurrence; bare id plus `#<ordinal>` for later occurrences, ordinal raised past any id already present), observation ids follow, each copy keeps its date, and ingest returns the episode-to-session mapping as data. Scoring maps retrieved episode and observation ids through that mapping for both metric families and collapses repeated mapped ids to their first rank. Tests cover repeated sessions (identities, dates, both scoring families, duplicate credit), a native id that already looks suffixed, and identity stability for non-repeated sessions.
 - acceptance:
-  - Ingest test: two copies of one session id produce two episodes with distinct external ids and their own dates, and observation ids follow the episode id.
-  - Scoring test: a retrieved `<id>#2` episode counts as a hit for answer session `<id>`.
-  - Census over the official file: exactly 13 items produce a suffixed identity, none of them an answer session.
+  - Ingest tests: two copies of one session id produce two episodes with distinct external ids and their own dates, observation ids follow the episode id, and an item whose ids already contain `s#2` beside two `s` copies yields three distinct ids without changing admission.
+  - Scoring tests: a retrieved later copy counts for its answer session; a retrieved turn of a later copy counts for its bare gold turn id; a session retrieved as two copies earns credit once and every metric value stays within its bounds.
+  - Census over the official file: exactly 13 items produce a suffixed identity, none an answer session; a dump of episode external ids before and after is identical except those 13 copies.
 - validation:
   - kind: command
     required: true
     owner: worker
-    detail: "cargo fmt --all --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace (service-free); the census"
+    detail: "cargo fmt --all --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace (service-free); the census and the identity dump comparison"
   - kind: review
     required: true
     owner: reviewer
-    detail: "Diff review; independent census; identity stability check for non-repeated sessions (dump of episode external ids before and after, identical except the 13)"
+    detail: "Diff review; independent census; identity stability check; metric boundedness probe with a two-copy retrieval"
 
 ### Task_3: Re-baseline, README, closeout
-- type: mixed
+- type: impl
 - owns:
   - README.md
   - docs/coding-agent/plans/active/benchmark-derived-content-plan.md
   - docs/coding-agent/plans/completed/benchmark-derived-content-plan.md
 - depends_on: [Task_1, Task_2]
 - description: |
-  Run `configs/locomo_bm25.toml`, `configs/locomo_retrieval.toml`, `configs/longmemeval_s_bm25.toml` and `configs/longmemeval_s_retrieval.toml` once at the base commit and once at the tip (same library pin; cleanup on; provider runs only after the decider's per-run authorization), diff each pair with the runner's diff command, and record headline metrics, diff counts and the item sets that changed in the Decision Log; state both behaviours in README's dataset section; move the plan to completed.
+  Run `configs/locomo_bm25.toml`, `configs/locomo_retrieval.toml`, `configs/longmemeval_s_bm25.toml` and `configs/longmemeval_s_retrieval.toml` once at the base commit and once at the tip (same library pin; cleanup on; provider runs only after the decider's per-run authorization), diff each pair with the runner's diff command, and record headline metrics, diff counts and the item sets that changed in the Decision Log; state both behaviours in README's dataset and enrichment sections; move the plan to completed.
 - acceptance:
-  - Four before-and-after pairs recorded with config hashes, library commit, and diff counts; LongMemEval differences are confined to the 13 items.
-  - README states that LoCoMo ingests dataset-provided summaries and observations as provenanced derived memories under the two flags, that a library-generated source is a later comparison, and that repeated LongMemEval sessions are distinct memories with their own dates.
+  - Four before-and-after pairs recorded with config hashes, library commit and diff counts; LongMemEval differences are confined to the 13 items.
+  - README states that LoCoMo ingests dataset-provided summaries and observations as provenanced derived memories under the two flags, that they reach the snapshot path and the lexical baseline, that a library-generated source is a later comparison, and that repeated LongMemEval sessions are distinct memories with their own dates.
   - No run store or artifact remains outside the recorded evidence; the plan is in completed with its final progress entry.
 - validation:
   - kind: command
@@ -119,15 +124,18 @@
 - Wave 2 (parallel): [Task_3]
 
 ## Rollback / Safety
-- Reverting the branch restores today's parsing and identities; no persisted format changes; sealed evidence and hash-cited configs are untouched; new runs write new files only.
+- Reverting the branch restores today's parsing, identities and baseline inputs; no persisted format changes; sealed evidence and hash-cited configs are untouched; new runs write new files only.
 
 ## Progress Log (append-only)
 
 - 2026-09-14 Plan drafted from two decider rulings: LoCoMo uses the dataset's summaries and observations (with a library-generated source kept open for later); the 13 repeated LongMemEval sessions are distinct memories because the date changes graph retrieval and must not be overridden.
+- 2026-09-14 Plan review (evals-reviewer and Copilot) applied: the consumer paths are in scope (the enrichment snapshot path discarded mapped derived memories and the lexical baseline never indexed them, so the flags alone delivered nothing in the maintained configs); evidence strings with comma-separated dialog ids are normalized (2561 references, zero unresolved); the LongMemEval identity policy is collision-safe and reversible through ingest data rather than suffix parsing, covers both scoring families, and collapses duplicate credit; the derived-type rationale flows through the worker report; three cross-mode configs; task types within the allowed set.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-14 Recorded for the v0.2 value audit, not decided here: whether a retrieved LoCoMo derived memory carrying evidence provenance should count toward evidence recall; today only retrieved observations count.
+- 2026-09-14 Snapshot precedence: a configured enrichment snapshot adds graph on top of the item's own content; dataset-derived memories are the item's own content and are ingested with it. Merging is the runner's job; regenerating snapshots is not required because their ids and the dataset-derived ids are disjoint.
+- 2026-09-14 Lexical baseline scope: the hurdle indexes every text item Character Memory ingests, derived memories included, so the comparison stays like for like; scoring for LoCoMo still counts retrieved observations only.
 
 ## Notes
-- The README's enrichment section already describes the LoCoMo default as indexing summaries and observations; this plan makes that true. The BM25 baseline config had both flags on and silently ran without the content, so the lexical hurdle moves with this plan; the re-baseline records by how much.
+- The README's enrichment section already describes the LoCoMo default as indexing summaries and observations; this plan makes that true end to end. The BM25 baseline config had both flags on and silently ran without the content, so the lexical hurdle moves; the re-baseline records by how much.
