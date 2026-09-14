@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from build_source_only import WORKFLOW_IDS, provenance_path, write_provenance
+
 
 DATASETS = ("longmemeval-s", "locomo")
 CANONICAL_EXPECTATIONS = {
@@ -29,7 +31,6 @@ CANONICAL_EXPECTATIONS = {
         "source_items": 10,
     },
 }
-WORKFLOW_ID = "deterministic-exact-source-replay-v1"
 REPLAY_ID = "source-turn-replay-v1"
 FORBIDDEN_KEYS = {
     "answer", "answers", "answer_session_ids", "category", "categories",
@@ -60,6 +61,7 @@ class Turn:
 @dataclass(frozen=True)
 class Session:
     session_id: str
+    episode_id: str
     raw_date: str
     normalized_date: str
     date_key: datetime
@@ -168,6 +170,24 @@ def _root_rows(value: Any, dataset: str) -> list[dict[str, Any]]:
     return value
 
 
+def _assigned_session_ids(raw_ids: Sequence[str]) -> list[str]:
+    used = set(raw_ids)
+    ordinals: dict[str, int] = {}
+    assigned = []
+    for raw in raw_ids:
+        ordinal = ordinals.get(raw, 1)
+        candidate = raw
+        if ordinal > 1:
+            candidate = f"{raw}#{ordinal}"
+            while candidate in used:
+                ordinal += 1
+                candidate = f"{raw}#{ordinal}"
+        ordinals[raw] = ordinal + 1
+        used.add(candidate)
+        assigned.append(candidate)
+    return assigned
+
+
 def _longmem_items(value: Any) -> list[Item]:
     rows = _root_rows(value, "longmemeval-s")
     items: list[Item] = []
@@ -180,9 +200,15 @@ def _longmem_items(value: Any) -> list[Item]:
         _require(isinstance(ids, list) and isinstance(dates, list) and isinstance(contents, list), f"{path} session fields must be arrays")
         _require(len(ids) == len(dates) == len(contents), f"{path} aligned session arrays differ in length")
         sessions: list[Session] = []
+        assigned = _assigned_session_ids(_strings(ids, f"{path}.haystack_session_ids"))
+        seen_turns: dict[str, Any] = {}
         for session_index, (session_id_value, date_value, turns_value) in enumerate(zip(ids, dates, contents)):
             session_path = f"{path}.haystack_sessions[{session_index}]"
             session_id = _string(session_id_value, f"{path}.haystack_session_ids[{session_index}]")
+            episode_id = assigned[session_index]
+            _require(session_id not in seen_turns or seen_turns[session_id] == turns_value,
+                     f"{session_path} repeated session id requires identical turns")
+            seen_turns[session_id] = turns_value
             raw_date, date_key = _parse_date(date_value, f"{path}.haystack_dates[{session_index}]")
             _require(isinstance(turns_value, list), f"{session_path} must be an array")
             turns: list[Turn] = []
@@ -191,8 +217,8 @@ def _longmem_items(value: Any) -> list[Item]:
                 _exact_keys(turn, {"role", "content"}, f"{session_path}[{turn_index - 1}]")
                 role = _string(turn.get("role"), f"{session_path}[{turn_index - 1}].role")
                 text = _text(turn.get("content"), f"{session_path}[{turn_index - 1}].content")
-                turns.append(Turn(f"{session_id}:turn:{turn_index}", role, text))
-            sessions.append(Session(session_id, raw_date, _rfc3339(date_key), date_key, tuple(turns)))
+                turns.append(Turn(f"{episode_id}:turn:{turn_index}", role, text))
+            sessions.append(Session(session_id, episode_id, raw_date, _rfc3339(date_key), date_key, tuple(turns)))
         items.append(Item(item_id, "question_date", cutoff_raw, cutoff, tuple(), tuple(sessions)))
     return items
 
@@ -231,7 +257,7 @@ def _locomo_items(value: Any) -> list[Item]:
                 speaker = _string(turn.get("speaker"), f"{turn_path}.speaker")
                 text = _text(turn.get("text"), f"{turn_path}.text")
                 turns.append(Turn(dia_id, speaker, text))
-            sessions.append(Session(session_id, raw_date, _rfc3339(date_key), date_key, tuple(turns)))
+            sessions.append(Session(session_id, session_id, raw_date, _rfc3339(date_key), date_key, tuple(turns)))
         _require(all(sessions[i].date_key <= sessions[i + 1].date_key for i in range(len(sessions) - 1)), f"{path}.sessions are not chronological")
         items.append(Item(item_id, "final_session", sessions[-1].session_id, None, speakers, tuple(sessions)))
     return items
@@ -258,16 +284,9 @@ def _visible(item: Item) -> tuple[Session, ...]:
     return tuple(session for session in item.sessions if session.date_key <= item.cutoff_key)
 
 
-def _effective_visible(item: Item) -> tuple[Session, ...]:
-    winners: dict[str, tuple[int, Session]] = {}
-    for index, session in enumerate(_visible(item)):
-        winners[session.session_id] = (index, session)
-    return tuple(session for _, session in sorted(winners.values(), key=lambda value: value[0]))
-
-
 def _snapshot(dataset: str, item: Item) -> dict[str, Any]:
     namespace = _namespace(dataset, item.item_id)
-    visible = _effective_visible(item)
+    visible = _visible(item)
     speakers = sorted({turn.speaker for session in visible for turn in session.turns} | set(item.speakers))
     entities = []
     entity_ids: dict[str, str] = {}
@@ -279,13 +298,13 @@ def _snapshot(dataset: str, item: Item) -> dict[str, Any]:
     memories = []
     links = []
     for session in visible:
-        thread_id = _token("thread", item.item_id, session.session_id)
-        threads.append({"external_id": thread_id, "title": f"Session {session.session_id}", "summary": f"Source session {session.session_id}", "status": "active", "last_touched_at": session.normalized_date, "salience_score": 0.5, "canonical_key": f"session:{hashlib.sha256(session.session_id.encode('utf-8')).hexdigest()}"})
+        thread_id = _token("thread", item.item_id, session.episode_id)
+        threads.append({"external_id": thread_id, "title": f"Session {session.session_id}", "summary": f"Source session {session.session_id}", "status": "active", "last_touched_at": session.normalized_date, "salience_score": 0.5, "canonical_key": f"session:{hashlib.sha256(session.episode_id.encode('utf-8')).hexdigest()}"})
         for turn in session.turns:
             if not turn.text.strip():
                 continue
             memory_id = _token("memory", item.item_id, turn.observation_id)
-            memories.append({"external_id": memory_id, "derived_type": "reflection", "text": turn.text, "source_episode_external_ids": [session.session_id], "source_observation_external_ids": [turn.observation_id], "thread_external_ids": [thread_id], "entity_external_ids": [entity_ids[turn.speaker]], "confidence": 1.0, "salience_score": 0.5, "stability": "medium", "is_current": True, "supersedes_external_ids": [], "metadata": {"producer": WORKFLOW_ID}})
+            memories.append({"external_id": memory_id, "derived_type": "reflection", "text": turn.text, "source_episode_external_ids": [session.episode_id], "source_observation_external_ids": [turn.observation_id], "thread_external_ids": [thread_id], "entity_external_ids": [entity_ids[turn.speaker]], "confidence": 1.0, "salience_score": 0.5, "stability": "medium", "is_current": True, "supersedes_external_ids": [], "metadata": {"producer": WORKFLOW_IDS[dataset]}})
             for relation, object_type, target in (("part_of_thread", "memory_thread", thread_id), ("about", "entity", entity_ids[turn.speaker])):
                 links.append({"external_id": _token("link", memory_id, relation, target), "from": {"object_type": "derived_memory", "external_id": memory_id}, "relation": relation, "to": {"object_type": object_type, "external_id": target}, "confidence": 1.0, "rationale": None})
     graph = {"namespace": namespace, "entities": entities, "threads": threads, "derived_memories": memories, "links": links}
@@ -376,9 +395,9 @@ def _validate_snapshot(snapshot: dict[str, Any], dataset: str, item: Item) -> No
             typed_ids.add((object_type, external_id))
             if object_type != "memory_link":
                 endpoints.add((object_type, external_id))
-    visible = _effective_visible(item)
-    episodes = {session.session_id: session for session in visible}
-    observations = {turn.observation_id: (session.session_id, turn.text) for session in visible for turn in session.turns}
+    visible = _visible(item)
+    episodes = {session.episode_id: session for session in visible}
+    observations = {turn.observation_id: (session.episode_id, turn.text) for session in visible for turn in session.turns}
     for entity in graph["entities"]:
         entity_type = _string(entity.get("entity_type"), "graph.entities.entity_type")
         _require(entity_type in ENTITY_TYPES, "invalid entity_type enum")
@@ -427,8 +446,21 @@ def _expected_manifest_counts(dataset: str, snapshots: Sequence[dict[str, Any]],
     return {**_counts(snapshots), "source_items": len(items), "affected_rows": affected, "future_sessions_excluded": future, "no_visible_session_rows": no_visible}
 
 
+def _source_provenance(dataset: str, source: Path) -> dict[str, Any]:
+    provenance = _load_json(provenance_path(source))
+    _require(isinstance(provenance, dict), "source provenance must be an object")
+    _string(provenance.get("input_path"), "provenance.input_path")
+    for field in ("input_sha256", "output_sha256"):
+        digest = _string(provenance.get(field), f"provenance.{field}")
+        _require(re.fullmatch(r"[0-9a-f]{64}", digest) is not None, f"invalid provenance.{field}")
+    _require(provenance.get("workflow_id") == WORKFLOW_IDS[dataset], "source provenance workflow mismatch")
+    _require(_sha256(source) == provenance["output_sha256"], "source provenance output hash mismatch")
+    return provenance
+
+
 def _expected_manifest(dataset: str, source: Path, artifact: Path, snapshots: Sequence[dict[str, Any]], items: Sequence[Item]) -> dict[str, Any]:
-    return {"schema_version": 1, "dataset": dataset, "replay_id": REPLAY_ID, "cutoff_policy": "question_date_inclusive" if dataset == "longmemeval-s" else "final_session", "workflow_id": WORKFLOW_ID, "source": {"path": str(source), "sha256": _sha256(source)}, "artifact": {"path": str(artifact), "sha256": _sha256(artifact)}, "counts": _expected_manifest_counts(dataset, snapshots, items)}
+    provenance = _source_provenance(dataset, source)
+    return {"schema_version": 1, "dataset": {"name": dataset, "sha256": provenance["input_sha256"]}, "replay_id": REPLAY_ID, "cutoff_policy": "question_date_inclusive" if dataset == "longmemeval-s" else "final_session", "workflow_id": WORKFLOW_IDS[dataset], "source": {"path": str(source), "sha256": _sha256(source)}, "artifact": {"path": str(artifact), "sha256": _sha256(artifact)}, "counts": _expected_manifest_counts(dataset, snapshots, items)}
 
 
 def _report(dataset: str, counts: dict[str, int], findings: int) -> bytes:
@@ -443,6 +475,7 @@ def _validate_canonical_counts(dataset: str, counts: dict[str, int]) -> None:
 
 
 def generate(dataset: str, source: Path, artifact: Path, manifest: Path, report: Path, *, enforce_canonical: bool = True) -> None:
+    _source_provenance(dataset, source)
     items = _parse_source(_load_json(source), dataset)
     _require(len({item.item_id for item in items}) == len(items), "duplicate source item ID")
     snapshots = [_snapshot(dataset, item) for item in sorted(items, key=lambda value: value.item_id)]
@@ -458,6 +491,7 @@ def generate(dataset: str, source: Path, artifact: Path, manifest: Path, report:
 
 
 def validate(dataset: str, source: Path, artifact: Path, manifest: Path, report: Path | None = None, *, enforce_canonical: bool = True) -> None:
+    _source_provenance(dataset, source)
     items = _parse_source(_load_json(source), dataset)
     _require(len({item.item_id for item in items}) == len(items), "duplicate source item ID")
     by_id = {item.item_id: item for item in items}
@@ -496,9 +530,10 @@ def self_test() -> None:
         lme_source = root / "lme.json"
         lme = [
             {"question_id": "q-unicode", "question_date": "2023/05/31 (Wed) 00:00", "haystack_session_ids": ["s1", "s2"], "haystack_dates": ["2023/05/30 (Tue) 23:40", "2023/06/01 (Thu) 00:00"], "haystack_sessions": [[{"role": "user", "content": ""}, {"role": "assistant", "content": " \t "}, {"role": "user", "content": "alpha\u2028βeta"}], [{"role": "assistant", "content": "future"}]]},
-            {"question_id": "z-duplicate", "question_date": "2024-01-04", "haystack_session_ids": ["dup", "middle", "dup"], "haystack_dates": ["2024-01-01", "2024-01-02", "2024-01-03"], "haystack_sessions": [[{"role": "user", "content": "losing payload"}], [{"role": "assistant", "content": "middle payload"}], [{"role": "user", "content": "winning payload"}]]},
+            {"question_id": "z-duplicate", "question_date": "2024-01-04", "haystack_session_ids": ["dup", "middle", "dup"], "haystack_dates": ["2024-01-01", "2024-01-02", "2024-01-03"], "haystack_sessions": [[{"role": "user", "content": "repeat payload"}], [{"role": "assistant", "content": "middle payload"}], [{"role": "user", "content": "repeat payload"}]]},
         ]
         _atomic_write(lme_source, json.dumps(lme, ensure_ascii=False).encode("utf-8"))
+        write_provenance("longmemeval-s", Path("official-lme.json"), b"official-lme", lme_source, lme_source.read_bytes())
         artifact, manifest, report = root / "lme.jsonl", root / "lme.manifest.json", root / "lme.report.md"
         generate("longmemeval-s", lme_source, artifact, manifest, report, enforce_canonical=False)
         first = artifact.read_bytes()
@@ -538,12 +573,56 @@ def self_test() -> None:
         counts = _load_json(manifest)["counts"]
         _require(counts["affected_rows"] == 1 and counts["future_sessions_excluded"] == 1, "future exclusion totals failed")
         duplicate_snapshot = _read_jsonl(artifact)[1]
-        _require([thread["title"] for thread in duplicate_snapshot["graph"]["threads"]] == ["Session middle", "Session dup"], "effective duplicate-session order is not based on winning positions")
+        _require([thread["title"] for thread in duplicate_snapshot["graph"]["threads"]] == ["Session dup", "Session middle", "Session dup"], "repeated sessions must keep source order and raw titles")
         duplicate_memories = duplicate_snapshot["graph"]["derived_memories"]
-        _require([memory["text"] for memory in duplicate_memories] == ["middle payload", "winning payload"], "last visible duplicate session did not win")
-        _require(duplicate_memories[1]["source_episode_external_ids"] == ["dup"] and duplicate_memories[1]["source_observation_external_ids"] == ["dup:turn:1"], "winning duplicate provenance mismatch")
+        _require([memory["text"] for memory in duplicate_memories] == ["repeat payload", "middle payload", "repeat payload"], "every repeated source turn must be replayed")
+        _require(duplicate_memories[2]["source_episode_external_ids"] == ["dup#2"] and duplicate_memories[2]["source_observation_external_ids"] == ["dup#2:turn:1"], "later duplicate provenance mismatch")
         duplicate_typed_ids = [(kind, obj["external_id"]) for kind, objects in (("thread", duplicate_snapshot["graph"]["threads"]), ("memory", duplicate_memories), ("link", duplicate_snapshot["graph"]["links"])) for obj in objects]
         _require(len(duplicate_typed_ids) == len(set(duplicate_typed_ids)), "effective duplicate sessions produced duplicate typed IDs")
+        _require([t["last_touched_at"] for t in duplicate_snapshot["graph"]["threads"]] == ["2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z", "2024-01-03T00:00:00Z"], "copy dates were lost")
+        _require(len({t["canonical_key"] for t in duplicate_snapshot["graph"]["threads"]}) == 3, "copy canonical keys collide")
+        all_ids = [obj["external_id"] for snapshot in _read_jsonl(artifact) for kind in ("derived_memories", "links") for obj in snapshot["graph"][kind]]
+        _require(len(all_ids) == len(set(all_ids)), "artifact-wide memory/link IDs collide")
+        # The future first copy and a future raw suffix reserve their identities too.
+        collision = {"question_id": "collision", "question_date": "2024-01-04", "haystack_session_ids": ["dup", "dup", "dup", "dup#2"], "haystack_dates": ["2025-01-01", "2024-01-02", "2024-01-03", "2025-01-01"], "haystack_sessions": [[{"role": "user", "content": "same"}]] * 4}
+        collision_item = _parse_source([collision], "longmemeval-s")[0]
+        collision_snapshot = _snapshot("longmemeval-s", collision_item)
+        _validate_snapshot(collision_snapshot, "longmemeval-s", collision_item)
+        _require([s.episode_id for s in collision_item.sessions] == ["dup", "dup#3", "dup#4", "dup#2"], "suffix assignment must reserve all raw IDs")
+        _require([m["source_episode_external_ids"] for m in collision_snapshot["graph"]["derived_memories"]] == [["dup#3"], ["dup#4"]], "cutoff changed assigned provenance")
+        _require(all(t["title"] == "Session dup" and t["summary"] == "Source session dup" for t in collision_snapshot["graph"]["threads"]), "assigned IDs leaked into thread text")
+        _require(all(m["text"] == "same" for m in collision_snapshot["graph"]["derived_memories"]), "source turn text changed")
+        differing = json.loads(json.dumps(lme))
+        differing[1]["haystack_sessions"][2][0]["content"] = "different"
+        try:
+            _parse_source(differing, "longmemeval-s")
+        except ValidationError:
+            pass
+        else:
+            raise AssertionError("differing duplicate turns were admitted")
+        original_provenance = provenance_path(lme_source).read_bytes()
+        sidecar = json.loads(original_provenance)
+        for field, bad in (("output_sha256", "0" * 64), ("workflow_id", WORKFLOW_IDS["locomo"]), ("input_sha256", "invalid")):
+            stale = dict(sidecar, **{field: bad})
+            _atomic_write(provenance_path(lme_source), json.dumps(stale).encode())
+            rejected = root / "handoff-rejected.jsonl"
+            try:
+                generate("longmemeval-s", lme_source, rejected, manifest, report, enforce_canonical=False)
+            except ValidationError:
+                pass
+            else:
+                raise AssertionError(f"stale provenance {field} was admitted")
+            _require(not rejected.exists(), "bad provenance wrote an artifact")
+        provenance_path(lme_source).unlink()
+        try:
+            generate("longmemeval-s", lme_source, root / "missing-sidecar.jsonl", manifest, report, enforce_canonical=False)
+        except ValidationError:
+            pass
+        else:
+            raise AssertionError("missing provenance was admitted")
+        _atomic_write(provenance_path(lme_source), original_provenance)
+        _require(_load_json(manifest)["dataset"]["sha256"] == sidecar["input_sha256"], "official dataset hash was not forwarded")
+        _require(_load_json(manifest)["source"]["sha256"] == sidecar["output_sha256"], "sanitized hash was overwritten")
         first_item = _parse_source(lme, "longmemeval-s")[0]
         for field, invalid in (("object_type", []), ("external_id", "")):
             malformed_endpoint = _snapshot("longmemeval-s", first_item)
@@ -622,6 +701,7 @@ def self_test() -> None:
         # Exact source-only row schema emitted by build_source_only.py.
         locomo = [{"sample_id": "p1", "speaker_a": "A", "speaker_b": "B", "sessions": [{"session_id": "session_1", "date": "2024-01-01", "turns": [{"dia_id": "D1:1", "speaker": "A", "text": ""}, {"dia_id": "D1:2", "speaker": "B", "text": "  "}]}, {"session_id": "session_2", "date": "2024-01-02", "turns": [{"dia_id": "D2:1", "speaker": "B", "text": "世界\u2029exact"}]}]}]
         _atomic_write(locomo_source, json.dumps(locomo).encode("utf-8"))
+        write_provenance("locomo", Path("official-locomo.json"), b"official-locomo", locomo_source, locomo_source.read_bytes())
         la, lm, lr = root / "locomo.jsonl", root / "locomo.manifest.json", root / "locomo.report.md"
         generate("locomo", locomo_source, la, lm, lr, enforce_canonical=False)
         validate("locomo", locomo_source, la, lm, lr, enforce_canonical=False)
