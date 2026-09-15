@@ -44,6 +44,10 @@ LONGMEM_TURN_KEYS = ("role", "content")
 LOCOMO_TOP_KEYS = ("sample_id", "speaker_a", "speaker_b", "sessions")
 LOCOMO_SESSION_KEYS = ("session_id", "date", "turns")
 LOCOMO_TURN_KEYS = ("dia_id", "speaker", "text")
+WORKFLOW_IDS = {
+    "longmemeval-s": "deterministic-exact-source-replay-v2",
+    "locomo": "deterministic-exact-source-replay-v1",
+}
 SESSION_KEY = re.compile(r"^session_(\d+)$")
 
 
@@ -266,6 +270,19 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def provenance_path(output: Path) -> Path:
+    return output.with_name(output.stem + "_provenance.json")
+
+
+def write_provenance(dataset: str, input_path: Path, input_bytes: bytes, output_path: Path, output_bytes: bytes) -> None:
+    atomic_write(provenance_path(output_path), serialize_json({
+        "input_path": str(input_path),
+        "input_sha256": sha256(input_bytes),
+        "output_sha256": sha256(output_bytes),
+        "workflow_id": WORKFLOW_IDS[dataset],
+    }))
+
+
 def success_record(
     dataset: str,
     rows: list[JsonValue],
@@ -383,6 +400,17 @@ class SanitizerSelfTests(unittest.TestCase):
             validate_forbidden_keys({"safe": {"retrieval_results": []}})
         validate_forbidden_keys({"question_id": "q1", "question_date": "date"})
 
+    def test_provenance_binds_the_exact_input_and_output_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "source_only.json"
+            for dataset, workflow in WORKFLOW_IDS.items():
+                write_provenance(dataset, Path("official.json"), b"raw", output, b"sanitized")
+                self.assertEqual(provenance_path(output).name, "source_only_provenance.json")
+                self.assertEqual(json.loads(provenance_path(output).read_bytes()), {
+                    "input_path": "official.json", "input_sha256": sha256(b"raw"),
+                    "output_sha256": sha256(b"sanitized"), "workflow_id": workflow,
+                })
+
     def test_success_record_identifies_dataset_mode(self) -> None:
         record = success_record(
             "locomo",
@@ -427,6 +455,7 @@ def main() -> int:
         clean = sanitizers[args.dataset](raw)
         output_bytes = serialize_json(clean)
         atomic_write(args.output, output_bytes)
+        write_provenance(args.dataset, args.input, input_bytes, args.output, output_bytes)
     except SanitizerError as error:
         print(f"error={error} input_path={args.input} output_path={args.output}", file=sys.stderr)
         return 1

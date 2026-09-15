@@ -33,7 +33,16 @@
 //! answer-session references to absent sessions do not cause rejection. Optional
 //! annotations do not determine abstention status.
 
+//! Ingest assigns each occurrence its own episode identity: the first keeps the
+//! raw benchmark session ID, later copies receive `#2`, `#3`, ... while skipping
+//! all raw IDs and previously assigned IDs in the item. Observation identities
+//! follow the assigned episode; dates remain per occurrence and text uses the
+//! raw ID. Scoring recomputes the same identity tables from the item to map both
+//! session and turn rankings back to benchmark IDs, crediting each ID only at
+//! its first retrieved rank. Retrieved row IDs are assigned; gold IDs are raw.
+
 mod error;
+mod identity;
 pub mod ingest;
 pub mod loader;
 pub mod scoring;

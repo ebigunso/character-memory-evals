@@ -6,7 +6,8 @@ pub fn to_memory_inputs(instance: &LongMemEvalInstance) -> LongMemEvalMemoryInpu
     let mut episodes = Vec::new();
     let mut observations = Vec::new();
 
-    for session in &instance.sessions {
+    let identities = crate::identity::Identities::new(instance);
+    for (session, assigned) in instance.sessions.iter().zip(&identities.episodes) {
         let participants = {
             let mut values = session
                 .turns
@@ -18,7 +19,7 @@ pub fn to_memory_inputs(instance: &LongMemEvalInstance) -> LongMemEvalMemoryInpu
             values
         };
         episodes.push(EpisodeInput {
-            external_id: session.session_id.clone(),
+            external_id: assigned.clone(),
             namespace: namespace.clone(),
             summary: format!(
                 "Conversation session {} containing messages between {}.",
@@ -36,8 +37,8 @@ pub fn to_memory_inputs(instance: &LongMemEvalInstance) -> LongMemEvalMemoryInpu
         });
         for turn in &session.turns {
             observations.push(ObservationInput {
-                external_id: format!("{}:turn:{}", session.session_id, turn.index),
-                episode_external_id: session.session_id.clone(),
+                external_id: format!("{}:turn:{}", assigned, turn.index),
+                episode_external_id: assigned.clone(),
                 namespace: namespace.clone(),
                 speaker: turn.speaker.clone(),
                 text: turn.text.clone(),

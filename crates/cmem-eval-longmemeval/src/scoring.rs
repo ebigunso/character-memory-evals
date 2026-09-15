@@ -1,6 +1,20 @@
 use crate::LongMemEvalInstance;
 use cmem_eval::{ObjectType, RetrievedItem, insert_retrieval_metrics};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
+
+fn benchmark_ranking(
+    items: &[RetrievedItem],
+    kind: ObjectType,
+    ids: &HashMap<String, String>,
+) -> Vec<String> {
+    items
+        .iter()
+        .filter(|item| item.kind == kind)
+        .filter_map(|item| ids.get(item.external_id.as_ref()?))
+        .cloned()
+        .collect()
+}
 
 pub fn score(
     instance: &LongMemEvalInstance,
@@ -8,17 +22,10 @@ pub fn score(
     ks_session: &[usize],
     ks_turn: &[usize],
 ) -> Value {
-    let session_ids = items
-        .iter()
-        .filter(|item| item.kind == ObjectType::Episode)
-        .filter_map(|item| item.external_id.clone())
-        .collect::<Vec<_>>();
-    let turn_ids = items
-        .iter()
-        .filter(|item| item.kind == ObjectType::Observation)
-        .filter_map(|item| item.external_id.clone())
-        .collect::<Vec<_>>();
+    let identities = crate::identity::Identities::new(instance);
     let gold_turn_ids = instance.gold_turn_ids();
+    let session_ids = benchmark_ranking(items, ObjectType::Episode, &identities.session_ids);
+    let turn_ids = benchmark_ranking(items, ObjectType::Observation, &identities.turn_ids);
     let mut out = Map::new();
     for k in ks_session {
         insert_retrieval_metrics(
