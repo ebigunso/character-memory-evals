@@ -32,9 +32,19 @@
 //! Record summaries use `session_summary`/`summary`, and observations use
 //! `observation`/`observations`/`generated_observations`. Top-level
 //! `session_summary` and `observation` maps first look up the exact session ID,
-//! then its `session_` suffix parsed as `usize` and rendered as decimal (so record
-//! IDs `session_01` and `session_+1` can look up key `1`). Record summaries take
+//! then the official `session_<N>_summary` / `session_<N>_observation` key, then
+//! the numeric key. The `session_` suffix is parsed as `usize` and rendered as
+//! decimal (so record IDs `session_01` and `session_+1` can look up key `1`). Record summaries take
 //! precedence; top-level observations append to record observations.
+//! Observation maps contain speaker-keyed lists of `[statement, evidence]` pairs;
+//! evidence is a string or string list. Exact dialog IDs resolve before comma
+//! splitting. Legacy bare statements carry no evidence. Malformed observation
+//! entries and unresolved references are counted, without rejecting the sample.
+//! Non-string summaries are ignored. Ingest emits summaries as Reflections and
+//! observations as Claims with episode and resolved observation provenance.
+//! Speaker metadata is retained in the input; the adapter does not persist it.
+//! Both baseline modes reject derived-content/enrichment configuration and use
+//! generic descriptive episode text rather than dataset summaries.
 //! QA `evidence` (alias `evidence_dialog_ids`) admits scalar references and arrays
 //! of scalars or objects using `dia_id`/`dialog_id`/`id`. References to absent
 //! turns remain annotations and do not cause rejection. Missing annotations do
@@ -51,7 +61,29 @@ pub use loader::{load_path, load_value};
 pub use types::*;
 
 use anyhow::{Result, bail};
-use cmem_eval::{BenchmarkRunConfig, MetricFamily, MetricsConfig, retrieval_metric_family};
+use cmem_eval::{
+    BenchmarkRunConfig, MetricFamily, MetricsConfig, RetrievalMode, retrieval_metric_family,
+};
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ConfigError {
+    BaselineDerivedContent {
+        mode: RetrievalMode,
+        field: &'static str,
+    },
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BaselineDerivedContent { mode, field } => {
+                write!(f, "LoCoMo baseline {mode:?} forbids ingest.{field}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {}
 
 pub fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
     if config.dataset.as_str() != "locomo" {
@@ -59,6 +91,34 @@ pub fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
             "config dataset {:?} does not match selected locomo pipeline",
             config.dataset
         );
+    }
+    if matches!(
+        config.retrieval.mode,
+        RetrievalMode::Bm25Only | RetrievalMode::VectorOnly
+    ) {
+        for (field, enabled) in [
+            (
+                "index_session_summaries",
+                config.ingest.index_session_summaries,
+            ),
+            (
+                "index_generated_observations",
+                config.ingest.index_generated_observations,
+            ),
+            ("enrichment_path", config.ingest.enrichment_path.is_some()),
+            (
+                "enrichment_snapshot_path",
+                config.ingest.enrichment_snapshot_path.is_some(),
+            ),
+        ] {
+            if enabled {
+                return Err(ConfigError::BaselineDerivedContent {
+                    mode: config.retrieval.mode,
+                    field,
+                }
+                .into());
+            }
+        }
     }
     Ok(())
 }

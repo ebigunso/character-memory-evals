@@ -26,8 +26,8 @@ commitments = 8
 character_signals = 8
 
 [ingest]
-index_session_summaries = false
-index_generated_observations = false
+index_session_summaries = true
+index_generated_observations = true
 include_image_captions = false
 # Final per-sample graph snapshots produced from source-only chronological replay.
 enrichment_snapshot_path = "./datasets/enriched/locomo_online_snapshots.jsonl"

@@ -11,6 +11,12 @@ pub fn to_memory_inputs(
     let mut episodes = Vec::new();
     let mut observations = Vec::new();
     let mut derived_memories = Vec::new();
+    let turn_ids = sample
+        .sessions
+        .iter()
+        .flat_map(|session| &session.turns)
+        .map(|turn| turn.dialog_id.as_str())
+        .collect::<std::collections::HashSet<_>>();
     for session in &sample.sessions {
         let participants = {
             let mut values = session
@@ -27,13 +33,17 @@ pub fn to_memory_inputs(
         episodes.push(EpisodeInput {
             external_id: session.session_id.clone(),
             namespace: namespace.clone(),
-            summary: session.summary.clone().unwrap_or_else(|| {
-                format!(
-                    "Conversation session {} containing messages between {}.",
-                    session.session_id,
-                    participants.join(", ")
-                )
-            }),
+            summary: session
+                .summary
+                .clone()
+                .filter(|_| index_session_summaries)
+                .unwrap_or_else(|| {
+                    format!(
+                        "Conversation session {} containing messages between {}.",
+                        session.session_id,
+                        participants.join(", ")
+                    )
+                }),
             started_at: session.timestamp.clone(),
             ended_at: session.timestamp.clone(),
             participants,
@@ -89,8 +99,7 @@ pub fn to_memory_inputs(
         }
         if index_generated_observations {
             for (idx, observation) in session.generated_observations.iter().enumerate() {
-                let observation = observation.trim();
-                if observation.is_empty() {
+                if observation.statement.trim().is_empty() {
                     continue;
                 }
                 derived_memories.push(DerivedMemoryInput {
@@ -100,9 +109,14 @@ pub fn to_memory_inputs(
                         idx + 1
                     ),
                     derived_type: DerivedType::Claim,
-                    text: observation.to_string(),
+                    text: observation.statement.clone(),
                     source_episode_external_ids: vec![session.session_id.clone()],
-                    source_observation_external_ids: vec![],
+                    source_observation_external_ids: observation
+                        .evidence_dialog_ids
+                        .iter()
+                        .filter(|id| turn_ids.contains(id.as_str()))
+                        .cloned()
+                        .collect(),
                     thread_external_ids: vec![],
                     entity_external_ids: vec![],
                     confidence: 1.0,
@@ -112,7 +126,8 @@ pub fn to_memory_inputs(
                     supersedes_external_ids: vec![],
                     metadata: serde_json::json!({
                         "source": "locomo",
-                        "source_field": "observation"
+                        "source_field": "observation",
+                        "speaker": observation.speaker
                     }),
                 });
             }

@@ -1091,3 +1091,20 @@ Prevention:
 
 Evidence:
 - CME #39 mergeability at f181f87 (conflicting) versus 14481b6 (clean); [Dataset admission plan](plans/completed/dataset-admission-plan.md) closeout.
+
+## 2026-09-14 - Triage plan-review findings by what a plan is for [tags: orchestrator, planning, review]
+
+Symptom:
+- The benchmark-derived-content plan went through 29 revision commits over two reviewers while still awaiting the decider's approval, growing from about 1,800 to 7,500 words with one Definition of Done bullet of 5,700 characters; each round moved the plan further into implementation design (error enum placement, sidecar file conventions, counter plumbing, fixture contents, wording nits).
+
+Root cause:
+- Every valid-looking finding was treated as a plan defect. The question that should have been asked first, whether the finding changes what a worker is authorized to do or how done is judged, was never asked; findings that only chose an implementation shape were written into the plan instead of the worker brief. Copilot reviews a plan as if it were code, and the plan reviewer confirmed each round rather than ranking it, so nothing in the loop pushed back.
+
+Fix applied:
+- The plan was restructured on the decider's direction: the Definition of Done is contract level, the validated implementation shapes live in per-task design notes marked as reviewed shape rather than contract, and the ruling is in the plan's Decision Log.
+
+Prevention:
+- Before opening a plan for review, and before acting on each finding, apply the filter: a plan fixes scope, contracts, ownership, validation feasibility and measurement validity, and a finding earns a plan revision only if it changes one of those. A finding that chooses an implementation shape is answered on the thread and routed to the worker brief or the implementation review. Keep the Definition of Done readable at contract level; if a bullet needs a paragraph, the detail belongs in design notes or with the worker. After two consecutive rounds of implementation-level findings, stop the loop and present the plan for approval rather than absorbing more.
+
+Evidence:
+- [Benchmark-derived content plan](plans/active/benchmark-derived-content-plan.md) Progress Log (the review rounds) and Decision Log (the plan-time versus implementation-time ruling); CME pull request #40.
