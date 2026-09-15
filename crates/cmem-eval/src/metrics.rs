@@ -242,10 +242,11 @@ pub fn retrieval_metrics(
         .iter()
         .position(|id| gold.contains(*id))
         .map(|idx| idx + 1);
+    let mut credited = BTreeSet::new();
     let dcg = top
         .iter()
         .enumerate()
-        .filter(|(_, id)| gold.contains(*id))
+        .filter(|(_, id)| gold.contains(*id) && credited.insert(**id))
         .map(|(idx, _)| 1.0 / ((idx + 2) as f64).log2())
         .sum::<f64>();
     let ideal_len = gold.len().min(k);
@@ -815,6 +816,24 @@ mod tests {
         assert_eq!(metrics.recall_fraction, 1.0);
         assert_eq!(metrics.mrr, 0.5);
         assert!(metrics.ndcg > 0.0);
+    }
+
+    #[test]
+    fn repeated_gold_ids_earn_credit_once_without_promoting_later_ranks() {
+        let retrieved = ["miss", "a", "a", "b"].map(String::from);
+        let gold = ["a", "b"].map(String::from);
+        let metrics = retrieval_metrics(&retrieved, &gold, 3).unwrap();
+        assert_eq!(metrics.recall_fraction, 0.5);
+        assert_eq!(metrics.mrr, 0.5);
+        let ideal = 1.0 + 1.0 / 3.0_f64.log2();
+        assert!((metrics.ndcg - (1.0 / 3.0_f64.log2()) / ideal).abs() < 1e-12);
+        let metrics = retrieval_metrics(&retrieved, &gold, 4).unwrap();
+        let expected = (1.0 / 3.0_f64.log2() + 1.0 / 5.0_f64.log2()) / ideal;
+        assert!((metrics.ndcg - expected).abs() < 1e-12);
+        assert_eq!(metrics.recall_fraction, 1.0);
+        assert!((0.0..=1.0).contains(&metrics.ndcg));
+        let metrics = retrieval_metrics(&retrieved, &["a".to_string()], 4).unwrap();
+        assert!((metrics.ndcg - 1.0 / 3.0_f64.log2()).abs() < 1e-12);
     }
 
     #[test]
