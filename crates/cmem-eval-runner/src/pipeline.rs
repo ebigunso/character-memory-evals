@@ -3243,6 +3243,7 @@ mod tests {
                 "deterministic-exact-source-replay-v2"
             };
             let dataset_name = if locomo { "locomo" } else { "longmemeval_s" };
+            let manifest_dataset_name = if locomo { "locomo" } else { "longmemeval-s" };
             let artifact = serde_json::to_string(&serde_json::json!({
                 "snapshot_id": "snapshot", "namespace": "test", "dataset_item_id": "item",
                 "cutoff": {"type": "session", "value": "s1"}, "graph": {"namespace": "test"}
@@ -3252,6 +3253,13 @@ mod tests {
             for case in [
                 "missing",
                 "workflow",
+                "name_string_mismatch",
+                "name_object_mismatch",
+                "name_missing",
+                "name_object_missing",
+                "name_null",
+                "name_number",
+                "name_empty",
                 "artifact",
                 "dataset_missing",
                 "dataset_mismatch",
@@ -3264,16 +3272,53 @@ mod tests {
                 let manifest_path = directory.path().join("snapshot_manifest.json");
                 fs::write(&snapshot_path, &artifact).unwrap();
                 let mut manifest = serde_json::json!({"workflow_id": expected_workflow,
-                    "artifact": {"sha256": artifact_hash}, "dataset": {"name": dataset_name, "sha256": input_hash}});
+                    "artifact": {"sha256": artifact_hash}, "dataset": {"name": manifest_dataset_name, "sha256": input_hash}});
                 let expected_error = match case {
                     "missing" => Some(EnrichmentError::MissingManifest {
                         path: manifest_path.clone(),
                     }),
                     "workflow" => {
                         manifest["workflow_id"] = serde_json::json!("wrong");
+                        manifest["dataset"]["name"] = serde_json::json!("wrong");
                         Some(EnrichmentError::WrongWorkflow {
                             expected: expected_workflow,
                             actual: Some("wrong".into()),
+                        })
+                    }
+                    "name_string_mismatch" | "name_object_mismatch" => {
+                        let other_dataset = if locomo { "longmemeval-s" } else { "locomo" };
+                        if case == "name_string_mismatch" {
+                            manifest["dataset"] = serde_json::json!(other_dataset);
+                        } else {
+                            manifest["dataset"]["name"] = serde_json::json!(other_dataset);
+                        }
+                        Some(EnrichmentError::WrongDataset {
+                            expected: manifest_dataset_name,
+                            actual: Some(other_dataset.into()),
+                        })
+                    }
+                    "name_missing" | "name_object_missing" | "name_null" | "name_number" => {
+                        match case {
+                            "name_missing" => {
+                                manifest.as_object_mut().unwrap().remove("dataset");
+                            }
+                            "name_object_missing" => {
+                                manifest["dataset"].as_object_mut().unwrap().remove("name");
+                                manifest["dataset"]["sha256"] = serde_json::json!("stale");
+                            }
+                            "name_null" => manifest["dataset"]["name"] = Value::Null,
+                            _ => manifest["dataset"]["name"] = serde_json::json!(42),
+                        }
+                        Some(EnrichmentError::WrongDataset {
+                            expected: manifest_dataset_name,
+                            actual: None,
+                        })
+                    }
+                    "name_empty" => {
+                        manifest["dataset"]["name"] = serde_json::json!("");
+                        Some(EnrichmentError::WrongDataset {
+                            expected: manifest_dataset_name,
+                            actual: Some(String::new()),
                         })
                     }
                     "artifact" => {
@@ -3284,7 +3329,7 @@ mod tests {
                         })
                     }
                     "dataset_missing" => {
-                        manifest["dataset"] = serde_json::json!(dataset_name);
+                        manifest["dataset"] = serde_json::json!(manifest_dataset_name);
                         (!locomo).then_some(EnrichmentError::MissingDatasetHash)
                     }
                     "dataset_null" | "dataset_number" => {

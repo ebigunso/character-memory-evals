@@ -19,6 +19,10 @@ pub enum EnrichmentError {
         expected: &'static str,
         actual: Option<String>,
     },
+    WrongDataset {
+        expected: &'static str,
+        actual: Option<String>,
+    },
     ArtifactHashMismatch {
         expected: Option<String>,
         actual: String,
@@ -43,6 +47,9 @@ impl std::fmt::Display for EnrichmentError {
             Self::WrongWorkflow { expected, actual } => {
                 write!(f, "snapshot workflow must be {expected}, got {actual:?}")
             }
+            Self::WrongDataset { expected, actual } => {
+                write!(f, "snapshot dataset must be {expected}, got {actual:?}")
+            }
             Self::ArtifactHashMismatch { expected, actual } => write!(
                 f,
                 "snapshot artifact hash mismatch: expected {expected:?}, got {actual}"
@@ -63,9 +70,9 @@ impl std::fmt::Display for EnrichmentError {
 impl std::error::Error for EnrichmentError {}
 
 fn admitted_snapshot_file(path: &Path, dataset: &str, input_sha256: &str) -> Result<File> {
-    let expected_workflow = match dataset {
-        "locomo" => "deterministic-exact-source-replay-v1",
-        "longmemeval_s" => "deterministic-exact-source-replay-v2",
+    let (expected_workflow, expected_dataset) = match dataset {
+        "locomo" => ("deterministic-exact-source-replay-v1", "locomo"),
+        "longmemeval_s" => ("deterministic-exact-source-replay-v2", "longmemeval-s"),
         _ => bail!("unsupported snapshot dataset {dataset:?}"),
     };
     let mut name = path
@@ -90,6 +97,16 @@ fn admitted_snapshot_file(path: &Path, dataset: &str, input_sha256: &str) -> Res
         return Err(EnrichmentError::WrongWorkflow {
             expected: expected_workflow,
             actual: workflow.map(ToOwned::to_owned),
+        }
+        .into());
+    }
+    let manifest_dataset = manifest["dataset"]
+        .as_str()
+        .or_else(|| manifest["dataset"]["name"].as_str());
+    if manifest_dataset != Some(expected_dataset) {
+        return Err(EnrichmentError::WrongDataset {
+            expected: expected_dataset,
+            actual: manifest_dataset.map(ToOwned::to_owned),
         }
         .into());
     }
