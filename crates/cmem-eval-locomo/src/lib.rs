@@ -60,13 +60,17 @@ pub use error::{AdmissionLocation, LoadError};
 pub use loader::{load_path, load_value};
 pub use types::*;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use cmem_eval::{
     BenchmarkRunConfig, MetricFamily, MetricsConfig, RetrievalMode, retrieval_metric_family,
 };
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConfigError {
+    DatasetMismatch {
+        expected: &'static str,
+        found: String,
+    },
     BaselineDerivedContent {
         mode: RetrievalMode,
         field: &'static str,
@@ -76,6 +80,12 @@ pub enum ConfigError {
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::DatasetMismatch { expected, found } => {
+                write!(
+                    f,
+                    "config dataset {found:?} does not match selected {expected} pipeline"
+                )
+            }
             Self::BaselineDerivedContent { mode, field } => {
                 write!(f, "LoCoMo baseline {mode:?} forbids ingest.{field}")
             }
@@ -87,10 +97,11 @@ impl std::error::Error for ConfigError {}
 
 pub fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
     if config.dataset.as_str() != "locomo" {
-        bail!(
-            "config dataset {:?} does not match selected locomo pipeline",
-            config.dataset
-        );
+        return Err(ConfigError::DatasetMismatch {
+            expected: "locomo",
+            found: config.dataset.to_string(),
+        }
+        .into());
     }
     if matches!(
         config.retrieval.mode,
@@ -181,8 +192,16 @@ mod dataset_spec_tests {
             "dataset": "longmemeval_s"
         }))
         .unwrap();
-        let error = validate_config(&invalid).unwrap_err().to_string();
-        assert!(error.contains("locomo pipeline"), "{error}");
-        assert!(error.contains("longmemeval_s"), "{error}");
+        let error = validate_config(&invalid)
+            .unwrap_err()
+            .downcast::<ConfigError>()
+            .unwrap();
+        assert_eq!(
+            error,
+            ConfigError::DatasetMismatch {
+                expected: "locomo",
+                found: "longmemeval_s".to_string(),
+            }
+        );
     }
 }
