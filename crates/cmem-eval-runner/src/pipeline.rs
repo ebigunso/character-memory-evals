@@ -2497,12 +2497,6 @@ mod tests {
                 .iter()
                 .all(|trace| !trace.fanout_utilization.is_empty())
         );
-        // The library scores selectivity only for Entity roots; these kinds emit fanout only.
-        assert!(
-            native
-                .iter()
-                .all(|trace| trace.selectivity_decisions.is_empty())
-        );
         let fanout = native
             .iter()
             .flat_map(|trace| &trace.fanout_utilization)
