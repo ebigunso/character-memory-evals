@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::time::Duration;
 
 const OPENAI_EMBEDDINGS_ENDPOINT: &str = "https://api.openai.com/v1/embeddings";
@@ -78,7 +79,7 @@ impl OpenAiEmbeddingClient {
                             .json::<OpenAiEmbeddingResponse>()
                             .await
                             .context("parse OpenAI embedding response")?;
-                        return ordered_embeddings(model, inputs.len(), dimensions, body);
+                        return Ok(ordered_embeddings(model, inputs.len(), dimensions, body)?);
                     }
                     let retryable = status.as_u16() == 429 || status.is_server_error();
                     let body = response.text().await.unwrap_or_default();
@@ -119,17 +120,88 @@ struct OpenAiEmbeddingData {
     embedding: Vec<f32>,
 }
 
+/// Why an OpenAI embedding response was refused; one variant per validation branch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ResponseError {
+    ModelMismatch {
+        requested: String,
+        returned: String,
+    },
+    CardinalityMismatch {
+        expected: usize,
+        returned: usize,
+        missing_indices: Vec<usize>,
+    },
+    IndexOutOfRange {
+        index: usize,
+        expected_count: usize,
+    },
+    DuplicateIndex {
+        index: usize,
+    },
+    DimensionMismatch {
+        index: usize,
+        expected: usize,
+        returned: usize,
+    },
+}
+
+impl fmt::Display for ResponseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ModelMismatch {
+                requested,
+                returned,
+            } => write!(
+                f,
+                "OpenAI embedding response model {returned:?} does not match requested model {requested:?}"
+            ),
+            Self::CardinalityMismatch {
+                expected,
+                returned,
+                missing_indices,
+            } => write!(
+                f,
+                "OpenAI embedding response returned {returned} vectors for {expected} inputs; missing indices: {missing_indices:?}"
+            ),
+            Self::IndexOutOfRange {
+                index,
+                expected_count,
+            } => write!(
+                f,
+                "OpenAI embedding response index {index} is outside expected range 0..{expected_count}"
+            ),
+            Self::DuplicateIndex { index } => {
+                write!(
+                    f,
+                    "OpenAI embedding response contains duplicate index {index}"
+                )
+            }
+            Self::DimensionMismatch {
+                index,
+                expected,
+                returned,
+            } => write!(
+                f,
+                "OpenAI embedding response index {index} has vector size {returned}, expected {expected}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ResponseError {}
+
 fn ordered_embeddings(
     requested_model: &str,
     expected_count: usize,
     expected_dimensions: Option<usize>,
     response: OpenAiEmbeddingResponse,
-) -> Result<Vec<Vec<f32>>> {
+) -> std::result::Result<Vec<Vec<f32>>, ResponseError> {
     if response.model != requested_model {
-        bail!(
-            "OpenAI embedding response model {:?} does not match requested model {requested_model:?}",
-            response.model
-        );
+        return Err(ResponseError::ModelMismatch {
+            requested: requested_model.to_string(),
+            returned: response.model,
+        });
     }
     if response.data.len() != expected_count {
         let mut present = vec![false; expected_count];
@@ -138,48 +210,47 @@ fn ordered_embeddings(
                 present[item.index] = true;
             }
         }
-        let missing = present
+        let missing_indices = present
             .iter()
             .enumerate()
             .filter_map(|(index, present)| (!present).then_some(index))
             .collect::<Vec<_>>();
-        bail!(
-            "OpenAI embedding response returned {} vectors for {expected_count} inputs; missing indices: {missing:?}",
-            response.data.len(),
-        );
+        return Err(ResponseError::CardinalityMismatch {
+            expected: expected_count,
+            returned: response.data.len(),
+            missing_indices,
+        });
     }
     let mut ordered = vec![None; expected_count];
     for item in response.data {
         if item.index >= expected_count {
-            bail!(
-                "OpenAI embedding response index {} is outside expected range 0..{expected_count}",
-                item.index
-            );
+            return Err(ResponseError::IndexOutOfRange {
+                index: item.index,
+                expected_count,
+            });
         }
         if ordered[item.index].is_some() {
-            bail!(
-                "OpenAI embedding response contains duplicate index {}",
-                item.index
-            );
+            return Err(ResponseError::DuplicateIndex { index: item.index });
         }
-        if let Some(expected_dimensions) = expected_dimensions
-            && item.embedding.len() != expected_dimensions
+        if let Some(expected) = expected_dimensions
+            && item.embedding.len() != expected
         {
-            bail!(
-                "OpenAI embedding response index {} has vector size {}, expected {expected_dimensions}",
-                item.index,
-                item.embedding.len()
-            );
+            return Err(ResponseError::DimensionMismatch {
+                index: item.index,
+                expected,
+                returned: item.embedding.len(),
+            });
         }
         ordered[item.index] = Some(item.embedding);
     }
-    ordered
+    Ok(ordered
         .into_iter()
-        .enumerate()
-        .map(|(index, embedding)| {
-            embedding.with_context(|| format!("OpenAI embedding response omitted index {index}"))
+        .map(|embedding| {
+            embedding.expect(
+                "every slot is filled: the count matches and every index is in range and unique",
+            )
         })
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]
@@ -225,10 +296,9 @@ mod tests {
             Some(2),
             response("model", [(0, vec![1.0, 0.0]), (0, vec![0.0, 1.0])]),
         )
-        .unwrap_err()
-        .to_string();
+        .unwrap_err();
 
-        assert!(error.contains("duplicate index 0"), "{error}");
+        assert_eq!(error, ResponseError::DuplicateIndex { index: 0 });
     }
 
     #[test]
@@ -239,11 +309,16 @@ mod tests {
             Some(2),
             response("model", [(0, vec![1.0, 0.0])]),
         )
-        .unwrap_err()
-        .to_string();
+        .unwrap_err();
 
-        assert!(error.contains("returned 1 vectors for 2 inputs"), "{error}");
-        assert!(error.contains("missing indices: [1]"), "{error}");
+        assert_eq!(
+            error,
+            ResponseError::CardinalityMismatch {
+                expected: 2,
+                returned: 1,
+                missing_indices: vec![1],
+            }
+        );
     }
 
     #[test]
@@ -254,10 +329,15 @@ mod tests {
             Some(2),
             response("model", [(0, vec![1.0, 0.0]), (2, vec![0.0, 1.0])]),
         )
-        .unwrap_err()
-        .to_string();
+        .unwrap_err();
 
-        assert!(error.contains("outside expected range 0..2"), "{error}");
+        assert_eq!(
+            error,
+            ResponseError::IndexOutOfRange {
+                index: 2,
+                expected_count: 2,
+            }
+        );
     }
 
     #[test]
@@ -268,18 +348,29 @@ mod tests {
             Some(2),
             response("different-model", [(0, vec![1.0, 0.0])]),
         )
-        .unwrap_err()
-        .to_string();
+        .unwrap_err();
 
-        assert!(error.contains("does not match requested model"), "{error}");
+        assert_eq!(
+            error,
+            ResponseError::ModelMismatch {
+                requested: "requested-model".to_string(),
+                returned: "different-model".to_string(),
+            }
+        );
     }
 
     #[test]
     fn rejects_response_dimension_mismatches() {
         let error = ordered_embeddings("model", 1, Some(2), response("model", [(0, vec![1.0])]))
-            .unwrap_err()
-            .to_string();
+            .unwrap_err();
 
-        assert!(error.contains("vector size 1, expected 2"), "{error}");
+        assert_eq!(
+            error,
+            ResponseError::DimensionMismatch {
+                index: 0,
+                expected: 2,
+                returned: 1,
+            }
+        );
     }
 }

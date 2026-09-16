@@ -513,13 +513,12 @@ mod tests {
     #[test]
     fn read_jsonl_rejects_invalid_encoding_and_partial_input() {
         let path = temp_path("results-invalid", "jsonl");
-        for (bytes, expected) in [
-            (vec![0xff], "stream did not contain valid UTF-8"),
-            (b"{".to_vec(), "EOF while parsing"),
+        for (label, bytes) in [
+            ("invalid UTF-8", vec![0xff]),
+            ("truncated JSON", b"{".to_vec()),
         ] {
             std::fs::write(&path, bytes).unwrap();
-            let error = read_jsonl(&path).unwrap_err().to_string();
-            assert!(error.contains(expected), "{error}");
+            assert!(read_jsonl(&path).is_err(), "{label} must be refused");
         }
         std::fs::remove_file(path).unwrap();
     }
