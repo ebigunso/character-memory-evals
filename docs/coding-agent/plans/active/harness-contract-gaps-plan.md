@@ -84,7 +84,7 @@
 - description: |
   Add tests that `seal()` rejects a run directory with zero row artifacts and one with two, without writing a manifest.
 - acceptance:
-  - Two tests assert the typed rejection and that no manifest file was created.
+  - Two tests assert the rejection (an error result; a typed seal error is declined in the Decision Log) and that no manifest file was created.
 - validation:
   - kind: command
     required: true
@@ -177,7 +177,7 @@ Sequencing: this plan is dispatched after the typed-admission plan and the adapt
 
 - 2026-09-17 Wave 1 completed: [Task_1 fde1b03, Task_2 570888c, Task_3 f1a5101, Task_4 f94a18c] (integrated tip f94a18c, rebased onto the cost-cleanup tip a7dd8f5)
   - Summary: sentinel gold-label and speaker leak test over every namespace store file and the retrieved context; DatasetId::new rejection and admission; deterministic_operation_id framing and stability; persist_with_retry exhaustion and non-retryable kind (fs_util test module); LoCoMo hand-computed dialog and projected-session recall and nDCG for a rank-one hit versus a miss; seal() refuses zero and two row artifacts without writing either manifest; all 31 fixture admission test functions stand on one hand-authored scenario with named event lookups (rejection census 53 to 53, 38 Admission and 15 Shape observers retained). Every new test passes on main: zero pending-ruling ignores.
-  - Validation evidence: worker gates per report (cmem-eval 108 passed; locomo 47; runner seal filter 5; continuity suite before and after equal); orchestrator workspace run at f94a18c recorded in the Wave 3 entry.
+  - Validation evidence: worker gates per report (cmem-eval 108 passed; locomo 47; runner seal filter 5; continuity suite before and after equal); orchestrator workspace run at f94a18c recorded in the Wave 4 entry.
 - 2026-09-17 Wave 2 completed: [Task_5] no test failed on main, so no ruling was needed and Task_6 (ignore removal) is a no-op.
 
 - 2026-09-17 Wave 4 completed: [Task_7] (APPROVED at 9083893; code identical after the rebase onto the cost-cleanup log commit bb59a58)
