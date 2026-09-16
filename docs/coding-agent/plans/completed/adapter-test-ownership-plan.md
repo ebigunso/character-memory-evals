@@ -1,6 +1,6 @@
 # Plan: Harness tests assert harness contracts; library semantics stay upstream
 
-- status: in_progress (approved by the decider 2026-09-16; Tier D APPROVED 2026-09-16 at b0b4c37; pull request open, awaiting merge approval)
+- status: completed (approved by the decider 2026-09-16; Tier D APPROVED 2026-09-16 at b0b4c37; merged 2026-09-17 by atomic stack squash merge, evals main 97c020e)
 - generated: 2026-09-16
 - last_updated: 2026-09-16
 - work_type: code
@@ -145,6 +145,7 @@ Sequencing: this plan is dispatched after the library's integration-suite plan m
 
 - 2026-09-16 Decision: library semantics covered upstream are deleted here rather than kept in parity, but only once the upstream observer executes in a default run. Trigger: audit F5; reviewer finding that two cited upstream tests skip with Qdrant down on the current pin. Decider approval: plan accepted 2026-09-16; merge approval pending.
 - 2026-09-16 Decision: the retention-without-reason assertion is kept at both boundaries. Trigger: reviewer.md `coupled_config_invariants` requires validation at configuration admission and at the production-reachable live consumer. Decider approval: plan accepted 2026-09-16; merge approval pending.
+- 2026-09-17 Closeout: the companion pin is library main 30ebdb6, where `tests/retrieval_guardrails_tests.rs` runs unconditionally, so the two deferred deletions land: the adapter's `suppression_survives_reattach` test pair (its exclusion assertion is `restart_safe_retrieval_excludes_suppressed_and_superseded_memories` upstream; the reattach path stays covered by the lifecycle tests) and the runner's Entity-root selectivity assertion (`selectivity_telemetry_and_fanout_override_bound_entity_root_expansion` upstream).
 
 ## Notes
 - Risks: Task_1 and Task_3 move tests across crates in one wave; the orchestrator runs the workspace suite after the wave, not per task, and checks the handoff against both reports.

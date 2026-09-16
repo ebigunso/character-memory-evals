@@ -1142,3 +1142,25 @@ Prevention:
 
 Evidence:
 - #45 merged as 9661ec6; [re-baseline and closeout record](plans/completed/benchmark-derived-content-plan.md#2026-09-16-re-baseline-record-and-measurement-amendment).
+
+## 2026-09-17 - A utility that writes next to the data it reads refuses to overwrite  [tags: review, artifacts, safety]
+
+Context:
+- Plan: `docs/coding-agent/plans/completed/test-cost-and-census-cleanup-plan.md`
+- Task/Wave: the ignored official-file censuses became `cargo run --example` binaries
+- Roles involved: Orchestrator, Copilot review
+
+Symptom:
+- The LongMemEval census loaded the official dataset fully, then wrote its identity dump with an unconditional `fs::write`; a dump path aliasing the dataset path would have truncated the official file after a successful read.
+
+Root cause:
+- Moving an ignored test into a runnable example carried the test's scratch-file habits into a utility that operators point at real files; the repository's artifact writers already use `File::create_new`, but the example was written from the test, not from them.
+
+Fix applied:
+- The census opens the dump with `File::create_new` and refuses an existing path; the scripts README states the policy (evals PR 50).
+
+Prevention:
+- Any example or script that takes an input path and an output path from the environment refuses to overwrite: `create_new` for files the utility creates, and a stated no-overwrite policy in its README line. Reviewers treat an unconditional write in an operator-facing utility as a finding.
+
+Evidence:
+- `crates/cmem-eval-longmemeval/examples/official_repeated_session_census.rs`; `scripts/README.md`.

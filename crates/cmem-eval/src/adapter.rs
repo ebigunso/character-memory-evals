@@ -3782,17 +3782,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn embedded_suppression_survives_reattach() {
-        suppression_survives_reattach(VectorStoreMode::Embedded).await;
-    }
-
-    #[cfg(feature = "service-tests")]
-    #[tokio::test]
-    async fn service_mode_suppression_survives_reattach() {
-        suppression_survives_reattach(VectorStoreMode::Service).await;
-    }
-
-    #[tokio::test]
     async fn embedded_reattach_rejects_missing_durable_stores() {
         reattach_rejects_missing_durable_stores(VectorStoreMode::Embedded).await;
     }
@@ -4099,40 +4088,6 @@ mod tests {
         );
         adapter.reset_namespace(namespace).await.unwrap();
         adapter.close().await.unwrap();
-    }
-
-    async fn suppression_survives_reattach(mode: VectorStoreMode) {
-        let _live_test_guard = LIVE_QDRANT_TEST_LOCK.lock().await;
-        let run_directory = tempdir().unwrap();
-        let run_root = run_directory.path();
-        let namespace = "suppression-reattach";
-        let mut config = adapter_config(format!("suppression-reattach-{}", unique_test_token()));
-        config.backend.vector_store_mode = mode;
-        let adapter_a = CharacterMemoryAdapter::new(run_root, &config)
-            .await
-            .unwrap();
-        seed_restart_namespace(&adapter_a, namespace).await;
-        correct_and_suppress_restart_memory(&adapter_a, namespace).await;
-        adapter_a.close().await.unwrap();
-        let (adapter_b, _) = CharacterMemoryAdapter::reconstruct(run_root, &config, namespace)
-            .await
-            .unwrap();
-        let suppression_check = (adapter_b
-            .retrieve(RetrieveInput {
-                mode: RetrievalMode::Hybrid,
-                namespace: namespace.to_string(),
-                query: "What is the corrected restart-safe drink?".to_string(),
-                query_date: None,
-                surface_policy: retrieval_surface_policy(8, 8, true, false, false, true),
-            })
-            .await)
-            .expect("post-reconstruct suppression retrieval");
-        assert!(suppression_check.items().iter().all(|item| {
-            item.external_id.as_deref() != Some("corrected-memory")
-                && item.external_id.as_deref() != Some("pre-correction-memory")
-        }));
-        adapter_b.reset_namespace(namespace).await.unwrap();
-        adapter_b.close().await.unwrap();
     }
 
     async fn reattach_rejects_missing_durable_stores(mode: VectorStoreMode) {
