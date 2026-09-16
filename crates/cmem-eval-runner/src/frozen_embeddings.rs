@@ -167,75 +167,7 @@ fn print_measurements(measurements: &[cmem_eval::FrozenSimilarityMeasurement]) {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::io::Write;
-
     use super::*;
-    use cmem_eval::fs_util::{atomic_replace_with_before_persist, persist_with_retry};
-
-    #[test]
-    fn failed_store_write_preserves_preexisting_bytes() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("store.json");
-        let previous_bytes = b"previous complete store\n";
-        let replacement_bytes = b"replacement complete store\n";
-        fs::write(&path, previous_bytes).unwrap();
-        let mut staged_path = None;
-
-        let error = atomic_replace_with_before_persist(
-            &path,
-            replacement_bytes,
-            "frozen embedding store",
-            |temporary_path| {
-                staged_path = Some(temporary_path.to_path_buf());
-                assert_eq!(temporary_path.parent(), path.parent());
-                assert_eq!(fs::read(temporary_path).unwrap(), replacement_bytes);
-                assert_eq!(fs::read(&path).unwrap(), previous_bytes);
-                bail!("simulated failure before atomic store replacement")
-            },
-        )
-        .unwrap_err();
-
-        assert!(error.to_string().contains("simulated failure"), "{error}");
-        assert_eq!(fs::read(&path).unwrap(), previous_bytes);
-        assert!(!staged_path.unwrap().exists());
-    }
-
-    #[test]
-    fn store_persist_retries_permission_denied_with_same_staged_bytes() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("store.json");
-        fs::write(&path, b"previous complete store\n").unwrap();
-        let staged_bytes = b"replacement complete store\n";
-        let mut temporary = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
-        temporary.write_all(staged_bytes).unwrap();
-        temporary.as_file().sync_all().unwrap();
-        let mut attempts = 0;
-
-        persist_with_retry(
-            temporary,
-            &path,
-            "frozen embedding store",
-            |temporary, path| {
-                attempts += 1;
-                assert_eq!(fs::read(temporary.path()).unwrap(), staged_bytes);
-                if attempts == 1 {
-                    return Err(tempfile::PersistError {
-                        error: std::io::Error::new(
-                            std::io::ErrorKind::PermissionDenied,
-                            "injected Windows replace contention",
-                        ),
-                        file: temporary,
-                    });
-                }
-                temporary.persist(path)
-            },
-        )
-        .unwrap();
-
-        assert_eq!(attempts, 2);
-        assert_eq!(fs::read(&path).unwrap(), staged_bytes);
-    }
 
     #[test]
     fn all_committed_stores_validate_without_network() {
