@@ -170,6 +170,39 @@ mod tests {
     }
 
     #[test]
+    fn rejects_zero_row_artifacts_without_writing_manifests() {
+        let directory = tempdir();
+        let run = directory.path().join("run");
+        fs::create_dir(&run).unwrap();
+        fs::write(run.join("header.json"), r#"{"run_id":"example"}"#).unwrap();
+        fs::write(run.join("report.json"), "{}\n").unwrap();
+        let evidence_root = directory.path().join("evidence");
+
+        assert!(seal(&run, &evidence_root).is_err());
+        assert!(!run.join("seal.json").exists());
+        assert!(!evidence_root.join("example/seal.json").exists());
+        assert!(!evidence_root.exists());
+    }
+
+    #[test]
+    fn rejects_two_row_artifacts_without_writing_manifests() {
+        let directory = tempdir();
+        let run = directory.path().join("run");
+        fs::create_dir(&run).unwrap();
+        fs::write(run.join("header.json"), r#"{"run_id":"example"}"#).unwrap();
+        fs::write(run.join("report.json"), "{}\n").unwrap();
+        for name in ["first.jsonl", "second.jsonl"] {
+            fs::write(run.join(name), "{}\n").unwrap();
+        }
+        let evidence_root = directory.path().join("evidence");
+
+        assert!(seal(&run, &evidence_root).is_err());
+        assert!(!run.join("seal.json").exists());
+        assert!(!evidence_root.join("example/seal.json").exists());
+        assert!(!evidence_root.exists());
+    }
+
+    #[test]
     fn seals_exact_bytes_and_detects_changes_without_overwriting() {
         let directory = tempdir();
         let run = directory.path().join("run");
