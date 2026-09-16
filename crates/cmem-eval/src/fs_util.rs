@@ -80,6 +80,35 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
+    fn persist_stops_on_exhaustion_or_non_permission_errors() {
+        for (kind, expected_attempts) in [
+            (std::io::ErrorKind::PermissionDenied, PERSIST_ATTEMPTS),
+            (std::io::ErrorKind::InvalidInput, 1),
+        ] {
+            let directory = tempdir().unwrap();
+            let path = directory.path().join("store.json");
+            let previous = b"previous complete store\n";
+            fs::write(&path, previous).unwrap();
+            let mut temporary = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
+            temporary.write_all(b"replacement store\n").unwrap();
+            let mut attempts = 0;
+
+            let error = persist_with_retry(temporary, &path, "store", |temporary, _| {
+                attempts += 1;
+                Err(tempfile::PersistError {
+                    error: std::io::Error::from(kind),
+                    file: temporary,
+                })
+            })
+            .unwrap_err();
+
+            assert_eq!(attempts, expected_attempts, "{kind:?}");
+            assert_eq!(error.downcast_ref::<std::io::Error>().unwrap().kind(), kind);
+            assert_eq!(fs::read(&path).unwrap(), previous);
+        }
+    }
+
+    #[test]
     fn identity_registry_persist_retries_permission_denied_with_same_staged_bytes() {
         let directory = tempdir().unwrap();
         let path = directory.path().join("identity.json");
