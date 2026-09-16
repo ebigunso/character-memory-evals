@@ -11,7 +11,7 @@
 ## Definition of Done
 - The runner's continuity command test runs the fixture once and asserts the trace's invariants (artifact identity, header provenance, row-trace congruence) without a baseline artifact; the two-run determinism comparison remains the README smoke recipe the reviewer already runs; the driver's operation-coverage sweep is the only other full-fixture run; the command test's no-overwrite and serde assertions are covered at unit level.
 - The manifest classification matrix lives in `enrichment.rs` against the snapshot loader; the pipeline keeps two cases proving admission precedes run-root and adapter creation.
-- The four shared-core subprocess determinism tests and their probes are deleted; the continuity generator's cross-process probe loses its `#[test]` attribute so it is not counted as a passing test, while the byte-identity test (`generator.rs:2001`) and its parent cross-process determinism test are unchanged.
+- The four shared-core subprocess determinism tests and their probes are deleted; the continuity generator's byte-identity test (`generator.rs:2001`), its parent cross-process determinism test and the child probe the parent launches are unchanged (Decision Log 2026-09-17, Task_3 alert).
 - Literal-count assertions over the checked fixture, the metric registry cardinality and the committed benchmark store are replaced by the property each protects or deleted; the converter's re-typed manifest becomes invariant assertions; the two ignored official-file censuses become `cargo run --example` binaries under their dataset crates with a thin `scripts/` wrapper each, and the workspace ignored-test count goes from 2 to 0.
 - Duplicate and framework-behaviour tests named in the audit (config parse-only and retired-key triple coverage, results single-field serde, tiktoken behaviour, const-equals-literal, legacy-hash reimplementation, loader normalization duplicates, the byte-identical io/json twins, the alias cross-products, the enum delegation, the non-overlapping overlap test, the ungrouped grouping test, the command-test overlap, the diff derived-serde test) are removed or reshaped as the audit states.
 - Wall time of `cargo test -p cmem-eval-runner` and `cargo test -p cmem-eval-continuity` is reported before and after; workspace validation passes on the integrated branch with executed counts.
@@ -73,7 +73,7 @@
 - description: |
   Delete the frozen and controllable subprocess determinism tests with their probes, the const-equals-literal and tiktoken-behaviour tests, the legacy-hash reimplementation, the results single-field serde test; merge the config parse-only pairs and fold retired keys into the container-boundary case table.
 - acceptance:
-  - No test in the crate spawns a process.
+  - No test in the crate spawns a process for a determinism proof; the env-isolation test keeps its child process (Decision Log 2026-09-17, Task_2 alert).
   - Each deleted or merged test is mapped to its surviving observer.
 - validation:
   - kind: command
@@ -87,10 +87,10 @@
   - crates/cmem-eval-continuity/**
 - depends_on: []
 - description: |
-  Replace literal count assertions in the generator tests with the property each protects, remove the `#[test]` attribute from the child cross-process probe (keeping the parent determinism test and the byte-identity test unchanged), delete the private chrono helper test and the enum-delegation driver test, fix or delete the non-overlapping overlap metric test, assert the metric key set instead of its cardinality, keep the report reader's no-overwrite half only, and keep the driver's operation-coverage sweep as the crate's one full-fixture run.
+  Replace literal count assertions in the generator tests with the property each protects, keep the child cross-process probe, the parent determinism test and the byte-identity test unchanged, delete the private chrono helper test and the enum-delegation driver test, fix or delete the non-overlapping overlap metric test, assert the metric key set instead of its cardinality, keep the report reader's no-overwrite half only, and keep the driver's operation-coverage sweep as the crate's one full-fixture run.
 - acceptance:
   - No generator test asserts an integer count of events, queries, links or contrasts of the checked fixture.
-  - The byte-identity test (`generator.rs:2001`) and the parent cross-process determinism test are unchanged; only the child probe's `#[test]` attribute is removed.
+  - The byte-identity test (`generator.rs:2001`), the parent cross-process determinism test and its child probe are unchanged (Decision Log 2026-09-17, Task_3 alert).
   - Wall time of the crate's tests is reported before and after.
 - validation:
   - kind: command
@@ -167,7 +167,7 @@ Parallel tasks run in separate worktrees so Cargo commands never share a target 
 - 2026-09-17 Decision (Task_1 alert): the trace-file no-overwrite, canonical-order and additive-serde assertions moved from the runner command test to driver.rs unit tests in the continuity crate, which owns write_continuity_traces and read_continuity_traces.
 - 2026-09-17 Decision (Task_4 alert): the converter manifest invariants are source-specific: LongMemEval entries assert gold_turn_ids_empty equals abstention; LoCoMo entries keep the absent-gold rule through validate and the evidence-image proof; session bounds and fixture-id derivation hold for every entry.
 - 2026-09-16 Decision: byte-identity is the single drift guard for the checked fixture; counts over it are not tests. Trigger: audit F3 and F6. Decider approval: plan accepted 2026-09-16; merge approval pending.
-- 2026-09-16 Decision: the continuity generator's parent cross-process determinism test is kept although the audit's F6 reasoning deletes the shared-core subprocess tests. Rationale: the fixture bytes back durable, hash-cited claims (sealed evidence, register citations), whereas the shared-core tests proved a JSON map lookup and pinned f32 bits, which in-process tests already cover; only the child probe stops counting as a test. Decider approval: plan accepted 2026-09-16; merge approval pending.
+- 2026-09-16 Decision: the continuity generator's parent cross-process determinism test is kept although the audit's F6 reasoning deletes the shared-core subprocess tests. Rationale: the fixture bytes back durable, hash-cited claims (sealed evidence, register citations), whereas the shared-core tests proved a JSON map lookup and pinned f32 bits, which in-process tests already cover. (The 2026-09-17 Task_3 decision below keeps the child probe as a discoverable test.) Decider approval: plan accepted 2026-09-16; merge approval pending.
 - 2026-09-16 Decision: no baseline trace is committed; the single-run test asserts invariants and the README smoke recipe carries the two-run determinism claim. Trigger: reviewer finding that a gitignored baseline cannot run on a fresh clone or in CI.
 
 ## Notes
