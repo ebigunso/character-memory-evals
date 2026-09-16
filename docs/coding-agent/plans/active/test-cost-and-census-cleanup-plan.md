@@ -1,6 +1,6 @@
 # Plan: Workspace tests pay for each contract once and stop pinning fixture statistics
 
-- status: in_progress (approved by the decider 2026-09-16)
+- status: in_progress (approved by the decider 2026-09-16; Tier D APPROVED 2026-09-17 at a7dd8f5; pull request open, awaiting merge approval)
 - generated: 2026-09-16
 - last_updated: 2026-09-16
 - work_type: code
@@ -154,6 +154,9 @@ Parallel tasks run in separate worktrees so Cargo commands never share a target 
 - 2026-09-17 Wave 1 completed: [Task_1 8659f04, Task_2 dcd52c9, Task_3 03b3084, Task_4 caa137d] (integrated tip caa137d)
   - Summary: runner command test runs the fixture once and asserts invariants (no baseline artifact); manifest classification moved to enrichment.rs with two ordering cases kept; shared-core subprocess determinism pairs, framework and duplicate tests removed; generator tests assert properties rather than fixture counts; the trace-file assertion block moved from the runner to driver.rs unit tests; the two official-file censuses are cargo run --example binaries with scripts/ wrappers; alias tests loop per axis; converter manifest test asserts invariants.
   - Validation evidence (orchestrator at caa137d, from the short alias): cargo fmt --all --check clean; cargo clippy --workspace --all-targets -D warnings clean (examples included); cargo test --workspace: cmem-eval 104, benchmark-convert 10, continuity 72, locomo 10+29+4, longmemeval 7+22+3, runner 57 passed plus the known symlink exception; ignored count 0 (was 2). Runner crate wall time 255 s to 76 s (Task_1 report); continuity 73 s to 97 s with the trace-file unit tests added (Task_3 report, no speedup claimed).
+
+- 2026-09-17 Wave 2 completed: [Task_5] (APPROVED at a7dd8f5, no findings)
+  - Validation evidence (reviewer, pinned worktree): fmt and clippy clean; workspace 318 passed plus the known symlink exception, ignored 0; runner integration 1 passed; smoke diff all zero; regenerated fixture bytes match; both official-file examples reproduce the known counts with source hashes unchanged; manifest probes leave no run root. Process census: the retained env-isolation test, the generator parent-probe pair, and a pre-existing Windows junction setup in the pipeline tests are the only child processes, none a determinism proof.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
