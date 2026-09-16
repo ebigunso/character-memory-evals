@@ -774,7 +774,33 @@ mod tests {
                         || key.starts_with("sampled_pollution_rationale_share_")
                 })
                 .collect::<Vec<_>>();
-            assert_eq!(native.len(), 19);
+            assert_eq!(
+                native
+                    .iter()
+                    .map(|(key, _)| key.as_str())
+                    .collect::<BTreeSet<_>>(),
+                BTreeSet::from([
+                    "correction_lifecycle_safe_admission_rate",
+                    "hub_expansion_relevant_hit_rate",
+                    "typed_rationale_coverage",
+                    "rationale_category_share_semantic",
+                    "rationale_category_share_entity",
+                    "rationale_category_share_thread",
+                    "rationale_category_share_temporal",
+                    "rationale_category_share_salience",
+                    "rationale_category_share_scope",
+                    "rationale_category_share_lifecycle",
+                    "rationale_category_share_graph_bound",
+                    "sampled_pollution_rationale_share_semantic",
+                    "sampled_pollution_rationale_share_entity",
+                    "sampled_pollution_rationale_share_thread",
+                    "sampled_pollution_rationale_share_temporal",
+                    "sampled_pollution_rationale_share_salience",
+                    "sampled_pollution_rationale_share_scope",
+                    "sampled_pollution_rationale_share_lifecycle",
+                    "sampled_pollution_rationale_share_graph_bound",
+                ])
+            );
             for (key, value) in native {
                 if mode == RetrievalMode::Hybrid {
                     assert!(value.is_number(), "{key}: {value}");
@@ -813,31 +839,6 @@ mod tests {
         assert_eq!(trace.retrieval.items().len(), 2);
         assert_eq!(out["correction_lifecycle_safe_admission_rate"], 0.5);
         assert_eq!(out["supersession_replacement_recall"], 1.0);
-    }
-
-    #[test]
-    fn correction_safety_counts_overlapping_lifecycle_failures_once() {
-        let scenario = scenario(ScenarioPattern::CorrectionChains);
-        let mut trace = trace(ScenarioPattern::CorrectionChains);
-        mutate_trace(&mut trace, |telemetry| {
-            telemetry
-                .as_mut()
-                .unwrap()
-                .lifecycle_filter_decisions
-                .push(unsafe_decision("relevant"));
-        });
-        let mut out = Map::new();
-
-        insert_continuity_metrics(
-            &mut out,
-            &scenario,
-            &trace,
-            &MetricsConfig::default(),
-            RetrievalMode::Hybrid,
-        );
-
-        assert_eq!(trace.retrieval.items().len(), 2);
-        assert_eq!(out["correction_lifecycle_safe_admission_rate"], 0.5);
     }
 
     #[test]

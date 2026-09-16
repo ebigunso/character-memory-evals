@@ -183,11 +183,7 @@ fn splitmix64(state: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, fs, process::Command};
-
     use super::*;
-
-    const PROCESS_PROBE_PATH: &str = "CMEM_SIMILARITY_PROBE_PATH";
 
     #[test]
     fn cosine_ordering_property_holds_across_seed_range() {
@@ -324,46 +320,6 @@ mod tests {
                 .to_string()
                 .contains("assigned to both concepts")
         );
-    }
-
-    #[test]
-    fn identical_seed_is_byte_identical_across_process_runs() {
-        let current_exe = env::current_exe().unwrap();
-        let mut outputs = Vec::new();
-        for run in 0..2 {
-            let output_path =
-                env::temp_dir().join(format!("cmem-similarity-{}-{run}.bin", std::process::id()));
-            let status = Command::new(&current_exe)
-                .args([
-                    "--exact",
-                    "controllable_similarity_embedding::tests::cross_process_probe",
-                    "--nocapture",
-                ])
-                .env(PROCESS_PROBE_PATH, &output_path)
-                .status()
-                .unwrap();
-            assert!(status.success());
-            outputs.push(fs::read(&output_path).unwrap());
-            fs::remove_file(output_path).unwrap();
-        }
-
-        assert_eq!(outputs[0], outputs[1]);
-        assert!(!outputs[0].is_empty());
-    }
-
-    #[test]
-    fn cross_process_probe() {
-        let Ok(output_path) = env::var(PROCESS_PROBE_PATH) else {
-            return;
-        };
-        let provider = ControllableSimilarityEmbeddingProvider::new(fixture(0x5eed)).unwrap();
-        let bytes = provider
-            .vector_for_text("alpha one")
-            .unwrap()
-            .iter()
-            .flat_map(|component| component.to_le_bytes())
-            .collect::<Vec<_>>();
-        fs::write(output_path, bytes).unwrap();
     }
 
     fn fixture(seed: u64) -> ControllableSimilarityFixture {

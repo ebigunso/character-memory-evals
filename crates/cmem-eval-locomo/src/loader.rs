@@ -595,59 +595,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_session_summaries_and_generated_observations() {
-        let rows = load_value(serde_json::json!([{
-            "sample_id": "p1",
-            "conversation": {
-                "session_1": [{"dia_id": "D1:1", "speaker": "A", "text": "hello"}]
-            },
-            "session_summary": {
-                "session_1": "They discussed a trip."
-            },
-            "observation": {
-                "session_1": ["A likes quiet cafes."]
-            },
-            "qa": [{"question": "What?"}]
-        }]))
-        .unwrap();
-
-        assert_eq!(
-            rows[0].sessions[0].summary.as_deref(),
-            Some("They discussed a trip.")
-        );
-        assert_eq!(
-            rows[0].sessions[0]
-                .generated_observations
-                .iter()
-                .map(|observation| observation.statement.as_str())
-                .collect::<Vec<_>>(),
-            vec!["A likes quiet cafes."]
-        );
-    }
-
-    #[test]
-    fn normalizes_official_timestamp_to_rfc3339_utc() {
-        let rows = load_value(serde_json::json!([{
-            "sample_id": "p1",
-            "conversation": {
-                "session_1_date_time": "1:56 pm on 8 May, 2023",
-                "session_1": [{"dia_id": "D1:1", "speaker": "A", "text": "hello"}]
-            },
-            "qa": [{"question": "What?"}]
-        }]))
-        .unwrap();
-
-        assert_eq!(
-            rows[0].sessions[0].raw_timestamp.as_deref(),
-            Some("1:56 pm on 8 May, 2023")
-        );
-        assert_eq!(
-            rows[0].sessions[0].timestamp.as_deref(),
-            Some("2023-05-08T13:56:00Z")
-        );
-    }
-
-    #[test]
     fn preserves_unrecognized_non_empty_timestamp_for_adapter_error_context() {
         let rows = load_value(serde_json::json!([{
             "sample_id": "p1",

@@ -1,5 +1,5 @@
 use cmem_eval::{ObjectType, RetrievedItem};
-use cmem_eval_longmemeval::{ingest::to_memory_inputs, load_path, load_value, scoring::score};
+use cmem_eval_longmemeval::{ingest::to_memory_inputs, load_value, scoring::score};
 use serde_json::json;
 use std::collections::HashSet;
 
@@ -147,72 +147,4 @@ fn scoring_maps_exact_ids_and_credits_copies_only_at_the_first_rank() {
     for value in metrics.as_object().unwrap().values() {
         assert_eq!(value, 1.0);
     }
-}
-
-#[test]
-#[ignore = "set LONGMEMEVAL_DATASET and LONGMEMEVAL_IDENTITY_DUMP for the local official-file census"]
-fn official_repeated_session_census_and_identity_dump() {
-    let path = std::env::var("LONGMEMEVAL_DATASET").expect("LONGMEMEVAL_DATASET");
-    let output = std::env::var("LONGMEMEVAL_IDENTITY_DUMP").expect("LONGMEMEVAL_IDENTITY_DUMP");
-    let rows = load_path(std::path::Path::new(&path)).unwrap();
-    assert_eq!(rows.len(), 500);
-    let mut dump = Vec::new();
-    let mut changed = Vec::new();
-    let mut global_identities = HashSet::new();
-    for item in &rows {
-        let mapped = to_memory_inputs(item);
-        let mut raw_seen = std::collections::HashMap::new();
-        let mut assigned_seen = HashSet::new();
-        for (session, episode) in item.sessions.iter().zip(&mapped.episodes) {
-            assert!(!session.session_id.contains('#'));
-            assert!(assigned_seen.insert(&episode.external_id));
-            assert!(global_identities.insert((
-                episode.namespace.clone(),
-                "episode",
-                episode.external_id.clone()
-            )));
-            assert_eq!(episode.started_at, session.date);
-            if let Some(previous) = raw_seen.insert(&session.session_id, session) {
-                assert_eq!(
-                    serde_json::to_value(&previous.turns).unwrap(),
-                    serde_json::to_value(&session.turns).unwrap()
-                );
-                assert_ne!(previous.date, session.date);
-                assert!(!item.answer_session_ids.contains(&session.session_id));
-                assert_eq!(episode.external_id, format!("{}#2", session.session_id));
-                changed.push(item.question_id.clone());
-            } else {
-                assert_eq!(episode.external_id, session.session_id);
-            }
-            dump.push(
-                json!({"item": item.question_id, "before": session.session_id,
-                "after": episode.external_id, "date": episode.started_at}),
-            );
-        }
-        for observation in &mapped.observations {
-            assert!(global_identities.insert((
-                observation.namespace.clone(),
-                "observation",
-                observation.external_id.clone()
-            )));
-        }
-        assert_eq!(
-            mapped
-                .observations
-                .iter()
-                .map(|o| &o.external_id)
-                .collect::<HashSet<_>>()
-                .len(),
-            mapped.observations.len()
-        );
-    }
-    assert_eq!(changed.len(), 13);
-    assert_eq!(changed.iter().collect::<HashSet<_>>().len(), 13);
-    std::fs::write(output, serde_json::to_vec(&dump).unwrap()).unwrap();
-    println!(
-        "items={} episodes={} changed_copies=13 changed_items={}",
-        rows.len(),
-        dump.len(),
-        serde_json::to_string(&changed).unwrap()
-    );
 }

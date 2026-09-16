@@ -424,13 +424,221 @@ mod tests {
     fn loads_and_groups_jsonl() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("enrichment.jsonl");
+        let rows =
+            [("n", "dm1"), ("other", "dm2"), ("n", "dm3")].map(|(namespace, external_id)| {
+                serde_json::json!({"namespace": namespace, "derived_memories": [{
+                    "external_id": external_id, "derived_type": "reflection",
+                    "text": "User prefers concise answers.", "source_episode_external_ids": ["s1"]
+                }]})
+                .to_string()
+            });
+        std::fs::write(&path, rows.join("\n")).unwrap();
+        let loaded = load_enrichment_path(&path).unwrap();
+        assert_eq!(loaded.len(), 2);
+        for (namespace, expected) in [("n", vec!["dm1", "dm3"]), ("other", vec!["dm2"])] {
+            assert_eq!(loaded[namespace].namespace, namespace);
+            assert_eq!(
+                loaded[namespace]
+                    .derived_memories
+                    .iter()
+                    .map(|memory| memory.external_id.as_str())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+    }
+
+    const SNAPSHOT_DATASETS: [(&str, &str, &str); 2] = [
+        ("locomo", "locomo", "deterministic-exact-source-replay-v1"),
+        (
+            "longmemeval_s",
+            "longmemeval-s",
+            "deterministic-exact-source-replay-v2",
+        ),
+    ];
+    const SNAPSHOT_SOURCE: &str = "source dataset bytes";
+
+    fn snapshot_fixture(name: &str, workflow: &str) -> (tempfile::TempDir, PathBuf, Value) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("snapshot.jsonl");
+        let artifact = serde_json::json!({
+            "snapshot_id": "snapshot", "namespace": "test", "dataset_item_id": "item",
+            "cutoff": {"type": "session", "value": "s1"}, "graph": {"namespace": "test"}
+        })
+        .to_string();
+        std::fs::write(&path, &artifact).unwrap();
+        let manifest = serde_json::json!({
+            "workflow_id": workflow, "artifact": {"sha256": cmem_eval::text_sha256(&artifact)},
+            "dataset": {"name": name, "sha256": cmem_eval::text_sha256(SNAPSHOT_SOURCE)}
+        });
+        (directory, path, manifest)
+    }
+
+    fn load_with_manifest(
+        path: &Path,
+        dataset: &str,
+        manifest: &Value,
+    ) -> Result<HashMap<String, GraphSnapshotInput>> {
         std::fs::write(
-            &path,
-            r#"{"namespace":"n","derived_memories":[{"external_id":"dm1","derived_type":"reflection","text":"User prefers concise answers.","source_episode_external_ids":["s1"]}]}"#,
+            path.with_file_name("snapshot_manifest.json"),
+            serde_json::to_vec(manifest).unwrap(),
         )
         .unwrap();
+        load_snapshot_path(path, dataset, &cmem_eval::text_sha256(SNAPSHOT_SOURCE))
+    }
 
-        let loaded = load_enrichment_path(&path).unwrap();
-        assert_eq!(loaded["n"].derived_memories[0].external_id, "dm1");
+    #[test]
+    fn snapshot_loader_rejects_missing_manifest() {
+        for (dataset, name, workflow) in SNAPSHOT_DATASETS {
+            let (_directory, path, _) = snapshot_fixture(name, workflow);
+            let error =
+                load_snapshot_path(&path, dataset, &cmem_eval::text_sha256(SNAPSHOT_SOURCE))
+                    .unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<EnrichmentError>(),
+                Some(&EnrichmentError::MissingManifest {
+                    path: path.with_file_name("snapshot_manifest.json"),
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_loader_rejects_wrong_workflow_before_dataset_identity() {
+        for (dataset, name, workflow) in SNAPSHOT_DATASETS {
+            let (_directory, path, mut manifest) = snapshot_fixture(name, workflow);
+            manifest["workflow_id"] = serde_json::json!("wrong");
+            manifest["dataset"]["name"] = serde_json::json!("wrong");
+            let error = load_with_manifest(&path, dataset, &manifest).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<EnrichmentError>(),
+                Some(&EnrichmentError::WrongWorkflow {
+                    expected: workflow,
+                    actual: Some("wrong".into()),
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_loader_rejects_wrong_dataset_identity_before_hashes() {
+        for (dataset, name, workflow) in SNAPSHOT_DATASETS {
+            let other = if dataset == "locomo" {
+                "longmemeval-s"
+            } else {
+                "locomo"
+            };
+            for (value, actual) in [
+                (Some(serde_json::json!(other)), Some(other)),
+                (
+                    Some(
+                        serde_json::json!({"name": other, "sha256": cmem_eval::text_sha256(SNAPSHOT_SOURCE)}),
+                    ),
+                    Some(other),
+                ),
+                (None, None),
+                (Some(serde_json::json!({"sha256": "stale"})), None),
+                (
+                    Some(
+                        serde_json::json!({"name": null, "sha256": cmem_eval::text_sha256(SNAPSHOT_SOURCE)}),
+                    ),
+                    None,
+                ),
+                (
+                    Some(
+                        serde_json::json!({"name": 42, "sha256": cmem_eval::text_sha256(SNAPSHOT_SOURCE)}),
+                    ),
+                    None,
+                ),
+                (
+                    Some(
+                        serde_json::json!({"name": "", "sha256": cmem_eval::text_sha256(SNAPSHOT_SOURCE)}),
+                    ),
+                    Some(""),
+                ),
+            ] {
+                let (_directory, path, mut manifest) = snapshot_fixture(name, workflow);
+                if let Some(value) = value {
+                    manifest["dataset"] = value;
+                } else {
+                    manifest.as_object_mut().unwrap().remove("dataset");
+                }
+                let error = load_with_manifest(&path, dataset, &manifest).unwrap_err();
+                assert_eq!(
+                    error.downcast_ref::<EnrichmentError>(),
+                    Some(&EnrichmentError::WrongDataset {
+                        expected: name,
+                        actual: actual.map(str::to_string),
+                    })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn snapshot_loader_rejects_artifact_hash_mismatch() {
+        for (dataset, name, workflow) in SNAPSHOT_DATASETS {
+            let (_directory, path, mut manifest) = snapshot_fixture(name, workflow);
+            let actual = manifest["artifact"]["sha256"].as_str().unwrap().to_string();
+            manifest["artifact"]["sha256"] = serde_json::json!("stale");
+            let error = load_with_manifest(&path, dataset, &manifest).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<EnrichmentError>(),
+                Some(&EnrichmentError::ArtifactHashMismatch {
+                    expected: Some("stale".into()),
+                    actual,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_loader_requires_dataset_hash_for_v2() {
+        let (_directory, path, mut manifest) =
+            snapshot_fixture("longmemeval-s", "deterministic-exact-source-replay-v2");
+        manifest["dataset"] = serde_json::json!("longmemeval-s");
+        let error = load_with_manifest(&path, "longmemeval_s", &manifest).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<EnrichmentError>(),
+            Some(&EnrichmentError::MissingDatasetHash)
+        );
+    }
+
+    #[test]
+    fn snapshot_loader_rejects_dataset_hash_mismatch() {
+        for (dataset, name, workflow) in SNAPSHOT_DATASETS {
+            for (value, expected) in [
+                (serde_json::json!("different dataset"), "different dataset"),
+                (Value::Null, "null"),
+                (serde_json::json!(42), "42"),
+            ] {
+                let (_directory, path, mut manifest) = snapshot_fixture(name, workflow);
+                manifest["dataset"]["sha256"] = value;
+                let error = load_with_manifest(&path, dataset, &manifest).unwrap_err();
+                assert_eq!(
+                    error.downcast_ref::<EnrichmentError>(),
+                    Some(&EnrichmentError::DatasetHashMismatch {
+                        expected: expected.into(),
+                        actual: cmem_eval::text_sha256(SNAPSHOT_SOURCE),
+                    })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn snapshot_loader_accepts_valid_manifests_and_legacy_dataset_name() {
+        for (dataset, name, workflow) in SNAPSHOT_DATASETS {
+            let (_directory, path, mut manifest) = snapshot_fixture(name, workflow);
+            let loaded = load_with_manifest(&path, dataset, &manifest).unwrap();
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded["item"].snapshot_id, "snapshot");
+            if dataset == "locomo" {
+                manifest["dataset"] = serde_json::json!(name);
+                let loaded = load_with_manifest(&path, dataset, &manifest).unwrap();
+                assert_eq!(loaded.len(), 1);
+                assert_eq!(loaded["item"].snapshot_id, "snapshot");
+            }
+        }
     }
 }

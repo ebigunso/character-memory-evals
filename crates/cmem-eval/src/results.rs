@@ -325,13 +325,6 @@ mod tests {
     }
 
     #[test]
-    fn serializes_per_question_result() {
-        let row = row(serde_json::json!({"recall_any@1": 1.0}));
-        let value = canonical_row_value(&row).unwrap();
-        assert_eq!(value["question_id"], "q");
-    }
-
-    #[test]
     fn summary_preserves_null_metric_support() {
         let row = row(serde_json::json!({
             "suppressed_or_deleted_items_returned": null

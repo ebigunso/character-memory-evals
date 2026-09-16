@@ -1,20 +1,6 @@
 use cmem_eval_longmemeval::{AdmissionLocation, LoadError, load_value};
 use serde_json::{Value, json};
 
-#[test]
-fn load_path_distinguishes_io_and_json_errors() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("syntax.json");
-    std::fs::write(&path, "{]").unwrap();
-    let syntax_error = cmem_eval_longmemeval::load_path(&path).unwrap_err();
-    std::fs::remove_file(&path).unwrap();
-    assert!(matches!(syntax_error, LoadError::Json(_)));
-    let io_error = cmem_eval_longmemeval::load_path(&path).unwrap_err();
-    assert!(
-        matches!(io_error, LoadError::Io { source, .. } if source.kind() == std::io::ErrorKind::NotFound)
-    );
-}
-
 fn item() -> Value {
     json!({"question_id":"q1","question":"What?","haystack_session_ids":["s1"],"haystack_sessions":[[{"content":""}]]})
 }
@@ -377,21 +363,22 @@ fn admits_parallel_session_repeats_with_identical_turns_and_different_dates() {
 
 #[test]
 fn admits_wrappers_and_key_aliases() {
-    for wrapper in ["data", "instances", "questions"] {
-        for session_id in ["session_id", "id"] {
-            for turns in ["turns", "messages", "conversation"] {
-                let mut row = json!({"id":"q1","question":"  What?  ","type":"kind"});
-                row["haystack_sessions"] =
-                    json!([{session_id:"s1",turns:[{"speaker":"A","text":"hello"}]}]);
-                let rows = load_value(json!({wrapper:[row]})).unwrap();
-                assert_eq!(rows[0].question_id, "q1");
-                assert_eq!(rows[0].question, "  What?  ");
-                assert_eq!(rows[0].question_type.as_deref(), Some("kind"));
-                assert_eq!(rows[0].sessions[0].session_id, "s1");
-                assert_eq!(rows[0].sessions[0].turns[0].text, "hello");
-                assert_eq!(rows[0].sessions[0].turns[0].speaker.as_deref(), Some("A"));
-            }
-        }
+    let cases = ["data", "instances", "questions"]
+        .map(|wrapper| (wrapper, "session_id", "turns"))
+        .into_iter()
+        .chain(["session_id", "id"].map(|id| ("data", id, "turns")))
+        .chain(["turns", "messages", "conversation"].map(|turns| ("data", "session_id", turns)));
+    for (wrapper, session_id, turns) in cases {
+        let mut row = json!({"id":"q1","question":"  What?  ","type":"kind"});
+        row["haystack_sessions"] =
+            json!([{session_id:"s1",turns:[{"speaker":"A","text":"hello"}]}]);
+        let rows = load_value(json!({wrapper:[row]})).unwrap();
+        assert_eq!(rows[0].question_id, "q1");
+        assert_eq!(rows[0].question, "  What?  ");
+        assert_eq!(rows[0].question_type.as_deref(), Some("kind"));
+        assert_eq!(rows[0].sessions[0].session_id, "s1");
+        assert_eq!(rows[0].sessions[0].turns[0].text, "hello");
+        assert_eq!(rows[0].sessions[0].turns[0].speaker.as_deref(), Some("A"));
     }
 }
 

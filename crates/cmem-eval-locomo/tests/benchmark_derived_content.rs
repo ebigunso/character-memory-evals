@@ -1,6 +1,6 @@
 use cmem_eval::{DerivedType, RetrievalMode};
 use cmem_eval_locomo::{
-    ConfigError, LoCoMoSample, ingest::to_memory_inputs, load_path, load_value, validate_config,
+    ConfigError, LoCoMoSample, ingest::to_memory_inputs, load_value, validate_config,
 };
 use serde_json::{Value, json};
 
@@ -195,72 +195,4 @@ fn baseline_config_rejects_each_derived_input_with_a_typed_error() {
             );
         }
     }
-}
-
-#[test]
-#[ignore = "requires the untracked official file via LOCOMO_OFFICIAL_DATASET"]
-fn official_derived_content_census() {
-    let path = std::env::var_os("LOCOMO_OFFICIAL_DATASET").expect("set LOCOMO_OFFICIAL_DATASET");
-    let samples = load_path(std::path::Path::new(&path)).unwrap();
-    let sessions = samples
-        .iter()
-        .flat_map(|sample| &sample.sessions)
-        .collect::<Vec<_>>();
-    let observations = sessions
-        .iter()
-        .flat_map(|session| &session.generated_observations)
-        .collect::<Vec<_>>();
-    let counts = (
-        sessions
-            .iter()
-            .filter(|session| session.summary.is_some())
-            .count(),
-        observations.len(),
-        observations
-            .iter()
-            .map(|observation| observation.evidence_dialog_ids.len())
-            .sum::<usize>(),
-        samples
-            .iter()
-            .map(|sample| sample.unresolved_evidence_references)
-            .sum::<usize>(),
-        samples
-            .iter()
-            .map(|sample| sample.dropped_observation_entries)
-            .sum::<usize>(),
-    );
-    println!(
-        "summaries={} observations={} evidence_references={} unresolved={} dropped={}",
-        counts.0, counts.1, counts.2, counts.3, counts.4
-    );
-    assert_eq!(counts, (272, 2541, 2561, 0, 0));
-    let inputs = samples
-        .iter()
-        .map(|sample| to_memory_inputs(sample, false, true, true))
-        .collect::<Vec<_>>();
-    let memories = inputs
-        .iter()
-        .flat_map(|input| &input.derived_memories)
-        .collect::<Vec<_>>();
-    assert_eq!(
-        memories
-            .iter()
-            .filter(|memory| memory.derived_type == DerivedType::Reflection)
-            .count(),
-        272
-    );
-    assert_eq!(
-        memories
-            .iter()
-            .filter(|memory| memory.derived_type == DerivedType::Claim)
-            .count(),
-        2541
-    );
-    assert_eq!(
-        memories
-            .iter()
-            .map(|memory| memory.source_observation_external_ids.len())
-            .sum::<usize>(),
-        2561
-    );
 }

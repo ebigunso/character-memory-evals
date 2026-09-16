@@ -331,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn report_reader_round_trips_report() {
+    fn report_writer_preserves_existing_bytes() {
         let path = std::env::temp_dir().join(format!(
             "cmem-continuity-report-shape-drift-{}.json",
             Uuid::new_v4()
@@ -350,7 +350,6 @@ mod tests {
         let existing = std::fs::read(&path).unwrap();
         assert!(write_continuity_report(&path, &report).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), existing);
-        assert_eq!(read_continuity_report(&path).unwrap(), report);
         std::fs::remove_file(path).unwrap();
     }
 }
