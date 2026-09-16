@@ -58,7 +58,10 @@ fn main() -> Result<()> {
             mapped.observations.len()
         );
     }
-    std::fs::write(output, serde_json::to_vec(&dump)?)?;
+    let output = std::path::PathBuf::from(output);
+    let file = std::fs::File::create_new(&output)
+        .with_context(|| format!("create {}", output.display()))?;
+    serde_json::to_writer(file, &dump)?;
     println!(
         "items={} episodes={} changed_copies={} changed_item_count={} changed_items={}",
         rows.len(),
