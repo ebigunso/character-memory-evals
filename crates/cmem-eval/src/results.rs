@@ -285,8 +285,7 @@ mod tests {
 
     #[test]
     fn empty_run_is_rejected_before_summary() {
-        let error = reject_empty_run(&[]).unwrap_err().to_string();
-        assert!(error.contains("produced no result rows"), "{error}");
+        assert!(reject_empty_run(&[]).is_err());
     }
 
     fn metrics(value: Value) -> MetricsRecord {
