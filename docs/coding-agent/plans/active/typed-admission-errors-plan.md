@@ -1,6 +1,6 @@
 # Plan: Admission failures are typed everywhere tests assert them
 
-- status: in_progress (approved by the decider 2026-09-16)
+- status: in_progress (approved by the decider 2026-09-16; Tier D APPROVED 2026-09-16 at 0ee07fa; pull request open, awaiting merge approval)
 - generated: 2026-09-16
 - last_updated: 2026-09-16
 - work_type: code
@@ -156,6 +156,10 @@ Parallel tasks run in separate worktrees so Cargo commands never share a target 
   - Summary: FixtureError with FixtureLocation and a 19-kind FixtureAdmissionKind replaces every bail! in the fixture parser; GeneratorError covers the four generator rejections; OutputPathExists beside OutputPathInStores in the runner; a private ResponseError in the OpenAI response validator; ConfigError::DatasetMismatch in both dataset crates; reader tests assert refusal without serde prose; three serde-behaviour tests deleted.
   - Validation evidence (orchestrator, integrated branch): cargo fmt --all --check clean; cargo clippy --workspace --all-targets -D warnings clean; cargo test --workspace: cmem-eval 116, benchmark-convert 10, continuity 67, locomo 12+30+4 (1 ignored), longmemeval 8+23+3 (1 ignored), runner 52 passed and 1 failed (output_leaf_links_are_rejected_before_writing_artifacts, OS error 1314, the known Windows symlink exception); README continuity smoke recipe two runs plus diff, all counts zero (Task_2 evidence).
 
+- 2026-09-16 Wave 2 completed: [Task_5] (first pass at 30af7b6 NEEDS_REVISION with F1 to F5; delta pass at 0ee07fa APPROVED)
+  - Summary: F1 value-first admission restored with a repeated-key regression; F2 location and cause derived from one failing operation with a root-plus-scenario regression; F3 NotChronological, Undeclared and UnassignedEmbeddingInput covered (19 of 19 kinds); F5 empty-run test asserts refusal; F4 closed by the scope ruling in this log.
+  - Validation evidence (orchestrator at 0ee07fa): fmt and clippy clean; workspace tests cmem-eval 116, benchmark-convert 10, continuity 72, locomo 46 (1 ignored), longmemeval 34 (1 ignored), runner 52 passed and the known symlink exception; reviewer reproduced the probes and gates independently in the pinned worktree.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-16 Decision: the dataset-name mismatch becomes ConfigError::DatasetMismatch { expected, found } in both dataset crates (a one-variant ConfigError introduced in longmemeval). Trigger: Task_4 found no typed variant for the name check (locomo lib.rs:88 and longmemeval lib.rs:59 were anyhow bail!). Rationale: worker.md requires validators on library-facing surfaces to classify failures with an owned typed error at introduction; bare is_err() could not distinguish the name rejection from the baseline-content rejection. Callers unchanged (cargo check --workspace). The converter's five conversion-error prose assertions stay: conversion errors are not reader admission and are outside this plan.
@@ -164,7 +168,7 @@ Parallel tasks run in separate worktrees so Cargo commands never share a target 
 - 2026-09-16 Open for Task_5: results.rs reject_empty_run still asserts prose at about line 289 (outside Task_3 owns); the reviewer census decides whether it folds into this pull request.
 - 2026-09-16 Decision (review F4): the plan's crate-wide and workspace-wide wording overreached its Scope. Acceptance is narrowed to the files the Scope section names (the audit's F3 evals list): the reviewer's classified census of 100 further error-string assertion lines outside them (config.rs 26, adapter.rs 26, frozen_embedding.rs 12, controllable_similarity_embedding.rs 5, deterministic_embedding.rs 1, metrics.rs 2, pipeline.rs 14, diff.rs 3, seal.rs 6, enrichment.rs 2, frozen_embeddings.rs 1, the two admission.rs helpers) is carried as recorded input: the adapter-ownership and cost-cleanup plans already delete or reshape several of those lines, and operator-diagnostic assertions whose message content is the contract (frozen-cache miss text) are kept by the test-authoring contract exception. Any remaining re-anchoring is a later pass, not this plan. Census evidence: reviewer artifacts under the review worktree.
 - 2026-09-16 Decision (review F1, F2, F3, F5): fixed in this plan before the pull request opens; value-first admission semantics are retained (a stricter duplicate-key policy would be a separate admission decision).
-- 2026-09-16 Decision: the fixture parser adopts the dataset loaders' typed admission shape rather than a message-prefix convention. Trigger: about 90 prose assertions in one file. User approval: pending.
+- 2026-09-16 Decision: the fixture parser adopts the dataset loaders' typed admission shape rather than a message-prefix convention. Trigger: about 90 prose assertions in one file. Decider approval: plan accepted 2026-09-16; merge approval pending.
 
 ## Notes
 - Risks: serde-originated rejections in the fixture parser may not carry the field name cleanly; Task_1 reports how they are wrapped.
