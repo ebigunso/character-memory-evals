@@ -158,6 +158,7 @@ Parallel tasks run in separate worktrees so Cargo commands never share a target 
 - 2026-09-17 Wave 2 completed: [Task_5] (APPROVED at a7dd8f5, no findings)
   - Validation evidence (reviewer, pinned worktree): fmt and clippy clean; workspace 318 passed plus the known symlink exception, ignored 0; runner integration 1 passed; smoke diff all zero; regenerated fixture bytes match; both official-file examples reproduce the known counts with source hashes unchanged; manifest probes leave no run root. Process census: the retained env-isolation test, the generator parent-probe pair, and a pre-existing Windows junction setup in the pipeline tests are the only child processes, none a determinism proof.
 - 2026-09-17 Copilot follow-up (PR 50): the LongMemEval census example opened its dump path with an unconditional write, so a dump path aliasing the dataset would truncate the official file after reading it; it now uses `File::create_new` like the repository's other artifact writers and refuses an existing path (README updated).
+- 2026-09-17 Copilot follow-up (PR 50): the LoCoMo vector baseline's raw-ingestion flag assertions are unconditional again (both baseline configs set them false; the conditional had been introduced by Task_1 without a recorded reason); the census move surfaced that no test observed the loader's official `YYYY/MM/DD (Day) HH:MM` normalization (the retired census only asserted propagation), so one loader unit test asserts the RFC3339 value.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 

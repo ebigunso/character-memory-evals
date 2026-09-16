@@ -285,6 +285,23 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_official_session_dates_to_rfc3339_utc() {
+        let rows = load_value(serde_json::json!([{
+            "question_id": "q1",
+            "question": "Where is the answer?",
+            "haystack_session_ids": ["s1"],
+            "haystack_dates": ["2023/05/20 (Sat) 02:21"],
+            "haystack_sessions": [[{"role": "user", "content": "hello"}]]
+        }]))
+        .unwrap();
+
+        assert_eq!(
+            rows[0].sessions[0].date.as_deref(),
+            Some("2023-05-20T02:21:00Z")
+        );
+    }
+
+    #[test]
     fn preserves_unrecognized_non_empty_date_for_adapter_error_context() {
         let rows = load_value(serde_json::json!([{
             "question_id": "q1",
