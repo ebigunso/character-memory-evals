@@ -1,6 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use cmem_eval::{ControllableSimilarityFixture, SimilarityConceptFixture};
 
@@ -1739,9 +1742,12 @@ fn scenario(
         .collect::<BTreeSet<_>>();
     let cluster_count = clusters.len();
     if cluster_count > EMBEDDING_VECTOR_SIZE {
-        bail!(
-            "continuity scenario `{id}` declares {cluster_count} embedding clusters, exceeding configured vector_size {EMBEDDING_VECTOR_SIZE}"
-        );
+        return Err(GeneratorError::ClusterCountExceedsVectorSize {
+            scenario_id: id.to_string(),
+            clusters: cluster_count,
+            vector_size: EMBEDDING_VECTOR_SIZE,
+        }
+        .into());
     }
     let mut cluster_vectors = BTreeMap::new();
     for (index, cluster) in clusters.into_iter().enumerate() {
@@ -1767,6 +1773,70 @@ fn scenario(
     })
 }
 
+/// Why the generator refused to build a scenario from its inputs.
+#[derive(Debug)]
+pub enum GeneratorError {
+    /// Each embedding cluster gets its own one-hot dimension, so a scenario
+    /// cannot declare more clusters than the vector has dimensions.
+    ClusterCountExceedsVectorSize {
+        scenario_id: String,
+        clusters: usize,
+        vector_size: usize,
+    },
+    /// A `Remember` text that references an entity has no embedding concept.
+    MissingRememberConcept { scenario_id: String, text: String },
+    /// The scenario declares the concept ID the generator reserves for
+    /// entities no event references.
+    ReservedConceptCollision {
+        scenario_id: String,
+        concept_id: &'static str,
+    },
+    Timestamp {
+        value: String,
+        source: chrono::ParseError,
+    },
+}
+
+const BACKGROUND_CONCEPT_ID: &str = "entity_background";
+
+impl fmt::Display for GeneratorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ClusterCountExceedsVectorSize {
+                scenario_id,
+                clusters,
+                vector_size,
+            } => write!(
+                f,
+                "continuity scenario {scenario_id:?} declares {clusters} embedding clusters, exceeding configured vector_size {vector_size}"
+            ),
+            Self::MissingRememberConcept { scenario_id, text } => write!(
+                f,
+                "continuity scenario {scenario_id:?} Remember text {text:?} is missing from embedding concepts"
+            ),
+            Self::ReservedConceptCollision {
+                scenario_id,
+                concept_id,
+            } => write!(
+                f,
+                "continuity scenario {scenario_id:?} collides with reserved embedding concept ID {concept_id:?}"
+            ),
+            Self::Timestamp { value, source } => {
+                write!(f, "parse continuity fixture timestamp {value:?}: {source}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for GeneratorError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Timestamp { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
+
 fn assign_entity_embedding_inputs(
     scenario_id: &str,
     entities: &[EntityDeclaration],
@@ -1788,9 +1858,11 @@ fn assign_entity_embedding_inputs(
                 .values_mut()
                 .find(|concept| concept.inputs.contains(text))
             else {
-                bail!(
-                    "continuity scenario {scenario_id:?} Remember text {text:?} is missing from embedding concepts"
-                );
+                return Err(GeneratorError::MissingRememberConcept {
+                    scenario_id: scenario_id.to_string(),
+                    text: text.clone(),
+                }
+                .into());
             };
             concept.inputs.push(entity.label.clone());
         } else {
@@ -1798,15 +1870,17 @@ fn assign_entity_embedding_inputs(
         }
     }
     if !background_labels.is_empty() {
-        if concepts.contains_key("entity_background") {
-            bail!(
-                "continuity scenario {scenario_id:?} collides with reserved embedding concept ID \"entity_background\""
-            );
+        if concepts.contains_key(BACKGROUND_CONCEPT_ID) {
+            return Err(GeneratorError::ReservedConceptCollision {
+                scenario_id: scenario_id.to_string(),
+                concept_id: BACKGROUND_CONCEPT_ID,
+            }
+            .into());
         }
         concepts.insert(
-            "entity_background".to_string(),
+            BACKGROUND_CONCEPT_ID.to_string(),
             SimilarityConceptFixture {
-                cluster: "entity_background".to_string(),
+                cluster: BACKGROUND_CONCEPT_ID.to_string(),
                 inputs: background_labels,
             },
         );
@@ -1983,8 +2057,14 @@ fn query(
 
 fn timestamp(value: &str) -> Result<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
-        .with_context(|| format!("parse continuity fixture timestamp {value:?}"))
         .map(|timestamp| timestamp.with_timezone(&Utc))
+        .map_err(|source| {
+            GeneratorError::Timestamp {
+                value: value.to_string(),
+                source,
+            }
+            .into()
+        })
 }
 
 #[cfg(test)]
@@ -1992,7 +2072,10 @@ mod tests {
     use std::{env, fs, process::Command};
 
     use super::*;
-    use crate::{canonical_fixture_bytes, parse_fixture_bytes, scenario_patterns};
+    use crate::{
+        FixtureAdmissionKind, FixtureError, FixtureLocation, canonical_fixture_bytes,
+        parse_fixture_bytes, scenario_patterns,
+    };
 
     const PROCESS_PROBE_PATH: &str = "CMEM_CONTINUITY_FIXTURE_PROBE_PATH";
     const CHECKED_FIXTURE: &[u8] = include_bytes!("../fixtures/continuity_v3.json");
@@ -2056,11 +2139,21 @@ mod tests {
             concepts,
         )
         .unwrap_err()
-        .to_string();
+        .downcast::<GeneratorError>()
+        .unwrap();
 
+        let GeneratorError::ClusterCountExceedsVectorSize {
+            scenario_id,
+            clusters,
+            vector_size,
+        } = error
+        else {
+            panic!("{error}");
+        };
+        assert_eq!(scenario_id, "too-many-clusters");
         assert_eq!(
-            error,
-            "continuity scenario `too-many-clusters` declares 9 embedding clusters, exceeding configured vector_size 8"
+            (clusters, vector_size),
+            (EMBEDDING_VECTOR_SIZE + 1, EMBEDDING_VECTOR_SIZE)
         );
     }
 
@@ -2094,11 +2187,20 @@ mod tests {
             BTreeMap::new(),
         )
         .unwrap_err()
-        .to_string();
+        .downcast::<GeneratorError>()
+        .unwrap();
 
-        assert!(error.contains(scenario_id), "{error}");
-        assert!(error.contains(remembered_text), "{error}");
-        assert!(error.contains("missing from embedding concepts"), "{error}");
+        let GeneratorError::MissingRememberConcept {
+            scenario_id: found_scenario_id,
+            text,
+        } = error
+        else {
+            panic!("{error}");
+        };
+        assert_eq!(
+            (found_scenario_id, text),
+            (scenario_id.to_string(), remembered_text.to_string())
+        );
     }
 
     #[test]
@@ -2118,18 +2220,32 @@ mod tests {
             concepts([("entity_background", "custom", vec!["custom input"])]),
         )
         .unwrap_err()
-        .to_string();
+        .downcast::<GeneratorError>()
+        .unwrap();
 
-        assert!(error.contains(scenario_id), "{error}");
-        assert!(error.contains("entity_background"), "{error}");
-        assert!(error.contains("reserved"), "{error}");
+        let GeneratorError::ReservedConceptCollision {
+            scenario_id: found_scenario_id,
+            concept_id,
+        } = error
+        else {
+            panic!("{error}");
+        };
+        assert_eq!(
+            (found_scenario_id, concept_id),
+            (scenario_id.to_string(), "entity_background")
+        );
     }
 
     #[test]
     fn invalid_extension_timestamp_returns_contextual_error() {
-        let error = timestamp("not-a-timestamp").unwrap_err().to_string();
-        assert!(error.contains("continuity fixture timestamp"), "{error}");
-        assert!(error.contains("not-a-timestamp"), "{error}");
+        let error = timestamp("not-a-timestamp")
+            .unwrap_err()
+            .downcast::<GeneratorError>()
+            .unwrap();
+        let GeneratorError::Timestamp { value, .. } = error else {
+            panic!("{error}");
+        };
+        assert_eq!(value, "not-a-timestamp");
     }
 
     #[test]
@@ -2225,6 +2341,7 @@ mod tests {
     fn public_parser_requires_every_entity_label_embedding_assignment() {
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = &mut fixtures.scenarios[0];
+        let fixture_id = scenario.fixture_id.clone();
         let entity_label = scenario
             .entities
             .iter()
@@ -2243,9 +2360,28 @@ mod tests {
         }
         let bytes = serde_json::to_vec(&fixtures).unwrap();
 
-        let error = parse_fixture_bytes(&bytes).unwrap_err().to_string();
-        assert!(error.contains("entity label"), "{error}");
-        assert!(error.contains(&entity_label), "{error}");
+        let FixtureError::Admission {
+            location,
+            field,
+            kind,
+        } = parse_fixture_bytes(&bytes).unwrap_err()
+        else {
+            panic!("expected an admission error");
+        };
+        assert_eq!(
+            (location, field, kind),
+            (
+                FixtureLocation::Scenario {
+                    fixture_id: fixture_id.clone(),
+                    event_id: None
+                },
+                "entity.label",
+                FixtureAdmissionKind::ConceptAssignments {
+                    label: entity_label,
+                    found: 0
+                }
+            )
+        );
     }
 
     #[test]

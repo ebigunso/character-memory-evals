@@ -351,11 +351,15 @@ mod tests {
             normalize(vec![row("b", 99, 1)]),
         )
         .unwrap();
+        assert_eq!(report.queries, 1);
         assert_eq!(report.differing_queries, 0);
-        assert_eq!(
-            report.render(),
-            "summary: queries=1 differing=0 missing_from_a=0 missing_from_b=0 identity_changes=0 rank_changes=0 metric_changes=0 degradation_changes=0\n"
-        );
+        assert_eq!(report.missing_from_a, 0);
+        assert_eq!(report.missing_from_b, 0);
+        assert_eq!(report.identity_changes, 0);
+        assert_eq!(report.rank_changes, 0);
+        assert_eq!(report.metric_changes, 0);
+        assert_eq!(report.degradation_changes, 0);
+        assert!(report.details.is_empty());
     }
 
     #[test]

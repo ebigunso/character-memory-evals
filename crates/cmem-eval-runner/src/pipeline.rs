@@ -1226,6 +1226,25 @@ impl std::fmt::Display for OutputPathInStores {
 
 impl std::error::Error for OutputPathInStores {}
 
+#[derive(Debug)]
+struct OutputPathExists {
+    name: &'static str,
+    path: PathBuf,
+}
+
+impl std::fmt::Display for OutputPathExists {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "output {} already exists; choose a new output directory or remove it: {}",
+            self.name,
+            self.path.display()
+        )
+    }
+}
+
+impl std::error::Error for OutputPathExists {}
+
 fn create_run_root(
     results_path: &Path,
     other_outputs: &[(&'static str, &Path)],
@@ -1253,10 +1272,11 @@ fn create_run_root(
             let canonical_parent = fs::canonicalize(parent)?;
             match fs::symlink_metadata(path) {
                 Ok(_) => {
-                    bail!(
-                        "{name} already exists; choose a new output directory or remove it: {}",
-                        path.display()
-                    );
+                    return Err(OutputPathExists {
+                        name,
+                        path: path.to_path_buf(),
+                    }
+                    .into());
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => {
@@ -1909,7 +1929,10 @@ mod tests {
         let header = sibling_output(&args.run.out, "header.json");
         symlink_file(&target, &header).unwrap();
         let error = run_continuity(args).await.unwrap_err();
-        assert!(error.to_string().starts_with("header already exists;"));
+        assert_eq!(
+            error.downcast_ref::<OutputPathExists>().unwrap().name,
+            "header"
+        );
         assert!(!output_dir.join("stores").exists());
         assert_eq!(fs::read_dir(&output_dir).unwrap().count(), 1);
         fs::remove_file(header).unwrap();
@@ -1930,11 +1953,7 @@ mod tests {
                     create_run_root(&output, &[(name, &leaf)])
                 }
                 .unwrap_err();
-                assert!(
-                    error
-                        .to_string()
-                        .starts_with(&format!("{name} already exists;"))
-                );
+                assert_eq!(error.downcast_ref::<OutputPathExists>().unwrap().name, name);
                 assert!(!output_dir.join("stores").exists());
                 fs::remove_file(leaf).unwrap();
             }
@@ -1959,11 +1978,7 @@ mod tests {
                 }
                 let error = create_run_root(&output, &[("header", &header), ("report", &report)])
                     .unwrap_err();
-                assert!(
-                    error
-                        .to_string()
-                        .starts_with(&format!("{name} already exists;"))
-                );
+                assert_eq!(error.downcast_ref::<OutputPathExists>().unwrap().name, name);
                 assert!(!directory.path().join("stores").exists());
                 assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
                 if is_directory {
@@ -1990,7 +2005,10 @@ mod tests {
         let artifact = args.run.out.clone();
 
         let error = run_continuity(args).await.unwrap_err();
-        assert!(error.to_string().starts_with("out already exists;"));
+        assert_eq!(
+            error.downcast_ref::<OutputPathExists>().unwrap().name,
+            "out"
+        );
         assert_eq!(fs::read(&artifact).unwrap(), b"original");
         assert_eq!(fs::read(&header).unwrap(), b"original");
         assert_eq!(fs::read_dir(&output_dir).unwrap().count(), 2);

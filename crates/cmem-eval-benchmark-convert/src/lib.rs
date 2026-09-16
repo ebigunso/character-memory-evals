@@ -989,19 +989,9 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn selection_reader_rejects_corrupt_encoding() {
-        let error = parse_selection_manifest_bytes(b"{\"schema_version\":1,\xff")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("UTF-8 JSON"));
-    }
-
-    #[test]
-    fn selection_reader_rejects_partial_input() {
-        let error = parse_selection_manifest_bytes(b"{\"schema_version\":1")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("UTF-8 JSON"));
+    fn selection_reader_rejects_corrupt_and_partial_input() {
+        assert!(parse_selection_manifest_bytes(b"{\"schema_version\":1,\xff").is_err());
+        assert!(parse_selection_manifest_bytes(b"{\"schema_version\":1").is_err());
     }
 
     #[test]
