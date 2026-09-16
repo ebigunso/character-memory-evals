@@ -3019,6 +3019,136 @@ mod tests {
         };
     }
 
+    #[tokio::test]
+    async fn remembered_metadata_and_speaker_never_reach_stores_or_context() {
+        let directory = tempdir().unwrap();
+        let config = adapter_config("metadata-isolation".into());
+        let adapter = CharacterMemoryAdapter::new(directory.path(), &config)
+            .await
+            .unwrap();
+        let namespace = "metadata-isolation";
+        let sentinels = [
+            "gold-episode-81e6d795",
+            "gold-observation-2c7fa413",
+            "gold-derived-97b035ea",
+            "speaker-4a193cd8",
+        ];
+        let text = "The cobalt notebook is in the east cabinet.";
+        adapter.open_namespace(namespace).await.unwrap();
+        adapter
+            .remember_episode(EpisodeInput {
+                external_id: "episode".into(),
+                namespace: namespace.into(),
+                summary: text.into(),
+                started_at: Some("2025-01-01T00:00:00Z".into()),
+                ended_at: None,
+                participants: Vec::new(),
+                metadata: serde_json::json!({"gold_label": sentinels[0]}),
+            })
+            .await
+            .unwrap();
+        adapter
+            .remember_observation(ObservationInput {
+                external_id: "observation".into(),
+                episode_external_id: "episode".into(),
+                namespace: namespace.into(),
+                speaker: Some(sentinels[3].into()),
+                text: text.into(),
+                observed_at: Some("2025-01-01T00:00:00Z".into()),
+                metadata: serde_json::json!({"gold_label": sentinels[1]}),
+            })
+            .await
+            .unwrap();
+        adapter
+            .remember_enrichment(GraphEnrichmentInput {
+                namespace: namespace.into(),
+                derived_memories: vec![DerivedMemoryInput {
+                    external_id: "derived".into(),
+                    derived_type: DerivedType::Reflection,
+                    text: text.into(),
+                    source_episode_external_ids: vec!["episode".into()],
+                    source_observation_external_ids: vec!["observation".into()],
+                    thread_external_ids: Vec::new(),
+                    entity_external_ids: Vec::new(),
+                    confidence: 1.0,
+                    salience_score: 1.0,
+                    stability: Stability::Medium,
+                    is_current: true,
+                    supersedes_external_ids: Vec::new(),
+                    metadata: serde_json::json!({"gold_label": sentinels[2]}),
+                }],
+                ..GraphEnrichmentInput::default()
+            })
+            .await
+            .unwrap();
+
+        let retrieved = adapter
+            .retrieve(RetrieveInput {
+                mode: RetrievalMode::Hybrid,
+                namespace: namespace.into(),
+                query: text.into(),
+                query_date: Some("2025-01-02T00:00:00Z".into()),
+                surface_policy: retrieval_surface_policy(8, 8, true, false, false, true),
+            })
+            .await
+            .unwrap();
+        for (kind, external_id) in [
+            (ObjectType::Episode, "episode"),
+            (ObjectType::Observation, "observation"),
+            (ObjectType::DerivedMemory, "derived"),
+        ] {
+            assert!(
+                retrieved.items().iter().any(|item| {
+                    item.kind == kind && item.external_id.as_deref() == Some(external_id)
+                }),
+                "missing {kind}: {retrieved:?}"
+            );
+        }
+        assert!(retrieved.context_text().contains(text));
+        let encoded = serde_json::to_string(&retrieved).unwrap();
+        for sentinel in sentinels {
+            assert!(
+                !encoded.contains(sentinel),
+                "retrieved context or native outcome leaked {sentinel}"
+            );
+        }
+
+        let namespace_path = adapter.namespace_path(namespace);
+        let mut stores = adapter.configured_durable_store_paths(namespace);
+        stores.push((
+            "identity registry",
+            adapter.identity_registry_path(namespace),
+        ));
+        adapter.close().await.unwrap();
+        let mut pending = vec![namespace_path];
+        let mut files = Vec::new();
+        while let Some(path) = pending.pop() {
+            if path.is_dir() {
+                pending.extend(
+                    fs::read_dir(&path)
+                        .unwrap()
+                        .map(|entry| entry.unwrap().path()),
+                );
+            } else {
+                for sentinel in sentinels {
+                    assert!(
+                        !file_contains(&path, sentinel.as_bytes()),
+                        "{} leaked {sentinel}",
+                        path.display()
+                    );
+                }
+                files.push(path);
+            }
+        }
+        for (name, path) in stores {
+            assert!(
+                files.iter().any(|file| file.starts_with(&path)),
+                "no files scanned for {name}"
+            );
+        }
+        directory.close().unwrap();
+    }
+
     fn file_contains(path: &Path, needle: &[u8]) -> bool {
         fs::read(path)
             .unwrap()

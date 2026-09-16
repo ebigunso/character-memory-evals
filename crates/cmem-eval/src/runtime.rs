@@ -268,3 +268,18 @@ impl Default for RetrievalSurfacePolicy {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dataset_ids_reject_unsafe_names_and_preserve_admitted_ids() {
+        for invalid in ["../escape", "Upper", "", "a/b", "a\\b", "a b", "非ascii"] {
+            assert!(DatasetId::new(invalid).is_err(), "accepted {invalid:?}");
+        }
+        for valid in ["locomo", "longmemeval_s", "dataset-2"] {
+            assert_eq!(DatasetId::new(valid).unwrap().as_str(), valid);
+        }
+    }
+}

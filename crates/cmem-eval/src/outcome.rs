@@ -46,3 +46,21 @@ pub fn deterministic_operation_id<'a>(
         .collect::<String>();
     format!("{operation}:{encoded}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn operation_ids_frame_identity_parts_and_are_stable() {
+        let first = deterministic_operation_id("namespace", "remember", ["a", "bc"]);
+        assert_eq!(
+            first,
+            deterministic_operation_id("namespace", "remember", ["a", "bc"])
+        );
+        assert_ne!(
+            first,
+            deterministic_operation_id("namespace", "remember", ["ab", "c"])
+        );
+    }
+}

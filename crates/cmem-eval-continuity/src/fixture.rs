@@ -1480,6 +1480,88 @@ mod tests {
         );
     }
 
+    // One hand-authored scenario covers every event shape used by admission tests.
+    // Keep its inputs explicit so the generator cannot repair a malformed test.
+    fn admission_fixture() -> ContinuityFixtureSet {
+        let fixtures: ContinuityFixtureSet = serde_json::from_value(serde_json::json!({
+            "schema_version": CONTINUITY_FIXTURE_SCHEMA_VERSION,
+            "seed": 1,
+            "scenarios": [{
+                "fixture_id": "admission-test",
+                "namespace": "admission-test",
+                "pattern": "long_gap_recall",
+                "entities": [{
+                    "external_id": "entity-person", "entity_type": "person",
+                    "label": "Person", "is_hub": false
+                }],
+                "embedding": {
+                    "provider": "controllable_similarity", "seed": 1,
+                    "vector_size": 1, "noise_magnitude": 0.0,
+                    "clusters": {"test": [1.0]},
+                    "concepts": {"test": {"cluster": "test", "inputs": [
+                        "Person", "Episode", "Observation", "Derived",
+                        "Contrast", "Correction", "Question"
+                    ]}}
+                },
+                "events": [
+                    {
+                        "kind": "remember", "event_id": "event-remember",
+                        "external_id": "memory-one", "timestamp": "2024-01-01T00:00:00Z",
+                        "text": "Episode", "surface_texts": {
+                            "episode": "Episode", "observation": "Observation", "derived": "Derived"
+                        },
+                        "entity_external_ids": ["entity-person"], "salience": 0.5,
+                        "thread": {"thread_external_id": "thread-one", "confidence": 0.5}
+                    },
+                    {
+                        "kind": "remember", "event_id": "event-contrast",
+                        "external_id": "memory-two", "timestamp": "2024-01-01T00:01:00Z",
+                        "text": "Contrast", "entity_external_ids": [], "thread": null,
+                        "salience": 0.5
+                    },
+                    {
+                        "kind": "link", "event_id": "event-link", "external_id": "memory-link",
+                        "timestamp": "2024-01-01T00:02:00Z", "from_external_id": "memory-one",
+                        "relation": "mentions", "to_external_id": "entity-person"
+                    },
+                    {
+                        "kind": "correct", "event_id": "event-correct",
+                        "target_external_id": "memory-one", "replacement_external_id": "memory-corrected",
+                        "timestamp": "2024-01-01T00:03:00Z", "replacement_text": "Correction"
+                    },
+                    {
+                        "kind": "forget", "event_id": "event-forget",
+                        "target_external_ids": ["memory-two", "memory-corrected"],
+                        "timestamp": "2024-01-01T00:04:00Z",
+                        "suppress_derived_from_target": true, "apply_to_derived_from_target": true
+                    },
+                    {
+                        "kind": "restart", "event_id": "event-restart",
+                        "timestamp": "2024-01-01T00:05:00Z", "reopen_graph": true, "reopen_stats": true
+                    },
+                    {
+                        "kind": "query", "event_id": "event-query", "query_id": "query-test",
+                        "timestamp": "2024-01-01T00:06:00Z", "text": "Question",
+                        "expected": {"relevant_external_ids": ["memory-one"], "irrelevant_external_ids": ["memory-two"]}
+                    }
+                ]
+            }]
+        })).unwrap();
+        fixtures.validate().unwrap();
+        fixtures
+    }
+
+    fn event_mut<'a>(
+        scenario: &'a mut ContinuityScenario,
+        event_id: &str,
+    ) -> &'a mut InteractionEvent {
+        scenario
+            .events
+            .iter_mut()
+            .find(|event| event.event_id() == event_id)
+            .unwrap()
+    }
+
     type Admission = (FixtureLocation, &'static str, FixtureAdmissionKind);
 
     fn admission_of(error: FixtureError) -> Admission {
@@ -1521,17 +1603,6 @@ mod tests {
             field,
             kind,
         )
-    }
-
-    fn scenario_mut(
-        fixtures: &mut ContinuityFixtureSet,
-        pattern: ScenarioPattern,
-    ) -> &mut ContinuityScenario {
-        fixtures
-            .scenarios
-            .iter_mut()
-            .find(|scenario| scenario.pattern == pattern)
-            .unwrap()
     }
 
     fn query_event_id(scenario: &ContinuityScenario) -> String {
@@ -1596,7 +1667,7 @@ mod tests {
 
     #[test]
     fn public_parser_keeps_the_last_repeated_object_key() {
-        let canonical = include_str!("../fixtures/continuity_v3.json");
+        let canonical = serde_json::to_string(&admission_fixture()).unwrap();
         let repeated = canonical.replacen('{', "{\"seed\":123,", 1);
         assert_eq!(
             parse_fixture_bytes(repeated.as_bytes()).unwrap(),
@@ -1606,12 +1677,11 @@ mod tests {
 
     #[test]
     fn public_parser_attributes_root_shape_errors_before_scenario_errors() {
-        let mut value: Value =
-            serde_json::from_str(include_str!("../fixtures/continuity_v3.json")).unwrap();
+        let mut value: Value = serde_json::to_value(admission_fixture()).unwrap();
         value["scenarios"][0]["entities"][0]["entity_type"] = Value::from("unknown-kind");
         assert_eq!(
             shape(&value),
-            (FixtureLocation::scenario("long-gap-recall"), None)
+            (FixtureLocation::scenario("admission-test"), None)
         );
 
         for field in ["aaa_root_typo", "zzz_root_typo"] {
@@ -1629,8 +1699,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_out_of_order_events() {
-        let mut value: Value =
-            serde_json::from_str(include_str!("../fixtures/continuity_v3.json")).unwrap();
+        let mut value: Value = serde_json::to_value(admission_fixture()).unwrap();
         let scenario = &mut value["scenarios"][0];
         let fixture_id = scenario["fixture_id"].as_str().unwrap().to_string();
         let event = scenario["events"]
@@ -1653,8 +1722,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_undeclared_remember_entities() {
-        let mut value: Value =
-            serde_json::from_str(include_str!("../fixtures/continuity_v3.json")).unwrap();
+        let mut value: Value = serde_json::to_value(admission_fixture()).unwrap();
         let scenario = &mut value["scenarios"][0];
         let fixture_id = scenario["fixture_id"].as_str().unwrap().to_string();
         let event = scenario["events"]
@@ -1678,8 +1746,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_unassigned_query_embedding_input() {
-        let mut value: Value =
-            serde_json::from_str(include_str!("../fixtures/continuity_v3.json")).unwrap();
+        let mut value: Value = serde_json::to_value(admission_fixture()).unwrap();
         let scenario = &mut value["scenarios"][0];
         let fixture_id = scenario["fixture_id"].as_str().unwrap().to_string();
         let event = scenario["events"]
@@ -1703,7 +1770,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_v1_and_retired_caller_supplied_identity_fields() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let fixtures = admission_fixture();
         let mut v1 = serde_json::to_value(&fixtures).unwrap();
         v1["schema_version"] = Value::from(1);
         let error = parse_fixture_bytes(&serde_json::to_vec(&v1).unwrap()).unwrap_err();
@@ -1716,31 +1783,19 @@ mod tests {
             )
         );
 
-        for (pattern, field) in [
-            (ScenarioPattern::LongGapRecall, "memory_id"),
-            (ScenarioPattern::CorrectionChains, "replacement_memory_id"),
-            (ScenarioPattern::CrossStoreStress, "memory_id"),
+        for (event_kind, field) in [
+            ("remember", "memory_id"),
+            ("correct", "replacement_memory_id"),
+            ("link", "memory_id"),
         ] {
             let mut value = serde_json::to_value(&fixtures).unwrap();
-            let scenario = value["scenarios"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
-                .find(|scenario| {
-                    serde_json::from_value::<ScenarioPattern>(scenario["pattern"].clone()).unwrap()
-                        == pattern
-                })
-                .unwrap();
+            let scenario = &mut value["scenarios"][0];
             let fixture_id = scenario["fixture_id"].as_str().unwrap().to_string();
             let event = scenario["events"]
                 .as_array_mut()
                 .unwrap()
                 .iter_mut()
-                .find(|event| match field {
-                    "replacement_memory_id" => event["kind"] == "correct",
-                    _ if pattern == ScenarioPattern::CrossStoreStress => event["kind"] == "link",
-                    _ => event["kind"] == "remember",
-                })
+                .find(|event| event["kind"] == event_kind)
                 .unwrap();
             event
                 .as_object_mut()
@@ -1785,7 +1840,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_unknown_entity_kinds_before_validation() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let fixtures = admission_fixture();
         let mut value = serde_json::to_value(&fixtures).unwrap();
         value["scenarios"][0]["entities"][0]["entity_type"] = Value::from("inferred-from-label");
 
@@ -1803,7 +1858,7 @@ mod tests {
 
     #[test]
     fn public_parser_requires_pollution_labels_to_be_present_but_allows_unlabeled_contrasts() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let fixtures = admission_fixture();
         let mut value = serde_json::to_value(&fixtures).unwrap();
         let scenarios = value["scenarios"].as_array_mut().unwrap();
         let events = scenarios[0]["events"].as_array_mut().unwrap();
@@ -1826,7 +1881,7 @@ mod tests {
         );
 
         let mut fixtures = fixtures;
-        expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall))
+        expected_mut(&mut fixtures.scenarios[0])
             .irrelevant_external_ids
             .clear();
         fixtures.validate().unwrap();
@@ -1834,8 +1889,8 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_duplicate_or_overlapping_relevance_labels() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         let query = query_event_id(scenario);
         let expected = expected_mut(scenario);
         let relevant = expected.relevant_external_ids[0].clone();
@@ -1844,35 +1899,35 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "long-gap-recall",
+                "admission-test",
                 Some(&query),
                 "query.expected.relevant_external_ids",
                 FixtureAdmissionKind::Duplicate(relevant.clone())
             )
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall))
+        let mut fixtures = admission_fixture();
+        expected_mut(&mut fixtures.scenarios[0])
             .irrelevant_external_ids
             .push(irrelevant.clone());
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "long-gap-recall",
+                "admission-test",
                 Some(&query),
                 "query.expected.irrelevant_external_ids",
                 FixtureAdmissionKind::Duplicate(irrelevant)
             )
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        expected_mut(scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall))
+        let mut fixtures = admission_fixture();
+        expected_mut(&mut fixtures.scenarios[0])
             .irrelevant_external_ids
             .push(relevant.clone());
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "long-gap-recall",
+                "admission-test",
                 Some(&query),
                 "query.expected.irrelevant_external_ids",
                 FixtureAdmissionKind::Overlap(relevant)
@@ -1882,29 +1937,39 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_relevance_labels_before_external_id_admission() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         let query = query_event_id(scenario);
-        scenario.events.swap(1, 2);
+        let query_index = scenario
+            .events
+            .iter()
+            .position(|event| event.event_id() == "event-query")
+            .unwrap();
+        let contrast_index = scenario
+            .events
+            .iter()
+            .position(|event| event.event_id() == "event-contrast")
+            .unwrap();
+        scenario.events.swap(contrast_index, query_index);
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "long-gap-recall",
+                "admission-test",
                 Some(&query),
                 "query.expected.irrelevant_external_ids",
-                FixtureAdmissionKind::NotAdmitted("memory-recent".to_string())
+                FixtureAdmissionKind::NotAdmitted("memory-two".to_string())
             )
         );
     }
 
     #[test]
     fn public_parser_rejects_dangling_correction_and_forget_targets() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
-        let correct = scenario.events[1].event_id().to_string();
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let correct = event_mut(scenario, "event-correct").event_id().to_string();
         let InteractionEvent::Correct {
             target_external_id, ..
-        } = &mut scenario.events[1]
+        } = event_mut(scenario, "event-correct")
         else {
             panic!("expected correction event");
         };
@@ -1912,20 +1977,20 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "correction-chains",
+                "admission-test",
                 Some(&correct),
                 "correct.target_external_id",
                 FixtureAdmissionKind::NotAdmitted("missing-correction-target".to_string())
             )
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
-        let forget = scenario.events[3].event_id().to_string();
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let forget = event_mut(scenario, "event-forget").event_id().to_string();
         let InteractionEvent::Forget {
             target_external_ids,
             ..
-        } = &mut scenario.events[3]
+        } = event_mut(scenario, "event-forget")
         else {
             panic!("expected forget event");
         };
@@ -1933,7 +1998,7 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "correction-chains",
+                "admission-test",
                 Some(&forget),
                 "forget.target_external_ids",
                 FixtureAdmissionKind::NotAdmitted("missing-forget-target".to_string())
@@ -1943,12 +2008,12 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_correction_targets_the_driver_cannot_correct() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
-        let correct = scenario.events[1].event_id().to_string();
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let correct = event_mut(scenario, "event-correct").event_id().to_string();
         let InteractionEvent::Correct {
             target_external_id, ..
-        } = &mut scenario.events[1]
+        } = event_mut(scenario, "event-correct")
         else {
             panic!("expected correction event");
         };
@@ -1956,7 +2021,7 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "correction-chains",
+                "admission-test",
                 Some(&correct),
                 "correct.target_external_id",
                 FixtureAdmissionKind::UnsupportedKind {
@@ -1967,24 +2032,23 @@ mod tests {
             )
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
-        insert_link_before(scenario, 1, "correction-link", "delivery-v1");
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         let InteractionEvent::Correct {
             target_external_id, ..
-        } = &mut scenario.events[2]
+        } = event_mut(scenario, "event-correct")
         else {
             panic!("expected correction event");
         };
-        *target_external_id = "correction-link".to_string();
+        *target_external_id = "memory-link".to_string();
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "correction-chains",
+                "admission-test",
                 Some(&correct),
                 "correct.target_external_id",
                 FixtureAdmissionKind::UnsupportedKind {
-                    external_id: "correction-link".to_string(),
+                    external_id: "memory-link".to_string(),
                     found: ContinuityObjectKind::MemoryLink,
                     allowed: CORRECTION_TARGET_KINDS,
                 }
@@ -1994,13 +2058,13 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_forget_targets_the_driver_cannot_forget() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
-        let forget = scenario.events[3].event_id().to_string();
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let forget = event_mut(scenario, "event-forget").event_id().to_string();
         let InteractionEvent::Forget {
             target_external_ids,
             ..
-        } = &mut scenario.events[3]
+        } = event_mut(scenario, "event-forget")
         else {
             panic!("expected forget event");
         };
@@ -2008,7 +2072,7 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "correction-chains",
+                "admission-test",
                 Some(&forget),
                 "forget.target_external_ids",
                 FixtureAdmissionKind::UnsupportedKind {
@@ -2019,25 +2083,24 @@ mod tests {
             )
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
-        insert_link_before(scenario, 3, "forget-link", "delivery-v2");
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         let InteractionEvent::Forget {
             target_external_ids,
             ..
-        } = &mut scenario.events[4]
+        } = event_mut(scenario, "event-forget")
         else {
             panic!("expected forget event");
         };
-        target_external_ids[0] = "forget-link".to_string();
+        target_external_ids[0] = "memory-link".to_string();
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "correction-chains",
+                "admission-test",
                 Some(&forget),
                 "forget.target_external_ids",
                 FixtureAdmissionKind::UnsupportedKind {
-                    external_id: "forget-link".to_string(),
+                    external_id: "memory-link".to_string(),
                     found: ContinuityObjectKind::MemoryLink,
                     allowed: FORGET_TARGET_KINDS,
                 }
@@ -2047,13 +2110,13 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_empty_or_duplicate_forget_targets() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
-        let forget = scenario.events[3].event_id().to_string();
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let forget = event_mut(scenario, "event-forget").event_id().to_string();
         let InteractionEvent::Forget {
             target_external_ids,
             ..
-        } = &mut scenario.events[3]
+        } = event_mut(scenario, "event-forget")
         else {
             panic!("expected forget event");
         };
@@ -2061,19 +2124,19 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "correction-chains",
+                "admission-test",
                 Some(&forget),
                 "forget.target_external_ids",
                 FixtureAdmissionKind::Empty
             )
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         let InteractionEvent::Forget {
             target_external_ids,
             ..
-        } = &mut scenario.events[3]
+        } = event_mut(scenario, "event-forget")
         else {
             panic!("expected forget event");
         };
@@ -2082,7 +2145,7 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "correction-chains",
+                "admission-test",
                 Some(&forget),
                 "forget.target_external_ids",
                 FixtureAdmissionKind::Duplicate(duplicate)
@@ -2092,10 +2155,10 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_conflicting_default_and_episode_surface_text() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::SurfaceContribution);
-        let remember = scenario.events[0].event_id().to_string();
-        let InteractionEvent::Remember { text, .. } = &mut scenario.events[0] else {
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let remember = event_mut(scenario, "event-remember").event_id().to_string();
+        let InteractionEvent::Remember { text, .. } = event_mut(scenario, "event-remember") else {
             panic!("expected remember event");
         };
         *text = "Conflicting Episode text".to_string();
@@ -2103,7 +2166,7 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "surface-contribution",
+                "admission-test",
                 Some(&remember),
                 "remember.text",
                 FixtureAdmissionKind::DiffersFrom("remember.surface_texts.episode")
@@ -2113,12 +2176,12 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_dangling_link_endpoints() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
-        let link = scenario.events[1].event_id().to_string();
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let link = event_mut(scenario, "event-link").event_id().to_string();
         let InteractionEvent::Link {
             from_external_id, ..
-        } = &mut scenario.events[1]
+        } = event_mut(scenario, "event-link")
         else {
             panic!("expected link event");
         };
@@ -2126,23 +2189,24 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "cross-store-stress",
+                "admission-test",
                 Some(&link),
                 "link.from_external_id",
                 FixtureAdmissionKind::NotAdmitted("missing-link-source".to_string())
             )
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
-        let InteractionEvent::Link { to_external_id, .. } = &mut scenario.events[1] else {
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let InteractionEvent::Link { to_external_id, .. } = event_mut(scenario, "event-link")
+        else {
             panic!("expected link event");
         };
         *to_external_id = "missing-link-target".to_string();
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "cross-store-stress",
+                "admission-test",
                 Some(&link),
                 "link.to_external_id",
                 FixtureAdmissionKind::NotAdmitted("missing-link-target".to_string())
@@ -2152,18 +2216,23 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_memory_links_as_link_endpoints() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
-        insert_link_before(scenario, 2, "nested-link", "restart-link");
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let query_index = scenario
+            .events
+            .iter()
+            .position(|event| event.event_id() == "event-query")
+            .unwrap();
+        insert_link_before(scenario, query_index, "nested-link", "memory-link");
 
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "cross-store-stress",
+                "admission-test",
                 Some("event-test-link-nested-link"),
                 "link.from_external_id",
                 FixtureAdmissionKind::UnsupportedKind {
-                    external_id: "restart-link".to_string(),
+                    external_id: "memory-link".to_string(),
                     found: ContinuityObjectKind::MemoryLink,
                     allowed: LINK_ENDPOINT_KINDS,
                 }
@@ -2173,8 +2242,8 @@ mod tests {
 
     #[test]
     fn public_parser_admits_persisted_observation_derived_and_thread_ids() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::ThreadDrift);
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         let query_index = scenario
             .events
             .iter()
@@ -2195,13 +2264,13 @@ mod tests {
             scenario,
             query_index,
             "observation-link",
-            "thread-focus:observation",
+            "memory-one:observation",
         );
         insert_link_before(
             scenario,
             query_index + 1,
             "derived-link",
-            "thread-focus:derived",
+            "memory-one:derived",
         );
         insert_link_before(
             scenario,
@@ -2216,31 +2285,32 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_generated_external_id_collisions() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
-        let remember = scenario.events[1].event_id().to_string();
-        let InteractionEvent::Remember { external_id, .. } = &mut scenario.events[1] else {
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let remember = event_mut(scenario, "event-contrast").event_id().to_string();
+        let InteractionEvent::Remember { external_id, .. } = event_mut(scenario, "event-contrast")
+        else {
             panic!("expected remember event");
         };
-        *external_id = "memory-dormant:observation".to_string();
+        *external_id = "memory-one:observation".to_string();
 
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "long-gap-recall",
+                "admission-test",
                 Some(&remember),
                 "remember.external_id",
-                FixtureAdmissionKind::Duplicate("memory-dormant:observation".to_string())
+                FixtureAdmissionKind::Duplicate("memory-one:observation".to_string())
             )
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::ThreadDrift);
-        let remember = scenario.events[0].event_id().to_string();
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let remember = event_mut(scenario, "event-remember").event_id().to_string();
         let InteractionEvent::Remember {
             thread: Some(thread),
             ..
-        } = &mut scenario.events[0]
+        } = event_mut(scenario, "event-remember")
         else {
             panic!("expected threaded remember event");
         };
@@ -2248,7 +2318,7 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "thread-drift",
+                "admission-test",
                 Some(&remember),
                 "remember.thread.thread_external_id",
                 FixtureAdmissionKind::Collision {
@@ -2260,16 +2330,22 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_queryless_scenarios() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         scenario
             .events
-            .retain(|event| !matches!(event, InteractionEvent::Query { .. }));
+            // Remove restart too: its missing-follow-up error has its own case below.
+            .retain(|event| {
+                !matches!(
+                    event,
+                    InteractionEvent::Query { .. } | InteractionEvent::Restart { .. }
+                )
+            });
 
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "long-gap-recall",
+                "admission-test",
                 None,
                 "events",
                 FixtureAdmissionKind::MissingQuery
@@ -2279,20 +2355,15 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_operations_after_the_final_query() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         let terminal_index = scenario.events.len();
-        insert_link_before(
-            scenario,
-            terminal_index,
-            "post-query-link",
-            "memory-dormant",
-        );
+        insert_link_before(scenario, terminal_index, "post-query-link", "memory-one");
 
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "long-gap-recall",
+                "admission-test",
                 None,
                 "events",
                 FixtureAdmissionKind::MustEndWithQuery
@@ -2302,10 +2373,10 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_relations_outside_the_facade_vocabulary() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
-        let link = scenario.events[1].event_id().to_string();
-        let InteractionEvent::Link { relation, .. } = &mut scenario.events[1] else {
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let link = event_mut(scenario, "event-link").event_id().to_string();
+        let InteractionEvent::Link { relation, .. } = event_mut(scenario, "event-link") else {
             panic!("expected link event");
         };
         *relation = "invented_relation".to_string();
@@ -2313,7 +2384,7 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "cross-store-stress",
+                "admission-test",
                 Some(&link),
                 "link.relation",
                 FixtureAdmissionKind::UnsupportedRelation("invented_relation".to_string())
@@ -2323,28 +2394,29 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_duplicate_created_external_ids() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
-        let remember = scenario.events[1].event_id().to_string();
-        let InteractionEvent::Remember { external_id, .. } = &mut scenario.events[1] else {
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let remember = event_mut(scenario, "event-contrast").event_id().to_string();
+        let InteractionEvent::Remember { external_id, .. } = event_mut(scenario, "event-contrast")
+        else {
             panic!("expected remember event");
         };
-        *external_id = "memory-dormant".to_string();
+        *external_id = "memory-one".to_string();
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "long-gap-recall",
+                "admission-test",
                 Some(&remember),
                 "remember.external_id",
-                FixtureAdmissionKind::Duplicate("memory-dormant".to_string())
+                FixtureAdmissionKind::Duplicate("memory-one".to_string())
             )
         );
     }
 
     #[test]
     fn public_parser_rejects_duplicate_query_ids() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         let duplicate = scenario
             .events
             .iter()
@@ -2361,15 +2433,15 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "correction-chains",
+                "admission-test",
                 Some(&event_id),
                 "event_id",
                 FixtureAdmissionKind::Duplicate(event_id.clone())
             )
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CorrectionChains);
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         let mut duplicate = duplicate;
         let InteractionEvent::Query { event_id, .. } = &mut duplicate else {
             unreachable!()
@@ -2379,7 +2451,7 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "correction-chains",
+                "admission-test",
                 Some("event-duplicate-query-id"),
                 "query.query_id",
                 FixtureAdmissionKind::Duplicate(query_id)
@@ -2389,25 +2461,26 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_invalid_salience_and_thread_confidence() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
-        let remember = scenario.events[0].event_id().to_string();
-        let InteractionEvent::Remember { salience, .. } = &mut scenario.events[0] else {
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let remember = event_mut(scenario, "event-remember").event_id().to_string();
+        let InteractionEvent::Remember { salience, .. } = event_mut(scenario, "event-remember")
+        else {
             panic!("expected remember event");
         };
         *salience = 1.1;
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "long-gap-recall",
+                "admission-test",
                 Some(&remember),
                 "remember.salience",
                 FixtureAdmissionKind::OutOfUnitInterval(1.1)
             )
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::ThreadDrift);
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         let (threaded, confidence) = scenario
             .events
             .iter_mut()
@@ -2419,21 +2492,22 @@ mod tests {
                 } => Some((event_id.clone(), &mut thread.confidence)),
                 _ => None,
             })
-            .expect("thread drift fixture has thread membership");
+            .expect("admission fixture has thread membership");
         *confidence = -0.1;
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "thread-drift",
+                "admission-test",
                 Some(&threaded),
                 "remember.thread.confidence",
                 FixtureAdmissionKind::OutOfUnitInterval(-0.1)
             )
         );
 
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::LongGapRecall);
-        let InteractionEvent::Remember { salience, .. } = &mut scenario.events[0] else {
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
+        let InteractionEvent::Remember { salience, .. } = event_mut(scenario, "event-remember")
+        else {
             panic!("expected remember event");
         };
         *salience = f32::NAN;
@@ -2442,7 +2516,7 @@ mod tests {
             (location, field),
             (
                 FixtureLocation::Scenario {
-                    fixture_id: "long-gap-recall".to_string(),
+                    fixture_id: "admission-test".to_string(),
                     event_id: Some(remember)
                 },
                 "remember.salience"
@@ -2456,8 +2530,8 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_restart_without_a_following_query() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
+        let mut fixtures = admission_fixture();
+        let scenario = &mut fixtures.scenarios[0];
         let (restart_index, restart_event_id) = scenario
             .events
             .iter()
@@ -2472,7 +2546,7 @@ mod tests {
         assert_eq!(
             admission(&fixtures),
             expected_admission(
-                "cross-store-stress",
+                "admission-test",
                 Some(&restart_event_id),
                 "restart",
                 FixtureAdmissionKind::RestartWithoutFollowingQuery
@@ -2486,8 +2560,8 @@ mod tests {
             ("reopen_graph", "restart.reopen_graph"),
             ("reopen_stats", "restart.reopen_stats"),
         ] {
-            let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-            let scenario = scenario_mut(&mut fixtures, ScenarioPattern::CrossStoreStress);
+            let mut fixtures = admission_fixture();
+            let scenario = &mut fixtures.scenarios[0];
             let restart = scenario
                 .events
                 .iter_mut()
@@ -2512,7 +2586,7 @@ mod tests {
             assert_eq!(
                 admission(&fixtures),
                 expected_admission(
-                    "cross-store-stress",
+                    "admission-test",
                     Some(&restart_event_id),
                     field,
                     FixtureAdmissionKind::RestartMustReopen
@@ -2523,7 +2597,7 @@ mod tests {
 
     #[test]
     fn fixture_reader_rejects_an_incompatible_schema_version() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let mut fixtures = admission_fixture();
         fixtures.schema_version = CONTINUITY_FIXTURE_SCHEMA_VERSION + 1;
         assert_eq!(
             admission(&fixtures),
@@ -2539,7 +2613,7 @@ mod tests {
 
     #[test]
     fn public_parser_accepts_explicit_v3_providers_and_rejects_v2_actionably() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let mut fixtures = admission_fixture();
         let bytes = canonical_fixture_bytes(&fixtures).unwrap();
         let parsed = parse_fixture_bytes(&bytes).unwrap();
         assert_eq!(parsed.schema_version, CONTINUITY_FIXTURE_SCHEMA_VERSION);
@@ -2548,16 +2622,12 @@ mod tests {
                 scenario.embedding.provider_name() == "controllable_similarity"
             })
         );
-        assert!(
-            parsed
-                .scenarios
-                .iter()
-                .any(|scenario| scenario.embedding.provider_name() == "frozen")
-        );
+        fixtures.scenarios[0].embedding = ContinuityScenarioEmbedding::Frozen;
+        let frozen = parse_fixture_bytes(&canonical_fixture_bytes(&fixtures).unwrap()).unwrap();
+        assert_eq!(frozen.scenarios[0].embedding.provider_name(), "frozen");
 
-        let mut v2 = serde_json::to_value(&fixtures).unwrap();
+        let mut v2 = serde_json::to_value(admission_fixture()).unwrap();
         v2["schema_version"] = Value::from(2);
-        v2["scenarios"].as_array_mut().unwrap().truncate(1);
         v2["scenarios"][0]["embedding"]
             .as_object_mut()
             .unwrap()
@@ -2575,7 +2645,7 @@ mod tests {
 
     #[test]
     fn public_parser_rejects_partial_malformed_and_typoed_v3_embedding_blocks() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let fixtures = admission_fixture();
         let base = serde_json::to_value(&fixtures).unwrap();
         let scenario_zero = FixtureLocation::Scenario {
             fixture_id: fixtures.scenarios[0].fixture_id.clone(),
@@ -2621,7 +2691,7 @@ mod tests {
 
     #[test]
     fn schema_v3_admits_downstream_patterns_and_couples_abstention_labels() {
-        let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
+        let mut fixtures = admission_fixture();
         let fixture_id = fixtures.scenarios[0].fixture_id.clone();
         let query = query_event_id(&fixtures.scenarios[0]);
         fixtures.scenarios[0].pattern = ScenarioPattern::Abstention;
