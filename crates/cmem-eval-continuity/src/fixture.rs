@@ -1046,20 +1046,21 @@ pub fn canonical_fixture_bytes(fixtures: &ContinuityFixtureSet) -> anyhow::Resul
 }
 
 pub fn parse_fixture_bytes(bytes: &[u8]) -> Result<ContinuityFixtureSet, FixtureError> {
+    let value: Value = serde_json::from_slice(bytes).map_err(FixtureError::Json)?;
     let fixtures: ContinuityFixtureSet =
-        serde_json::from_slice(bytes).map_err(|source| shape_error(bytes, source))?;
+        serde_json::from_value(value).map_err(|source| shape_error(bytes, source))?;
     fixtures.validate()?;
     Ok(fixtures)
 }
 
 /// Locates a serde rejection: a schema_version mismatch is reported as such
-/// before any shape complaint, and a shape complaint is attributed to the first
-/// scenario that does not deserialize on its own, else to the root.
+/// before any shape complaint. Check the root without its scenarios first, then
+/// retain the location and cause from the same failing deserialization.
 fn shape_error(bytes: &[u8], source: serde_json::Error) -> FixtureError {
     if source.classify() != serde_json::error::Category::Data {
         return FixtureError::Json(source);
     }
-    let value: Value = match serde_json::from_slice(bytes) {
+    let mut value: Value = match serde_json::from_slice(bytes) {
         Ok(value) => value,
         Err(source) => return FixtureError::Json(source),
     };
@@ -1071,21 +1072,28 @@ fn shape_error(bytes: &[u8], source: serde_json::Error) -> FixtureError {
             FixtureAdmissionKind::UnsupportedSchemaVersion { found },
         );
     }
-    let location = value
-        .get("scenarios")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .find(|scenario| serde_json::from_value::<ContinuityScenario>((*scenario).clone()).is_err())
-        .map(|scenario| {
-            FixtureLocation::scenario(
-                scenario
-                    .get("fixture_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default(),
-            )
-        })
-        .unwrap_or(FixtureLocation::Root);
+    let scenarios = value
+        .get_mut("scenarios")
+        .and_then(Value::as_array_mut)
+        .map(std::mem::take)
+        .unwrap_or_default();
+    let (location, source) = match serde_json::from_value::<ContinuityFixtureSet>(value) {
+        Err(source) => (FixtureLocation::Root, source),
+        Ok(_) => scenarios
+            .into_iter()
+            .find_map(|scenario| {
+                let location = FixtureLocation::scenario(
+                    scenario
+                        .get("fixture_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                );
+                serde_json::from_value::<ContinuityScenario>(scenario)
+                    .err()
+                    .map(|source| (location, source))
+            })
+            .unwrap_or((FixtureLocation::Root, source)),
+    };
     FixtureError::Shape {
         location,
         field: shape_field(&source),
@@ -1521,6 +1529,113 @@ mod tests {
         ContinuityObjectKind::MemoryThread,
         ContinuityObjectKind::DerivedMemory,
     ];
+
+    #[test]
+    fn public_parser_keeps_the_last_repeated_object_key() {
+        let canonical = include_str!("../fixtures/continuity_v3.json");
+        let repeated = canonical.replacen('{', "{\"seed\":123,", 1);
+        assert_eq!(
+            parse_fixture_bytes(repeated.as_bytes()).unwrap(),
+            parse_fixture_bytes(canonical.as_bytes()).unwrap()
+        );
+    }
+
+    #[test]
+    fn public_parser_attributes_root_shape_errors_before_scenario_errors() {
+        let mut value: Value =
+            serde_json::from_str(include_str!("../fixtures/continuity_v3.json")).unwrap();
+        value["scenarios"][0]["entities"][0]["entity_type"] = Value::from("unknown-kind");
+        assert_eq!(
+            shape(&value),
+            (FixtureLocation::scenario("long-gap-recall"), None)
+        );
+
+        for field in ["aaa_root_typo", "zzz_root_typo"] {
+            value[field] = Value::Bool(true);
+            assert_eq!(
+                shape(&value),
+                (FixtureLocation::Root, Some(field.to_string()))
+            );
+            value.as_object_mut().unwrap().remove(field);
+        }
+
+        value["seed"] = Value::from("wrong-type");
+        assert_eq!(shape(&value), (FixtureLocation::Root, None));
+    }
+
+    #[test]
+    fn public_parser_rejects_out_of_order_events() {
+        let mut value: Value =
+            serde_json::from_str(include_str!("../fixtures/continuity_v3.json")).unwrap();
+        let scenario = &mut value["scenarios"][0];
+        let fixture_id = scenario["fixture_id"].as_str().unwrap().to_string();
+        let event = scenario["events"]
+            .as_array_mut()
+            .unwrap()
+            .last_mut()
+            .unwrap();
+        let event_id = event["event_id"].as_str().unwrap().to_string();
+        event["timestamp"] = Value::from("1900-01-01T00:00:00Z");
+        assert_eq!(
+            admission_of(parse_fixture_bytes(&serde_json::to_vec(&value).unwrap()).unwrap_err()),
+            expected_admission(
+                &fixture_id,
+                Some(&event_id),
+                "timestamp",
+                FixtureAdmissionKind::NotChronological,
+            )
+        );
+    }
+
+    #[test]
+    fn public_parser_rejects_undeclared_remember_entities() {
+        let mut value: Value =
+            serde_json::from_str(include_str!("../fixtures/continuity_v3.json")).unwrap();
+        let scenario = &mut value["scenarios"][0];
+        let fixture_id = scenario["fixture_id"].as_str().unwrap().to_string();
+        let event = scenario["events"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|event| event["kind"] == "remember")
+            .unwrap();
+        let event_id = event["event_id"].as_str().unwrap().to_string();
+        event["entity_external_ids"] = serde_json::json!(["undeclared-entity"]);
+        assert_eq!(
+            admission_of(parse_fixture_bytes(&serde_json::to_vec(&value).unwrap()).unwrap_err()),
+            expected_admission(
+                &fixture_id,
+                Some(&event_id),
+                "remember.entity_external_ids",
+                FixtureAdmissionKind::Undeclared("undeclared-entity".to_string()),
+            )
+        );
+    }
+
+    #[test]
+    fn public_parser_rejects_unassigned_query_embedding_input() {
+        let mut value: Value =
+            serde_json::from_str(include_str!("../fixtures/continuity_v3.json")).unwrap();
+        let scenario = &mut value["scenarios"][0];
+        let fixture_id = scenario["fixture_id"].as_str().unwrap().to_string();
+        let event = scenario["events"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|event| event["kind"] == "query")
+            .unwrap();
+        let event_id = event["event_id"].as_str().unwrap().to_string();
+        event["text"] = Value::from("unassigned-query");
+        assert_eq!(
+            admission_of(parse_fixture_bytes(&serde_json::to_vec(&value).unwrap()).unwrap_err()),
+            expected_admission(
+                &fixture_id,
+                Some(&event_id),
+                "query.text",
+                FixtureAdmissionKind::UnassignedEmbeddingInput("unassigned-query".to_string()),
+            )
+        );
+    }
 
     #[test]
     fn public_parser_rejects_v1_and_retired_caller_supplied_identity_fields() {
