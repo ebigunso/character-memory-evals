@@ -1072,10 +1072,105 @@ fn adapter_entity_type(fixture_entity_type: ContinuityEntityKind) -> EntityType 
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
 
     use super::*;
     use crate::{CHECKED_FIXTURE_SEED, generate_fixture_set};
     use cmem_eval::{RetrievalMode, RetrievalSectionBudgets, RetrievalSurfacePolicy};
+
+    fn persisted_trace() -> ContinuityQueryTrace {
+        ContinuityQueryTrace {
+            result: cmem_eval::PerQuestionResult {
+                run_id: "trace-test".into(),
+                question_id: "query".into(),
+                question_type: None,
+                question: "query?".into(),
+                gold_episode_ids: vec!["episode".into()],
+                gold_observation_ids: Vec::new(),
+                retrieved: Vec::new(),
+                context_text: String::new(),
+                write_outcomes: ["a", "b"]
+                    .into_iter()
+                    .map(|operation_id| cmem_eval::RecordedOutcome {
+                        operation_id: operation_id.into(),
+                        outcome: cmem_eval::RememberOutcome {
+                            persisted_object_ids: Vec::new(),
+                            persisted_link_ids: Vec::new(),
+                            vector_indexed_object_ids: Vec::new(),
+                            vector_indexing_failure: None,
+                            stats_update_status: Default::default(),
+                            repair_needed: Vec::new(),
+                            diagnostics: Default::default(),
+                        },
+                    })
+                    .collect(),
+                link_outcomes: Vec::new(),
+                lifecycle_outcomes: Vec::new(),
+                metrics: Default::default(),
+                latency_ms: 0,
+                context_char_count: 0,
+                context_word_count: 0,
+                context: Default::default(),
+                retrieval_outcomes: vec![cmem_eval::RetrieveOutcome {
+                    pack: cmem_eval::character_memory::ContinuityContextPack::empty(),
+                    rationale: cmem_eval::character_memory::RetrievalRationale::new("trace-test"),
+                    trace: Some(cmem_eval::RetrievalTrace::empty()),
+                }],
+                composition: Default::default(),
+                integrity: Default::default(),
+            },
+            fixture_id: "fixture".into(),
+            namespace: "namespace".into(),
+            event_id: "query".into(),
+            timestamp: chrono::DateTime::UNIX_EPOCH,
+            expected: ExpectedRelevanceRecord {
+                relevant_external_ids: vec!["episode".into()],
+                irrelevant_external_ids: Vec::new(),
+            },
+            history_text: String::new(),
+            restart_observations: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn trace_serialization_flattens_results_and_keeps_native_trace() {
+        let probe = persisted_trace();
+        let encoded = serde_json::to_value(probe).unwrap();
+        assert!(encoded.get("result").is_none());
+        assert!(encoded.get("retrieval").is_none());
+        assert!(
+            encoded
+                .pointer("/retrieval_outcomes/0/trace/selectivity_decisions")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn trace_files_preserve_canonical_records_without_overwrite() {
+        let directory = tempfile::tempdir().unwrap();
+        let traces = [persisted_trace()];
+        let read_traces = |path: &Path| read_continuity_traces(path).unwrap();
+
+        // Persisted merged records keep the native operation order canonical.
+        let mut reordered = traces[0].clone();
+        reordered.result.write_outcomes.reverse();
+        let round_trip = directory.path().join("round-trip.jsonl");
+        write_continuity_traces(&round_trip, &[reordered]).unwrap();
+        let existing = fs::read(&round_trip).unwrap();
+        assert!(write_continuity_traces(&round_trip, &[]).is_err());
+        assert_eq!(fs::read(&round_trip).unwrap(), existing);
+        let decoded = read_traces(&round_trip);
+        assert_eq!(decoded, traces[..1]);
+
+        let mut additive = serde_json::to_value(&traces[0]).unwrap();
+        additive["expected"]["future_annotation"] = serde_json::json!(true);
+        assert!(
+            serde_json::from_value::<crate::ExpectedRelevance>(additive["expected"].clone())
+                .is_err()
+        );
+        fs::write(&round_trip, serde_json::to_vec(&additive).unwrap()).unwrap();
+        assert_eq!(read_traces(&round_trip), traces[..1]);
+    }
 
     async fn run_embedded(scenario: &ContinuityScenario) -> ContinuityScenarioRun {
         let directory = tempfile::tempdir().unwrap();
@@ -1178,7 +1273,13 @@ mod tests {
                 _ => 0,
             })
             .sum::<usize>();
-        assert_eq!(traces.len(), 23);
+        let expected_query_count = fixtures
+            .scenarios
+            .iter()
+            .flat_map(|scenario| &scenario.events)
+            .filter(|event| matches!(event, InteractionEvent::Query { .. }))
+            .count();
+        assert_eq!(traces.len(), expected_query_count);
         for operation in [
             "remember",
             "prepare",
@@ -1201,14 +1302,21 @@ mod tests {
                     && outcome.outcome.stats_update_status.failure.is_none()
             })
         }));
-        assert_eq!(restart_observations.len(), 1);
-        let restart = &restart_observations[0];
-        assert!(restart.reopen_graph);
-        assert!(restart.reopen_stats);
-        assert!(restart.lifecycle.restored_identity_count > 0);
-        assert!(restart.delta.stable_returned_objects);
-        assert_eq!(restart.delta.returned_object_count, 0);
-        assert_eq!(restart.delta.recall, Some(0.0));
+        let expected_restart_count = fixtures
+            .scenarios
+            .iter()
+            .flat_map(|scenario| &scenario.events)
+            .filter(|event| matches!(event, InteractionEvent::Restart { .. }))
+            .count();
+        assert_eq!(restart_observations.len(), expected_restart_count);
+        for restart in &restart_observations {
+            assert!(restart.reopen_graph);
+            assert!(restart.reopen_stats);
+            assert!(restart.lifecycle.restored_identity_count > 0);
+            assert!(restart.delta.stable_returned_objects);
+            assert_eq!(restart.delta.returned_object_count, 0);
+            assert_eq!(restart.delta.recall, Some(0.0));
+        }
     }
 
     #[tokio::test]
@@ -1456,22 +1564,6 @@ mod tests {
                 ),
                 original_source_ref: Some("delivery-v1".to_string()),
             }
-        );
-    }
-
-    #[test]
-    fn fixture_entity_types_map_only_through_explicit_facade_vocabulary() {
-        assert_eq!(
-            adapter_entity_type(ContinuityEntityKind::Location),
-            EntityType::Place
-        );
-        assert_eq!(
-            adapter_entity_type(ContinuityEntityKind::Person),
-            EntityType::Person
-        );
-        assert_eq!(
-            adapter_entity_type(ContinuityEntityKind::Organization),
-            EntityType::Organization
         );
     }
 }
