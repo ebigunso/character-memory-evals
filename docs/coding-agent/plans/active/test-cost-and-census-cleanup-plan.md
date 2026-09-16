@@ -6,7 +6,7 @@
 - work_type: code
 
 ## Goal
-- `cargo test --workspace` runs the full continuity fixture once, classifies enrichment manifests at the loader rather than through full pipeline runs, spawns no subprocesses in the shared core, and pins no dataset or fixture count that the byte-identity test already guards; duplicate and framework-behaviour tests are gone, and one-shot dataset censuses live as runnable examples outside the test suite.
+- `cargo test --workspace` runs the full continuity fixture once, classifies enrichment manifests at the loader rather than through full pipeline runs, spawns no subprocess for a determinism proof in the shared core (the env-isolation test keeps its child process), and pins no dataset or fixture count that the byte-identity test already guards; duplicate and framework-behaviour tests are gone, and one-shot dataset censuses live as runnable examples outside the test suite.
 
 ## Definition of Done
 - The runner's continuity command test runs the fixture once and asserts the trace's invariants (artifact identity, header provenance, row-trace congruence) without a baseline artifact; the two-run determinism comparison remains the README smoke recipe the reviewer already runs; the driver's operation-coverage sweep is the only other full-fixture run; the command test's no-overwrite and serde assertions are covered at unit level.
@@ -79,7 +79,7 @@
   - kind: command
     required: true
     owner: worker
-    detail: "cargo test -p cmem-eval (executed count reported); rg -n 'Command::new' crates/cmem-eval/src (zero hits in test modules)"
+    detail: "cargo test -p cmem-eval (executed count reported); rg -n 'Command::new' crates/cmem-eval/src (the only test-module hit is the env-isolation test's child process, per the 2026-09-17 Task_2 decision)"
 
 ### Task_3: Continuity tests assert properties, not fixture statistics
 - type: test
