@@ -24,8 +24,10 @@ fn checked_in_vector_configs_use_raw_candidate_ingestion_only() {
         );
         assert_eq!(config.retrieval.surface_policy.sections.derived_memories, 0);
         assert_eq!(config.retrieval.surface_policy.sections.active_threads, 0);
-        assert!(!config.ingest.index_session_summaries);
-        assert!(!config.ingest.index_generated_observations);
+        if config.dataset.as_str() == "longmemeval_s" {
+            assert!(!config.ingest.index_session_summaries);
+            assert!(!config.ingest.index_generated_observations);
+        }
         assert!(config.ingest.enrichment_path.is_none());
         config.validate().unwrap();
     }

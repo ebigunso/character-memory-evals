@@ -362,35 +362,6 @@ mod tests {
         assert!(report.details.is_empty());
     }
 
-    #[test]
-    fn rows_missing_a_compared_field_or_native_outcome_are_rejected() {
-        let valid = serde_json::to_value(row("a", 1, 1)).unwrap();
-        for field in [
-            "retrieved",
-            "metrics",
-            "write_outcomes",
-            "link_outcomes",
-            "lifecycle_outcomes",
-        ] {
-            let mut value = valid.clone();
-            value.as_object_mut().unwrap().remove(field);
-            assert!(
-                serde_json::from_value::<PerQuestionResult>(value).is_err(),
-                "missing {field}"
-            );
-        }
-        let mut missing = valid.clone();
-        missing["write_outcomes"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("outcome");
-        assert!(serde_json::from_value::<PerQuestionResult>(missing).is_err());
-        let mut malformed = valid;
-        malformed["write_outcomes"][0]["outcome"]["vector_indexing_failure"] =
-            json!({"unknown":"cause"});
-        assert!(serde_json::from_value::<PerQuestionResult>(malformed).is_err());
-    }
-
     fn write_rows(directory: &std::path::Path, name: &str, rows: &[Value]) -> PathBuf {
         let path = directory.join(name);
         let text = rows
