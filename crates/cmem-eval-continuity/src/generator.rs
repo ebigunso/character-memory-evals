@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
@@ -1739,9 +1742,12 @@ fn scenario(
         .collect::<BTreeSet<_>>();
     let cluster_count = clusters.len();
     if cluster_count > EMBEDDING_VECTOR_SIZE {
-        bail!(
-            "continuity scenario `{id}` declares {cluster_count} embedding clusters, exceeding configured vector_size {EMBEDDING_VECTOR_SIZE}"
-        );
+        return Err(ClusterCountExceedsVectorSize {
+            scenario_id: id.to_string(),
+            clusters: cluster_count,
+            vector_size: EMBEDDING_VECTOR_SIZE,
+        }
+        .into());
     }
     let mut cluster_vectors = BTreeMap::new();
     for (index, cluster) in clusters.into_iter().enumerate() {
@@ -1766,6 +1772,27 @@ fn scenario(
         events,
     })
 }
+
+/// The generator assigns each embedding cluster its own one-hot dimension, so
+/// a scenario cannot declare more clusters than the vector has dimensions.
+#[derive(Debug)]
+pub struct ClusterCountExceedsVectorSize {
+    pub scenario_id: String,
+    pub clusters: usize,
+    pub vector_size: usize,
+}
+
+impl fmt::Display for ClusterCountExceedsVectorSize {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "continuity scenario {:?} declares {} embedding clusters, exceeding configured vector_size {}",
+            self.scenario_id, self.clusters, self.vector_size
+        )
+    }
+}
+
+impl std::error::Error for ClusterCountExceedsVectorSize {}
 
 fn assign_entity_embedding_inputs(
     scenario_id: &str,
@@ -1992,7 +2019,10 @@ mod tests {
     use std::{env, fs, process::Command};
 
     use super::*;
-    use crate::{canonical_fixture_bytes, parse_fixture_bytes, scenario_patterns};
+    use crate::{
+        FixtureAdmissionKind, FixtureError, FixtureLocation, canonical_fixture_bytes,
+        parse_fixture_bytes, scenario_patterns,
+    };
 
     const PROCESS_PROBE_PATH: &str = "CMEM_CONTINUITY_FIXTURE_PROBE_PATH";
     const CHECKED_FIXTURE: &[u8] = include_bytes!("../fixtures/continuity_v3.json");
@@ -2056,11 +2086,13 @@ mod tests {
             concepts,
         )
         .unwrap_err()
-        .to_string();
+        .downcast::<ClusterCountExceedsVectorSize>()
+        .unwrap();
 
+        assert_eq!(error.scenario_id, "too-many-clusters");
         assert_eq!(
-            error,
-            "continuity scenario `too-many-clusters` declares 9 embedding clusters, exceeding configured vector_size 8"
+            (error.clusters, error.vector_size),
+            (EMBEDDING_VECTOR_SIZE + 1, EMBEDDING_VECTOR_SIZE)
         );
     }
 
@@ -2225,6 +2257,7 @@ mod tests {
     fn public_parser_requires_every_entity_label_embedding_assignment() {
         let mut fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = &mut fixtures.scenarios[0];
+        let fixture_id = scenario.fixture_id.clone();
         let entity_label = scenario
             .entities
             .iter()
@@ -2243,9 +2276,28 @@ mod tests {
         }
         let bytes = serde_json::to_vec(&fixtures).unwrap();
 
-        let error = parse_fixture_bytes(&bytes).unwrap_err().to_string();
-        assert!(error.contains("entity label"), "{error}");
-        assert!(error.contains(&entity_label), "{error}");
+        let FixtureError::Admission {
+            location,
+            field,
+            kind,
+        } = parse_fixture_bytes(&bytes).unwrap_err()
+        else {
+            panic!("expected an admission error");
+        };
+        assert_eq!(
+            (location, field, kind),
+            (
+                FixtureLocation::Scenario {
+                    fixture_id: fixture_id.clone(),
+                    event_id: None
+                },
+                "entity.label",
+                FixtureAdmissionKind::ConceptAssignments {
+                    label: entity_label,
+                    found: 0
+                }
+            )
+        );
     }
 
     #[test]
