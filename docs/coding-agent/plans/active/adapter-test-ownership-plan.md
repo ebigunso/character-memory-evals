@@ -1,6 +1,6 @@
 # Plan: Harness tests assert harness contracts; library semantics stay upstream
 
-- status: in_progress (approved by the decider 2026-09-16)
+- status: in_progress (approved by the decider 2026-09-16; Tier D APPROVED 2026-09-16 at b0b4c37; pull request open, awaiting merge approval)
 - generated: 2026-09-16
 - last_updated: 2026-09-16
 - work_type: code
@@ -131,6 +131,13 @@ Sequencing: this plan is dispatched after the library's integration-suite plan m
 - 2026-09-16 Plan drafted from the test-suite audit (F5; partition report D).
 - 2026-09-16 Confirmation pass: service-gated invocations must keep the `service_mode_` prefix the required filter selects; A1 fallback wording aligned with the Task Waves deferral rule.
 - 2026-09-16 Reviewer pass (Tier A): the service-gated caller of the reattach helper and the service-gated reset test added to Context and acceptance; `service-tests` suite made a required check for worker and reviewer; upstream citations that skip by default on the current pin made an execution check and the plan sequenced after the library's integration-suite plan; `fs_util` handoff made explicit on both sides; two-construction comparison promoted into acceptance; workspace-wide validation hoisted to the orchestrator.
+
+- 2026-09-16 Wave 1 completed: [Task_1, Task_2, Task_3] (e280b2a, 9d01955, b0b4c37 integrated; tip b0b4c37)
+  - Summary: reattach helper split into six named lifecycle tests with embedded and service_mode_ invocations; correction-retry block split per assertion (harness-owned outputs kept); re-anchors on budget, completeness and two-construction defaults; fs_util, metrics and drift-guard moves; continuity dev-dependency removed; suppression block and runner selectivity assertion deferred per the sequencing clause.
+  - Validation evidence (orchestrator at b0b4c37): fmt clean (run from the short alias), clippy clean, workspace tests cmem-eval 120, benchmark-convert 10, continuity 73, locomo 46 (1 ignored), longmemeval 34 (1 ignored), runner 50 passed plus the known symlink exception; worker service suite 7 passed with Qdrant up.
+- 2026-09-16 Wave 2 completed: [Task_4] (APPROVED at b0b4c37, no findings)
+  - Validation evidence (reviewer, pinned worktree): workspace 333 passed, embedded 120, upstream retry lib tests executed on library 4a00303, service suite 7 passed against Qdrant v1.19.0 at http://127.0.0.1:6334 (collections empty before and after), fmt and clippy clean, smoke diff zero, fixture SHA unchanged.
+  - Notes: from a shell that resolves the short-path junction to the .worktrees path, cargo metadata rejects the library crate as a stray workspace member; run cargo from the C:/w alias.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
