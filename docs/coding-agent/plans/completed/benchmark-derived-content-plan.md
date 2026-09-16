@@ -1,8 +1,8 @@
 # Plan: Benchmark-Derived Content (LoCoMo dataset summaries and observations; LongMemEval repeated sessions as distinct memories)
 
-- status: in_progress
+- status: completed
 - generated: 2026-09-14
-- last_updated: 2026-09-14
+- last_updated: 2026-09-16
 - work_type: code
 
 ## Goal
@@ -14,7 +14,7 @@
 - Baselines: the lexical and vector-only modes index episodes and observations only; for LoCoMo their episode text stays the generic descriptive sentence used today (never the dataset summary; the observations carry the chat log, and whether episode text should instead be the session's turns is a measurement question for the v0.2 value audit, not decided here), and LoCoMo config admission rejects any derived-content flag or enrichment configuration in a baseline mode while LongMemEval's baseline admission is unchanged (its lexical results move only for the 13 repeated sessions, which the baseline now sees as distinct candidates, the expected diff); the guarantee is enforced at admission, at the runner boundary and by the exact configuration the run header already records.
 - LongMemEval-S identities: every episode is unique within its item without narrowing admission (bare id for a single occurrence, collision-safe `#<ordinal>` suffix for later copies), observation ids follow their episode, every copy keeps its own date, and the assigned identity serves identities only while text keeps the raw session id; one crate helper derives the assignment from the item for both ingest and scoring; scoring maps retrieved ids back to benchmark ids for both metric families and credits a session retrieved as two copies once.
 - LongMemEval-S snapshot: the deterministic, provider-free builder represents every copy with its own date and provenance; the LongMemEval snapshot is regenerated locally at its configured path (the datasets directory stays untracked), the bare-id pair is preserved before replacement for the base run, and the runner admits a snapshot only after verifying its manifest (workflow id, artifact hash, and the official dataset hash carried forward from the source-only builder) before any run state exists.
-- Re-baseline: the lexical and hybrid configs of each dataset run at the base commit and at the tip under the same library commit; headline metrics, diff counts, changed item sets, config hashes, harness and library commits and the two snapshot hashes are recorded in this plan's Decision Log; LongMemEval differences are confined to the 13 items; all run state is cleaned up.
+- Re-baseline: the lexical and hybrid configs of each dataset run at the base commit and at the tip under the same library commit; headline metrics, diff counts, changed item sets, config hashes, harness and library commits and the two snapshot hashes are recorded in this plan's Decision Log; content-attributable LongMemEval differences are confined to the 13 repeated-session items, with provider jitter recorded separately and its observed magnitude stated; all run state is cleaned up.
 - README states both behaviours, the baseline exception, the result-row identity domains and the speaker limitation; the plan closes in completed.
 
 ## Scope / Non-goals
@@ -107,7 +107,7 @@
   Identity: bare id for a single occurrence; for later occurrences the bare id plus `#<ordinal>` with the ordinal raised past any id already present in the item; the helper returns the episode mapping and an exact assigned-observation-id to raw-turn-id table; scoring collapses repeated mapped ids to their first rank. Snapshot builder: the same assignment computed before the question-date cutoff and used by its own validation path; identical-turn repeats (on the sanitized fields it sees) retained as distinct copies, differing repeats reject the source; per-dataset workflow id; the provenance sidecar beside the source-only output is named by replacing `.json` with `_provenance.json` and carries the official input path and hash, the output hash and the workflow id; the snapshot builder refuses to run without it and carries the official hash into the snapshot manifest. Preserved bare-id pair: kept under the worker's work area with the retention reason (rollback source; the worker rule forbids deleting local snapshots during validation).
 
 ### Task_3: Re-baseline, README, closeout
-- type: impl
+- type: docs
 - owns:
   - README.md
   - docs/coding-agent/plans/active/benchmark-derived-content-plan.md
@@ -115,16 +115,24 @@
   - docs/coding-agent/lessons.md
 - depends_on: [Task_1, Task_2]
 - description: |
-  Run `configs/locomo_bm25.toml`, `configs/locomo_retrieval.toml`, `configs/longmemeval_s_bm25.toml` and `configs/longmemeval_s_retrieval.toml` once at the base commit and once at the tip (same library pin; cleanup on; the hybrid provider runs are authorized by the decider for this plan, Q2); the LongMemEval hybrid base run uses the preserved bare-id pair (its hashes re-verified against the Task_2 report before the run) through a temporary config copy whose snapshot path points there, the tip run the regenerated snapshot through the unchanged config; diff each pair with the runner's diff command, capturing its report while accepting its nonzero exit on differing queries; record the results in the Decision Log; state both behaviours in README; move the plan to completed and retarget the lessons entry that links to it.
+  Record the eight base/tip runs and four diffs executed by the orchestrator under Q2, independently verify their headers, report values, changed-item sets and asset hashes, state both dataset behaviours in README, and move the plan to completed with the lessons link retargeted. Run execution and cleanup remain orchestrator-owned under the 2026-09-16 closeout dispatch.
 - acceptance:
-  - Four before-and-after pairs recorded with config hashes (including the temporary base config), the harness commit of each run, one library commit and one dataset input hash (from the run headers) shared by base and tip of every pair, both LongMemEval snapshot hashes, the LoCoMo snapshot and manifest hashes used by both LoCoMo hybrid runs, the regenerated manifest's source and output hashes and workflow id, diff counts and changed item sets; LongMemEval differences are confined to the 13 items.
+  - Four before-and-after pairs recorded with config hashes (including the temporary base config), the harness commit of each run, one library commit and one dataset input hash (from the run headers) shared by base and tip of every pair, both LongMemEval snapshot hashes, the LoCoMo snapshot and manifest hashes used by both LoCoMo hybrid runs, the regenerated manifest's source and output hashes and workflow id, diff counts and changed item sets; content-attributable LongMemEval differences are confined to the 13 repeated-session items, with provider jitter recorded separately and its observed magnitude stated.
   - README states that LoCoMo ingests dataset-provided summaries and observations as provenanced derived memories under the two flags and that they are merged alongside a configured enrichment snapshot at runtime (the snapshot artifact itself stays source-only); that both baselines search the chat log only; that a library-generated source is a later comparison; that repeated LongMemEval sessions are distinct memories with their own dates; that result rows carry assigned identities on retrieved items and raw ids on gold lists; that the LoCoMo speaker is not persisted by the adapter; and that a configured enrichment snapshot needs its sibling manifest with the pinned workflow id, artifact hash and (for LongMemEval) dataset hash, admitted before any run state exists.
   - No run store or run output remains outside the recorded evidence; the preserved bare-id pair stays under the work area with its retention reason; original dataset assets are unchanged and the regenerated LongMemEval snapshot and its manifest are at their configured paths with the recorded hashes (verified after cleanup); the plan is in completed with its final progress entry and the lessons entry links to its completed path.
 - validation:
   - kind: command
     required: true
+    owner: orchestrator
+    detail: "the eight runs and four diffs; store and run-output cleanup census; original dataset assets and configured snapshot hashes after cleanup"
+  - kind: manual
+    required: true
     owner: worker
-    detail: "the eight runs and four diffs; store and run-output cleanup census after each run; original dataset assets verified unchanged and the regenerated LongMemEval snapshot and manifest verified at their configured paths by hash"
+    detail: "verify all eight header bindings, config hashes and differences, headline metrics, changed-item sets and repeated-session census against read-only evidence"
+  - kind: command
+    required: true
+    owner: worker
+    detail: "plan validator in balanced mode, markdown links for the moved plan and lessons entry, and cargo fmt --all --check"
   - kind: review
     required: true
     owner: orchestrator
@@ -178,6 +186,12 @@
 - 2026-09-14 From the latest Copilot pass, three items kept as done-criteria or measurement validity (a regression for the existing enrichment-file branch; README wording that the memories are merged alongside a snapshot at runtime; equal dataset input hash per re-baseline pair); the three implementation-shape items (structured error for the snapshot validator, exact manifest field naming, sidecar workflow-id equality) are routed to the worker briefs.
 - 2026-09-14 Plan approved by the decider at 63f9aff; Task_1 dispatched to evals-worker on task/bdc-locomo and Task_2 to evals-worker2 on task/bdc-longmemeval, both stacked on the plan branch (PR #40 stays open until the stack merges).
 
+- 2026-09-14 Task_1 and Task_2 delivered: independent review approved shared metric #41 at 55cbaa5, LongMemEval #42 at 6038087 and LoCoMo #43 at 86a5922. Copilot approved #41; one mirror-image cross-PR comment on each of #42 and #43 was answered.
+- 2026-09-15 Task_1 merged through #43 into the plan branch as 2278d80. The refreshed stack then merged shared DCG #41 as 399bf93 and LongMemEval #42 as 77c5796; the linked stack also carried plan PR #40 into main as 807fee3 before closeout. That unintended merge is recorded in the lessons log.
+- 2026-09-15 Follow-up #45 added typed WrongDataset admission for snapshot manifest names; independent reviewer and Copilot approved it, and it merged as 9661ec6.
+- 2026-09-15/16 The orchestrator ran all four configs at base c1b3637 and tip 9661ec6 with library 4a00303 and cleanup enabled. The base lexical pair began at 02:22 UTC; base LoCoMo hybrid took 87 minutes and LongMemEval hybrid took 7.1 hours against the preserved bare-id snapshot. The tip lexical pair was followed by LoCoMo hybrid (97 minutes) and LongMemEval hybrid (7 hours) against the regenerated snapshot. Four diffs and all header/report evidence were retained for this record.
+- 2026-09-16 Task_3 records the four comparisons below, verifies the headers and changed-query sets independently, updates the consumer documentation and two lessons, and moves this plan to completed. The balanced plan validator, local Markdown target/anchor checks and cargo fmt --all --check pass. The closeout review and recorded-evidence cleanup are owned by the orchestrator; the preserved bare-id pair remains retained for rollback until the decider releases it.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-14 Recorded for the v0.2 value audit, not decided here: whether a retrieved LoCoMo derived memory carrying evidence provenance should count toward evidence recall; today only retrieved observations count.
@@ -193,6 +207,82 @@
 - 2026-09-14 Decider approved the plan at 63f9aff. Q1: LoCoMo generated observations are ingested as `DerivedType::Claim` (a factual statement about a person or event derived from dialog evidence; Reflection stays the type of the session summary, and none of the preference, commitment or note types fits a third-party factual statement). Q2: the re-baseline runs of Task_3, including the hybrid provider runs, are authorized by the decider for this plan.
 
 - 2026-09-14 Duplicate credit belongs in the shared metric: the shared retrieval metrics deduplicated recall hits but counted a repeated gold id in DCG at every rank, so mapping two copies onto one session id would have double-counted. Ruling (worker alert during Task_2): the shared DCG gains a seen-id set so a repeated retrieved id never earns credit twice for any dataset, and the LongMemEval scorer maps exact identities only; Task_2 owns that one shared change and its unit test, delivered as its own change beneath the Task_2 branch so the dataset change carries no shared-crate diff and ADR-I-0004 holds. No existing measurement moves, since retrieved lists carried unique ids before this plan.
+
+### 2026-09-16 Re-baseline record and measurement amendment
+
+The four pairs below compare base harness `c1b36378232070dab541f078b26eb22663346668` with tip harness `9661ec647bdb5ac767424b1a94a30e0f08b49408`. Every header records library `4a003038853e6236281689f0588d467e4ff1019a`. Both sides of each LoCoMo pair record input SHA-256 `79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4`; both sides of each LongMemEval-S pair record `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`. These are the full run-header values, independently checked against the original dataset files.
+
+All eight configurations have `retain_stores` off. Hybrid runs use live OpenAI `text-embedding-3-large` with 3072 dimensions; this comparison measures live runs, including their observed score variation.
+
+| Pair / config | Base config SHA-256 | Tip config SHA-256 |
+|---|---|---|
+| `locomo_bm25.toml` | `73cda9ee1e119ce922020e54b18629a30dedb24db1bf3cec55dc021107a676ab` | `8bf1ad452f748ec6ca0b48d168b3ca056adf793324bced798412447a3f535462` |
+| `longmemeval_s_bm25.toml` | `010855490cb89f9be37b76cd5b68b65a9bb41d136269c9ad1787f0b7320b08cd` | `010855490cb89f9be37b76cd5b68b65a9bb41d136269c9ad1787f0b7320b08cd` |
+| `locomo_retrieval.toml` | `05eea3bad6be4a5b0063232e7fe413ddec15cd873c3997b6353e95e8559db958` | `d6ad0b58bcfa998e5ac35f99e36ec3ed0b23ee496d9999212dc36e8d8ebd3d7c` |
+| `longmemeval_s_retrieval.toml` | `a12d822d169f032d0fb56edb276d15d2d981487fbcb4bc661a4f8edc4dcbe055` | `279cf7dfdb43c2bae20fb16f1a51c84da65f7d1a431b5d50181d146adb397986` |
+
+Each config hash was recomputed from the header's exact TOML and matched its `config.sha256` sidecar. LoCoMo lexical changes only the two derived-content flags from true to false; LoCoMo hybrid changes them from false to true. LongMemEval lexical is byte-identical. The LongMemEval hybrid base hash covers the temporary `longmemeval_s_retrieval_base.toml`, whose only difference from the tip config is `enrichment_snapshot_path` pointing at the preserved bare-id pair. Thus only the LongMemEval lexical pair has an equal config hash; the other differences are intentional and recorded.
+
+| Run | Base header generated_at (UTC) | Tip header generated_at (UTC) |
+|---|---|---|
+| `locomo_bm25` | `2026-09-15T02:22:25.749300100Z` | `2026-09-15T02:57:59.582068700Z` |
+| `longmemeval_s_bm25` | `2026-09-15T02:23:02.400489400Z` | `2026-09-15T02:58:21.998302600Z` |
+| `locomo_hybrid` | `2026-09-15T02:23:39.683370500Z` | `2026-09-15T06:21:26.273931900Z` |
+| `longmemeval_s_hybrid` | `2026-09-15T03:50:43.151858Z` | `2026-09-15T16:06:21.784151800Z` |
+
+| Pair | Queries | Differing queries | Identity changes | Rank changes | Metric changes | Degradation changes |
+|---|---:|---:|---:|---:|---:|---:|
+| LoCoMo lexical | 1986 | 0 | 0 | 0 | 0 | 0 |
+| LongMemEval-S lexical | 500 | 13 | 6 | 13 | 6 | 0 |
+| LoCoMo hybrid | 1986 | 1983 | 1983 | 1983 | 1983 | 0 |
+| LongMemEval-S hybrid | 500 | 18 | 6 | 18 | 7 | 0 |
+
+No pair has a query missing from either side. The diff command returns nonzero for the three differing pairs; that result is recorded as a comparison outcome.
+
+- LoCoMo lexical changed-query set: empty; the official-file corpus is unchanged, as expected.
+- LongMemEval-S lexical changed-query set: `001be529`, `078150f1`, `18bc8abd`, `1d4da289`, `1e043500`, `58bf7951`, `91b15a6e`, `c7dc5443`, `caf03d32`, `d23cf73b`, `gpt4_4929293b`, `gpt4_76048e76`, `gpt4_c27434e8_abs`. This is exactly the set of 13 official items with repeated haystack session IDs.
+- LoCoMo hybrid changed-query set: all official questions except `conv-26:qa:157`, `conv-30:qa:44`, `conv-42:qa:227`; the differences span all ten conversations.
+- LongMemEval-S hybrid changed-query set: `0862e8bf`, `1cea1afa`, `1de5cff2`, `2788b940`, `4388e9dd`, `4f54b7c9`, `561fabcd`, `6222b6eb`, `76d63226`, `852ce960`, `95228167`, `a3838d2b`, `dcfa8644`, `e831120c`, `gpt4_4fc4f797`, `gpt4_68e94288`, `gpt4_7ddcf75f`, `gpt4_d6585ce8`. None is one of the 13 repeated-session items.
+
+Report means below are rounded to four decimal places; counts above and hash values are exact.
+
+| Pair | Metric | Base mean | Tip mean |
+|---|---|---:|---:|
+| `locomo_bm25` | `session_recall_any@10` | 0.4031 | 0.4031 |
+| `locomo_bm25` | `session_ndcg@10` | 0.1734 | 0.1734 |
+| `locomo_bm25` | `dialog_recall_any@10` | 0.5580 | 0.5580 |
+| `locomo_bm25` | `dialog_ndcg@10` | 0.3806 | 0.3806 |
+| `locomo_bm25` | `retrieved_context_tokens` | 704.4693 | 704.4693 |
+| `longmemeval_s_bm25` | `session_mrr@10` | 0.0036 | 0.0036 |
+| `longmemeval_s_bm25` | `turn_mrr@10` | 0.6583 | 0.6583 |
+| `longmemeval_s_bm25` | `turn_ndcg@10` | 0.6429 | 0.6429 |
+| `longmemeval_s_bm25` | `retrieved_context_tokens` | 11343.0260 | 11341.3320 |
+| `locomo_hybrid` | `session_recall_any@10` | 0.0339 | 0.3768 |
+| `locomo_hybrid` | `session_ndcg@10` | 0.0166 | 0.3227 |
+| `locomo_hybrid` | `dialog_recall_any@10` | 0.5156 | 0.2871 |
+| `locomo_hybrid` | `dialog_ndcg@10` | 0.3547 | 0.2366 |
+| `locomo_hybrid` | `num_derived_memories` | 5.6299 | 8.8646 |
+| `locomo_hybrid` | `retrieved_context_tokens` | 552.0851 | 733.6908 |
+| `longmemeval_s_hybrid` | `session_mrr@10` | 0.0032 | 0.0022 |
+| `longmemeval_s_hybrid` | `turn_mrr@10` | 0.7614 | 0.7614 |
+| `longmemeval_s_hybrid` | `turn_ndcg@10` | 0.7474 | 0.7474 |
+| `longmemeval_s_hybrid` | `retrieved_context_tokens` | 2292.3500 | 2291.3580 |
+
+LoCoMo hybrid provenance coverage is 1.0 on both sides; every measured leakage rate (`orphan_vector_leakage_rate`, `superseded_current_leakage_rate` and `suppressed_memory_leakage_rate`) is zero on both sides. Dataset summaries and observations make session-level retrieval work where it barely did. Those derived memories also occupy pack slots previously held by dialog turns, so dialog-level recall falls within the same pack size. The 2026-09-16 ruling treats this as the measured character with its new content, not a defect; it is planning input for the v0.2 pack-admission and ranking work. LoCoMo scoring still credits retrieved dialog observations rather than evidence references carried by a retrieved derived memory.
+
+Measurement amendment, orchestrator ruling 2026-09-16: the acceptance condition is content-attributable LongMemEval differences confined to the 13 repeated-session items, with provider jitter recorded separately and its observed magnitude stated. All 13 repeated-session items have identical ordered retrieved identity lists in the two hybrid runs, and none retrieves an episode, whether an original or a later copy. The tip retrieves 43 episodes among 5982 items overall. Of the 18 differing hybrid queries outside that set, 12 reorder the same members and six replace one retrieved item each; 482 queries retain the same ordered identity list. The largest absolute score difference for matched items is `0.013519287109375`. This independently reproduces `jitter_longmemeval_s_hybrid.json`. Under the ruling these differences are recorded as provider embedding jitter, with zero observed content-attributable LongMemEval hybrid changes. The observed LongMemEval jitter scale provides context for the much larger LoCoMo content effect; it is not an independently measured upper bound for LoCoMo.
+
+| Snapshot pair | Artifact SHA-256 | Manifest SHA-256 |
+|---|---|---|
+| LoCoMo, both hybrid runs | `85c5c7ef964d2554155ec2a9a0c797ec54c1d17f9cd81542f72d9dd4be7c149f` | `c66a0a1c75163ee9691976de8641ff30b9b1476701f1638bcb5511648edac5f6` |
+| LongMemEval-S base, preserved bare-id pair | `dee954d719d354f38874f6f58c01e51c6f5438df5426cb67080d392ac9986145` | `2ca55bdd9e743dcd40174c52f814f713fc1f56a128ac21e37ab94fceb4602129` |
+| LongMemEval-S tip, regenerated pair | `c4c3537021e68caaa6e52d002dbc97264d89cf757b5761528649df7b9f6f46e0` | `11a1776dcb8ca315bd5ecefcdb2d6fa36f23201f4d3efafeb07a59b40ae5bd58` |
+
+The regenerated manifest at `datasets/enriched/longmemeval_s_online_snapshots_manifest.json` records workflow `deterministic-exact-source-replay-v2`, dataset name `longmemeval-s`, official `dataset.sha256` `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`, sanitized `source.sha256` `add932a4fea279a96fe1e85430133cd9a316126f55e01473a3fa54cad9c2e6d1`, 22392 threads and 231565 derived memories. Its artifact hash matches the configured snapshot `datasets/enriched/longmemeval_s_online_snapshots.jsonl`. The original dataset files, unchanged LoCoMo snapshot/manifest and regenerated LongMemEval pair were hash-verified again during closeout; the preserved pair was verified before the base run and again during closeout.
+
+Evidence and disposition: the eight `header.json`, `report.json` and `config.sha256` files live under each base/tip worktree's `.agent-work/bdc-rebaseline/<base-or-tip>/<run>/`; the tip worktree also holds `diff_<run>.txt`, the two hybrid `deltas_<run>.json`, `record_lexical.json` and the jitter record. The orchestrator verified zero stores after each run, and closeout independently found every header's storage root absent. Run outputs remain within those recorded evidence directories until the orchestrator removes `results.jsonl` after this record is written; headers, reports, diffs and deltas stay until the closeout PR merges, then are removed. The bare-id snapshot and manifest remain under `.agent-work/evals-worker2/bdc-task2/preserved/`, with `preservation.json` retaining the reason `rollback source and Task_3 base-run input`; their deletion requires the decider's instruction. Original dataset assets and the configured regenerated snapshot are retained.
+
+Closeout ownership amendment: the orchestrator owns run execution, the four diffs, cleanup and final review; Task_3 owns evidence verification and these documentation changes. No new decision record is proposed: the measurements and their interpretation belong to this experiment record, the two workflow/admission lessons belong to the lessons log, and the shared-metric packaging decision already follows ADR-I-0004.
 
 ## Notes
 - The README's enrichment section already describes the LoCoMo default as indexing summaries and observations; this plan makes that true end to end. The BM25 baseline config had both flags on and silently ran without the content; by the decider's ruling the baseline searches the chat log only, so its flags go off; for the official file the base commit never loaded the top-level summaries and the tip projects them away, so the lexical corpus is expected to be unchanged; a file carrying record-level summary annotations would already have them in the base corpus, so the re-baseline compares the projection change and records any difference with its cause rather than assuming none.

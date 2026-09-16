@@ -1107,4 +1107,38 @@ Prevention:
 - Before opening a plan for review, and before acting on each finding, apply the filter: a plan fixes scope, contracts, ownership, validation feasibility and measurement validity, and a finding earns a plan revision only if it changes one of those. A finding that chooses an implementation shape is answered on the thread and routed to the worker brief or the implementation review. Keep the Definition of Done readable at contract level; if a bullet needs a paragraph, the detail belongs in design notes or with the worker. After two consecutive rounds of implementation-level findings, stop the loop and present the plan for approval rather than absorbing more.
 
 Evidence:
-- [Benchmark-derived content plan](plans/active/benchmark-derived-content-plan.md) Progress Log (the review rounds) and Decision Log (the plan-time versus implementation-time ruling); CME pull request #40.
+- [Benchmark-derived content plan](plans/completed/benchmark-derived-content-plan.md) Progress Log (the review rounds) and Decision Log (the plan-time versus implementation-time ruling); CME pull request #40.
+
+## 2026-09-15 - Keep intentionally open pull requests outside a linked merge stack [tags: orchestrator, git, stacking]
+
+Symptom:
+- An asynchronous merge of the top implementation pull request also merged benchmark plan PR #40 into main while the plan was still in progress.
+
+Root cause:
+- The plan pull request was included in `gh stack link` even though it was meant to remain open; the linked stack was treated as an ordering aid rather than the unit that would merge.
+
+Fix applied:
+- Record the unintended plan merge and close the remaining documentation work in a standalone pull request from main.
+
+Prevention:
+- Before linking a stack, verify that every included pull request may merge as part of that unit. A pull request that must remain open, including a plan awaiting closeout, stays outside `gh stack link`.
+
+Evidence:
+- [Benchmark-derived content closeout](plans/completed/benchmark-derived-content-plan.md#progress-log-append-only), plan #40 and implementation stack #41/#42/#43.
+
+## 2026-09-15 - Validate the dataset identity independently of snapshot integrity [tags: review, dataset, admission]
+
+Symptom:
+- A legacy v1 snapshot for another dataset could pass LoCoMo admission when its workflow and artifact hash were consistent.
+
+Root cause:
+- Admission checked workflow version and byte integrity but never compared the manifest's dataset identity with the dataset being run.
+
+Fix applied:
+- Pull request #45 adds typed `WrongDataset` admission immediately after workflow verification, reading the string or object form and comparing the producer's dataset name; the admission matrix covers both forms, missing names and mismatches before run state exists.
+
+Prevention:
+- Treat dataset identity, workflow and artifact integrity as separate bindings. Use producer-format names in fixtures and vary each binding independently while the others remain valid.
+
+Evidence:
+- #45 merged as 9661ec6; [re-baseline and closeout record](plans/completed/benchmark-derived-content-plan.md#2026-09-16-re-baseline-record-and-measurement-amendment).
