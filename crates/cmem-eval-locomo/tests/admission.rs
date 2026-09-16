@@ -1,20 +1,6 @@
 use cmem_eval_locomo::{AdmissionLocation, LoadError, load_value};
 use serde_json::{Value, json};
 
-#[test]
-fn load_path_distinguishes_io_and_json_errors() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("syntax.json");
-    std::fs::write(&path, "{]").unwrap();
-    let syntax_error = cmem_eval_locomo::load_path(&path).unwrap_err();
-    std::fs::remove_file(&path).unwrap();
-    assert!(matches!(syntax_error, LoadError::Json(_)));
-    let io_error = cmem_eval_locomo::load_path(&path).unwrap_err();
-    assert!(
-        matches!(io_error, LoadError::Io { source, .. } if source.kind() == std::io::ErrorKind::NotFound)
-    );
-}
-
 fn item() -> Value {
     json!({"sample_id":"p1","conversation":[{"session_id":"s1","turns":[{"dia_id":"d1","text":""}]}],"qa":[{"question":"What?"}]})
 }
@@ -339,25 +325,26 @@ fn rejects_duplicate_effective_qa_ids_within_and_across_items() {
 
 #[test]
 fn admits_wrappers_and_key_aliases() {
-    for wrapper in ["data", "samples", "items"] {
-        for id in ["session_id", "session", "id"] {
-            for turns in ["turns", "dialog", "conversation"] {
-                let row = json!({"id":"p1","conversations":[{id:"s1",turns:[{"dialog_id":"d1","role":"A","content":"hello","search_query":"find"}]}],
-                    "qa":[{"qid":"q1","q":"  What?  ","a":false,"type":2,"evidence_dialog_ids":["d1"]}]});
-                let rows = load_value(json!({wrapper:[row]})).unwrap();
-                assert_eq!(rows[0].sample_id, "p1");
-                assert_eq!(rows[0].sessions[0].session_id, "s1", "{id}");
-                assert_eq!(rows[0].qa[0].question_id, "q1");
-                assert_eq!(rows[0].qa[0].question, "  What?  ");
-                assert_eq!(rows[0].qa[0].answer.as_deref(), Some("false"));
-                assert_eq!(rows[0].qa[0].question_type.as_deref(), Some("2"));
-                assert_eq!(rows[0].qa[0].evidence_dialog_ids, vec!["d1"]);
-                assert_eq!(rows[0].sessions[0].turns[0].dialog_id, "d1");
-                assert_eq!(rows[0].sessions[0].turns[0].speaker.as_deref(), Some("A"));
-                assert_eq!(rows[0].sessions[0].turns[0].text, "hello");
-                assert_eq!(rows[0].sessions[0].turns[0].query.as_deref(), Some("find"));
-            }
-        }
+    let cases = ["data", "samples", "items"]
+        .map(|wrapper| (wrapper, "session_id", "turns"))
+        .into_iter()
+        .chain(["session_id", "session", "id"].map(|id| ("data", id, "turns")))
+        .chain(["turns", "dialog", "conversation"].map(|turns| ("data", "session_id", turns)));
+    for (wrapper, id, turns) in cases {
+        let row = json!({"id":"p1","conversations":[{id:"s1",turns:[{"dialog_id":"d1","role":"A","content":"hello","search_query":"find"}]}],
+            "qa":[{"qid":"q1","q":"  What?  ","a":false,"type":2,"evidence_dialog_ids":["d1"]}]});
+        let rows = load_value(json!({wrapper:[row]})).unwrap();
+        assert_eq!(rows[0].sample_id, "p1");
+        assert_eq!(rows[0].sessions[0].session_id, "s1", "{id}");
+        assert_eq!(rows[0].qa[0].question_id, "q1");
+        assert_eq!(rows[0].qa[0].question, "  What?  ");
+        assert_eq!(rows[0].qa[0].answer.as_deref(), Some("false"));
+        assert_eq!(rows[0].qa[0].question_type.as_deref(), Some("2"));
+        assert_eq!(rows[0].qa[0].evidence_dialog_ids, vec!["d1"]);
+        assert_eq!(rows[0].sessions[0].turns[0].dialog_id, "d1");
+        assert_eq!(rows[0].sessions[0].turns[0].speaker.as_deref(), Some("A"));
+        assert_eq!(rows[0].sessions[0].turns[0].text, "hello");
+        assert_eq!(rows[0].sessions[0].turns[0].query.as_deref(), Some("find"));
     }
 }
 

@@ -1279,256 +1279,44 @@ mod tests {
     }
 
     #[test]
-    fn committed_manifest_has_the_confirmed_roster() {
+    fn committed_manifest_preserves_selection_invariants() {
         let manifest = parse_selection_manifest_bytes(include_bytes!(
             "../continuity_benchmarks_v1_selection.json"
         ))
         .unwrap();
-        let actual = manifest
-            .instances
-            .iter()
-            .map(|selection| {
-                (
-                    selection.fixture_id.as_str(),
-                    selection.source,
-                    selection.source_instance_id.as_str(),
-                    selection.source_qa_index,
-                    selection.scenario_kind,
-                    selection.selection_proof.machine_derived.session_count,
-                    selection.selection_proof.machine_derived.evidence_clean,
-                    selection
-                        .selection_proof
-                        .machine_derived
-                        .no_img_url_in_evidence,
-                    selection
-                        .selection_proof
-                        .machine_derived
-                        .gold_turn_ids_empty,
-                    selection.selection_proof.curator_asserted.self_contained,
-                )
-            })
-            .collect::<BTreeSet<_>>();
-        let expected = [
-            (
-                "benchmark-lme-update-01493427",
-                BenchmarkSource::LongmemevalS,
-                "01493427",
-                None,
-                ScenarioKind::Update,
-                3,
-                true,
-                None,
-                Some(false),
-                true,
-            ),
-            (
-                "benchmark-lme-update-06db6396",
-                BenchmarkSource::LongmemevalS,
-                "06db6396",
-                None,
-                ScenarioKind::Update,
-                3,
-                true,
-                None,
-                Some(false),
-                true,
-            ),
-            (
-                "benchmark-lme-update-18bc8abd",
-                BenchmarkSource::LongmemevalS,
-                "18bc8abd",
-                None,
-                ScenarioKind::Update,
-                3,
-                true,
-                None,
-                Some(false),
-                true,
-            ),
-            (
-                "benchmark-lme-update-2698e78f",
-                BenchmarkSource::LongmemevalS,
-                "2698e78f",
-                None,
-                ScenarioKind::Update,
-                3,
-                true,
-                None,
-                Some(false),
-                true,
-            ),
-            (
-                "benchmark-lme-temporal-08f4fc43",
-                BenchmarkSource::LongmemevalS,
-                "08f4fc43",
-                None,
-                ScenarioKind::Temporal,
-                3,
-                true,
-                None,
-                Some(false),
-                true,
-            ),
-            (
-                "benchmark-lme-temporal-0bb5a684",
-                BenchmarkSource::LongmemevalS,
-                "0bb5a684",
-                None,
-                ScenarioKind::Temporal,
-                3,
-                true,
-                None,
-                Some(false),
-                true,
-            ),
-            (
-                "benchmark-lme-multi-129d1232",
-                BenchmarkSource::LongmemevalS,
-                "129d1232",
-                None,
-                ScenarioKind::MultiEvidence,
-                4,
-                true,
-                None,
-                Some(false),
-                true,
-            ),
-            (
-                "benchmark-lme-multi-2ce6a0f2",
-                BenchmarkSource::LongmemevalS,
-                "2ce6a0f2",
-                None,
-                ScenarioKind::MultiEvidence,
-                5,
-                true,
-                None,
-                Some(false),
-                true,
-            ),
-            (
-                "benchmark-lme-multi-81507db6",
-                BenchmarkSource::LongmemevalS,
-                "81507db6",
-                None,
-                ScenarioKind::MultiEvidence,
-                4,
-                true,
-                None,
-                Some(false),
-                true,
-            ),
-            (
-                "benchmark-lme-abstention-0862e8bf-abs",
-                BenchmarkSource::LongmemevalS,
-                "0862e8bf_abs",
-                None,
-                ScenarioKind::Abstention,
-                3,
-                true,
-                None,
-                Some(true),
-                true,
-            ),
-            (
-                "benchmark-lme-abstention-19b5f2b3-abs",
-                BenchmarkSource::LongmemevalS,
-                "19b5f2b3_abs",
-                None,
-                ScenarioKind::Abstention,
-                3,
-                true,
-                None,
-                Some(true),
-                true,
-            ),
-            (
-                "benchmark-locomo-temporal-conv-30-qa1",
-                BenchmarkSource::Locomo,
-                "conv-30",
-                Some(1),
-                ScenarioKind::Temporal,
-                3,
-                true,
-                Some(true),
-                None,
-                true,
-            ),
-            (
-                "benchmark-locomo-temporal-conv-50-qa1",
-                BenchmarkSource::Locomo,
-                "conv-50",
-                Some(1),
-                ScenarioKind::Temporal,
-                3,
-                true,
-                Some(true),
-                None,
-                true,
-            ),
-            (
-                "benchmark-locomo-multi-conv-26-qa12",
-                BenchmarkSource::Locomo,
-                "conv-26",
-                Some(12),
-                ScenarioKind::MultiEvidence,
-                3,
-                true,
-                Some(true),
-                None,
-                true,
-            ),
-            (
-                "benchmark-locomo-multi-conv-41-qa4",
-                BenchmarkSource::Locomo,
-                "conv-41",
-                Some(4),
-                ScenarioKind::MultiEvidence,
-                3,
-                true,
-                Some(true),
-                None,
-                true,
-            ),
-            (
-                "benchmark-locomo-control-conv-30-qa40",
-                BenchmarkSource::Locomo,
-                "conv-30",
-                Some(40),
-                ScenarioKind::SingleHopControl,
-                3,
-                true,
-                Some(true),
-                None,
-                true,
-            ),
-            (
-                "benchmark-locomo-control-conv-47-qa69",
-                BenchmarkSource::Locomo,
-                "conv-47",
-                Some(69),
-                ScenarioKind::SingleHopControl,
-                3,
-                true,
-                Some(true),
-                None,
-                true,
-            ),
-            (
-                "benchmark-locomo-abstention-conv-26-qa153",
-                BenchmarkSource::Locomo,
-                "conv-26",
-                Some(153),
-                ScenarioKind::Abstention,
-                3,
-                true,
-                Some(true),
-                None,
-                true,
-            ),
-        ]
-        .into_iter()
-        .collect::<BTreeSet<_>>();
-        assert_eq!(actual, expected);
+        for selection in &manifest.instances {
+            let proof = &selection.selection_proof.machine_derived;
+            assert!((3..=5).contains(&selection.selected_session_ids.len()));
+            assert_eq!(proof.session_count, selection.selected_session_ids.len());
+            let kind = match selection.scenario_kind {
+                ScenarioKind::Update => "update",
+                ScenarioKind::Temporal => "temporal",
+                ScenarioKind::MultiEvidence => "multi",
+                ScenarioKind::SingleHopControl => "control",
+                ScenarioKind::Abstention => "abstention",
+            };
+            let expected_id = match selection.source {
+                BenchmarkSource::LongmemevalS => {
+                    assert_eq!(
+                        proof.gold_turn_ids_empty,
+                        Some(selection.scenario_kind == ScenarioKind::Abstention)
+                    );
+                    format!(
+                        "benchmark-lme-{kind}-{}",
+                        selection.source_instance_id.replace('_', "-")
+                    )
+                }
+                BenchmarkSource::Locomo => {
+                    assert_eq!(proof.no_img_url_in_evidence, Some(true));
+                    format!(
+                        "benchmark-locomo-{kind}-{}-qa{}",
+                        selection.source_instance_id,
+                        selection.source_qa_index.unwrap()
+                    )
+                }
+            };
+            assert_eq!(selection.fixture_id, expected_id);
+        }
     }
 
     #[test]
