@@ -1,6 +1,6 @@
 # Plan: Harness safety and identity contracts with no observer get one
 
-- status: in_progress (approved by the decider 2026-09-16)
+- status: in_progress (approved by the decider 2026-09-16; Tier D APPROVED 2026-09-17 at 9083893; pull request open, awaiting merge approval)
 - generated: 2026-09-16
 - last_updated: 2026-09-16
 - work_type: code
@@ -179,6 +179,9 @@ Sequencing: this plan is dispatched after the typed-admission plan and the adapt
   - Summary: sentinel gold-label and speaker leak test over every namespace store file and the retrieved context; DatasetId::new rejection and admission; deterministic_operation_id framing and stability; persist_with_retry exhaustion and non-retryable kind (fs_util test module); LoCoMo hand-computed dialog and projected-session recall and nDCG for a rank-one hit versus a miss; seal() refuses zero and two row artifacts without writing either manifest; all 31 fixture admission test functions stand on one hand-authored scenario with named event lookups (rejection census 53 to 53, 38 Admission and 15 Shape observers retained). Every new test passes on main: zero pending-ruling ignores.
   - Validation evidence: worker gates per report (cmem-eval 108 passed; locomo 47; runner seal filter 5; continuity suite before and after equal); orchestrator workspace run at f94a18c recorded in the Wave 3 entry.
 - 2026-09-17 Wave 2 completed: [Task_5] no test failed on main, so no ruling was needed and Task_6 (ignore removal) is a no-op.
+
+- 2026-09-17 Wave 4 completed: [Task_7] (APPROVED at 9083893; code identical after the rebase onto the cost-cleanup log commit bb59a58)
+  - Validation evidence (reviewer, pinned worktree): fmt and clippy clean; workspace 325 passed plus the known symlink exception, ignored 0; runner integration 1 passed; smoke diff all zero; all seven gaps have observers; fixture census 53 to 53 (38 admission, 15 shape); plant-fail-restore evidence on the sentinel and operation-id tests in a scratch copy with pre and post hashes. Orchestrator at f94a18c: fmt and clippy clean, workspace green except the known exception, ignored 0.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
