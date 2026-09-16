@@ -816,7 +816,6 @@ dependencies = [
  "async-trait",
  "character_memory",
  "chrono",
- "cmem-eval-continuity",
  "config",
  "qdrant-client",
  "reqwest 0.12.28",

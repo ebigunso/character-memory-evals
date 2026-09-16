@@ -70,3 +70,107 @@ where
     }
     unreachable!("atomic replacement loop always returns")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fs_util;
+    use anyhow::bail;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn identity_registry_persist_retries_permission_denied_with_same_staged_bytes() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("identity.json");
+        fs::write(&path, b"old complete registry\n").unwrap();
+        let staged_bytes = b"new complete registry\n";
+        let mut temporary = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
+        temporary.write_all(staged_bytes).unwrap();
+        temporary.as_file().sync_all().unwrap();
+        let mut attempts = 0;
+
+        fs_util::persist_with_retry(temporary, &path, "identity registry", |temporary, path| {
+            attempts += 1;
+            assert_eq!(fs::read(temporary.path()).unwrap(), staged_bytes);
+            if attempts == 1 {
+                return Err(tempfile::PersistError {
+                    error: std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "injected Windows replace contention",
+                    ),
+                    file: temporary,
+                });
+            }
+            temporary.persist(path)
+        })
+        .unwrap();
+
+        assert_eq!(attempts, 2);
+        assert_eq!(fs::read(&path).unwrap(), staged_bytes);
+    }
+
+    #[test]
+    fn failed_store_write_preserves_preexisting_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("store.json");
+        let previous_bytes = b"previous complete store\n";
+        let replacement_bytes = b"replacement complete store\n";
+        fs::write(&path, previous_bytes).unwrap();
+        let mut staged_path = None;
+
+        let error = atomic_replace_with_before_persist(
+            &path,
+            replacement_bytes,
+            "frozen embedding store",
+            |temporary_path| {
+                staged_path = Some(temporary_path.to_path_buf());
+                assert_eq!(temporary_path.parent(), path.parent());
+                assert_eq!(fs::read(temporary_path).unwrap(), replacement_bytes);
+                assert_eq!(fs::read(&path).unwrap(), previous_bytes);
+                bail!("simulated failure before atomic store replacement")
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("simulated failure"), "{error}");
+        assert_eq!(fs::read(&path).unwrap(), previous_bytes);
+        assert!(!staged_path.unwrap().exists());
+    }
+
+    #[test]
+    fn store_persist_retries_permission_denied_with_same_staged_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("store.json");
+        fs::write(&path, b"previous complete store\n").unwrap();
+        let staged_bytes = b"replacement complete store\n";
+        let mut temporary = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
+        temporary.write_all(staged_bytes).unwrap();
+        temporary.as_file().sync_all().unwrap();
+        let mut attempts = 0;
+
+        persist_with_retry(
+            temporary,
+            &path,
+            "frozen embedding store",
+            |temporary, path| {
+                attempts += 1;
+                assert_eq!(fs::read(temporary.path()).unwrap(), staged_bytes);
+                if attempts == 1 {
+                    return Err(tempfile::PersistError {
+                        error: std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "injected Windows replace contention",
+                        ),
+                        file: temporary,
+                    });
+                }
+                temporary.persist(path)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(attempts, 2);
+        assert_eq!(fs::read(&path).unwrap(), staged_bytes);
+    }
+}

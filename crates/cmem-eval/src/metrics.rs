@@ -805,6 +805,12 @@ fn context_validation_pass_rate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ObjectType, RetrievedItem};
+    use character_memory::{
+        ContinuityContextPack, LifecycleFilterAction, LifecycleFilterDecision,
+        LifecycleFilterReason, MemoryObjectRef, RetentionState, RetrievalRationale, RetrievalTrace,
+        RetrieveOutcome,
+    };
 
     #[test]
     fn computes_ranking_metrics() {
@@ -895,6 +901,60 @@ mod tests {
 
         assert_eq!(out["returned_items_without_external_id"], 1);
         assert!(out["suppressed_or_deleted_items_returned"].is_null());
+    }
+
+    #[test]
+    fn telemetry_leakage_counts_only_unique_final_returned_items() {
+        let returned_id = uuid::Uuid::from_u128(1);
+        let omitted_id = uuid::Uuid::from_u128(2);
+        let mut trace = RetrievalTrace::empty();
+        trace.lifecycle_filter_decisions = vec![
+            LifecycleFilterDecision {
+                object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
+                retention_state: Some(RetentionState::Suppressed),
+                is_current: Some(false),
+                superseded_by: vec![omitted_id],
+                action: LifecycleFilterAction::Included,
+                reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+            },
+            LifecycleFilterDecision {
+                object: MemoryObjectRef::new(ObjectType::Episode, omitted_id),
+                retention_state: Some(RetentionState::Suppressed),
+                is_current: None,
+                superseded_by: Vec::new(),
+                action: LifecycleFilterAction::Included,
+                reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+            },
+            LifecycleFilterDecision {
+                object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
+                retention_state: Some(RetentionState::Suppressed),
+                is_current: Some(false),
+                superseded_by: vec![omitted_id],
+                action: LifecycleFilterAction::Included,
+                reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+            },
+        ];
+        let outcome = RetrieveOutcome {
+            pack: ContinuityContextPack::empty(),
+            rationale: RetrievalRationale::new("test"),
+            trace: Some(trace),
+        };
+
+        let integrity = crate::integrity_details_from_outcomes(
+            &[RetrievedItem {
+                kind: ObjectType::Episode,
+                internal_id: returned_id.to_string(),
+                external_id: Some("returned".to_string()),
+                episode_external_id: None,
+                score: None,
+                rank: 1,
+                rationale: Vec::new(),
+                text: None,
+            }],
+            &[outcome],
+        );
+        assert_eq!(integrity.suppressed_memory_leakage_rate, Some(1.0));
+        assert_eq!(integrity.superseded_current_leakage_rate, Some(1.0));
     }
 
     #[test]
