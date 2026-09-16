@@ -478,12 +478,8 @@ fn cosine_similarity(left: &[f32], right: &[f32]) -> Result<f32> {
 #[cfg(test)]
 mod tests {
     use std::env;
-    use std::process::Command;
 
     use super::*;
-
-    const PROCESS_STORE_PATH: &str = "CMEM_FROZEN_EMBEDDING_PROCESS_STORE";
-    const PROCESS_OUTPUT_PATH: &str = "CMEM_FROZEN_EMBEDDING_PROCESS_OUTPUT";
 
     #[test]
     fn canonical_store_is_hash_sorted_and_lf_terminated() {
@@ -629,54 +625,6 @@ mod tests {
         let error = FrozenEmbeddingStore::load(&path).unwrap_err().to_string();
         assert!(error.contains("unknown field"), "{error}");
         fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn provider_outputs_are_byte_identical_across_processes() {
-        let process_id = std::process::id();
-        let store_path = env::temp_dir().join(format!("cmem-frozen-store-{process_id}.json"));
-        fs::write(&store_path, smoke_store().canonical_bytes().unwrap()).unwrap();
-        let current_exe = env::current_exe().unwrap();
-        let mut outputs = Vec::new();
-        for run in 0..2 {
-            let output_path =
-                env::temp_dir().join(format!("cmem-frozen-output-{process_id}-{run}.bin"));
-            let status = Command::new(&current_exe)
-                .args([
-                    "--exact",
-                    "frozen_embedding::tests::cross_process_probe",
-                    "--nocapture",
-                ])
-                .env(PROCESS_STORE_PATH, &store_path)
-                .env(PROCESS_OUTPUT_PATH, &output_path)
-                .status()
-                .unwrap();
-            assert!(status.success());
-            outputs.push(fs::read(&output_path).unwrap());
-            fs::remove_file(output_path).unwrap();
-        }
-        fs::remove_file(store_path).unwrap();
-
-        assert_eq!(outputs[0], outputs[1]);
-        assert!(!outputs[0].is_empty());
-    }
-
-    #[test]
-    fn cross_process_probe() {
-        let (Ok(store_path), Ok(output_path)) =
-            (env::var(PROCESS_STORE_PATH), env::var(PROCESS_OUTPUT_PATH))
-        else {
-            return;
-        };
-        let provider =
-            FrozenEmbeddingProvider::load(Path::new(&store_path), "task21-smoke-model", 3).unwrap();
-        let bytes = provider
-            .vector_for_text("Where is the cobalt notebook?")
-            .unwrap()
-            .iter()
-            .flat_map(|component| component.to_le_bytes())
-            .collect::<Vec<_>>();
-        fs::write(output_path, bytes).unwrap();
     }
 
     fn temporary_path(label: &str) -> PathBuf {

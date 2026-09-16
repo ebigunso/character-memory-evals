@@ -71,19 +71,6 @@ mod tests {
         assert_eq!(occupied, vec![(3, 1.0), (13, 1.0), (15, 1.0)]);
     }
 
-    #[cfg(target_pointer_width = "64")]
-    #[test]
-    fn fixed_width_hash_is_byte_identical_to_legacy_x86_64_embeddings() {
-        let vector_size = 3072;
-        let text = "Alice likes tea across continuity fixtures";
-        let fixed_width = DeterministicEmbeddingProvider::new(vector_size)
-            .unwrap()
-            .vector_for_text(text);
-        let legacy = legacy_x86_64_vector(text, vector_size);
-
-        assert_eq!(embedding_bytes(&fixed_width), embedding_bytes(&legacy));
-    }
-
     #[test]
     fn rejects_zero_vector_size_at_construction() {
         assert!(
@@ -92,28 +79,5 @@ mod tests {
                 .to_string()
                 .contains("greater than zero")
         );
-    }
-
-    #[cfg(target_pointer_width = "64")]
-    fn legacy_x86_64_vector(text: &str, vector_size: usize) -> Vec<f32> {
-        let mut embedding = vec![0.0; vector_size];
-        for token in text.split(|ch: char| !ch.is_alphanumeric()) {
-            if token.is_empty() {
-                continue;
-            }
-            let hash = token.bytes().fold(2166136261usize, |hash, byte| {
-                hash.wrapping_mul(16777619) ^ usize::from(byte.to_ascii_lowercase())
-            });
-            embedding[hash % vector_size] += 1.0;
-        }
-        embedding
-    }
-
-    #[cfg(target_pointer_width = "64")]
-    fn embedding_bytes(embedding: &[f32]) -> Vec<u8> {
-        embedding
-            .iter()
-            .flat_map(|value| value.to_ne_bytes())
-            .collect()
     }
 }

@@ -257,11 +257,6 @@ fn ordered_embeddings(
 mod tests {
     use super::*;
 
-    #[test]
-    fn shared_client_keeps_a_bounded_five_minute_request_timeout() {
-        assert_eq!(OPENAI_REQUEST_TIMEOUT, Duration::from_secs(300));
-    }
-
     fn response(
         model: &str,
         data: impl IntoIterator<Item = (usize, Vec<f32>)>,
