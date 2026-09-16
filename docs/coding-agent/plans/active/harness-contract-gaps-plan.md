@@ -175,10 +175,17 @@ Sequencing: this plan is dispatched after the typed-admission plan and the adapt
 - 2026-09-16 Confirmation pass: the ignore removal moved out of the ruling task into a worker-owned Task_6 with crate `owns`; review renumbered to Task_7.
 - 2026-09-16 Reviewer pass (Tier A): ADR-I-0005 cited instead of its superseded predecessor; pending-ruling tests committed ignored with the reason so the stacked branch stays green; ruled fixes become a separate plan; A1 made a sequencing rule with no `is_err()` fallback; `DatasetId` and operation-id gaps stated as missing tests over implemented behaviour; `outcome.rs:28`; `fs_util` module origin named; workspace-wide validation hoisted to the orchestrator.
 
+- 2026-09-17 Wave 1 completed: [Task_1 fde1b03, Task_2 570888c, Task_3 f1a5101, Task_4 f94a18c] (integrated tip f94a18c, rebased onto the cost-cleanup tip a7dd8f5)
+  - Summary: sentinel gold-label and speaker leak test over every namespace store file and the retrieved context; DatasetId::new rejection and admission; deterministic_operation_id framing and stability; persist_with_retry exhaustion and non-retryable kind (fs_util test module); LoCoMo hand-computed dialog and projected-session recall and nDCG for a rank-one hit versus a miss; seal() refuses zero and two row artifacts without writing either manifest; all 31 fixture admission test functions stand on one hand-authored scenario with named event lookups (rejection census 53 to 53, 38 Admission and 15 Shape observers retained). Every new test passes on main: zero pending-ruling ignores.
+  - Validation evidence: worker gates per report (cmem-eval 108 passed; locomo 47; runner seal filter 5; continuity suite before and after equal); orchestrator workspace run at f94a18c recorded in the Wave 3 entry.
+- 2026-09-17 Wave 2 completed: [Task_5] no test failed on main, so no ruling was needed and Task_6 (ignore removal) is a no-op.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-17 Decision: branch cut from the cost-cleanup branch after three of its four Wave 1 tasks integrated (Task_4, dataset crates and converter, still running); this branch rebases onto the cost-cleanup reviewed tip before its own review. The typed-admission and adapter-ownership plans are both Tier D approved beneath, satisfying A1 and the fs_util module origin.
 
+- 2026-09-17 Decision (Task_3 alert): seal() has no typed cardinality error (anyhow ensure); the two tests assert refusal plus the absence of both manifests and the evidence root, without message text, and a typed seal error is declined for this plan: seal is the on-demand sealing command, not a library-facing validator, and the protected contract is refusal without side effect.
+- 2026-09-17 Note (Task_1): DatasetId::new already rejected the named inputs and deterministic_operation_id already framed by length, as the plan expected; the gap was the missing observer in both cases.
 - 2026-09-16 Decision: a new test that fails on main is committed ignored with the pending-ruling reason and pauses for a ruling rather than being fixed by the worker; production fixes get their own plan. Trigger: orchestrator design-altitude rule; 2026-09-15 stack-merge incident. Decider approval: plan accepted 2026-09-16; merge approval pending.
 
 ## Notes
