@@ -999,8 +999,8 @@ impl ContinuityScenario {
 /// `src/policy/embedding_surface.rs`. The live adapter removes the object-type
 /// prefix before frozen lookup, leaving this normalized suffix as the exact
 /// cache key. Keep this mirror paired with the cross-repository drift guard
-/// `live_frozen_write_surface_matches_continuity_runtime_normalization` in the
-/// CharacterMemory adapter tests; that test must fail if the upstream policy
+/// `embedded_frozen_write_surface_matches_continuity_runtime_normalization` in
+/// this module's tests; that test must fail if the upstream policy
 /// changes without a corresponding fixture-contract update.
 pub fn runtime_memory_embedding_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -1329,10 +1329,74 @@ fn require_unit_interval(
 
 #[cfg(test)]
 mod tests {
+    use cmem_eval::{
+        BackendConfig, BenchmarkRunConfig, CharacterMemoryAdapter, CommitWriteOptions, DatasetId,
+        EmbeddingConfig, EmbeddingProviderConfig, FrozenEmbeddingStore, PrepareWriteInput,
+        VectorStoreMode,
+    };
     use serde_json::Value;
 
     use super::*;
     use crate::{CHECKED_FIXTURE_SEED, generate_fixture_set};
+
+    #[tokio::test]
+    async fn embedded_frozen_write_surface_matches_continuity_runtime_normalization() {
+        let run_directory = tempfile::tempdir().unwrap();
+        let run_root = run_directory.path();
+        let directory = tempfile::tempdir().unwrap();
+        let token = uuid::Uuid::new_v4();
+        let namespace = "frozen-runtime-normalization";
+        let content = "  The  cobalt\tnotebook\nis in   the east cabinet.  ";
+        let runtime_lookup_text = runtime_memory_embedding_text(content);
+        let store_path = directory.path().join("strict-runtime-store.json");
+        let store = FrozenEmbeddingStore::new(
+            "text-embedding-3-small",
+            "test_fixture",
+            [(runtime_lookup_text, vec![1.0; 1_536])],
+        )
+        .unwrap();
+        std::fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
+
+        let config = BenchmarkRunConfig {
+            run_id: format!("frozen-drift-{token}"),
+            dataset: DatasetId::new("locomo").unwrap(),
+            backend: BackendConfig {
+                vector_store_mode: VectorStoreMode::Embedded,
+                embedding: EmbeddingConfig {
+                    provider: EmbeddingProviderConfig::Frozen,
+                    model: "text-embedding-3-small".to_string(),
+                    vector_size: Some(1_536),
+                    store_path: Some(store_path.display().to_string()),
+                },
+                ..BackendConfig::default()
+            },
+            retrieval: Default::default(),
+            ingest: Default::default(),
+            metrics: Default::default(),
+        };
+        let adapter = (CharacterMemoryAdapter::new_with_frozen_embeddings(run_root, &config).await)
+            .expect("frozen drift-guard adapter construction");
+        (adapter.open_namespace(namespace).await).expect("frozen drift-guard namespace open");
+        let plan = (adapter
+            .prepare(PrepareWriteInput {
+                namespace: namespace.to_string(),
+                content: content.to_string(),
+                episode_external_id: "whitespace-episode".to_string(),
+                observation_external_id: "whitespace-observation".to_string(),
+                episode_started_at: None,
+                observation_observed_at: None,
+                raw_refs: Vec::new(),
+                idempotency_key: Some("whitespace-drift-guard".to_string()),
+                include_vector_index_candidates: true,
+                include_stats_update_candidates: true,
+            })
+            .await)
+            .expect("frozen drift-guard write preparation");
+        let outcome = (adapter.commit(plan, CommitWriteOptions::default()).await)
+            .expect("frozen drift-guard write commit");
+        assert_eq!(outcome.vector_indexed_object_refs.len(), 2);
+        (adapter.reset_namespace(namespace).await).expect("frozen drift-guard namespace cleanup");
+    }
 
     #[test]
     fn runtime_embedding_inputs_normalize_writes_but_preserve_queries() {
