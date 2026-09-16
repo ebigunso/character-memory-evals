@@ -152,8 +152,16 @@ Parallel tasks run in separate worktrees so Cargo commands never share a target 
 
 - 2026-09-16 Decider accepted all eight plans; execution starts, PRs stacked.
 
+- 2026-09-16 Wave 1 completed: [Task_1, Task_2, Task_3, Task_4] (integrated tip 30af7b6: 11ba700, 0542e21, 9f98178, 028e850, 07efb80, 30af7b6)
+  - Summary: FixtureError with FixtureLocation and a 19-kind FixtureAdmissionKind replaces every bail! in the fixture parser; GeneratorError covers the four generator rejections; OutputPathExists beside OutputPathInStores in the runner; a private ResponseError in the OpenAI response validator; ConfigError::DatasetMismatch in both dataset crates; reader tests assert refusal without serde prose; three serde-behaviour tests deleted.
+  - Validation evidence (orchestrator, integrated branch): cargo fmt --all --check clean; cargo clippy --workspace --all-targets -D warnings clean; cargo test --workspace: cmem-eval 116, benchmark-convert 10, continuity 67, locomo 12+30+4 (1 ignored), longmemeval 8+23+3 (1 ignored), runner 52 passed and 1 failed (output_leaf_links_are_rejected_before_writing_artifacts, OS error 1314, the known Windows symlink exception); README continuity smoke recipe two runs plus diff, all counts zero (Task_2 evidence).
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
+- 2026-09-16 Decision: the dataset-name mismatch becomes ConfigError::DatasetMismatch { expected, found } in both dataset crates (a one-variant ConfigError introduced in longmemeval). Trigger: Task_4 found no typed variant for the name check (locomo lib.rs:88 and longmemeval lib.rs:59 were anyhow bail!). Rationale: worker.md requires validators on library-facing surfaces to classify failures with an owned typed error at introduction; bare is_err() could not distinguish the name rejection from the baseline-content rejection. Callers unchanged (cargo check --workspace). The converter's five conversion-error prose assertions stay: conversion errors are not reader admission and are outside this plan.
+- 2026-09-16 Decision: generator-owned rejections get a small GeneratorError enum (cluster count, missing remember concept, reserved concept collision, extension timestamp) separate from FixtureAdmissionKind, so the crate-wide acceptance (no prose assertion in the crate's tests) holds. Trigger: Task_1 question about three generator tests outside the plan's named line.
+- 2026-09-16 Decision: no serde_path_to_error dependency; the Shape error's field is read from serde's fixed message formats and is None for unknown enum variants and type mismatches. Accepted limitation, recorded here.
+- 2026-09-16 Open for Task_5: results.rs reject_empty_run still asserts prose at about line 289 (outside Task_3 owns); the reviewer census decides whether it folds into this pull request.
 - 2026-09-16 Decision: the fixture parser adopts the dataset loaders' typed admission shape rather than a message-prefix convention. Trigger: about 90 prose assertions in one file. User approval: pending.
 
 ## Notes
