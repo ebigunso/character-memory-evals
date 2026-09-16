@@ -210,6 +210,8 @@ BM25 configs are available for LongMemEval-S and LoCoMo: `configs/longmemeval_s_
 
 Vector-only retrieval uses `[retrieval] mode = "vector_only"`. It ingests through Character Memory and reads the library retrieval trace for one object kind at a time, then ranks raw episodes and observations within their configured budgets. It supports embedded and Qdrant service stores and uses the configured embedding provider. Vector-only and BM25 policies accept only episodes and observations and require a nonzero budget for every selected kind. Continuity rejects BM25 before fixture or embedding setup.
 
+Both baselines search the chat log only. For LoCoMo, episode text is the generic session description and observations carry the dialog turns; neither baseline indexes the dataset summaries or generated observations. LoCoMo baseline configurations reject either derived-content flag or either enrichment path. LongMemEval-S keeps its existing baseline configuration rules.
+
 ```bash
 cargo run -p cmem-eval-runner -- run longmemeval-s \
   --dataset ./datasets/longmemeval_s_cleaned.json \
@@ -238,6 +240,8 @@ cargo run -p cmem-eval-runner -- run locomo \
   --out ./runs/locomo_v0_1/results.jsonl
 ```
 
+Repeated LongMemEval-S sessions are distinct memories, each retaining its own date. The first occurrence keeps its raw session ID; later copies receive collision-safe `#<ordinal>` identities, and their turn identities follow that assigned session ID. Result rows use assigned identities on retrieved items and the benchmark's raw IDs on gold lists. Scoring maps retrieved identities back to the raw IDs and credits a repeated session once.
+
 Gold evidence labels are used only for scoring. They are not copied into `EpisodeInput`, `ObservationInput`, or adapter metadata.
 
 ## Architecture
@@ -262,37 +266,23 @@ Live namespace lifecycle is explicit: `open_namespace` creates fresh state, whil
 
 ## Precomputed Graph Enrichment
 
-The runner can inject graph-shaped memory objects after raw episodes and
-observations are stored. This is meant for enrichment prepared by a separate
-LLM/Codex pass over source conversation text, avoiding runtime LLM calls inside
-the eval harness.
+LoCoMo hybrid runs ingest dataset-provided session summaries and generated observations as derived memories under `[ingest] index_session_summaries` and `index_generated_observations`. Summaries become reflections with session provenance; generated observations become claims with session provenance and references to evidence turns that exist in the sample. The maintained retrieval and cross-mode configs enable both flags. These memories are merged alongside a configured enrichment snapshot at runtime; the snapshot artifact itself remains source-only. A library-generated summary or observation source is a later comparison.
 
-Enable an artifact with `[ingest] enrichment_path = "..."`. The file is JSONL;
-each row is scoped to one eval namespace, such as `lme:<question_id>` or
-`locomo:<sample_id>`:
+The LoCoMo speaker is retained on the runner-side derived-memory input, but the adapter does not persist that metadata or create speaker entities. The two baselines keep the derived-content flags off and search episodes and observations only.
+
+LongMemEval-S has no equivalent dataset-generated memory fields. Additional entities, threads, links and derived memories can come from precomputed enrichment prepared from source conversations. The runner stores raw episodes and observations before ingesting those graph objects.
+
+Set `[ingest] enrichment_snapshot_path` to use a snapshot produced by the [deterministic source-replay builders](scripts/enrichment/README.md). A snapshot named `example.jsonl` requires the sibling `example_manifest.json`. Admission verifies the dataset name, pinned workflow and artifact SHA-256 before creating a run root, store or output. LoCoMo expects dataset name `locomo` and workflow `deterministic-exact-source-replay-v1`; LongMemEval-S expects `longmemeval-s` and `deterministic-exact-source-replay-v2`. The dataset name may be the manifest's `dataset` string or `dataset.name`. LongMemEval-S requires `dataset.sha256` to match the official input file; LoCoMo checks it when present and also admits its v1 manifest without that field. The manifest's `source.sha256` describes the sanitized source bytes and is distinct from the official dataset hash.
+
+For a namespace-scoped enrichment file, set `[ingest] enrichment_path`. Its JSONL rows are scoped to namespaces such as `lme:<question_id>` or `locomo:<sample_id>`:
 
 ```json
 {"namespace":"lme:example","entities":[{"external_id":"user","entity_type":"user","name":"User"}],"threads":[{"external_id":"thread:travel","title":"Travel plans","summary":"The user is planning travel.","status":"active"}],"derived_memories":[{"external_id":"dm:travel:1","derived_type":"claim","text":"The user is considering a May trip.","source_episode_external_ids":["session_1"],"thread_external_ids":["thread:travel"],"entity_external_ids":["user"]}],"links":[{"external_id":"link:dm-thread","from":{"object_type":"derived_memory","external_id":"dm:travel:1"},"relation":"part_of_thread","to":{"object_type":"memory_thread","external_id":"thread:travel"}}]}
 ```
 
-Supported object types are `episode`, `observation`, `entity`,
-`memory_thread`, and `derived_memory`. Supported enum values follow the public
-Character Memory API snake-case names, for example `user_preference`,
-`relationship_note`, `open_loop`, `character_signal`, and `project_note` for
-derived memories.
+Supported object types are `episode`, `observation`, `entity`, `memory_thread` and `derived_memory`; enum values use the public Character Memory API's snake-case names.
 
-Enrichment must be generated only from haystack/source conversation data. The
-loader rejects common gold-label keys such as `answer`, `evidence`,
-`answer_session_ids`, `has_answer`, `gold_*`, and `label` anywhere in the JSON.
-Derived memories must include source episode or observation external IDs so
-provenance survives round trip.
-
-LoCoMo also has benchmark-provided session summaries and generated observations.
-The default LoCoMo config indexes those as provenanced derived memories with
-`index_session_summaries = true` and `index_generated_observations = true`.
-LongMemEval-S does not include equivalent generated memory fields, so additional
-entities, threads, links, and derived memories should come from an enrichment
-JSONL artifact.
+Enrichment must be generated only from haystack or source conversation data. The loader rejects common gold-label keys such as `answer`, `evidence`, `answer_session_ids`, `has_answer`, `gold_*` and `label` anywhere in the JSON. Derived memories must include source episode or observation external IDs so provenance survives a round trip.
 
 ## Metric Registry
 
