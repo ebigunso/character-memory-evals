@@ -33,7 +33,7 @@
 
 ### The closed list of expectation kinds
 Each is observed on the native outcome. Fixtures name cue kinds (pair recency, due, date match, trigger, activity, topic), never library routes; the driver's one mapping place translates them.
-- Unsupported is decided statically, from whether the adapter can forward the whole of a query's input and whether the outcome type has the field, never from a run's result. If any part of a query's input cannot be forwarded, every expectation on that query is unsupported, so a control cannot pass for the wrong reason. Once the input is forwarded, an absent fact is a fail.
+- Unsupported is decided statically, from whether the adapter can forward the whole of a query's input and whether the outcome type has the field, never from a run's result. If any part of a query's input cannot be forwarded, every expectation on that query is unsupported, so a control cannot pass for the wrong reason. The same holds for what a scenario writes: an expectation is supported only if every authored input it depends on (the scene on its memories, a typed memory's subtype, direction, due date or trigger) reaches the library as authored. Unsupported setup is never dropped or coerced and then judged. Once everything is forwarded, an absent fact is a fail.
 - section membership: a memory is in a named pack section; optionally in a stated order within it (D5, D13). "Is not in the pack" is allowed only with a named omission reason (partition, resolution, supersession, suppression); recall is never gated by default (ADR-D-0019), so a control is stated as "not admitted on cue kind X", not as absence.
 - the scene reported on an admitted memory: participants, setting, when (B1, B2).
 - trace facts: the scene was partial; a partition was applied; elapsed time since the pair last met; an omission with its reason (resolution, supersession, suppression, partition); which cue kind admitted an item; elapsed time's expected value is computed from the authored timestamps at load; a reference was ambiguous or unknown.
@@ -66,14 +66,20 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe u
 
 ## Tasks
 
+Reviewer evidence, for every task below: besides the diff review, the Reviewer produces the evidence `docs/coding-agent/rules/reviewer.md` requires for the files a task touches (an independent fixture regeneration with both hashes for fixture or generator changes; a diff against the stored baseline for driver, report or metric changes; the embedded adapter suite with executed counts for adapter changes). "Unchanged v3 smoke output" is shown by a diff against a smoke run taken at the task's base commit, not by two runs at the tip.
+
 ### Task_1: The scenario language can state a situated scenario
 - type: impl
 - owns:
   - crates/cmem-eval-continuity/src/fixture.rs
   - crates/cmem-eval-continuity/src/lib.rs
+  - crates/cmem-eval-continuity/src/generator.rs (mechanical consumer migration only)
+  - crates/cmem-eval-continuity/src/driver.rs (mechanical consumer migration only)
+  - crates/cmem-eval-continuity/src/metrics.rs (mechanical consumer migration only)
+  - crates/cmem-eval-benchmark-convert/src/lib.rs (mechanical consumer migration only)
 - depends_on: []
 - description: |
-  Extend the fixture schema under a new version with the authored scene, optional topic, optional partition, typed derived memories (subtype, actor and counterpart, due date, trigger), beliefs about a notion, the catalog situation a scenario serves, and the closed expectation list in the Design section. Validation at load. The shapes are as-perceived and library-neutral; the library's Rust types are not the model.
+  Extend the fixture schema under a new version with the authored scene, optional topic, optional partition, typed derived memories (subtype, actor and counterpart, due date, trigger), the catalog situation a scenario serves, and the closed expectation list in the Design section. Validation at load. The existing Rust consumers build these types with struct literals and exhaustive matches, so this task carries the mechanical edits that keep the workspace compiling; both existing generators keep emitting version 3 output byte for byte. The shapes are as-perceived and library-neutral; the library's Rust types are not the model.
 - acceptance:
   - A scenario with a scene and no topic, a partition, a typed commitment with direction and due date, and one expectation of each kind loads and validates.
   - `continuity_v3.json` and `continuity_benchmarks_v1.json` load unmodified through the same loader, and their byte-identity tests still pass.
@@ -117,32 +123,37 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe u
   - crates/cmem-eval-continuity/src/driver.rs
   - crates/cmem-eval-continuity/src/metrics.rs
   - crates/cmem-eval-continuity/src/report.rs
+  - crates/cmem-eval-runner/src/** (the handoff of expectation results and catalog identity into the run output, the repeat comparison, and the current-config test)
   - configs/continuity_situated.toml
 - depends_on: [Task_1]
 - description: |
   Check expectations against the native outcome and write outcomes; report per expectation and per scenario group. Whatever the pinned library cannot be asked (a scene, a reference time, a partition, a typed memory it cannot take) is unsupported with the reason, never a silent skip and never a fail. `gap_days` and the gap-recall buckets stay untouched, since Task_6 re-measures them. The run reports; it does not enforce thresholds.
 - acceptance:
-  - Against library `d0fe82d` the situated fixture runs to completion service-free, every expectation has one of the three outcomes, each unsupported outcome names what the library lacks, and unsupported is decided per the static rule in the Design section (a unit test shows a query with an unforwardable scene yields no pass).
+  - Against library `d0fe82d` a small situated fixture in the task's own tests runs to completion service-free, with no synthetic or empty-topic retrieval issued for an unsupported query (the run over Task_2's real fixture is the Orchestrator's wave-integration check), every expectation has one of the three outcomes, each unsupported outcome names what the library lacks, and unsupported is decided per the static rule in the Design section (unit tests show that a query with an unforwardable scene yields no pass, and that a forwardable query over a memory whose required write field cannot be forwarded is unsupported).
   - Section expectations read the native pack, not flattened items.
-  - Two runs of the situated config diff to zero differences.
+  - A repeat comparison covers each expectation's identity, outcome and reason and the run-wide invariant, and a test shows that one changed expectation is detected; the existing CLI diff keeps measuring only what it measures today.
   - The v3 smoke recipe is unchanged in output.
 - validation:
   - kind: command
     required: true
     owner: worker
-    detail: "the three repository validation commands; the README smoke recipe; two runs of configs/continuity_situated.toml and a diff"
+    detail: "the three repository validation commands; the README smoke recipe"
+  - kind: command
+    required: true
+    owner: orchestrator
+    detail: "After Wave 2 integration: two runs of configs/continuity_situated.toml over Task_2's fixture at library d0fe82d, the repeat comparison, and the result recorded in the Progress Log"
   - kind: review
     required: true
     owner: reviewer
-    detail: "Tier D diff review; confirm run stores were cleaned up"
+    detail: "Tier D diff review with the reviewer evidence clause; confirm run stores were cleaned up"
 
 ### Task_4: The harness follows the library's schema groundwork
 - type: impl
 - owns:
   - crates/cmem-eval/src/**
-  - crates/cmem-eval-continuity/src/driver.rs
-  - crates/cmem-eval-continuity/src/generator.rs
-  - crates/cmem-eval-runner/src/enrichment.rs
+  - crates/cmem-eval-continuity/src/** (as the library's actual deletions require; the census question 3 list)
+  - crates/cmem-eval-runner/src/**
+  - datasets/enriched/** (untracked local snapshot, manifest and builder report outputs; the preserved bare-id pair under .agent-work is kept)
   - crates/cmem-eval-locomo/src/ingest.rs
   - crates/cmem-eval-benchmark-convert/src/lib.rs
   - scripts/enrichment/build_snapshots.py
@@ -160,7 +171,7 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe u
   - kind: command
     required: true
     owner: worker
-    detail: "the three repository validation commands; the README smoke recipe twice and a diff; sha256 of the six protected assets against the census table"
+    detail: "the three repository validation commands; the README smoke recipe twice and a diff; sha256 of the six protected assets against the census table; the snapshot builder's self-test, a regeneration of both snapshots, and a service-free Rust admission check of the regenerated shape (no benchmark run)"
   - kind: review
     required: true
     owner: reviewer
@@ -220,7 +231,7 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe u
 ## Task Waves (explicit parallel dispatch sets)
 
 - Wave 1: [Task_1]
-- Wave 2 (parallel): [Task_2, Task_3]
+- Wave 2 (parallel): [Task_2, Task_3], then the Orchestrator's starting run over the integrated result
 - Wave 3: [Task_4] (starts when the library groundwork branch exists)
 - Wave 4: [Task_5] (follows library slices; may be several steps)
 - Wave 5: [Task_6]
