@@ -11,7 +11,7 @@
 
 ## Definition of Done
 - Every scenario group in the library's v0.2 draft, section 4, exists as at least one scenario that names its catalog situation and carries its retrieval-tier property as an expectation, checked with no language model.
-- A continuity run reports, per expectation: pass, fail, or unsupported (the pinned library cannot be asked). A first run against library `d0fe82d` is recorded in this plan's Progress Log as the starting point.
+- A continuity run reports, per expectation: pass, fail, or unsupported (the pinned library cannot be asked; decided statically, never from a run's result). A first run against library `d0fe82d` is recorded in this plan's Progress Log as the starting point.
 - After the library's schema groundwork (entity as a notion, no interpreted-memory confidence, the value-audit deletions) the workspace builds, the three validation commands pass, and the smoke recipe runs, with no register-cited byte changed.
 - After the library's scene and routes land, every scenario is asked (none unsupported), and the draft's section 6 retrieval-tier criteria can be read off one run report.
 - The continuity baselines of ADR-I-0022 (pollution, context size, gap recall, the graph-only probe) are re-measured once at the library commit that closes v0.2 pack admission, with the comparability conditions from the census stated beside the numbers.
@@ -19,26 +19,28 @@
 
 ## Planner-added requirements
 - An "unsupported" outcome beside pass and fail. Needed because: evaluation comes before the library work by ruling, so most properties cannot be asked of the pinned library on day one, and a scenario that silently does not run is indistinguishable from one that passes.
-- A pair-gap measure (time since these participants last met) replacing the use of `gap_days` for D11. Needed because: `gap_days` is the age of gold-labelled events, which cannot check "elapsed time since the pair last met" (census, question 1).
-- New scenarios use the controllable-similarity embedding provider. Needed because: their texts are in no frozen store, the frozen stores are register-cited bytes, and route properties do not depend on real embedding geometry. The loud-topic probe and the re-baseline are the exceptions (Open Question 1).
+- New scenarios use the controllable-similarity embedding provider. Needed because: their texts are in no frozen store, the frozen stores are register-cited bytes, and route properties do not depend on real embedding geometry. The loud-topic probe uses it too, since it saturates the content route by construction; only the re-baseline of the canonical set needs real geometry, and it reuses the existing frozen store (Open Question 1 covers the case where it cannot).
 
 ## Scope / Non-goals
 - Scope: `crates/cmem-eval-continuity` (scenario language, generator, driver, metrics, report, a new fixture file); `crates/cmem-eval` (adapter and adapter contract, result keys) where the library's changed shapes pass through; `crates/cmem-eval-runner/src/enrichment.rs`, `crates/cmem-eval-locomo/src/ingest.rs`, `crates/cmem-eval-benchmark-convert`, and `scripts/enrichment/build_snapshots.py` for the schema groundwork only; one new config; README.
 - Non-goals: the behavioral tier (disclosure, posture, generated retelling; scheduled with the library's generation phase); a general assertion language; any edit to `continuity_v3.json`, `continuity_benchmarks_v1.json`, the frozen stores, their manifests, or any register-cited config or artifact; LoCoMo and LongMemEval scoring changes; any library change (the library plan owns those); sealing any evidence.
 
 ## Design
-- Chosen: one scenario language, extended. The continuity fixture schema gains, as optional fields under a new version, an authored scene on remember and on query (given as perceived: descriptions, names, keys; ADR-D-0029), an optional topic, an optional partition, typed derived memories with direction, due date and trigger, beliefs about a notion, and a closed list of expectation kinds. The existing v3 files stay loadable unmodified by the same loader. Expectations are checked against the library's native outcome (pack sections, trace, write outcomes), which the driver already retains. Structure: one loader, one driver, one report; the scene is authored in the fixture and mapped to the library's input in one place in the driver. Evolution: when the library's scene shape is set, only that mapping changes; a new expectation kind is one enum arm. Verification: fixture validation and expectation checking are unit-testable with no store; scenarios run service-free. Operation: no new runtime cost outside the new scenarios. Human: a scenario reads as the catalog situation it names. Safety: gold labels stay in expectations and never reach ingestion (common rule).
+- Chosen: one scenario language, extended. The continuity fixture schema gains, as optional fields under a new version, an authored scene on remember and on query (given as perceived: descriptions, names, keys; ADR-D-0029), an optional topic, an optional partition, typed derived memories with direction, due date and trigger, and a closed list of expectation kinds. Entities keep their label and kind as perceived; how those become beliefs about a notion is the driver's mapping in Task_4, and an authored belief enters the language only when a scenario needs one (ADR-D-0034 leaves the forms of beliefs open). The existing v3 files stay loadable unmodified by the same loader. Expectations are checked against the library's native outcome (pack sections, trace, write outcomes), which the driver already retains. Structure: one loader, one driver, one report; the scene is authored in the fixture and mapped to the library's input in one place in the driver. Evolution: when the library's scene shape is set, only that mapping changes; a new expectation kind is one enum arm. Verification: fixture validation and expectation checking are unit-testable with no store; scenarios run service-free. Operation: no new runtime cost outside the new scenarios. Human: a scenario reads as the catalog situation it names. Safety: gold labels stay in expectations and never reach ingestion (common rule).
 - Alternative: author the scenarios as Rust integration tests against the library's new API once it exists. Structure: no fixture change, but a second way to state a continuity scenario. Evolution: every library shape change edits every test. Verification: strongest typing, but nothing can be written until the library API exists, which inverts the evaluation-first ruling. Operation, Human, Safety: same.
 - Alternative: a general predicate language over the native outcome (JSON paths and comparators). Structure: smaller Rust surface, larger fixture surface. Evolution: couples fixtures to the library's serialized field names, which the groundwork is about to change. Verification: errors surface at run time, not at fixture load.
 - Why chosen: it is the only one that can be written before the library work and survive it, and the closed expectation list is what the census says is needed and no more (the census found no need for a general language). Fit: library v0.2 draft section 4 ("evaluation first", "scenarios are named by catalog situation and carry their retrieval-tier property"); this repository's strictness rule in `docs/coding-agent/rules/common.md`.
 
 ### The closed list of expectation kinds
-Each is observed on the native outcome. A kind the pinned library cannot produce reports unsupported.
-- section membership: a memory is, or is not, in a named pack section; optionally in a stated order within it (D5, D13).
+Each is observed on the native outcome. Fixtures name cue kinds (pair recency, due, date match, trigger, activity, topic), never library routes; the driver's one mapping place translates them.
+- Unsupported is decided statically, from whether the adapter can forward the whole of a query's input and whether the outcome type has the field, never from a run's result. If any part of a query's input cannot be forwarded, every expectation on that query is unsupported, so a control cannot pass for the wrong reason. Once the input is forwarded, an absent fact is a fail.
+- section membership: a memory is in a named pack section; optionally in a stated order within it (D5, D13). "Is not in the pack" is allowed only with a named omission reason (partition, resolution, supersession, suppression); recall is never gated by default (ADR-D-0019), so a control is stated as "not admitted on cue kind X", not as absence.
 - the scene reported on an admitted memory: participants, setting, when (B1, B2).
-- trace facts: the scene was partial; a partition was applied; elapsed time since the pair last met; an omission with its reason (resolution, supersession, suppression, partition); which route admitted an item; a reference was ambiguous or unknown.
+- trace facts: the scene was partial; a partition was applied; elapsed time since the pair last met; an omission with its reason (resolution, supersession, suppression, partition); which cue kind admitted an item; elapsed time's expected value is computed from the authored timestamps at load; a reference was ambiguous or unknown.
 - staleness reported as age on a current item (D11, C6).
 - a write warning was raised (near-verbatim restatement, churning chain; the C4 proxy).
+- one run-wide invariant beside the per-expectation checks: no omission on lifecycle or currency grounds without a reason (draft section 6).
+The temporal rationale share is already a metric and is read off the report; it needs no expectation kind. The scene includes the draft's custom field, since a partition may range over it.
 
 ### Scenario groups and the property each carries (from the v0.2 draft, section 4)
 B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe under a loud topic, tasks and favors across long gaps, and C4 as a retrieval proxy only (same surviving basis and current state across scenes and times, no stale-current leakage, the write warning; it does not establish consistent retelling). Each group has a default case and, where the draft names one, a control (a non-matching date, an absent counterpart, the partition off and on).
@@ -54,13 +56,13 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe u
 - Design record consulted and deviations from its acceptance: library ADR-D-0019, D-0022, D-0024, D-0029, D-0030, D-0034, ADR-I-0020, ADR-I-0022; this repository's ADR-I-0004 and ADR-I-0005. No deviation.
 
 ## Open Questions (max 3)
-- Q1: The loud-topic probe and the re-baseline need real embedding geometry. Extending coverage to new texts means one live embedding call to freeze a new store (new file, new hash; existing stores untouched). Recommended: yes, once, in Task_6. Needs the decider's authorization because it spends on the provider.
+- Q1: If assumption A1 fails (the move to notions changes the embedded text of the canonical set), may a new store be frozen for it with one live provider call (new file, new hash; existing stores untouched), and is the before and after then accepted as a comparison with changed content? Recommended: yes to both, decided only if Task_4 reports the failure. No live call is planned otherwise.
 - Q2: Whether the LoCoMo and LongMemEval hybrid runs (live provider, eight runs last time) are repeated for v0.2. Recommended: not in this plan; once at the library's v0.2 closeout under its own authorization, since this plan's re-baseline is the continuity one the draft names.
 
 ## Assumptions
 - A1: After the entity becomes a notion, the driver can author a v3 entity's label as the text of a naming belief, so the frozen stores still cover the v3 and benchmark fixtures. Source: unverified (the library's belief shape and embedding text are not set); checked by Task_4, which stops and reports if it fails rather than touching a store.
 - A2: The library's v0.2 trace exposes the facts in the expectation list under public fields. Source: v0.2 draft section 3; checked by Task_5. A fact the library does not expose is raised to the library plan, never inferred here.
-- A3: Library `main` moving breaks this repository's CI until Task_4 lands, because the dependency is a path and CI resolves library `main`. Source: census question 6. The Orchestrator sequences Task_4 against the library's groundwork branch so the two merge together.
+- A3: Library `main` moving breaks this repository's CI until Task_4 lands, because the dependency is a path and CI resolves library `main`. Source: census question 6. The Orchestrator sequences Task_4 against the library's groundwork branch library first, this repository immediately after (see Task Waves).
 
 ## Tasks
 
@@ -97,7 +99,7 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe u
 - acceptance:
   - Every group in the list has at least one scenario, and each scenario's expectations state that group's property and nothing the behavioral tier owns.
   - Scenes are given as perceived in at least three forms across the set: by key, by name, and by description, including one ambiguous and one unknown reference.
-  - Old-but-current memories are never labelled as negatives; an expected omission always names its reason.
+  - Old-but-current memories are never labelled as negatives; an expected omission always names its reason; no default (no partition) query carries a bare absence expectation.
   - The generator reproduces the fixture file byte for byte.
 - validation:
   - kind: command
@@ -118,9 +120,9 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe u
   - configs/continuity_situated.toml
 - depends_on: [Task_1]
 - description: |
-  Check expectations against the native outcome and write outcomes; report per expectation and per scenario group. Whatever the pinned library cannot be asked (a scene, a reference time, a partition, a typed memory it cannot take) is unsupported with the reason, never a silent skip and never a fail. Add the pair-gap measure. The run reports; it does not enforce thresholds.
+  Check expectations against the native outcome and write outcomes; report per expectation and per scenario group. Whatever the pinned library cannot be asked (a scene, a reference time, a partition, a typed memory it cannot take) is unsupported with the reason, never a silent skip and never a fail. `gap_days` and the gap-recall buckets stay untouched, since Task_6 re-measures them. The run reports; it does not enforce thresholds.
 - acceptance:
-  - Against library `d0fe82d` the situated fixture runs to completion service-free, every expectation has one of the three outcomes, and each unsupported outcome names what the library lacks.
+  - Against library `d0fe82d` the situated fixture runs to completion service-free, every expectation has one of the three outcomes, each unsupported outcome names what the library lacks, and unsupported is decided per the static rule in the Design section (a unit test shows a query with an unforwardable scene yields no pass).
   - Section expectations read the native pack, not flattened items.
   - Two runs of the situated config diff to zero differences.
   - The v3 smoke recipe is unchanged in output.
@@ -196,7 +198,7 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe u
   - docs/coding-agent/plans/active/v0-2-situated-recall-scenarios-plan.md
 - depends_on: [Task_5]
 - description: |
-  At the library commit that closes v0.2 pack admission: the loud-topic probe (state and time floors hold while the content route is saturated), and one re-measurement of pollution, context size, gap recall and the graph-only probe on the canonical 15-scenario set, under the comparability conditions in the census (question 4). New frozen files only; existing stores untouched. Lab-notebook grade: numbers, config and input hashes, and both commits in the Decision Log; nothing sealed.
+  At the library commit that closes v0.2 pack admission: the loud-topic probe on the controllable provider (due, pair-recency and state cues still admit their items while the content route is saturated), and one re-measurement of pollution, context size, gap recall and the graph-only probe on the canonical 15-scenario set, under the comparability conditions in the census (question 4). The canonical set reuses its existing frozen store; a new frozen file is made only under Open Question 1, and existing stores are never touched. Lab-notebook grade: numbers, config and input hashes, and both commits in the Decision Log; nothing sealed.
 - acceptance:
   - Before and after numbers sit side by side with every intentional difference (library commit, ingest shape, floors) named.
   - Deterministic: the run repeats with zero differences.
@@ -211,9 +213,9 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe u
     owner: orchestrator
     detail: "Numbers recorded in the Decision Log and handed to the library plan"
   - kind: manual
-    required: true
+    required: false
     owner: user
-    detail: "Authorization for the one live embedding call (Open Question 1) before it is made"
+    detail: "Only if assumption A1 failed: authorization for the one live embedding call (Open Question 1) before it is made"
 
 ## Task Waves (explicit parallel dispatch sets)
 
@@ -223,7 +225,7 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe u
 - Wave 4: [Task_5] (follows library slices; may be several steps)
 - Wave 5: [Task_6]
 
-Waves 1 and 2 need nothing from the library and start on approval. Each wave's PR stacks on the previous one.
+Waves 1 and 2 need nothing from the library, start on approval, stack on each other and merge on their own. Waves 3 and later branch from main when their library dependency exists, so they never hold Waves 1 and 2 open. Order for Wave 3: the library groundwork merges first and Task_4 merges immediately after; CI resolves library main, so a short red window on this repository's main is accepted rather than worked around.
 
 ## Rollback / Safety
 - Every change is additive to the fixture schema or follows a library change; reverting a PR restores the previous state. Protected bytes are verified by hash in every task that could touch their neighbourhood.
