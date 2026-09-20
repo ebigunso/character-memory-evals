@@ -10,7 +10,7 @@ async fn situated_toml_cli_keeps_mixed_and_all_not_run_scenarios() {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../configs/continuity_situated.toml");
     let control = serde_json::json!({
         "fixture_id":"control", "namespace":"control", "pattern":"situated", "catalog_situations":["D4"], "character_entity":"self",
-        "entities":[{"external_id":"self", "label":"Character", "entity_type":"person", "is_hub":false}],
+        "entities":[{"external_id":"self", "label":"Character", "is_hub":false}],
         "scenes":{"alone":{"who":[{"reference":{"by":"key","key":"self"}}]}},
         "embedding":{"provider":"controllable_similarity", "own_concept":true,"seed":7,"vector_size":16,"noise_magnitude":0.01,"clusters":{},"concepts":{}},
         "events":[

@@ -570,31 +570,12 @@ pub enum ScenarioPattern {
 #[serde(deny_unknown_fields)]
 pub struct EntityDeclaration {
     pub external_id: String,
-    pub entity_type: ContinuityEntityKind,
     /// Embedding input as well as display text. Scenario authors must assign it
     /// exactly once in `embedding.concepts`; the generator uses the concept of
     /// the first `Remember` that explicitly references this entity, or the
     /// deterministic `entity_background` concept when no event references it.
     pub label: String,
     pub is_hub: bool,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "snake_case")]
-pub enum ContinuityEntityKind {
-    Location,
-    Person,
-    Organization,
-}
-
-impl ContinuityEntityKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Location => "location",
-            Self::Person => "person",
-            Self::Organization => "organization",
-        }
-    }
 }
 
 /// Object kind an admitted external ID resolves to inside a scenario.
@@ -715,7 +696,6 @@ pub struct RememberSurfaceTexts {
 #[serde(deny_unknown_fields)]
 pub struct ThreadMembership {
     pub thread_external_id: String,
-    pub confidence: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1697,13 +1677,6 @@ impl ContinuityScenario {
                     ..
                 } => {
                     require_unit_interval(&location, "remember.salience", *salience)?;
-                    if let Some(thread) = thread {
-                        require_unit_interval(
-                            &location,
-                            "remember.thread.confidence",
-                            thread.confidence,
-                        )?;
-                    }
                     for id in [
                         external_id.clone(),
                         observation_external_id(external_id),
@@ -2871,9 +2844,9 @@ pattern = "situated"
 catalog_situations = ["D4", "D11"]
 character_entity = "self"
 entities = [
-  {external_id = "self", label = "Character", entity_type = "person", is_hub = false},
-  {external_id = "intended-entity", label = "Ada", entity_type = "person", is_hub = false},
-  {external_id = "other", label = "Bert", entity_type = "person", is_hub = false},
+  {external_id = "self", label = "Character", is_hub = false},
+  {external_id = "intended-entity", label = "Ada", is_hub = false},
+  {external_id = "other", label = "Bert", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -4575,7 +4548,6 @@ bystanders = ["distractor"]
                 episode_started_at: None,
                 observation_observed_at: None,
                 raw_refs: Vec::new(),
-                idempotency_key: Some("whitespace-drift-guard".to_string()),
                 include_vector_index_candidates: true,
                 include_stats_update_candidates: true,
             })
@@ -4768,7 +4740,7 @@ bystanders = ["distractor"]
                 "namespace": "admission-test",
                 "pattern": "long_gap_recall",
                 "entities": [{
-                    "external_id": "entity-person", "entity_type": "person",
+                    "external_id": "entity-person",
                     "label": "Person", "is_hub": false
                 }],
                 "embedding": {
@@ -4788,7 +4760,7 @@ bystanders = ["distractor"]
                             "episode": "Episode", "observation": "Observation", "derived": "Derived"
                         },
                         "entity_external_ids": ["entity-person"], "salience": 0.5,
-                        "thread": {"thread_external_id": "thread-one", "confidence": 0.5}
+                        "thread": {"thread_external_id": "thread-one"}
                     },
                     {
                         "kind": "remember", "event_id": "event-contrast",
@@ -4955,7 +4927,7 @@ bystanders = ["distractor"]
     #[test]
     fn public_parser_attributes_root_shape_errors_before_scenario_errors() {
         let mut value: Value = serde_json::to_value(admission_fixture()).unwrap();
-        value["scenarios"][0]["entities"][0]["entity_type"] = Value::from("unknown-kind");
+        value["scenarios"][0]["entities"][0]["label"] = Value::Bool(false);
         assert_eq!(
             shape(&value),
             (FixtureLocation::scenario("admission-test"), None)
@@ -5112,24 +5084,6 @@ bystanders = ["distractor"]
         assert_eq!(
             shape(&value),
             (scenario_zero, Some("collection_name".to_string()))
-        );
-    }
-
-    #[test]
-    fn public_parser_rejects_unknown_entity_kinds_before_validation() {
-        let fixtures = admission_fixture();
-        let mut value = serde_json::to_value(&fixtures).unwrap();
-        value["scenarios"][0]["entities"][0]["entity_type"] = Value::from("inferred-from-label");
-
-        assert_eq!(
-            shape(&value),
-            (
-                FixtureLocation::Scenario {
-                    fixture_id: fixtures.scenarios[0].fixture_id.clone(),
-                    event_id: None
-                },
-                None
-            )
         );
     }
 
@@ -5737,7 +5691,7 @@ bystanders = ["distractor"]
     }
 
     #[test]
-    fn public_parser_rejects_invalid_salience_and_thread_confidence() {
+    fn public_parser_rejects_invalid_salience() {
         let mut fixtures = admission_fixture();
         let scenario = &mut fixtures.scenarios[0];
         let remember = event_mut(scenario, "event-remember").event_id().to_string();
@@ -5753,31 +5707,6 @@ bystanders = ["distractor"]
                 Some(&remember),
                 "remember.salience",
                 FixtureAdmissionKind::OutOfUnitInterval(1.1)
-            )
-        );
-
-        let mut fixtures = admission_fixture();
-        let scenario = &mut fixtures.scenarios[0];
-        let (threaded, confidence) = scenario
-            .events
-            .iter_mut()
-            .find_map(|event| match event {
-                InteractionEvent::Remember {
-                    event_id,
-                    thread: Some(thread),
-                    ..
-                } => Some((event_id.clone(), &mut thread.confidence)),
-                _ => None,
-            })
-            .expect("admission fixture has thread membership");
-        *confidence = -0.1;
-        assert_eq!(
-            admission(&fixtures),
-            expected_admission(
-                "admission-test",
-                Some(&threaded),
-                "remember.thread.confidence",
-                FixtureAdmissionKind::OutOfUnitInterval(-0.1)
             )
         );
 

@@ -32,7 +32,7 @@ index_session_summaries = true
 index_generated_observations = true
 include_image_captions = false
 # Final per-sample graph snapshots produced from source-only chronological replay.
-enrichment_snapshot_path = "./datasets/enriched/locomo_online_snapshots.jsonl"
+enrichment_snapshot_path = "./datasets/enriched/locomo_groundwork_snapshots.jsonl"
 
 [metrics]
 ks_dialog = [5, 10, 20, 50]

@@ -231,17 +231,14 @@ mod tests {
             retrieval_outcomes: Vec::new(),
             link_outcomes: Vec::new(),
             lifecycle_outcomes: Vec::new(),
-            write_outcomes: vec![cmem_eval::RecordedOutcome {
-                operation_id: "write-1".into(),
-                outcome: cmem_eval::RememberOutcome {
-                    persisted_object_ids: Vec::new(),
-                    persisted_link_ids: Vec::new(),
-                    vector_indexed_object_ids: Vec::new(),
-                    vector_indexing_failure: None,
-                    stats_update_status: Default::default(),
-                    repair_needed: Vec::new(),
-                    diagnostics: Default::default(),
-                },
+            write_outcomes: vec![cmem_eval::RememberOutcome {
+                persisted_object_ids: Vec::new(),
+                persisted_link_ids: Vec::new(),
+                vector_indexed_object_ids: Vec::new(),
+                vector_indexing_failure: None,
+                stats_update_status: Default::default(),
+                repair_needed: Vec::new(),
+                diagnostics: Default::default(),
             }],
             metrics: cmem_eval::MetricsRecord::try_from(
                 json!({"recall_any@1":1.0}).as_object().unwrap().clone(),
@@ -319,7 +316,7 @@ mod tests {
         let report = compare(
             normalize(vec![row("a", 1, 1)]),
             normalize(vec![row_with("b", 1, 1, |value| {
-                value["write_outcomes"][0]["outcome"]["vector_indexing_failure"] =
+                value["write_outcomes"][0]["vector_indexing_failure"] =
                     serde_json::to_value(cmem_eval::character_memory::VectorIndexingFailure {
                         unindexed_objects: Vec::new(),
                         cause:

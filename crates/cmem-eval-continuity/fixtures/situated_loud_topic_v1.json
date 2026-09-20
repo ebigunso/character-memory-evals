@@ -80,19 +80,16 @@
       "entities": [
         {
           "external_id": "mara",
-          "entity_type": "person",
           "label": "Mara",
           "is_hub": false
         },
         {
           "external_id": "nia",
-          "entity_type": "person",
           "label": "Nia",
           "is_hub": false
         },
         {
           "external_id": "ellis",
-          "entity_type": "person",
           "label": "Ellis",
           "is_hub": false
         }

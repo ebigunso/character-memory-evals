@@ -1,7 +1,7 @@
 use crate::config::RetrievalMode;
 use crate::{
-    DerivedType, EntityType, ObjectType, RelationType, RepairMarker, RetentionState,
-    RetrievalSurfacePolicy, Stability, ThreadStatus,
+    BeliefPredicate, DerivedType, ObjectType, RelationType, RepairMarker, RetrievalSurfacePolicy,
+    ThreadStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -59,12 +59,6 @@ pub struct SnapshotCutoff {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityInput {
     pub external_id: String,
-    pub entity_type: EntityType,
-    pub name: String,
-    #[serde(default)]
-    pub aliases: Vec<String>,
-    pub canonical_key: Option<String>,
-    pub summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,18 +89,23 @@ pub struct DerivedMemoryInput {
     pub thread_external_ids: Vec<String>,
     #[serde(default)]
     pub entity_external_ids: Vec<String>,
-    #[serde(default = "default_confidence")]
-    pub confidence: f32,
+    #[serde(default)]
+    pub assertions: Vec<BeliefAssertionInput>,
+    #[serde(default)]
+    pub given_by_application: bool,
     #[serde(default = "default_salience_score")]
     pub salience_score: f32,
-    #[serde(default = "default_stability")]
-    pub stability: Stability,
-    #[serde(default = "default_true")]
-    pub is_current: bool,
     #[serde(default)]
     pub supersedes_external_ids: Vec<String>,
     #[serde(default)]
     pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BeliefAssertionInput {
+    pub subject_external_id: String,
+    #[serde(flatten)]
+    pub predicate: BeliefPredicate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,8 +131,6 @@ pub struct MemoryLinkInput {
     pub from: MemoryEndpointInput,
     pub relation: RelationType,
     pub to: MemoryEndpointInput,
-    #[serde(default = "default_confidence")]
-    pub confidence: f32,
     pub rationale: Option<String>,
 }
 
@@ -323,35 +320,14 @@ pub struct ReplacementDerivedMemoryInput {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CorrectionLifecyclePolicyInput {
-    pub supersede_replaced_derived_memories: bool,
-    pub suppress_superseded_derived_memories: bool,
-    pub retain_original_source_objects: bool,
-}
-
-impl Default for CorrectionLifecyclePolicyInput {
-    fn default() -> Self {
-        Self {
-            supersede_replaced_derived_memories: true,
-            suppress_superseded_derived_memories: true,
-            retain_original_source_objects: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CorrectionCascadePolicyInput {
     pub apply_to_provenanced_derived_memories: bool,
-    pub require_original_source_match: bool,
-    pub cascade_to_threads: bool,
 }
 
 impl Default for CorrectionCascadePolicyInput {
     fn default() -> Self {
         Self {
             apply_to_provenanced_derived_memories: true,
-            require_original_source_match: true,
-            cascade_to_threads: false,
         }
     }
 }
@@ -367,8 +343,6 @@ pub struct CorrectMemoryInput {
     pub correction_origin: SourceProvenanceInput,
     pub rationale: String,
     #[serde(default)]
-    pub lifecycle_policy: CorrectionLifecyclePolicyInput,
-    #[serde(default)]
     pub cascade_policy: CorrectionCascadePolicyInput,
     #[serde(default)]
     pub include_trace: bool,
@@ -378,7 +352,6 @@ pub struct CorrectMemoryInput {
 pub struct SuppressionPolicyInput {
     pub suppress_target: bool,
     pub suppress_derived_from_target: bool,
-    pub preserve_original_raw_refs: bool,
 }
 
 impl Default for SuppressionPolicyInput {
@@ -386,24 +359,6 @@ impl Default for SuppressionPolicyInput {
         Self {
             suppress_target: true,
             suppress_derived_from_target: true,
-            preserve_original_raw_refs: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ArchivePolicyInput {
-    pub archive_thread: bool,
-    pub archive_thread_derived_memories: bool,
-    pub preserve_original_raw_refs: bool,
-}
-
-impl Default for ArchivePolicyInput {
-    fn default() -> Self {
-        Self {
-            archive_thread: true,
-            archive_thread_derived_memories: false,
-            preserve_original_raw_refs: true,
         }
     }
 }
@@ -431,12 +386,7 @@ pub struct ForgetMemoryInput {
     #[serde(default)]
     pub suppression_policy: SuppressionPolicyInput,
     #[serde(default)]
-    pub archive_policy: ArchivePolicyInput,
-    #[serde(default)]
     pub cascade_policy: ForgetCascadePolicyInput,
-    #[serde(default = "default_suppressed_retention_state")]
-    pub target_retention_state: RetentionState,
-    pub target_thread_status: Option<ThreadStatus>,
     #[serde(default)]
     pub include_trace: bool,
 }
@@ -447,7 +397,7 @@ pub struct LifecycleMutationResult {
     pub mutated_link_external_ids: Vec<String>,
     pub vector_maintained_object_refs: Vec<MemoryEndpointInput>,
     pub superseded: Vec<SupersessionResult>,
-    pub outcome: crate::RecordedOutcome<crate::LifecycleMutationOutcome>,
+    pub outcome: crate::LifecycleMutationOutcome,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -474,7 +424,6 @@ pub struct PrepareWriteInput {
     pub observation_observed_at: Option<String>,
     #[serde(default)]
     pub raw_refs: Vec<String>,
-    pub idempotency_key: Option<String>,
     #[serde(default = "default_true")]
     pub include_vector_index_candidates: bool,
     #[serde(default = "default_true")]
@@ -509,7 +458,7 @@ pub struct CommitWriteResult {
     pub persisted_link_external_ids: Vec<String>,
     pub vector_indexed_object_refs: Vec<MemoryEndpointInput>,
     pub repair_needed: Vec<RepairMarker>,
-    pub outcome: crate::RecordedOutcome<crate::RememberOutcome>,
+    pub outcome: crate::RememberOutcome,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -522,22 +471,10 @@ fn default_thread_status() -> ThreadStatus {
     ThreadStatus::Active
 }
 
-fn default_stability() -> Stability {
-    Stability::Medium
-}
-
-fn default_confidence() -> f32 {
-    1.0
-}
-
 fn default_salience_score() -> f32 {
     0.5
 }
 
 fn default_true() -> bool {
     true
-}
-
-fn default_suppressed_retention_state() -> RetentionState {
-    RetentionState::Suppressed
 }

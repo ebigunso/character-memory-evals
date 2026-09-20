@@ -822,10 +822,7 @@ fn rationale_category_name(category: RationaleCategory) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        ContinuityEntityKind, ContinuityScenarioEmbedding, EntityDeclaration,
-        ExpectedRelevanceRecord,
-    };
+    use crate::{ContinuityScenarioEmbedding, EntityDeclaration, ExpectedRelevanceRecord};
     use chrono::{TimeZone, Utc};
     use cmem_eval::character_memory::{
         ContextPackSection, ContinuityContextPack, LifecycleFilterAction, LifecycleFilterDecision,
@@ -861,7 +858,6 @@ mod tests {
         LifecycleFilterDecision {
             object: object(id),
             retention_state: Some(RetentionState::Suppressed),
-            is_current: Some(false),
             superseded_by: Vec::new(),
             action: LifecycleFilterAction::Included,
             reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
@@ -1094,7 +1090,6 @@ mod tests {
             .push(LifecycleFilterDecision {
                 object: MemoryObjectRef::new(ObjectType::Observation, noise_observation.id),
                 retention_state: Some(cmem_eval::RetentionState::Suppressed),
-                is_current: None,
                 superseded_by: Vec::new(),
                 action: LifecycleFilterAction::Omitted,
                 reason: LifecycleFilterReason::SuppressedOmitted,
@@ -1134,7 +1129,6 @@ mod tests {
             pattern,
             entities: vec![EntityDeclaration {
                 external_id: "hub-person".to_string(),
-                entity_type: ContinuityEntityKind::Person,
                 label: "Hub".to_string(),
                 is_hub: true,
             }],

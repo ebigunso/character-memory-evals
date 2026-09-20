@@ -1,5 +1,5 @@
 use crate::{LoCoMoMemoryInputs, LoCoMoSample};
-use cmem_eval::{DerivedMemoryInput, DerivedType, EpisodeInput, ObservationInput, Stability};
+use cmem_eval::{DerivedMemoryInput, DerivedType, EpisodeInput, ObservationInput};
 
 pub fn to_memory_inputs(
     sample: &LoCoMoSample,
@@ -87,10 +87,9 @@ pub fn to_memory_inputs(
                 source_observation_external_ids: vec![],
                 thread_external_ids: vec![],
                 entity_external_ids: vec![],
-                confidence: 1.0,
                 salience_score: 0.6,
-                stability: Stability::Medium,
-                is_current: true,
+                assertions: Vec::new(),
+                given_by_application: false,
                 supersedes_external_ids: vec![],
                 metadata: serde_json::json!({
                     "source": "locomo",
@@ -121,10 +120,9 @@ pub fn to_memory_inputs(
                         .collect(),
                     thread_external_ids: vec![],
                     entity_external_ids: vec![],
-                    confidence: 1.0,
                     salience_score: 0.6,
-                    stability: Stability::Medium,
-                    is_current: true,
+                    assertions: Vec::new(),
+                    given_by_application: false,
                     supersedes_external_ids: vec![],
                     metadata: serde_json::json!({
                         "source": "locomo",

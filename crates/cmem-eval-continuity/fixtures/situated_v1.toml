@@ -12,9 +12,9 @@ pattern = "situated"
 catalog_situations = ["B1"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
-  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
+  {external_id = "iman", label = "Iman", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -63,9 +63,9 @@ pattern = "situated"
 catalog_situations = ["B2"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
-  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
+  {external_id = "iman", label = "Iman", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -124,10 +124,10 @@ pattern = "situated"
 catalog_situations = ["B3"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
-  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
-  {external_id = "kit", label = "Kit", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
+  {external_id = "iman", label = "Iman", is_hub = false},
+  {external_id = "kit", label = "Kit", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -238,8 +238,8 @@ pattern = "situated"
 catalog_situations = ["D1", "D8"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -340,8 +340,8 @@ pattern = "situated"
 catalog_situations = ["D4"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "nia", label = "Nia", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "nia", label = "Nia", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -405,9 +405,9 @@ pattern = "situated"
 catalog_situations = ["D4"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "alex-baker", label = "Alex", entity_type = "person", is_hub = false},
-  {external_id = "alex-potter", label = "Alex", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "alex-baker", label = "Alex", is_hub = false},
+  {external_id = "alex-potter", label = "Alex", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -461,7 +461,7 @@ namespace = "situated-d5"
 pattern = "situated"
 catalog_situations = ["D5"]
 character_entity = "mara"
-entities = [{external_id = "mara", label = "Mara", entity_type = "person", is_hub = false}]
+entities = [{external_id = "mara", label = "Mara", is_hub = false}]
 [scenarios.embedding]
 provider = "controllable_similarity"
 own_concept = true
@@ -527,8 +527,8 @@ pattern = "situated"
 catalog_situations = ["D6"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -593,9 +593,9 @@ pattern = "situated"
 catalog_situations = ["D7"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
-  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
+  {external_id = "iman", label = "Iman", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -668,8 +668,8 @@ pattern = "situated"
 catalog_situations = ["D9"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -725,8 +725,8 @@ pattern = "situated"
 catalog_situations = ["D11", "C6"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "nia", label = "Nia", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "nia", label = "Nia", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -816,9 +816,9 @@ pattern = "situated"
 catalog_situations = ["D13"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
-  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
+  {external_id = "iman", label = "Iman", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -875,8 +875,8 @@ pattern = "situated"
 catalog_situations = ["D5", "D7", "D11", "E7"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -940,9 +940,9 @@ pattern = "situated"
 catalog_situations = ["C4"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
-  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
+  {external_id = "iman", label = "Iman", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -1018,8 +1018,8 @@ pattern = "situated"
 catalog_situations = ["C4"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"

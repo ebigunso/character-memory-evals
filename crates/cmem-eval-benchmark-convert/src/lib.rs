@@ -9,9 +9,9 @@ use cmem_eval::{
     FrozenSimilarityOrdering,
 };
 use cmem_eval_continuity::{
-    CONTINUITY_FIXTURE_SCHEMA_VERSION, ContinuityEntityKind, ContinuityFixtureSet,
-    ContinuityScenario, ContinuityScenarioEmbedding, EntityDeclaration, ExpectedRelevance,
-    InteractionEvent, ScenarioPattern, canonical_fixture_bytes, runtime_memory_embedding_text,
+    CONTINUITY_FIXTURE_SCHEMA_VERSION, ContinuityFixtureSet, ContinuityScenario,
+    ContinuityScenarioEmbedding, EntityDeclaration, ExpectedRelevance, InteractionEvent,
+    ScenarioPattern, canonical_fixture_bytes, runtime_memory_embedding_text,
 };
 use cmem_eval_locomo::{LoCoMoQa, LoCoMoSample};
 use cmem_eval_longmemeval::LongMemEvalInstance;
@@ -688,7 +688,6 @@ fn assemble_scenario(
         .iter()
         .map(|(speaker, external_id)| EntityDeclaration {
             external_id: external_id.clone(),
-            entity_type: ContinuityEntityKind::Person,
             label: (*speaker).to_string(),
             is_hub: false,
         })
@@ -1051,7 +1050,6 @@ mod tests {
             scenario.entities,
             [EntityDeclaration {
                 external_id: "fixture:speaker:0001".to_string(),
-                entity_type: ContinuityEntityKind::Person,
                 label: "user".to_string(),
                 is_hub: false,
             }]

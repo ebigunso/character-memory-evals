@@ -7,21 +7,21 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use chrono::{SecondsFormat, Utc};
 use cmem_eval::{
-    BenchmarkRunConfig, CandidateValidationStatus, CharacterMemoryAdapter, CommitWriteOptions,
-    CorrectMemoryInput, CorrectionTargetInput, DerivedMemoryInput, DerivedType,
-    EmbeddingRuntimeBinding, EntityInput, EntityType, EpisodeInput, ForgetCascadePolicyInput,
-    ForgetMemoryInput, GraphEnrichmentInput, LinkMemoryInput, MemoryEndpointInput, MemoryLinkInput,
-    MemoryThreadInput, NamespaceLifecycleResult, ObjectType, ObservationInput, PrepareWriteInput,
-    PreparedWritePlan, RelationType, ReplacementDerivedMemoryInput, RetentionState,
-    RetrievalConfig, RetrieveInput, RetrievedContextPack, SourceProvenanceInput, Stability,
-    SuppressionPolicyInput, ThreadStatus,
+    BeliefAssertionInput, BeliefPredicate, BenchmarkRunConfig, CandidateValidationStatus,
+    CharacterMemoryAdapter, CommitWriteOptions, CorrectMemoryInput, CorrectionTargetInput,
+    DerivedMemoryInput, DerivedType, EmbeddingRuntimeBinding, EntityInput, EpisodeInput,
+    ForgetCascadePolicyInput, ForgetMemoryInput, GraphEnrichmentInput, LinkMemoryInput,
+    MemoryEndpointInput, MemoryLinkInput, MemoryThreadInput, NamespaceLifecycleResult, ObjectType,
+    ObservationInput, PrepareWriteInput, PreparedWritePlan, RelationType,
+    ReplacementDerivedMemoryInput, RetrievalConfig, RetrieveInput, RetrievedContextPack,
+    SourceProvenanceInput, SuppressionPolicyInput, ThreadStatus,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AuthoredMemoryKind, ContinuityEntityKind, ContinuityScenario, ExpectedRelevance,
-    InteractionEvent, PerceivedReference, ScenarioFeature, ScenarioOutcome, ScenarioPattern,
-    SituatedInput, derived_external_id, observation_external_id,
+    AuthoredMemoryKind, ContinuityScenario, ExpectedRelevance, InteractionEvent,
+    PerceivedReference, ScenarioFeature, ScenarioOutcome, ScenarioPattern, SituatedInput,
+    derived_external_id, observation_external_id,
 };
 
 // Keep this declaration and the one scenario-to-contract mapping below together.
@@ -89,7 +89,6 @@ fn map_situated_input(
                 episode_started_at: Some(timestamp.clone()),
                 observation_observed_at: Some(timestamp),
                 raw_refs: Vec::new(),
-                idempotency_key: None,
                 include_vector_index_candidates: true,
                 include_stats_update_candidates: true,
             })
@@ -143,10 +142,9 @@ fn map_situated_input(
                     source_observation_external_ids: Vec::new(),
                     thread_external_ids: Vec::new(),
                     entity_external_ids: memory.about,
-                    confidence: 1.0,
                     salience_score: 0.5,
-                    stability: Stability::Medium,
-                    is_current: true,
+                    assertions: Vec::new(),
+                    given_by_application: false,
                     supersedes_external_ids: memory.supersedes,
                     metadata: serde_json::Value::Null,
                 });
@@ -184,9 +182,9 @@ pub struct ContinuityQueryObservation {
     pub expected: ExpectedRelevanceRecord,
     pub history_text: String,
     pub retrieval: RetrievedContextPack,
-    pub write_outcomes: Vec<cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>>,
-    pub link_outcomes: Vec<cmem_eval::RecordedOutcome<cmem_eval::LinkOutcome>>,
-    pub lifecycle_outcomes: Vec<cmem_eval::RecordedOutcome<cmem_eval::LifecycleMutationOutcome>>,
+    pub write_outcomes: Vec<cmem_eval::RememberOutcome>,
+    pub link_outcomes: Vec<cmem_eval::LinkOutcome>,
+    pub lifecycle_outcomes: Vec<cmem_eval::LifecycleMutationOutcome>,
 }
 
 /// Expected labels recorded in an artifact; fixture admission remains separate.
@@ -258,20 +256,7 @@ pub struct RestartObservation {
 pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> Result<()> {
     let mut file = File::create_new(path).with_context(|| format!("create {}", path.display()))?;
     for trace in traces {
-        let mut canonical = trace.clone();
-        canonical
-            .result
-            .write_outcomes
-            .sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
-        canonical
-            .result
-            .link_outcomes
-            .sort_by(|a, b| a.operation_id.cmp(&b.operation_id));
-        canonical
-            .result
-            .lifecycle_outcomes
-            .sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
-        serde_json::to_writer(&mut file, &canonical)?;
+        serde_json::to_writer(&mut file, trace)?;
         file.write_all(b"\n")?;
     }
     Ok(())
@@ -419,17 +404,34 @@ pub async fn run_continuity_scenario(
     let entities = scenario
         .entities
         .iter()
-        .map(|entity| {
-            Ok(EntityInput {
-                external_id: entity.external_id.clone(),
-                entity_type: adapter_entity_type(entity.entity_type),
-                name: entity.label.clone(),
-                aliases: Vec::new(),
-                canonical_key: Some(entity.external_id.clone()),
-                summary: None,
-            })
+        .map(|entity| EntityInput {
+            external_id: entity.external_id.clone(),
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect();
+    let naming_beliefs = scenario
+        .entities
+        .iter()
+        .map(|entity| DerivedMemoryInput {
+            external_id: format!("continuity:entity-name:{}", entity.external_id),
+            created_at: None,
+            derived_type: DerivedType::Claim,
+            text: entity.label.clone(),
+            source_episode_external_ids: Vec::new(),
+            source_observation_external_ids: Vec::new(),
+            thread_external_ids: Vec::new(),
+            entity_external_ids: vec![entity.external_id.clone()],
+            assertions: vec![BeliefAssertionInput {
+                subject_external_id: entity.external_id.clone(),
+                predicate: BeliefPredicate::KnownAs {
+                    name: entity.label.clone(),
+                },
+            }],
+            given_by_application: true,
+            salience_score: 0.5,
+            supersedes_external_ids: Vec::new(),
+            metadata: serde_json::Value::Null,
+        })
+        .collect();
 
     write_outcomes.extend(
         runtime
@@ -437,6 +439,7 @@ pub async fn run_continuity_scenario(
             .remember_enrichment(GraphEnrichmentInput {
                 namespace: scenario.namespace.clone(),
                 entities,
+                derived_memories: naming_beliefs,
                 ..GraphEnrichmentInput::default()
             })
             .await?
@@ -624,10 +627,6 @@ pub async fn run_continuity_scenario(
                             episode_started_at: Some(scripted_timestamp.clone()),
                             observation_observed_at: Some(scripted_timestamp.clone()),
                             raw_refs: vec![original_raw_ref.clone()],
-                            idempotency_key: Some(format!(
-                                "continuity:{}:{event_id}:{external_id}",
-                                scenario.fixture_id
-                            )),
                             include_vector_index_candidates: true,
                             include_stats_update_candidates: true,
                         })
@@ -697,7 +696,6 @@ pub async fn run_continuity_scenario(
                                 object_type: to.0,
                                 external_id: to.1.clone(),
                             },
-                            confidence: 1.0,
                             rationale: Some(format!(
                                 "fixture-scripted entity association {event_id}"
                             )),
@@ -739,7 +737,6 @@ pub async fn run_continuity_scenario(
                             object_type: ObjectType::MemoryThread,
                             external_id: thread.thread_external_id.clone(),
                         },
-                        confidence: thread.confidence,
                         rationale: Some(format!("fixture-scripted thread membership {event_id}")),
                     });
                     vec![thread.thread_external_id.clone()]
@@ -764,10 +761,9 @@ pub async fn run_continuity_scenario(
                                 ],
                                 thread_external_ids,
                                 entity_external_ids: entity_external_ids.clone(),
-                                confidence: thread.as_ref().map_or(1.0, |thread| thread.confidence),
                                 salience_score: *salience,
-                                stability: Stability::Medium,
-                                is_current: true,
+                                assertions: Vec::new(),
+                                given_by_application: false,
                                 supersedes_external_ids: Vec::new(),
                                 metadata: serde_json::json!({
                                     "continuity_event_id": event_id,
@@ -845,10 +841,9 @@ pub async fn run_continuity_scenario(
                                 source_observation_external_ids: Vec::new(),
                                 thread_external_ids: Vec::new(),
                                 entity_external_ids: Vec::new(),
-                                confidence: 1.0,
                                 salience_score: 1.0,
-                                stability: Stability::Medium,
-                                is_current: true,
+                                assertions: Vec::new(),
+                                given_by_application: false,
                                 supersedes_external_ids: supersedes_external_ids.clone(),
                                 metadata: serde_json::json!({
                                     "continuity_event_id": event_id,
@@ -861,7 +856,6 @@ pub async fn run_continuity_scenario(
                         superseded_derived_memory_external_ids: supersedes_external_ids,
                         correction_origin: provenance,
                         rationale: format!("fixture-scripted correction {event_id}"),
-                        lifecycle_policy: Default::default(),
                         cascade_policy: Default::default(),
                         include_trace: true,
                     })
@@ -927,13 +921,10 @@ pub async fn run_continuity_scenario(
                             suppress_derived_from_target: *suppress_derived_from_target,
                             ..SuppressionPolicyInput::default()
                         },
-                        archive_policy: Default::default(),
                         cascade_policy: ForgetCascadePolicyInput {
                             apply_to_derived_from_target: *apply_to_derived_from_target,
                             ..ForgetCascadePolicyInput::default()
                         },
-                        target_retention_state: RetentionState::Suppressed,
-                        target_thread_status: None,
                         include_trace: true,
                     })
                     .await?;
@@ -967,7 +958,6 @@ pub async fn run_continuity_scenario(
                                 relation.clone(),
                             ))?,
                             to,
-                            confidence: 1.0,
                             rationale: Some(format!("fixture-scripted link {event_id}")),
                         },
                     })
@@ -1094,7 +1084,7 @@ async fn commit_validated_plan(
     event_id: &str,
     mut plan: PreparedWritePlan,
     operation_counts: &mut BTreeMap<String, usize>,
-) -> Result<cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>> {
+) -> Result<cmem_eval::RememberOutcome> {
     let validations = adapter.validate_plan(&plan).await?;
     increment(operation_counts, "validate_plan");
     if validations
@@ -1115,9 +1105,9 @@ async fn commit_validated_plan(
 fn checked_write_outcome(
     scenario: &ContinuityScenario,
     event_id: &str,
-    recorded: cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>,
-) -> Result<cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>> {
-    let outcome = &recorded.outcome;
+    recorded: cmem_eval::RememberOutcome,
+) -> Result<cmem_eval::RememberOutcome> {
+    let outcome = &recorded;
     if !outcome.repair_needed.is_empty() {
         bail!(
             "scenario {:?} event {event_id:?} committed with repair-needed markers: {:?}",
@@ -1351,14 +1341,6 @@ fn increment(counts: &mut BTreeMap<String, usize>, operation: &str) {
     *counts.entry(operation.to_string()).or_default() += 1;
 }
 
-fn adapter_entity_type(fixture_entity_type: ContinuityEntityKind) -> EntityType {
-    match fixture_entity_type {
-        ContinuityEntityKind::Location => EntityType::Place,
-        ContinuityEntityKind::Person => EntityType::Person,
-        ContinuityEntityKind::Organization => EntityType::Organization,
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use std::fs;
@@ -1378,19 +1360,18 @@ pub(crate) mod tests {
                 gold_observation_ids: Vec::new(),
                 retrieved: Vec::new(),
                 context_text: String::new(),
-                write_outcomes: ["a", "b"]
+                write_outcomes: [1, 2]
                     .into_iter()
-                    .map(|operation_id| cmem_eval::RecordedOutcome {
-                        operation_id: operation_id.into(),
-                        outcome: cmem_eval::RememberOutcome {
-                            persisted_object_ids: Vec::new(),
-                            persisted_link_ids: Vec::new(),
-                            vector_indexed_object_ids: Vec::new(),
-                            vector_indexing_failure: None,
-                            stats_update_status: Default::default(),
-                            repair_needed: Vec::new(),
-                            diagnostics: Default::default(),
-                        },
+                    .map(|id| cmem_eval::RememberOutcome {
+                        persisted_object_ids: vec![
+                            cmem_eval::character_memory::MemoryId::from_u128(id),
+                        ],
+                        persisted_link_ids: Vec::new(),
+                        vector_indexed_object_ids: Vec::new(),
+                        vector_indexing_failure: None,
+                        stats_update_status: Default::default(),
+                        repair_needed: Vec::new(),
+                        diagnostics: Default::default(),
                     })
                     .collect(),
                 link_outcomes: Vec::new(),
@@ -1440,16 +1421,16 @@ pub(crate) mod tests {
         let traces = [persisted_trace()];
         let read_traces = |path: &Path| read_continuity_traces(path).unwrap();
 
-        // Persisted merged records keep the native operation order canonical.
+        // Persisted merged records keep the native event order.
         let mut reordered = traces[0].clone();
         reordered.result.write_outcomes.reverse();
         let round_trip = directory.path().join("round-trip.jsonl");
-        write_continuity_traces(&round_trip, &[reordered]).unwrap();
+        write_continuity_traces(&round_trip, std::slice::from_ref(&reordered)).unwrap();
         let existing = fs::read(&round_trip).unwrap();
         assert!(write_continuity_traces(&round_trip, &[]).is_err());
         assert_eq!(fs::read(&round_trip).unwrap(), existing);
         let decoded = read_traces(&round_trip);
-        assert_eq!(decoded, traces[..1]);
+        assert_eq!(decoded, vec![reordered]);
 
         let mut additive = serde_json::to_value(&traces[0]).unwrap();
         additive["expected"]["future_annotation"] = serde_json::json!(true);
@@ -1468,8 +1449,8 @@ pub(crate) mod tests {
                 "fixture_id": "situated-control", "namespace": "situated-control", "pattern": "situated",
                 "catalog_situations": ["D4"], "character_entity": "self",
                 "entities": [
-                    {"external_id":"self", "label":"Character", "entity_type":"person", "is_hub":false},
-                    {"external_id":"ada", "label":"Ada", "entity_type":"person", "is_hub":false}
+                    {"external_id":"self", "label":"Character", "is_hub":false},
+                    {"external_id":"ada", "label":"Ada", "is_hub":false}
                 ],
                 "scenes": {"pair":{"who":[{"reference":{"by":"key","key":"self"}},{"reference":{"by":"key","key":"ada"}}]}},
                 "embedding": {"provider":"controllable_similarity", "own_concept":true, "seed":7, "vector_size":16, "noise_magnitude":0.01, "clusters":{}, "concepts":{}},
@@ -1486,9 +1467,12 @@ pub(crate) mod tests {
     #[test]
     fn situated_gold_sentinels_never_reach_mapped_writes_or_probe_projection() {
         let mut value = serde_json::to_value(situated_scenario()).unwrap();
-        value["entities"].as_array_mut().unwrap().push(serde_json::json!({
-            "external_id":"gold-only-person-6e924", "label":"Visitor", "entity_type":"person", "is_hub":false
-        }));
+        value["entities"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "external_id":"gold-only-person-6e924", "label":"Visitor", "is_hub":false
+            }));
         value["events"][2]["expected_warning"] = "churning_chain".into();
         value["events"][3] = serde_json::json!({
             "kind":"probe", "event_id":"probe", "query_id":"probe", "timestamp":"2024-01-04T09:00:00Z",
@@ -1973,8 +1957,8 @@ pub(crate) mod tests {
         assert_eq!(counts.get("link"), Some(&expected_link_count));
         assert!(traces.iter().any(|trace| {
             trace.write_outcomes.iter().any(|outcome| {
-                !outcome.outcome.persisted_link_ids.is_empty()
-                    && outcome.outcome.stats_update_status.failure.is_none()
+                !outcome.persisted_link_ids.is_empty()
+                    && outcome.stats_update_status.failure.is_none()
             })
         }));
         let expected_restart_count = fixtures
@@ -2163,7 +2147,11 @@ pub(crate) mod tests {
                     assert_eq!(episode.started_at.as_ref(), Some(timestamp));
                     assert_eq!(&episode.summary, text);
                 }
-                for derived in &pack.derived_memories {
+                for derived in pack
+                    .derived_memories
+                    .iter()
+                    .filter(|derived| !derived.memory.given_by_application)
+                {
                     let expected = scenario
                         .events
                         .iter()
@@ -2207,7 +2195,6 @@ pub(crate) mod tests {
                 .iter()
                 .flat_map(|trace| &trace.lifecycle_outcomes)
                 .any(|record| record
-                    .outcome
                     .trace
                     .as_ref()
                     .is_some_and(|trace| trace.requested_targets.len() == 2))

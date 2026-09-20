@@ -510,10 +510,7 @@ pub fn insert_integrity_metrics(out: &mut Map<String, Value>, retrieved: &[crate
         "returned_items_with_authoritative_validation".to_string(),
         Value::Null,
     );
-    out.insert(
-        "suppressed_or_deleted_items_returned".to_string(),
-        Value::Null,
-    );
+    out.insert("suppressed_items_returned".to_string(), Value::Null);
     out.insert(
         "superseded_items_returned_as_current".to_string(),
         Value::Null,
@@ -557,8 +554,8 @@ pub fn insert_integrity_detail_metrics(
         option_f64(integrity.superseded_current_leakage_rate),
     );
     out.insert(
-        "suppressed_or_deleted_items_returned".to_string(),
-        option_usize(integrity.suppressed_or_deleted_returned_count),
+        "suppressed_items_returned".to_string(),
+        option_usize(integrity.suppressed_returned_count),
     );
     out.insert(
         "superseded_items_returned_as_current".to_string(),
@@ -592,7 +589,7 @@ pub fn integrity_details(retrieved: &[crate::RetrievedItem]) -> crate::ResultInt
     crate::ResultIntegrityDetails {
         returned_items_without_external_id: without_external_id,
         returned_derived_memories_without_provenance: derived_without_provenance,
-        suppressed_or_deleted_returned_count: None,
+        suppressed_returned_count: None,
         superseded_current_returned_count: None,
         provenance_coverage: if derived_count == 0 {
             Some(1.0)
@@ -609,24 +606,19 @@ pub fn integrity_details(retrieved: &[crate::RetrievedItem]) -> crate::ResultInt
 
 fn suppressed(decision: &character_memory::LifecycleFilterDecision) -> bool {
     use character_memory::{LifecycleFilterReason, RetentionState};
-    matches!(
-        decision.retention_state,
-        Some(RetentionState::Suppressed | RetentionState::Deleted)
-    ) || matches!(
-        decision.reason,
-        LifecycleFilterReason::SuppressedIncludedByPolicy
-            | LifecycleFilterReason::DeletedIncludedByPolicy
-    )
+    matches!(decision.retention_state, Some(RetentionState::Suppressed))
+        || matches!(
+            decision.reason,
+            LifecycleFilterReason::SuppressedIncludedByPolicy
+        )
 }
 
 fn superseded(decision: &character_memory::LifecycleFilterDecision) -> bool {
     use character_memory::LifecycleFilterReason;
-    decision.is_current == Some(false)
-        || !decision.superseded_by.is_empty()
+    !decision.superseded_by.is_empty()
         || matches!(
             decision.reason,
-            LifecycleFilterReason::NonCurrentIncludedByPolicy
-                | LifecycleFilterReason::SupersededIncludedByPolicy
+            LifecycleFilterReason::SupersededIncludedByPolicy
         )
 }
 
@@ -667,6 +659,42 @@ pub fn integrity_details_from_outcomes(
 ) -> crate::ResultIntegrityDetails {
     use character_memory::{LifecycleFilterAction, LifecycleFilterReason, StaleCandidateReason};
     let mut details = integrity_details(retrieved);
+    if !outcomes.is_empty() {
+        let grounded = outcomes
+            .iter()
+            .flat_map(|outcome| {
+                [
+                    &outcome.pack.derived_memories,
+                    &outcome.pack.preferences,
+                    &outcome.pack.relationship_notes,
+                    &outcome.pack.open_loops,
+                    &outcome.pack.commitments,
+                    &outcome.pack.character_signals,
+                ]
+                .into_iter()
+                .flatten()
+            })
+            .map(|included| &included.memory)
+            .filter(|memory| {
+                !memory.derived_from_episode_ids.is_empty()
+                    || !memory.derived_from_observation_ids.is_empty()
+                    || (memory.given_by_application && !memory.entity_ids.is_empty())
+            })
+            .map(|memory| memory.id.to_string())
+            .collect::<BTreeSet<_>>();
+        let derived_count = count_kind(retrieved, crate::ObjectType::DerivedMemory);
+        let ungrounded_count = retrieved
+            .iter()
+            .filter(|item| item.kind == crate::ObjectType::DerivedMemory)
+            .filter(|item| !grounded.contains(&item.internal_id))
+            .count();
+        details.returned_derived_memories_without_provenance = ungrounded_count;
+        details.provenance_coverage = Some(if derived_count == 0 {
+            1.0
+        } else {
+            (derived_count - ungrounded_count) as f64 / derived_count as f64
+        });
+    }
     if !outcomes.iter().any(|outcome| outcome.trace.is_some()) {
         return details;
     }
@@ -715,7 +743,7 @@ pub fn integrity_details_from_outcomes(
         })
         .collect::<BTreeSet<_>>()
         .len();
-    details.suppressed_or_deleted_returned_count = Some(suppressed_count);
+    details.suppressed_returned_count = Some(suppressed_count);
     details.superseded_current_returned_count = Some(superseded_count);
     details.suppressed_memory_leakage_rate = Some(leakage_rate(suppressed_count, retrieved.len()));
     details.superseded_current_leakage_rate = Some(leakage_rate(superseded_count, retrieved.len()));
@@ -813,6 +841,53 @@ mod tests {
     };
 
     #[test]
+    fn grounding_uses_native_sources_or_application_given_subjects() {
+        let mut outcome = RetrieveOutcome {
+            pack: ContinuityContextPack::empty(),
+            rationale: RetrievalRationale::new("grounding"),
+            trace: None,
+        };
+        let mut retrieved = Vec::new();
+        for (index, (sources, given, subjects)) in [
+            (true, false, false),
+            (false, true, true),
+            (false, true, false),
+            (false, false, true),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let id = uuid::Uuid::from_u128(index as u128 + 1);
+            let mut draft =
+                character_memory::DerivedMemoryDraft::new(crate::DerivedType::Claim, "name");
+            draft.id = Some(id);
+            draft.derived_from_episode_ids = vec![uuid::Uuid::from_u128(10)];
+            let mut memory = draft.into_domain().unwrap();
+            if !sources {
+                memory.derived_from_episode_ids.clear();
+            }
+            memory.given_by_application = given;
+            if subjects {
+                memory.entity_ids.push(uuid::Uuid::from_u128(20));
+            }
+            outcome.pack.derived_memories.push(memory.into());
+            retrieved.push(RetrievedItem {
+                kind: ObjectType::DerivedMemory,
+                internal_id: id.to_string(),
+                external_id: Some(format!("belief-{index}")),
+                episode_external_id: None,
+                score: None,
+                rank: index + 1,
+                rationale: Vec::new(),
+                text: None,
+            });
+        }
+        let details = integrity_details_from_outcomes(&retrieved, &[outcome]);
+        assert_eq!(details.returned_derived_memories_without_provenance, 2);
+        assert_eq!(details.provenance_coverage, Some(0.5));
+    }
+
+    #[test]
     fn computes_ranking_metrics() {
         let retrieved = vec!["a".to_string(), "b".to_string(), "c".to_string()];
         let gold = vec!["b".to_string(), "c".to_string()];
@@ -900,7 +975,7 @@ mod tests {
         );
 
         assert_eq!(out["returned_items_without_external_id"], 1);
-        assert!(out["suppressed_or_deleted_items_returned"].is_null());
+        assert!(out["suppressed_items_returned"].is_null());
     }
 
     #[test]
@@ -912,7 +987,6 @@ mod tests {
             LifecycleFilterDecision {
                 object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
                 retention_state: Some(RetentionState::Suppressed),
-                is_current: Some(false),
                 superseded_by: vec![omitted_id],
                 action: LifecycleFilterAction::Included,
                 reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
@@ -920,7 +994,6 @@ mod tests {
             LifecycleFilterDecision {
                 object: MemoryObjectRef::new(ObjectType::Episode, omitted_id),
                 retention_state: Some(RetentionState::Suppressed),
-                is_current: None,
                 superseded_by: Vec::new(),
                 action: LifecycleFilterAction::Included,
                 reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
@@ -928,7 +1001,6 @@ mod tests {
             LifecycleFilterDecision {
                 object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
                 retention_state: Some(RetentionState::Suppressed),
-                is_current: Some(false),
                 superseded_by: vec![omitted_id],
                 action: LifecycleFilterAction::Included,
                 reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
@@ -996,7 +1068,7 @@ mod tests {
         assert_eq!(out["suppressed_memory_leakage_rate"], 0.0);
         assert_eq!(out["superseded_current_leakage_rate"], 0.0);
         assert_eq!(out["orphan_vector_leakage_rate"], 0.0);
-        assert_eq!(out["suppressed_or_deleted_items_returned"], 0);
+        assert_eq!(out["suppressed_items_returned"], 0);
         assert_eq!(out["superseded_items_returned_as_current"], 0);
         assert!(out["cross_store_id_validation_pass_rate"].is_null());
     }
@@ -1042,7 +1114,6 @@ mod tests {
                     uuid::Uuid::nil(),
                 ),
                 retention_state: Some(character_memory::RetentionState::Suppressed),
-                is_current: None,
                 superseded_by: Vec::new(),
                 action: character_memory::LifecycleFilterAction::Included,
                 reason: character_memory::LifecycleFilterReason::SuppressedIncludedByPolicy,
