@@ -1164,3 +1164,25 @@ Prevention:
 
 Evidence:
 - `crates/cmem-eval-longmemeval/examples/official_repeated_session_census.rs`; `scripts/README.md`.
+
+## 2026-09-21 - A new producer of identities joins the existing admission census  [tags: review, fixtures, admission]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/v0-2-situated-recall-scenarios-plan.md`
+- Task/Wave: Task_4, the harness follows the library's schema groundwork
+- Roles involved: Worker, Reviewer, Orchestrator
+
+Symptom:
+- The driver began generating a naming belief per entity with its own id. A fixture whose derive event used that id loaded, opened a namespace, wrote, and only then failed on a deterministic id collision.
+
+Root cause:
+- The runtime gained a producer of derived-memory identities without registering it in the shared census the loader already keeps for authored derives, implicit ids and correction replacements.
+
+Fix applied:
+- The generated naming ids enter that census through a formatter shared with the driver, so the conflict is rejected at load with the existing duplicate error (Task_4, commit 7fe04ba).
+
+Prevention:
+- When code starts producing ids in a space fixtures can also write to, add the producer to the existing census in the same change. Extend the mechanism that exists; do not add a reserved prefix or a new error for it.
+
+Evidence:
+- `crates/cmem-eval-continuity/src/fixture.rs`; `crates/cmem-eval-continuity/src/driver.rs`.
