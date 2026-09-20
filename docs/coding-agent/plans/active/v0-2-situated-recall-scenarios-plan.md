@@ -57,7 +57,7 @@ Assertions on a probe (must hold):
 
 Measures on a probe (reported, never asserted): recall of `carried` grouped by reason, counted over (probe, carried memory) pairs pooled across the probes that ran (micro recall, not a mean of per-probe recalls), a memory counting as admitted when any native item projects to its authored id, the same projection the bystander share uses, null for a scenario that is not run and for a reason with no carried targets among the probes that ran, so an unasked scenario never reads as zero recall; `bystanders`, distractors on cue grounds only (no cue kind of the closed vocabulary calls for them on that probe: not pair, due, date, trigger, activity, own day, recent and salient, or topic; this is an authoring rule the Tier A review checks, since the harness cannot compute it), reported as a context share: admitted bystanders over all admitted memories in the pack, counted per authored memory: one count per `experience` or `derive` external id, an admitted episode or observation crediting its experience once, entities and threads not counted; null when a scenario is not run or nothing is admitted. It is a cost measure, not distractor recall, and an unlabelled memory is never counted as irrelevant; in the generated loud-topic set every distractor is labelled, so the share is exact there. Context tokens are the existing `count_tokens` over the pack's context text, zero for an empty pack and null for a scenario that is not run, so a scenario that was never asked does not look free. A memory is never a bystander because of the scene it was formed in, since that share would measure that a cross-scene memory failed to surface (ADR-D-0019). The temporal rationale share is already a metric and is read off the report.
 
-Support is decided per scenario and statically: the continuity driver declares the features it can forward to the pinned library through the core adapter contract (write-scene participants by key, and separately write-scene where, what and custom; a scene on a probe; no topic; a reference time; a participant, a place and an activity each by name and by description; a partition; one feature per derived subtype with no native library kind; thread provenance; direction, due date, trigger, salience; each trace fact and write warnings). A value the pinned library already takes (a speaker, a supersession, a keyed participant's id) is not a feature, because a feature that is always supported gates nothing; a forwarding test shows it reaches the core input instead. The same inventory drives feature derivation, the driver's supported set and the drift and not-run tests, a scenario's needed features follow from its content, and a scenario needing a feature outside that set is not run and is reported with the missing features. Nothing is dropped or coerced to make a scenario run. Once a scenario runs, an absent fact is a failure.
+Support is decided per scenario and statically: the continuity driver declares the features it can forward to the pinned library through the core adapter contract (write-scene participants by key, and separately write-scene where, what and custom; a scene on a probe; no topic; a reference time; a participant, a place and an activity each by name and by description; a partition; one feature per derived subtype with no native library kind; thread provenance; direction, due date, trigger; each trace fact and write warnings). The criterion is end to end: a feature exists for a value the harness cannot yet forward whole through the driver, the core contract and the adapter to the pinned library. A value that path already forwards (a speaker, a supersession, a keyed participant's id, and salience once Task_7 adds its forwarding) is not a feature, because a feature that is always supported gates nothing; a forwarding test shows it reaches the library-facing input instead. A value the library accepts but the harness cannot forward is still a feature. The same inventory drives feature derivation, the driver's supported set and the drift and not-run tests, a scenario's needed features follow from its content, and a scenario needing a feature outside that set is not run and is reported with the missing features. Nothing is dropped or coerced to make a scenario run. Once a scenario runs, an absent fact is a failure.
 
 ### Scenario groups (from the v0.2 draft, section 4)
 B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, tasks and favors across long gaps, the loud-topic set (generated: cued items still carried while the content cue is saturated), and C4 as a retrieval proxy only (same surviving basis and current state across scenes and times, no stale-current leakage, the write warning; it does not establish consistent retelling). Each group has a default case and, where the draft names one, a control. Probe-side scenes exercise key, name and description, including one ambiguous and one unknown reference. B2 carries a partition probe in each direction: a group memory probed from a one-on-one with a member, and a one-on-one memory probed from the group.
@@ -265,6 +265,10 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
     required: true
     owner: reviewer
     detail: "Tier D diff review with the reviewer evidence clause"
+  - kind: manual
+    required: false
+    owner: user
+    detail: "Only if assumption A1 failed: authorization for the one live embedding call (Open Question 1) before it is made"
 
 ### Task_5: The scenarios are asked of the library's scene and routes
 - type: impl
@@ -312,10 +316,6 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
     required: true
     owner: orchestrator
     detail: "Numbers recorded in the Decision Log and handed to the library plan"
-  - kind: manual
-    required: false
-    owner: user
-    detail: "Only if assumption A1 failed: authorization for the one live embedding call (Open Question 1) before it is made"
 
 ## Task Waves (explicit parallel dispatch sets)
 
@@ -374,7 +374,7 @@ Waves 1 and 2 need nothing from the library, start on approval, stack on each ot
   - Record proposed: none
 
 - 2026-09-20 Decision: value test on the plan after the review rounds, at the decider's request.
-  - Trigger / new insight: several additions made while answering external review did not earn their place. A needed feature for a value the pinned library already takes (speaker, supersession) is always supported and gates nothing. A structural sentinel for bystanders restates what the input types already guarantee.
+  - Trigger / new insight: several additions made while answering external review did not earn their place. A needed feature for a value the harness already forwards end to end (speaker, supersession) is always supported and gates nothing. A structural sentinel for bystanders restates what the input types already guarantee.
   - Plan delta (what changed): speaker and supersession are forwarding tests, not features; the sentinel is the string check only. The feature inventory is frozen at its current granularity: a new feature is added only for something the pinned library cannot take. The plan stops absorbing contract detail; the scenario contract moves to the crate's documentation in Task_7 (not at closeout, by the decider's instruction to clean up now), and this plan is cut back to intent in the same wave.
   - Tradeoffs considered: the not-run gate is scaffolding for the period before a library slice lands; it recurs each library phase that is evaluated first, so it stays, but it is not grown beyond what a landing order needs.
   - User approval: requested by the decider 2026-09-20.
