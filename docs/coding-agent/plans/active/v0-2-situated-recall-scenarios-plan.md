@@ -51,7 +51,7 @@ Assertions on a probe (must hold):
 - the scene reported on a carried memory; elapsed time since the pair last met and staleness as age, both checked against values the loader computes from the authored timestamps, never authored numbers.
 - one run-wide invariant: no omission on lifecycle or currency grounds without a reason (draft section 6).
 
-Measures on a probe (reported, never asserted): recall of `carried` grouped by reason; `bystanders`, distractors on cue grounds only (nothing present, due, dated, triggered, in progress or on topic calls for them), reported as the share admitted; context tokens. A memory is never a bystander because of the scene it was formed in, since that share would measure that a cross-scene memory failed to surface (ADR-D-0019). The temporal rationale share is already a metric and is read off the report.
+Measures on a probe (reported, never asserted): recall of `carried` grouped by reason; `bystanders`, distractors on cue grounds only (nothing present, due, dated, triggered, in progress or on topic calls for them), reported as a context share: admitted bystanders over all admitted memories in the pack, counted per memory, null when a scenario is not run or nothing is admitted. It is a cost measure, not distractor recall, and an unlabelled memory is never counted as irrelevant; in the generated loud-topic set every distractor is labelled, so the share is exact there. Context tokens. A memory is never a bystander because of the scene it was formed in, since that share would measure that a cross-scene memory failed to surface (ADR-D-0019). The temporal rationale share is already a metric and is read off the report.
 
 Support is decided per scenario and statically: the adapter declares the features it forwards to the pinned library (a scene on a write, a scene on a probe, no topic, a reference time, a participant by name, a participant by description, a partition, direction, due date, trigger, each trace fact), a scenario's needed features follow from its content, and a scenario needing a feature the adapter lacks is not run and is reported with the missing features. Nothing is dropped or coerced to make a scenario run. Once a scenario runs, an absent fact is a failure.
 
@@ -82,7 +82,7 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, tasks and favors acros
 
 ## Tasks
 
-Reviewer evidence, for every task below: besides the diff review, the Reviewer produces the evidence `docs/coding-agent/rules/reviewer.md` requires for the files a task touches (an independent fixture regeneration with both hashes for fixture or generator changes; a diff against the stored baseline for driver, report or metric changes; the embedded adapter suite with executed counts for adapter changes). "Unchanged smoke output" is shown by a diff against a smoke run taken at the task's base commit, not by two runs at the tip.
+Reviewer evidence, for every task below: besides the diff review, the Reviewer produces the evidence `docs/coding-agent/rules/reviewer.md` requires for the files a task touches (an independent fixture regeneration with both hashes for generated fixtures and generator changes; for the hand-authored `situated_v1.toml`, which is its own source and cannot be regenerated, load and admission validation plus the catalog review of Task_2 instead, and no generator is written to satisfy the rule; a diff against the stored baseline for driver, report or metric changes; the embedded adapter suite with executed counts for adapter changes). "Unchanged smoke output" is shown by a diff against a smoke run taken at the task's base commit, not by two runs at the tip.
 
 ### Task_1: A situated scenario can be stated and loaded
 - type: impl
@@ -90,6 +90,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval-continuity/src/fixture.rs
   - crates/cmem-eval-continuity/src/lib.rs
   - crates/cmem-eval-continuity/Cargo.toml
+  - Cargo.lock (the mechanical update for the TOML dependency only)
   - crates/cmem-eval/src/controllable_similarity_embedding.rs
   - crates/cmem-eval-continuity/src/generator.rs (mechanical consumer migration only)
   - crates/cmem-eval-continuity/src/driver.rs (mechanical consumer migration only; new event kinds may be rejected as not yet runnable)
@@ -186,6 +187,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - datasets/enriched/** (untracked local snapshot, manifest and builder report outputs; the preserved bare-id pair under .agent-work is kept)
   - scripts/enrichment/build_snapshots.py
   - scripts/enrichment/README.md
+  - .github/workflows/ci.yml (the fixture path of the smoke step only, and only if the checked fixture is replaced)
   - README.md
 - depends_on: [Task_3]
 - description: |
