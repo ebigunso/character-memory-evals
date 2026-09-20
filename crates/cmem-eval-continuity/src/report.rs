@@ -735,6 +735,91 @@ mod tests {
     }
 
     #[test]
+    fn repeat_comparison_detects_cue_and_warning_identity_changes() {
+        use crate::{AssertionIdentity, AssertionSubject, CueKind, ExpectedWriteWarning};
+
+        let mut outcome = ScenarioOutcome::executed();
+        outcome.assertions = [
+            (
+                "probe",
+                AssertionSubject::NotCued {
+                    memory: "noise".into(),
+                    cue: CueKind::Date,
+                },
+            ),
+            (
+                "derive",
+                AssertionSubject::WriteWarning(ExpectedWriteWarning::NearVerbatimRestatement),
+            ),
+        ]
+        .map(|(event_id, assertion)| AssertionResult {
+            identity: AssertionIdentity {
+                event_id: event_id.into(),
+                assertion,
+            },
+            check: CheckResult::checked(true, "observed"),
+        })
+        .to_vec();
+        let report = assemble_continuity_report(ContinuityReportInput {
+            config: Value::Null,
+            traces: &[],
+            outcomes: &BTreeMap::from([("scenario".into(), outcome)]),
+            metric_family: &crate::continuity_metric_family(&Default::default(), &[]),
+        })
+        .unwrap();
+        let mut reordered = report.clone();
+        reordered
+            .scenarios
+            .get_mut("scenario")
+            .unwrap()
+            .outcome
+            .assertions
+            .reverse();
+        assert!(compare_continuity_reports(&report, &reordered).is_empty());
+
+        for (index, replacement) in [
+            (
+                0,
+                AssertionSubject::NotCued {
+                    memory: "noise".into(),
+                    cue: CueKind::Topic,
+                },
+            ),
+            (
+                1,
+                AssertionSubject::WriteWarning(ExpectedWriteWarning::ChurningChain),
+            ),
+        ] {
+            let mut changed = report.clone();
+            let assertions = &mut changed
+                .scenarios
+                .get_mut("scenario")
+                .unwrap()
+                .outcome
+                .assertions;
+            let removed = assertions[index].identity.clone();
+            assertions[index].identity.assertion = replacement;
+            let added = assertions[index].identity.clone();
+            let check = serde_json::to_value(&assertions[index].check).unwrap();
+            assertions.reverse();
+            let differences = compare_continuity_reports(&report, &changed);
+            assert_eq!(differences.len(), 2);
+            for (identity, before, after) in [
+                (removed, check.clone(), Value::Null),
+                (added, Value::Null, check),
+            ] {
+                assert!(differences.contains(&ContinuityRepeatDifference {
+                    scenario_id: Some("scenario".into()),
+                    assertion: Some(identity),
+                    field: "assertion".into(),
+                    before,
+                    after,
+                }));
+            }
+        }
+    }
+
+    #[test]
     fn repeat_comparison_uses_assertion_identity_result_reason_and_invariant() {
         let mut outcome = ScenarioOutcome::executed();
         outcome.assertions = ["one", "two"]
