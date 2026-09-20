@@ -169,12 +169,16 @@ pub fn check_probe_assertions(
                         .iter()
                         .find(|assertion| &assertion.memory == id)
                         .expect("authored identity");
+                    let passed = admitted.iter().any(|(actual, section)| {
+                        actual == id && expected.section.is_none_or(|expected| expected == *section)
+                    });
                     CheckResult::checked(
-                        admitted.iter().any(|(actual, section)| {
-                            actual == id
-                                && expected.section.is_none_or(|expected| expected == *section)
-                        }),
-                        "memory admitted in the requested native section",
+                        passed,
+                        if passed {
+                            "memory admitted in the requested native section"
+                        } else {
+                            "memory is absent from the requested native section"
+                        },
                     )
                 }
                 AssertionSubject::InOrder(ids) => {
@@ -182,11 +186,16 @@ pub fn check_probe_assertions(
                         .iter()
                         .map(|id| admitted.iter().position(|(actual, _)| actual == id))
                         .collect::<Option<Vec<_>>>();
+                    let passed = positions.is_some_and(|positions| {
+                        positions.windows(2).all(|pair| pair[0] < pair[1])
+                    });
                     CheckResult::checked(
-                        positions.is_some_and(|positions| {
-                            positions.windows(2).all(|pair| pair[0] < pair[1])
-                        }),
-                        "relative native pack order",
+                        passed,
+                        if passed {
+                            "relative native pack order"
+                        } else {
+                            "a memory is missing or the native pack order differs"
+                        },
                     )
                 }
                 AssertionSubject::Omitted(id) => {
@@ -229,9 +238,14 @@ pub fn check_probe_assertions(
                                         && omission.reason == StaleCandidateReason::Superseded
                                 }))
                         });
+                    let passed = !admitted.iter().any(|(actual, _)| actual == id) && explained;
                     CheckResult::checked(
-                        !admitted.iter().any(|(actual, _)| actual == id) && explained,
-                        "absence with the requested native omission reason",
+                        passed,
+                        if passed {
+                            "absence with the requested native omission reason"
+                        } else {
+                            "memory is present or the requested native omission reason is absent"
+                        },
                     )
                 }
                 // These facts do not exist in the pinned library. Static support
@@ -961,8 +975,25 @@ mod tests {
             failed
                 .iter()
                 .filter(|result| result.check.status == ScenarioStatus::Failed)
-                .count(),
-            3
+                .map(|result| (
+                    result.identity.assertion.clone(),
+                    result.check.reason.as_str()
+                ))
+                .collect::<BTreeMap<_, _>>(),
+            BTreeMap::from([
+                (
+                    crate::AssertionSubject::Carried("visit".into()),
+                    "memory is absent from the requested native section",
+                ),
+                (
+                    crate::AssertionSubject::InOrder(vec!["promise".into(), "visit".into()]),
+                    "a memory is missing or the native pack order differs",
+                ),
+                (
+                    crate::AssertionSubject::Omitted("noise".into()),
+                    "memory is present or the requested native omission reason is absent",
+                ),
+            ])
         );
         outcome
             .trace
