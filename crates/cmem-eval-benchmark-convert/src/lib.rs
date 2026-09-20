@@ -749,6 +749,10 @@ fn assemble_scenario(
         },
     });
     let scenario = ContinuityScenario {
+        catalog_situations: Vec::new(),
+        character_entity: None,
+        scenes: BTreeMap::new(),
+        requirements: Default::default(),
         fixture_id: selection.fixture_id.clone(),
         namespace: format!("continuity-benchmark:{}", selection.fixture_id),
         pattern: selection.scenario_kind.pattern(),
@@ -782,6 +786,11 @@ fn build_embedding_manifest(
         );
         for event in &converted.scenario.events {
             match event {
+                InteractionEvent::Experience { .. }
+                | InteractionEvent::Derive { .. }
+                | InteractionEvent::Probe { .. } => {
+                    bail!("benchmark conversion cannot emit situated events");
+                }
                 InteractionEvent::Remember {
                     external_id, text, ..
                 } => texts.push(FrozenEmbeddingText {

@@ -247,6 +247,16 @@ pub async fn run_continuity_scenario(
     retrieval: &RetrievalConfig,
 ) -> Result<ContinuityScenarioRun> {
     scenario.validate()?;
+    if scenario.events.iter().any(|event| {
+        matches!(
+            event,
+            InteractionEvent::Experience { .. }
+                | InteractionEvent::Derive { .. }
+                | InteractionEvent::Probe { .. }
+        )
+    }) {
+        bail!("situated events are not yet runnable by the continuity driver");
+    }
     runtime
         .adapter()
         .open_namespace(&scenario.namespace)
@@ -301,6 +311,11 @@ pub async fn run_continuity_scenario(
 
     for (event_index, event) in scenario.events.iter().enumerate() {
         match event {
+            InteractionEvent::Experience { .. }
+            | InteractionEvent::Derive { .. }
+            | InteractionEvent::Probe { .. } => {
+                unreachable!("situated events are rejected before namespace creation");
+            }
             InteractionEvent::Remember {
                 event_id,
                 external_id,

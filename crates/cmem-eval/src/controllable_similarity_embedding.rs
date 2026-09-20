@@ -22,6 +22,49 @@ pub struct SimilarityConceptFixture {
 }
 
 impl ControllableSimilarityFixture {
+    /// Materialize only requested missing texts. Exact assignments retain their
+    /// geometry, and runtime prefix fallback still sees an error before stripping.
+    pub fn assign_own_concepts(&mut self, inputs: impl IntoIterator<Item = String>) -> Result<()> {
+        let assigned = self
+            .concepts
+            .values()
+            .flat_map(|concept| &concept.inputs)
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        for text in inputs
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            if assigned.contains(&text) {
+                continue;
+            }
+            if text.trim().is_empty() {
+                bail!("own-concept input must be non-empty");
+            }
+            let id = format!("own:{:x}", Sha256::digest(text.as_bytes()));
+            if self.concepts.contains_key(&id) || self.clusters.contains_key(&id) {
+                bail!("own-concept identifier {id:?} collides with an explicit declaration");
+            }
+            let mut vector = (0..self.vector_size)
+                .map(|dimension| seeded_noise(self.seed, &id, dimension, 1.0))
+                .collect::<Result<Vec<_>>>()?;
+            if !vector.is_empty() && vector.iter().all(|value| *value == 0.0) {
+                vector[0] = 1.0;
+            }
+            self.clusters.insert(id.clone(), vector);
+            self.concepts.insert(
+                id.clone(),
+                SimilarityConceptFixture {
+                    cluster: id,
+                    inputs: vec![text],
+                },
+            );
+        }
+        // Validate duplicate assignments and non-finite resulting geometry too.
+        ControllableSimilarityEmbeddingProvider::new(self.clone())?;
+        Ok(())
+    }
+
     pub fn canonical_sha256(&self) -> Result<String> {
         validate_fixture(self)?;
         let bytes = serde_json::to_vec(self)?;
@@ -184,6 +227,47 @@ fn splitmix64(state: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn own_concepts_preserve_explicit_geometry_and_runtime_prefix_fallback() {
+        let original = ControllableSimilarityEmbeddingProvider::new(fixture(7)).unwrap();
+        let mut extended = fixture(7);
+        extended
+            .assign_own_concepts(
+                ["unassigned one", "unassigned two", "alpha one"].map(str::to_string),
+            )
+            .unwrap();
+        let once = extended.clone();
+        extended
+            .assign_own_concepts(["unassigned two", "unassigned one"].map(str::to_string))
+            .unwrap();
+        assert_eq!(extended, once);
+        let provider = ControllableSimilarityEmbeddingProvider::new(extended).unwrap();
+        for text in ["alpha one", "alpha two", "beta one"] {
+            assert_eq!(
+                provider.vector_for_text(text).unwrap(),
+                original.vector_for_text(text).unwrap()
+            );
+        }
+        assert_ne!(
+            provider.concept_for_text("unassigned one"),
+            provider.concept_for_text("unassigned two")
+        );
+        assert_ne!(
+            provider.vector_for_text("unassigned one").unwrap(),
+            provider.vector_for_text("unassigned two").unwrap()
+        );
+        // The adapter's existing or_else can still remove these prefixes before
+        // looking up the registered fixture text, including an implicit concept.
+        for text in [
+            "Episode summary: alpha one",
+            "Observation excerpt: unassigned one",
+            "Reflection: alpha two",
+        ] {
+            assert!(provider.vector_for_text(text).is_err());
+        }
+        assert!(original.vector_for_text("unassigned one").is_err());
+    }
 
     #[test]
     fn cosine_ordering_property_holds_across_seed_range() {

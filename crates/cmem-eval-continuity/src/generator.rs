@@ -1715,6 +1715,10 @@ fn frozen_scenario(
 ) -> Result<ContinuityScenario> {
     entities.sort_by(|left, right| left.external_id.cmp(&right.external_id));
     let scenario = ContinuityScenario {
+        catalog_situations: Vec::new(),
+        character_entity: None,
+        scenes: BTreeMap::new(),
+        requirements: Default::default(),
         fixture_id: id.to_string(),
         namespace: format!("continuity-{id}-{seed:016x}"),
         pattern,
@@ -1756,6 +1760,10 @@ fn scenario(
         cluster_vectors.insert(cluster, vector);
     }
     Ok(ContinuityScenario {
+        catalog_situations: Vec::new(),
+        character_entity: None,
+        scenes: BTreeMap::new(),
+        requirements: Default::default(),
         fixture_id: id.to_string(),
         namespace: format!("continuity-{id}-{seed:016x}"),
         pattern,
