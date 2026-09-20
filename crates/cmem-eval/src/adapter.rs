@@ -1189,6 +1189,7 @@ impl CharacterMemoryAdapter {
             let id = pending_derived[&memory.external_id];
             let mut draft = DerivedMemoryDraft::new(memory.derived_type, memory.text);
             draft.id = Some(id);
+            draft.created_at = parse_timestamp(memory.created_at.as_deref())?;
             draft.derived_from_episode_ids = resolve_ids(
                 "episode",
                 &memory.source_episode_external_ids,
@@ -1444,16 +1445,34 @@ impl CharacterMemoryAdapter {
 
     pub async fn prepare(&self, input: PrepareWriteInput) -> Result<PreparedWritePlan> {
         let namespaces = self.namespaces.lock().await;
-        if !namespaces.contains_key(&input.namespace) {
-            return Err(explicit_lifecycle_error(&input.namespace));
-        }
+        let state = namespaces
+            .get(&input.namespace)
+            .ok_or_else(|| explicit_lifecycle_error(&input.namespace))?;
         let episode_id = deterministic_id(&input.namespace, "episode", &input.episode_external_id);
         let observation_id = deterministic_id(
             &input.namespace,
             "observation",
             &input.observation_external_id,
         );
-        let (episode, observation) = staged_source_drafts(&input, episode_id, observation_id)?;
+        let (mut episode, mut observation) =
+            staged_source_drafts(&input, episode_id, observation_id)?;
+        episode.participant_entity_ids = resolve_ids(
+            "entity",
+            &input.participant_entity_external_ids,
+            &state.entity_ids,
+            &BTreeMap::new(),
+        )?;
+        observation.speaker_entity_id = input
+            .speaker_entity_external_id
+            .as_ref()
+            .map(|id| {
+                state
+                    .entity_ids
+                    .get(id)
+                    .copied()
+                    .with_context(|| format!("unknown speaker entity {id}"))
+            })
+            .transpose()?;
         let defaults = RememberPlanDefaults::fixed(
             serde_json::to_string(&(
                 &input.namespace,
@@ -1718,7 +1737,41 @@ fn flatten_outcome(
         });
     }
 
+    let object_refs = [
+        (ObjectType::Episode, &state.reverse_episode_ids),
+        (ObjectType::Entity, &state.reverse_entity_ids),
+        (ObjectType::MemoryThread, &state.reverse_thread_ids),
+        (ObjectType::DerivedMemory, &state.reverse_derived_memory_ids),
+    ]
+    .into_iter()
+    .flat_map(|(object_type, ids)| {
+        ids.iter().map(move |(id, external_id)| {
+            (
+                id.to_string(),
+                MemoryEndpointInput {
+                    object_type,
+                    external_id: external_id.clone(),
+                },
+            )
+        })
+    })
+    .chain(
+        state
+            .reverse_observation_ids
+            .iter()
+            .map(|(id, (external_id, _))| {
+                (
+                    id.to_string(),
+                    MemoryEndpointInput {
+                        object_type: ObjectType::Observation,
+                        external_id: external_id.clone(),
+                    },
+                )
+            }),
+    )
+    .collect();
     RetrievedContextPack::from_ranked_items(items, vec![outcome], ContextRenderer::WithIdentity)
+        .with_object_refs(object_refs)
 }
 
 fn vector_hits_to_context_pack(
@@ -2320,6 +2373,12 @@ fn replacement_to_live(
     let memory = &input.memory;
     let mut draft = ReplacementDerivedMemoryDraft::new(memory.derived_type, memory.text.clone());
     draft.id = Some(id);
+    if memory.created_at.is_some() {
+        return Err(crate::UnsupportedCorrectionCreatedAt {
+            external_id: memory.external_id.clone(),
+        }
+        .into());
+    }
     draft.derived_from_episode_ids = resolve_ids(
         "episode",
         &memory.source_episode_external_ids,
@@ -2508,16 +2567,7 @@ impl CharacterMemoryControllableSimilarityEmbeddingProvider {
 
     fn vector_for_text(&self, text: &str) -> Result<Vec<f32>> {
         let mut vector = self.inner.vector_for_text(text).or_else(|original_error| {
-            let fixture_text = [
-                "Episode summary: ",
-                "Observation excerpt: ",
-                "Reflection: ",
-                "Entity: ",
-                "Thread summary: ",
-            ]
-            .into_iter()
-            .find_map(|prefix| text.strip_prefix(prefix));
-            fixture_text
+            runtime_fixture_text(text)
                 .map(|fixture_text| self.inner.vector_for_text(fixture_text))
                 .unwrap_or(Err(original_error))
         })?;
@@ -2537,10 +2587,21 @@ impl CharacterMemoryFrozenEmbeddingProvider {
 }
 
 fn runtime_fixture_text(text: &str) -> Option<&str> {
+    // Matches the pinned library's private embedding_surface::derived_label;
+    // the library does not expose the surface labels as a public vocabulary.
     [
         "Episode summary: ",
         "Observation excerpt: ",
         "Reflection: ",
+        "User preference: ",
+        "Assistant preference: ",
+        "Commitment: ",
+        "Open loop: ",
+        "Character signal: ",
+        "Relationship note: ",
+        "Project note: ",
+        "Claim: ",
+        "Correction: ",
         "Entity: ",
         "Thread summary: ",
     ]
@@ -3063,6 +3124,7 @@ mod tests {
             .remember_enrichment(GraphEnrichmentInput {
                 namespace: namespace.into(),
                 derived_memories: vec![DerivedMemoryInput {
+                    created_at: None,
                     external_id: "derived".into(),
                     derived_type: DerivedType::Reflection,
                     text: text.into(),
@@ -3513,7 +3575,20 @@ mod tests {
         assert_eq!(provider.vector_size(), 1536);
         assert_eq!(&vector[..2], &[1.0, -1.0]);
         assert!(vector[2..].iter().all(|component| *component == 0.0));
-        for surface_text in ["Episode summary: fixture text"] {
+        for surface_text in [
+            "Episode summary: fixture text",
+            "Observation excerpt: fixture text",
+            "Reflection: fixture text",
+            "User preference: fixture text",
+            "Assistant preference: fixture text",
+            "Commitment: fixture text",
+            "Open loop: fixture text",
+            "Character signal: fixture text",
+            "Relationship note: fixture text",
+            "Project note: fixture text",
+            "Claim: fixture text",
+            "Correction: fixture text",
+        ] {
             assert_eq!(
                 provider.generate_embedding(surface_text).await.unwrap(),
                 vector
@@ -3667,6 +3742,8 @@ mod tests {
                     content: "must not attach implicitly".to_string(),
                     episode_external_id: "new-episode".to_string(),
                     observation_external_id: "new-observation".to_string(),
+                    participant_entity_external_ids: Vec::new(),
+                    speaker_entity_external_id: None,
                     episode_started_at: None,
                     observation_observed_at: None,
                     raw_refs: Vec::new(),
@@ -3811,6 +3888,8 @@ mod tests {
                 content: "The restart-safe drink is jasmine tea.".to_string(),
                 episode_external_id: "episode-external".to_string(),
                 observation_external_id: "observation-external".to_string(),
+                participant_entity_external_ids: Vec::new(),
+                speaker_entity_external_id: None,
                 episode_started_at: Some("2025-01-01T00:00:00Z".to_string()),
                 observation_observed_at: Some("2025-01-01T00:00:00Z".to_string()),
                 raw_refs: vec!["fixture://continuity/restart".to_string()],
@@ -3851,6 +3930,7 @@ mod tests {
                     summary: Some("A restart-safe graph entity.".to_string()),
                 }],
                 derived_memories: vec![DerivedMemoryInput {
+                    created_at: None,
                     external_id: "pre-correction-memory".to_string(),
                     derived_type: DerivedType::Reflection,
                     text: "The restart-safe drink is jasmine tea.".to_string(),
@@ -3906,6 +3986,7 @@ mod tests {
             }],
             replacements: vec![ReplacementDerivedMemoryInput {
                 memory: DerivedMemoryInput {
+                    created_at: None,
                     external_id: "corrected-memory".to_string(),
                     derived_type: DerivedType::Reflection,
                     text: "The restart-safe drink is oolong tea.".to_string(),
@@ -3937,6 +4018,21 @@ mod tests {
         namespace: &str,
     ) {
         let correction_input = restart_correction(namespace);
+        assert!(
+            serde_json::to_value(&correction_input.replacements[0].memory)
+                .unwrap()
+                .get("created_at")
+                .is_none()
+        );
+        let mut unsupported = correction_input.clone();
+        unsupported.replacements[0].memory.created_at = Some("2024-01-01T00:00:00Z".into());
+        let error = adapter.correct(unsupported).await.unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<crate::UnsupportedCorrectionCreatedAt>(),
+            Some(&crate::UnsupportedCorrectionCreatedAt {
+                external_id: "corrected-memory".into()
+            })
+        );
         let correction =
             (adapter.correct(correction_input).await).expect("public correction round-trip");
         assert!(correction.mutated_object_refs.iter().any(|reference| {
@@ -4724,6 +4820,8 @@ mod tests {
             content: "scripted memory".to_string(),
             episode_external_id: "episode".to_string(),
             observation_external_id: "observation".to_string(),
+            participant_entity_external_ids: Vec::new(),
+            speaker_entity_external_id: None,
             episode_started_at: Some("2025-02-03T04:05:06Z".to_string()),
             observation_observed_at: Some("2025-02-03T04:05:06Z".to_string()),
             raw_refs: Vec::new(),

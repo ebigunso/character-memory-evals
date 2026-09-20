@@ -17,9 +17,10 @@ use cmem_eval::{
 };
 use cmem_eval_continuity::{
     ContinuityQueryObservation, ContinuityQueryTrace, ContinuityReportInput, ContinuityRuntime,
-    ContinuityScenario, InteractionEvent, assemble_continuity_report, continuity_metric_family,
-    insert_continuity_metrics, parse_fixture_bytes, run_continuity_scenario,
-    write_continuity_report, write_continuity_traces,
+    ContinuityScenario, InteractionEvent, ScenarioOutcome, assemble_continuity_report,
+    continuity_metric_family, insert_continuity_metrics, parse_fixture_bytes, parse_fixture_source,
+    run_continuity_scenario, scenario_missing_features, write_continuity_report,
+    write_continuity_traces,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -83,10 +84,16 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
     ContinuitySpec::validate_config(&config)?;
     let input_source = fs::read_to_string(&args.run.dataset)
         .with_context(|| format!("read continuity fixture {}", args.run.dataset.display()))?;
-    let fixture = parse_fixture_bytes(input_source.as_bytes())?;
+    let fixture = parse_fixture_source(&args.run.dataset, input_source.as_bytes())?;
     let input_sha256 = cmem_eval::text_sha256(&input_source);
     let scenarios = select_continuity_scenarios(fixture.scenarios, args.scenario.as_deref())?;
-    let frozen_embedding_providers = validate_continuity_embedding_sizes(&config, &scenarios)?;
+    let mut executable = Vec::new();
+    for scenario in &scenarios {
+        if scenario_missing_features(scenario)?.is_empty() {
+            executable.push(scenario.clone());
+        }
+    }
+    let frozen_embedding_providers = validate_continuity_embedding_sizes(&config, &executable)?;
     run_continuity_pipeline(
         args,
         config,
@@ -672,6 +679,7 @@ async fn run_continuity_pipeline(
     let total_queries = ContinuitySpec::total_questions(&scenarios);
     let progress = RunProgress::new(&config.dataset, scenarios.len(), Some(total_queries));
     let mut traces = Vec::with_capacity(total_queries);
+    let mut outcomes = BTreeMap::new();
     let mut operation_counts: BTreeMap<String, usize> = BTreeMap::new();
     let run_root = create_run_root(
         &args.run.out,
@@ -692,6 +700,15 @@ async fn run_continuity_pipeline(
         for (index, scenario) in scenarios.iter().enumerate() {
             let item_number = index + 1;
             progress.item_started(item_number, &scenario.fixture_id);
+            let missing = scenario_missing_features(scenario)?;
+            if !missing.is_empty() {
+                outcomes.insert(
+                    scenario.fixture_id.clone(),
+                    ScenarioOutcome::not_run(scenario, missing),
+                );
+                progress.item_finished(item_number, &scenario.fixture_id, 0);
+                continue;
+            }
             let frozen_embedding_provider =
                 if scenario.embedding.provider_name() == "frozen" {
                     let store_path = config.backend.embedding.store_path.as_deref().context(
@@ -716,6 +733,7 @@ async fn run_continuity_pipeline(
             runtimes.push((scenario.namespace.clone(), runtime));
             let runtime = &mut runtimes.last_mut().expect("just stored runtime").1;
             let run = run_continuity_scenario(runtime, scenario, &config.retrieval).await?;
+            outcomes.insert(scenario.fixture_id.clone(), run.outcome);
             for (operation, count) in run.operation_counts {
                 *operation_counts.entry(operation).or_default() += count;
             }
@@ -756,15 +774,13 @@ async fn run_continuity_pipeline(
                 .await?;
         }
 
-        if traces.is_empty() {
-            bail!("continuity evaluation produced no result traces");
-        }
         progress.write_outputs_started(traces.len());
         write_continuity_traces(&args.run.out, &traces)?;
         write_run_header(&args.run.out, &header)?;
         let report = assemble_continuity_report(ContinuityReportInput {
             config: serde_json::to_value(&config)?,
             traces: &traces,
+            outcomes: &outcomes,
             metric_family: &metric_family,
         })?;
         write_continuity_report(&sibling_output(&args.run.out, "report.json"), &report)?;
@@ -2750,6 +2766,10 @@ mod tests {
         let report = assemble_continuity_report(ContinuityReportInput {
             config: serde_json::to_value(&config).unwrap(),
             traces: &traces,
+            outcomes: &traces
+                .iter()
+                .map(|trace| (trace.fixture_id.clone(), ScenarioOutcome::executed()))
+                .collect(),
             metric_family: &metric_family,
         })
         .unwrap();

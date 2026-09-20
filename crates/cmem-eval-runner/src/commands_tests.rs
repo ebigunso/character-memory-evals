@@ -1,6 +1,116 @@
 use super::*;
 use cmem_eval::RetrievalMode;
 
+#[tokio::test]
+async fn situated_toml_cli_keeps_mixed_and_all_not_run_scenarios() {
+    use cmem_eval_continuity::{ScenarioStatus, read_continuity_report};
+    let dir = tempfile::tempdir().unwrap();
+    let dataset = dir.path().join("situated.toml");
+    let config =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../configs/continuity_situated.toml");
+    let control = serde_json::json!({
+        "fixture_id":"control", "namespace":"control", "pattern":"situated", "catalog_situations":["D4"], "character_entity":"self",
+        "entities":[{"external_id":"self", "label":"Character", "entity_type":"person", "is_hub":false}],
+        "scenes":{"alone":{"who":[{"reference":{"by":"key","key":"self"}}]}},
+        "embedding":{"provider":"controllable_similarity", "own_concept":true,"seed":7,"vector_size":16,"noise_magnitude":0.01,"clusters":{},"concepts":{}},
+        "events":[
+            {"kind":"experience","event_id":"visit","timestamp":"2024-01-01T09:00:00Z","text":"Garden","scene":{"kind":"named","name":"alone"}},
+            {"kind":"query","event_id":"ask","query_id":"ask","timestamp":"2024-01-02T09:00:00Z","text":"Garden","expected":{"relevant_external_ids":["visit"],"irrelevant_external_ids":[]}}
+        ]
+    });
+    let mut gated = control.clone();
+    gated["fixture_id"] = "gated".into();
+    gated["namespace"] = "gated".into();
+    gated["events"][1] = serde_json::json!({
+        "kind":"probe", "event_id":"probe", "query_id":"probe", "timestamp":"2024-01-02T09:00:00Z", "scene":{"kind":"named","name":"alone"},
+        "assertions":{"carried":[{"memory":"visit","reason":"own_day"}]}, "measures":{"bystanders":[]}
+    });
+    for (name, scenarios) in [
+        ("mixed", vec![control, gated.clone()]),
+        ("all-not-run", vec![gated]),
+    ] {
+        let fixture = serde_json::json!({"schema_version":3,"seed":7,"scenarios":scenarios});
+        fs::write(&dataset, toml::to_string(&fixture).unwrap()).unwrap();
+        let out_dir = dir.path().join(name);
+        let out = out_dir.join("traces.jsonl");
+        // The all-not-run case uses an unreachable service endpoint: constructing
+        // or opening an adapter would fail rather than silently exercising a store.
+        let config_path = if name == "all-not-run" {
+            let path = dir.path().join("unreachable.toml");
+            let text = fs::read_to_string(&config).unwrap().replace("[backend]", "[backend]\nvector_store_mode = \"service\"\nqdrant_connection_string = \"http://127.0.0.1:1\"");
+            fs::write(&path, text).unwrap();
+            path
+        } else {
+            config.clone()
+        };
+        Cli::try_parse_from([
+            "cmem-eval",
+            "run",
+            "continuity",
+            "--dataset",
+            dataset.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
+        assert!(!out_dir.join("stores").exists());
+        let report = read_continuity_report(&out_dir.join("report.json")).unwrap();
+        let gated = &report.scenarios["gated"].outcome;
+        assert_eq!(gated.status, ScenarioStatus::NotRun);
+        assert!(
+            gated
+                .missing_features
+                .contains(&cmem_eval_continuity::ScenarioFeature::ProbeScene)
+        );
+        assert_eq!(gated.assertions.len(), 1);
+        assert_eq!(gated.assertions[0].check.status, ScenarioStatus::NotRun);
+        assert_eq!(gated.probes["probe"].context_tokens, None);
+        assert_eq!(gated.probes["probe"].bystander_context_share, None);
+        assert_eq!(
+            gated.probes["probe"].carried_recall_by_reason["own_day"].recall,
+            None
+        );
+        let header: serde_json::Value =
+            serde_json::from_slice(&fs::read(out_dir.join("header.json")).unwrap()).unwrap();
+        assert!(header["embedding_bindings"].get("gated").is_none());
+        if name == "mixed" {
+            assert_eq!(report.scenarios.len(), 2);
+            assert_eq!(
+                report.scenarios["control"].outcome.status,
+                ScenarioStatus::Passed
+            );
+            assert_eq!(report.aggregate.query_count, 1);
+            assert_eq!(
+                report.aggregate.omission_reason_invariant.status,
+                ScenarioStatus::Passed
+            );
+        } else {
+            assert_eq!(report.scenarios.len(), 1);
+            assert_eq!(report.aggregate.query_count, 0);
+            assert_eq!(
+                report.aggregate.omission_reason_invariant.status,
+                ScenarioStatus::NotRun
+            );
+            assert_eq!(fs::metadata(&out).unwrap().len(), 0);
+        }
+        Cli::try_parse_from([
+            "cmem-eval",
+            "compare-continuity",
+            out_dir.join("report.json").to_str().unwrap(),
+            out_dir.join("report.json").to_str().unwrap(),
+        ])
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
+    }
+}
+
 #[test]
 fn checked_in_vector_configs_use_raw_candidate_ingestion_only() {
     for path in [

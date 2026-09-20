@@ -13,6 +13,126 @@ use cmem_eval::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScenarioStatus {
+    Passed,
+    Failed,
+    NotRun,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CheckResult {
+    pub status: ScenarioStatus,
+    pub reason: String,
+}
+
+impl CheckResult {
+    pub fn checked(passed: bool, reason: &str) -> Self {
+        Self {
+            status: if passed {
+                ScenarioStatus::Passed
+            } else {
+                ScenarioStatus::Failed
+            },
+            reason: reason.into(),
+        }
+    }
+
+    pub fn not_run(reason: &str) -> Self {
+        Self {
+            status: ScenarioStatus::NotRun,
+            reason: reason.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssertionResult {
+    pub identity: crate::AssertionIdentity,
+    #[serde(flatten)]
+    pub check: CheckResult,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScenarioOutcome {
+    pub status: ScenarioStatus,
+    pub missing_features: Vec<crate::ScenarioFeature>,
+    pub assertions: Vec<AssertionResult>,
+    pub probes: BTreeMap<String, crate::SituatedProbeMeasures>,
+    pub omission_reason_invariant: CheckResult,
+}
+
+impl ScenarioOutcome {
+    pub fn executed() -> Self {
+        Self {
+            status: ScenarioStatus::Passed,
+            missing_features: Vec::new(),
+            assertions: Vec::new(),
+            probes: BTreeMap::new(),
+            omission_reason_invariant: CheckResult::not_run("no retrieval executed"),
+        }
+    }
+
+    pub fn not_run(
+        scenario: &crate::ContinuityScenario,
+        missing_features: Vec<crate::ScenarioFeature>,
+    ) -> Self {
+        let reason = format!(
+            "unsupported features: {}",
+            serde_json::to_string(&missing_features).expect("feature enums")
+        );
+        Self {
+            status: ScenarioStatus::NotRun,
+            missing_features,
+            assertions: scenario
+                .events
+                .iter()
+                .flat_map(|event| event.assertion_identities())
+                .map(|identity| AssertionResult {
+                    identity,
+                    check: CheckResult::not_run(&reason),
+                })
+                .collect(),
+            probes: scenario
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    crate::InteractionEvent::Probe {
+                        query_id,
+                        assertions,
+                        measures,
+                        ..
+                    } => Some((
+                        query_id.clone(),
+                        crate::situated_probe_measures(scenario, assertions, measures, None),
+                    )),
+                    _ => None,
+                })
+                .collect(),
+            omission_reason_invariant: CheckResult::not_run(&reason),
+        }
+    }
+
+    pub fn record_retrieval(&mut self, pack: &cmem_eval::RetrievedContextPack) {
+        let passed = self.omission_reason_invariant.status != ScenarioStatus::Failed
+            && crate::omissions_have_reasons(pack.outcomes());
+        self.omission_reason_invariant = CheckResult::checked(
+            passed,
+            "native lifecycle and currency omissions are accounted for by reason",
+        );
+        if !passed {
+            self.status = ScenarioStatus::Failed;
+        }
+    }
+}
+
+impl Default for ScenarioOutcome {
+    fn default() -> Self {
+        Self::executed()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContinuityReport {
     pub aggregate: AggregateContinuityReport,
@@ -22,6 +142,7 @@ pub struct ContinuityReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AggregateContinuityReport {
+    pub omission_reason_invariant: CheckResult,
     pub degradation: DegradationSummary,
     pub query_count: usize,
     pub restart_count: usize,
@@ -33,6 +154,7 @@ pub struct AggregateContinuityReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ScenarioContinuityReport {
+    pub outcome: ScenarioOutcome,
     pub query_count: usize,
     pub metrics: NumericMetricSummary,
     pub metric_support: MetricSupportSummary,
@@ -52,6 +174,7 @@ pub struct TuningObservation {
 pub struct ContinuityReportInput<'a> {
     pub config: Value,
     pub traces: &'a [ContinuityQueryTrace],
+    pub outcomes: &'a BTreeMap<String, ScenarioOutcome>,
     pub metric_family: &'a cmem_eval::MetricFamily,
 }
 
@@ -62,19 +185,24 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         .map(|trace| trace.result.clone())
         .collect::<Vec<_>>();
     let summary = summarize_rows(&rows, std::slice::from_ref(input.metric_family))?;
-    let mut grouped = BTreeMap::<String, Vec<Map<String, Value>>>::new();
+    let mut grouped = input
+        .outcomes
+        .keys()
+        .map(|id| (id.clone(), Vec::<Map<String, Value>>::new()))
+        .collect::<BTreeMap<_, _>>();
     for trace in input.traces {
         grouped
-            .entry(trace.fixture_id.clone())
-            .or_default()
+            .get_mut(&trace.fixture_id)
+            .with_context(|| format!("trace has no scenario outcome: {}", trace.fixture_id))?
             .push(trace.result.metrics.to_json_map());
     }
     let scenarios = grouped
         .into_iter()
         .map(|(fixture_id, metrics)| {
             (
-                fixture_id,
+                fixture_id.clone(),
                 ScenarioContinuityReport {
+                    outcome: input.outcomes[&fixture_id].clone(),
                     query_count: metrics.len(),
                     metrics: aggregate_numeric_metrics(&metrics),
                     metric_support: metric_support_summary(&metrics),
@@ -88,6 +216,7 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         .collect();
     Ok(ContinuityReport {
         aggregate: AggregateContinuityReport {
+            omission_reason_invariant: combined_invariant(input.outcomes.values()),
             degradation: summary.degradation,
             query_count: summary.num_questions,
             restart_count: input
@@ -105,6 +234,106 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             .into_iter()
             .collect(),
     })
+}
+
+fn combined_invariant<'a>(outcomes: impl Iterator<Item = &'a ScenarioOutcome>) -> CheckResult {
+    let checks = outcomes
+        .map(|outcome| outcome.omission_reason_invariant.status)
+        .collect::<Vec<_>>();
+    if checks.contains(&ScenarioStatus::Failed) {
+        CheckResult::checked(
+            false,
+            "at least one retrieval omitted a memory without a native reason",
+        )
+    } else if checks.contains(&ScenarioStatus::Passed) {
+        CheckResult::checked(
+            true,
+            "all executed retrievals account for lifecycle and currency omissions by reason",
+        )
+    } else {
+        CheckResult::not_run("no retrieval executed")
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ContinuityRepeatDifference {
+    pub scenario_id: Option<String>,
+    pub assertion: Option<crate::AssertionIdentity>,
+    pub field: String,
+    pub before: Value,
+    pub after: Value,
+}
+
+pub fn compare_continuity_reports(
+    before: &ContinuityReport,
+    after: &ContinuityReport,
+) -> Vec<ContinuityRepeatDifference> {
+    let mut differences = Vec::new();
+    let mut compare =
+        |scenario_id: Option<String>, assertion, field: &str, before: Value, after: Value| {
+            if before != after {
+                differences.push(ContinuityRepeatDifference {
+                    scenario_id,
+                    assertion,
+                    field: field.into(),
+                    before,
+                    after,
+                });
+            }
+        };
+    compare(
+        None,
+        None,
+        "omission_reason_invariant",
+        serde_json::json!(before.aggregate.omission_reason_invariant),
+        serde_json::json!(after.aggregate.omission_reason_invariant),
+    );
+    for id in before
+        .scenarios
+        .keys()
+        .chain(after.scenarios.keys())
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        let left = before.scenarios.get(id).map(|scenario| &scenario.outcome);
+        let right = after.scenarios.get(id).map(|scenario| &scenario.outcome);
+        compare(
+            Some(id.clone()),
+            None,
+            "outcome",
+            serde_json::json!(left.map(|outcome| (&outcome.status, &outcome.missing_features))),
+            serde_json::json!(right.map(|outcome| (&outcome.status, &outcome.missing_features))),
+        );
+        compare(
+            Some(id.clone()),
+            None,
+            "omission_reason_invariant",
+            serde_json::json!(left.map(|outcome| &outcome.omission_reason_invariant)),
+            serde_json::json!(right.map(|outcome| &outcome.omission_reason_invariant)),
+        );
+        let assertions = |outcome: Option<&ScenarioOutcome>| {
+            outcome
+                .into_iter()
+                .flat_map(|outcome| &outcome.assertions)
+                .map(|result| (result.identity.clone(), result.check.clone()))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let left = assertions(left);
+        let right = assertions(right);
+        for identity in left
+            .keys()
+            .chain(right.keys())
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            compare(
+                Some(id.clone()),
+                Some(identity.clone()),
+                "assertion",
+                serde_json::json!(left.get(identity)),
+                serde_json::json!(right.get(identity)),
+            );
+        }
+    }
+    differences
 }
 
 pub fn write_continuity_report(path: &Path, report: &ContinuityReport) -> Result<()> {
@@ -339,6 +568,10 @@ mod tests {
         let report = assemble_continuity_report(ContinuityReportInput {
             config: serde_json::json!({}),
             traces: &[hub_trace(Some((21, 12, 9)))],
+            outcomes: &BTreeMap::from([(
+                "recurring-hub-entity".into(),
+                ScenarioOutcome::executed(),
+            )]),
             metric_family: &cmem_eval::retrieval_metric_family(
                 "continuity",
                 [("session", [5].as_slice())],
@@ -351,5 +584,65 @@ mod tests {
         assert!(write_continuity_report(&path, &report).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), existing);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn repeat_comparison_uses_assertion_identity_result_reason_and_invariant() {
+        let mut outcome = ScenarioOutcome::executed();
+        outcome.assertions = ["one", "two"]
+            .map(|memory| AssertionResult {
+                identity: crate::AssertionIdentity {
+                    event_id: "probe".into(),
+                    assertion: crate::AssertionSubject::Carried(memory.into()),
+                },
+                check: CheckResult::checked(true, "admitted"),
+            })
+            .to_vec();
+        let report = assemble_continuity_report(ContinuityReportInput {
+            config: Value::Null,
+            traces: &[],
+            outcomes: &BTreeMap::from([("scenario".into(), outcome)]),
+            metric_family: &crate::continuity_metric_family(&Default::default(), &[]),
+        })
+        .unwrap();
+        let mut repeat = report.clone();
+        repeat
+            .scenarios
+            .get_mut("scenario")
+            .unwrap()
+            .outcome
+            .assertions
+            .reverse();
+        assert!(compare_continuity_reports(&report, &repeat).is_empty());
+        repeat
+            .scenarios
+            .get_mut("scenario")
+            .unwrap()
+            .outcome
+            .assertions[0]
+            .check = CheckResult::checked(false, "missing");
+        let changed = compare_continuity_reports(&report, &repeat);
+        assert_eq!(changed.len(), 1);
+        assert_eq!(
+            changed[0].assertion.as_ref().unwrap().assertion,
+            crate::AssertionSubject::Carried("two".into())
+        );
+        repeat = report.clone();
+        repeat
+            .scenarios
+            .get_mut("scenario")
+            .unwrap()
+            .outcome
+            .assertions[0]
+            .check
+            .reason = "different reason".into();
+        assert_eq!(compare_continuity_reports(&report, &repeat).len(), 1);
+        repeat = report.clone();
+        repeat.aggregate.omission_reason_invariant =
+            CheckResult::checked(false, "missing omission reason");
+        assert_eq!(
+            compare_continuity_reports(&report, &repeat)[0].field,
+            "omission_reason_invariant"
+        );
     }
 }
