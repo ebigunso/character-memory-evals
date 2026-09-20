@@ -170,8 +170,6 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
                 reason: RecallReason::Due,
                 section: None,
             });
-        }
-        if id == "loud" {
             assertions.cued = assertions
                 .carried
                 .iter()
@@ -2314,6 +2312,25 @@ mod tests {
     fn loud_topic_saturates_smoke_content_candidates_without_matching_cued_memories() {
         let fixtures = generate_situated_loud_topic_fixture(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = &fixtures.scenarios[0];
+        let mut quiet = serde_json::to_value(
+            scenario
+                .events
+                .iter()
+                .find(|event| event.event_id() == "quiet")
+                .unwrap(),
+        )
+        .unwrap();
+        let mut loud = serde_json::to_value(scenario.events.last().unwrap()).unwrap();
+        assert!(quiet.get("topic").is_none());
+        for probe in [&mut quiet, &mut loud] {
+            for field in ["event_id", "query_id", "topic"] {
+                probe.as_object_mut().unwrap().remove(field);
+            }
+        }
+        assert_eq!(
+            quiet, loud,
+            "paired probes must vary only the topic, apart from their IDs"
+        );
         let provider = cmem_eval::ControllableSimilarityEmbeddingProvider::new(
             scenario
                 .embedding

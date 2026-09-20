@@ -300,6 +300,20 @@ event_id = "pay-water"
 timestamp = "2025-02-01T12:01:00Z"
 memory = {subtype = "commitment", text = "I owe Jo payment of our allotment water bill.", experiences = ["bill-agreement"], about = ["mara", "jo"], actor = "mara", counterpart = "jo", due = "2025-03-01T08:00:00Z"}
 [[scenarios.events]]
+kind = "experience"
+event_id = "evening-alarm"
+timestamp = "2025-02-28T20:00:00Z"
+text = "A pipe burst under my kitchen sink. I shut the valve just before the water reached my notebooks."
+scene = {kind = "named", name = "morning"}
+salience = 0.9
+[[scenarios.events]]
+kind = "experience"
+event_id = "evening-cup"
+timestamp = "2025-02-28T20:05:00Z"
+text = "After supper, I rinsed my teacup and put it back on the shelf."
+scene = {kind = "named", name = "morning"}
+salience = 0.1
+[[scenarios.events]]
 kind = "probe"
 event_id = "before-due"
 query_id = "d1-d8-before"
@@ -308,28 +322,14 @@ scene = {kind = "named", name = "morning"}
 [scenarios.events.assertions]
 not_cued = [{memory = "pay-water", cue = "due"}]
 [[scenarios.events]]
-kind = "experience"
-event_id = "morning-alarm"
-timestamp = "2025-03-01T09:00:00Z"
-text = "A pipe burst under my kitchen sink. I shut the valve just before the water reached my notebooks."
-scene = {kind = "named", name = "morning"}
-salience = 0.9
-[[scenarios.events]]
-kind = "experience"
-event_id = "morning-cup"
-timestamp = "2025-03-01T09:05:00Z"
-text = "I rinsed my breakfast cup and put it back on the shelf."
-scene = {kind = "named", name = "morning"}
-salience = 0.1
-[[scenarios.events]]
 kind = "probe"
 event_id = "wake-up"
 query_id = "d1-d8-due"
 timestamp = "2025-03-01T10:00:00Z"
 scene = {kind = "named", name = "morning"}
 [scenarios.events.assertions]
-carried = [{memory = "pay-water", reason = "due"}, {memory = "morning-alarm", reason = "recent_and_salient"}]
-cued = [{memory = "pay-water", cue = "due"}, {memory = "morning-alarm", cue = "recent_and_salient"}]
+carried = [{memory = "pay-water", reason = "due"}, {memory = "evening-alarm", reason = "recent_and_salient"}]
+cued = [{memory = "pay-water", cue = "due"}, {memory = "evening-alarm", cue = "recent_and_salient"}]
 [[scenarios.events]]
 kind = "probe"
 event_id = "overdue"

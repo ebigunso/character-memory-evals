@@ -1,8 +1,61 @@
 # Authoring situated recall scenarios
 
+Assertions pass or fail when a scenario runs; measures are only reported.
+
+To author a scenario, copy a narrative with the desired event shape, change IDs and story together, assign exact embedding inputs, then choose assertions that isolate the intended cues. Keep deadlines clearly before or after probes, and ensure every asserted memory already exists. Add an ordinary nearby experience without a forced expectation when testing salience. The loader checks structural consistency; review the story's cue eligibility separately.
+
 This crate runs scripted experiences, authored derived memories and recall probes against Character Memory. A scenario describes what the character experienced and what a caller perceives at recall time; assertions and measurement labels describe the author's expectations. The adapter receives only the input projection, never those expectations.
 
 Use [situated_v1.toml](fixtures/situated_v1.toml) for narrative examples and [situated_loud_topic_v1.json](fixtures/situated_loud_topic_v1.json) for the generated candidate-pressure example. Unsupported capabilities produce an explicit `not_run` outcome for the whole scenario before any namespace is created. A loaded fixture is not evidence that its assertions have executed.
+
+This minimal TOML scenario records a visit, derives a relationship note, then asks for that note when Jo returns:
+
+```toml
+schema_version = 3
+seed = 7
+
+[[scenarios]]
+fixture_id = "jo-returns"
+namespace = "jo-returns"
+pattern = "situated"
+catalog_situations = ["D4"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 16
+noise_magnitude = 0.01
+clusters = {}
+concepts = {}
+[scenarios.scenes.pair]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+
+[[scenarios.events]]
+kind = "experience"
+event_id = "visit"
+timestamp = "2025-02-01T10:00:00Z"
+text = "Jo and I enjoyed exchanging seeds for our gardens."
+scene = {kind = "named", name = "pair"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "gardening-friends"
+timestamp = "2025-02-01T10:01:00Z"
+memory = {subtype = "relationship_note", text = "Jo and I enjoy sharing seeds.", experiences = ["visit"], about = ["mara", "jo"]}
+[[scenarios.events]]
+kind = "probe"
+event_id = "return"
+query_id = "jo-returns-pair"
+timestamp = "2025-02-08T10:00:00Z"
+scene = {kind = "named", name = "pair"}
+[scenarios.events.assertions]
+carried = [{memory = "gardening-friends", reason = "pair"}]
+cued = [{memory = "gardening-friends", cue = "pair"}]
+```
 
 ## Fixture and scene shape
 
@@ -37,7 +90,7 @@ An authored `memory` requires `subtype`, nonblank `text`, nonempty distinct `exp
 
 A probe may omit its topic entirely. A present topic must be nonblank; its embedding lookup uses trimmed text. A partition is `{by = "participants"}`, `{by = "setting"}` or `{by = "custom", key = "project"}`; a custom key must exist in that probe's scene. Partition is an explicit caller control, not a reason to infer that any other scene is irrelevant.
 
-The shared lifecycle events remain available: `link` supplies `external_id`, `from_external_id`, `relation` and `to_external_id`; `forget` supplies `target_external_ids`, `suppress_derived_from_target` and `apply_to_derived_from_target`; `correct` supplies `target_external_id`, `replacement_external_id` and `replacement_text`; `restart` supplies `reopen_graph` and `reopen_stats`. At least one store must reopen and a later query or probe must follow a restart. The legacy `remember` and `query` shapes are defined in [fixture.rs](src/fixture.rs); the situated events avoid requiring topical text for recall and keep experience and authored derivation separate.
+Lifecycle events use the same event identity and timestamp: `link` supplies `external_id`, `from_external_id`, `relation` and `to_external_id`; `forget` supplies `target_external_ids`, `suppress_derived_from_target` and `apply_to_derived_from_target`; `correct` supplies `target_external_id`, `replacement_external_id` and `replacement_text`; `restart` supplies `reopen_graph` and `reopen_stats`. At least one store must reopen and a later query or probe must follow a restart. For the `remember` and `query` shapes, see [fixture.rs](src/fixture.rs).
 
 For deterministic authoring, use `provider = "controllable_similarity"` with `seed`, `vector_size`, `noise_magnitude`, `clusters` and `concepts`. Each cluster is a vector; each concept names its cluster and exact input strings. `own_concept = true` gives every otherwise-unassigned runtime input its own deterministic concept while preserving explicit groups. This supplies coverage, not semantic similarity: group texts explicitly when the narrative needs them to match. With `own_concept = false` (the default), the loader rejects uncovered inputs, including entity labels, normalized write texts, probe topics, textual scene references and topic triggers. Runtime normalization includes whitespace collapse and native derived-label prefix stripping. A frozen provider is `{provider = "frozen"}` and requires complete configured cache coverage before execution; see the [root README](../../README.md#generate-and-validate-frozen-real-embeddings) for store generation.
 
@@ -76,7 +129,7 @@ Sections are `threads`, `episodes`, `observations`, `derived_memories`, `prefere
 | `recent_and_salient` | A recent, salient experience |
 | `topic` | Topical content |
 
-Current state is content, not a ninth cue: use `pair` for a person's state or `activity` for a thread's state. The same memory may be checked for several cues, but duplicate `(memory, cue)` entries reject and the same tuple cannot be both `cued` and `not_cued`. Co-occurring cues do not prove each other: carry a due memory and assert `cued due` when a pair cue could also admit it. Unavailable cue facts fail both positive and negative checks if executed; they never become negative evidence.
+Current state is not a cue kind; it is the currency-filtered reading of the who and what cues, so use `pair` for a person and `activity` for a thread. The same memory may be checked for several cues, but duplicate `(memory, cue)` entries reject and the same tuple cannot be both `cued` and `not_cued`. Co-occurring cues do not prove each other: carry a due memory and assert `cued due` when a pair cue could also admit it. Unavailable cue facts fail both positive and negative checks if executed; they never become negative evidence.
 
 ## Measures and reports
 
@@ -88,7 +141,7 @@ Measures have no pass thresholds. Each probe reports:
 | `bystander_context_share` | Distinct admitted authored experiences or derived memories listed in `measures.bystanders`, divided by all distinct admitted authored experiences and derived memories. Episode and observation count once under their experience; entities and threads are excluded. |
 | `context_tokens` | Shared token counter applied to the rendered context. |
 
-`bystanders` defaults to empty; entries must be distinct prior experiences or derived memories, cannot be carried, and cannot be entities or threads. Audit each label against every cue at the probe: no pair, due, date, trigger, activity, own-day, recent-and-salient or topic cue may call for that memory in the story. A different scene alone does not make it a bystander. This is a narrative review rule; the loader cannot determine semantic cue eligibility. Negative expectations for a particular cue belong in `not_cued`; explicit ineligibility belongs in `omitted` with its reason. A recent unremarkable experience can remain unlabelled rather than being forced into either class.
+`bystanders` defaults to empty; entries must be distinct prior experiences or derived memories, cannot be carried, and cannot be entities or threads. Audit each label against every cue at the probe: no pair, due, date, trigger, activity, own-day, recent-and-salient or topic cue may call for that memory in the story. A different scene alone does not make it a bystander. A memory formed in the probe's place or setting is not a bystander either: the library's entity route also cues by place. Place has no cue kind in the vocabulary until a scenario needs to assert it. This is a narrative review rule; the loader cannot determine semantic cue eligibility. Negative expectations for a particular cue belong in `not_cued`; explicit ineligibility belongs in `omitted` with its reason. A recent unremarkable experience can remain unlabelled rather than being forced into either class.
 
 Per-scenario `carried_recall_by_reason` and the aggregate map pool `(probe, carried memory)` counts among probes that ran, then divide; they do not average per-probe ratios. Thus 0/1 and 9/9 give 9/10, and a repeated target on another probe counts again. Skipped targets are excluded from pooled counts and remain visible in per-probe diagnostics. All eight reasons are present. Recall is null for an unexecuted probe/scenario or a reason with no carried targets; an executed miss is zero. Unexecuted admitted counts are null. Empty pooled counts have `expected = 0`. Bystander share is null when unexecuted or when no countable memories were admitted. Context tokens are null when unexecuted and zero for an executed empty context.
 
@@ -110,9 +163,7 @@ The loader derives needed features from actual fields and assertions; authors ca
 | Reference, scene, elapsed, staleness assertions | `reference_trace`, `memory_scene_trace`, `elapsed_since_met`, `staleness` respectively |
 | Omission, warning, section, order expectations | `omission_reasons`, `write_warnings`, `pack_sections`, `pack_order` respectively |
 
-At library pin `d0fe82d` (2026-09-20), supported features are exactly `write_scene`, `authored_derived_memory`, `pack_sections` and `pack_order`. The harness forwards keyed participants, speaker, optional salience, timestamps, supported authored derived subtypes and supersession. No mapped probe retrieval input or named cue facts exist at this pin. Any missing feature makes the entire scenario `not_run` before adapter construction, writes or retrieval; a supported prefix is not executed. The checked situated fixtures therefore produce all-not-run reports and zero namespaces at this pin. `SUPPORTED_SCENARIO_FEATURES` and the single mapping function in [driver.rs](src/driver.rs) are the executable support declaration.
-
-To author a scenario, copy a narrative with the desired event shape, change IDs and story together, assign exact embedding inputs, then choose assertions that isolate the intended cues. Keep deadlines clearly before or after probes, and ensure every asserted memory already exists. Add an ordinary nearby experience without a forced expectation when testing salience. The loader checks structural consistency; review the story's cue eligibility separately.
+`SUPPORTED_SCENARIO_FEATURES` in [driver.rs](src/driver.rs) is the single statement of support. Any missing feature makes the entire scenario `not_run` before adapter construction, writes or retrieval; a supported prefix is not executed.
 
 Run from the repository root into a fresh output directory:
 
