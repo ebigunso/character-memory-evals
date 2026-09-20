@@ -229,7 +229,7 @@ timestamp = "2025-01-04T10:00:00Z"
 scene = {kind = "named", name = "iman"}
 [scenarios.events.assertions]
 carried = [{memory = "iman-strain", reason = "pair"}]
-not_cued = [{memory = "jo-trust", cue = "pair"}]
+not_cued = [{memory = "jo-trust", cue = "pair"}, {memory = "kit-new", cue = "pair"}]
 [[scenarios.events]]
 kind = "probe"
 event_id = "see-kit"
@@ -258,6 +258,7 @@ timestamp = "2025-02-05T10:00:00Z"
 scene = {kind = "named", name = "iman"}
 [scenarios.events.assertions]
 carried = [{memory = "iman-rebuilding", reason = "pair"}]
+not_cued = [{memory = "jo-trust", cue = "pair"}, {memory = "kit-new", cue = "pair"}]
 omitted = [{memory = "iman-strain", reason = "supersession"}]
 staleness = ["iman-rebuilding"]
 
@@ -660,6 +661,7 @@ timestamp = "2025-07-02T11:00:00Z"
 scene = {kind = "named", name = "jo"}
 [scenarios.events.assertions]
 carried = [{memory = "tell-jo", reason = "trigger"}]
+not_cued = [{memory = "mention-step", cue = "trigger"}]
 [[scenarios.events]]
 kind = "probe"
 event_id = "dinner-arises"
