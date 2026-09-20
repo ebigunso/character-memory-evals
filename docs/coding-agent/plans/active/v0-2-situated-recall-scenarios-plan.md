@@ -205,6 +205,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval/src/memory_adapter.rs (an optional salience on the staged write input only)
   - crates/cmem-eval/src/adapter.rs (applying that salience to the staged episode and observation only)
   - crates/cmem-eval-continuity/fixtures/situated_v1.toml
+  - crates/cmem-eval-continuity/README.md (new: the scenario contract)
   - crates/cmem-eval-continuity/fixtures/situated_loud_topic_v1.json (regenerated)
   - crates/cmem-eval-continuity/src/generator.rs (the loud-topic generation only)
 - depends_on: [Task_2, Task_3]
@@ -214,6 +215,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - An `experience` with a salience loads in TOML and JSON and reaches the library as authored; load rejects a salience that is not finite or is outside 0 to 1, the rule the legacy `Remember` salience already follows; an absent salience keeps today's behavior and bytes.
   - The positive cases of D7 (trigger), D9 (date), D1 with D8 (due) and D5 (activity) in `situated_v1.toml` each carry a `cued` assertion for their cue; in the generated loud-topic set the loud probe's due and pair targets each carry `cued` for their cue and its current-state target carries `cued` pair, since under a saturated content cue `carried` alone would credit a target the content cue admitted, and the generator reproduces the regenerated file byte for byte; the checker has a passing and a failing test for `cued` on an injected outcome.
   - A sentinel test plants distinctive gold strings (a carried reason, a reference's gold entity used nowhere else, an expected warning, a distinctive assertion section) in a scenario and shows none of them appears in any mapped write or retrieval input handed to the adapter; bystander ids are left out of the string check because a bystander's id is also its memory's id, and the input types have no field a classification could travel in. A forwarding test shows a speaker on an experience and a supersession on a derive reach the core input.
+  - `crates/cmem-eval-continuity/README.md` documents the scenario contract from the code as built (the shape, each assertion and its identity, the measures, the cue vocabulary, the needed features and the not-run rule, how to author and run a scenario), so that the Orchestrator can cut the same detail out of this plan in the same wave; the top-level README links to it.
   - `cued` loads and validates like `not_cued`, needs the same trace feature, has a position-free identity, and a memory cannot be both `cued` and `not_cued` for one cue on one probe.
   - Load rejects a scene assertion on a derive whose sources come from different scenes; recall by reason is null, not zero, for a not-run scenario and for a reason with no carried targets, covered in report and repeat-comparison tests.
   - A regression case with both an episode outcome and an observation outcome shows assertions and measures aggregate every native outcome.
@@ -371,7 +373,7 @@ Waves 1 and 2 need nothing from the library, start on approval, stack on each ot
 
 - 2026-09-20 Decision: value test on the plan after the review rounds, at the decider's request.
   - Trigger / new insight: several additions made while answering external review did not earn their place. A needed feature for a value the pinned library already takes (speaker, supersession) is always supported and gates nothing. A structural sentinel for bystanders restates what the input types already guarantee.
-  - Plan delta (what changed): speaker and supersession are forwarding tests, not features; the sentinel is the string check only. The feature inventory is frozen at its current granularity: a new feature is added only for something the pinned library cannot take. The plan stops absorbing contract detail; at closeout the scenario contract moves to the crate's documentation and this plan keeps intent.
+  - Plan delta (what changed): speaker and supersession are forwarding tests, not features; the sentinel is the string check only. The feature inventory is frozen at its current granularity: a new feature is added only for something the pinned library cannot take. The plan stops absorbing contract detail; the scenario contract moves to the crate's documentation in Task_7 (not at closeout, by the decider's instruction to clean up now), and this plan is cut back to intent in the same wave.
   - Tradeoffs considered: the not-run gate is scaffolding for the period before a library slice lands; it recurs each library phase that is evaluated first, so it stays, but it is not grown beyond what a landing order needs.
   - User approval: requested by the decider 2026-09-20.
   - Record proposed: none
