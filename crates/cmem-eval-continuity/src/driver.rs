@@ -1606,43 +1606,69 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn unsupported_scenario_does_not_even_access_an_adapter() {
-        let mut scenario = situated_scenario();
-        let InteractionEvent::Derive { memory, .. } = &mut scenario.events[2] else {
-            panic!("derive");
-        };
-        memory.subtype = AuthoredMemoryKind::Intention;
-        let directory = tempfile::tempdir().unwrap();
-        let mut runtime = ContinuityRuntime {
-            active: None,
-            config: Box::new(BenchmarkRunConfig {
-                run_id: "not-run".into(),
-                dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
-                backend: Default::default(),
-                retrieval: retrieval(),
-                ingest: Default::default(),
-                metrics: Default::default(),
-            }),
-            embedding_binding: EmbeddingRuntimeBinding::Controllable {
-                fixture: scenario
-                    .embedding
-                    .controllable_similarity()
-                    .unwrap()
-                    .clone(),
-                dimension_policy: cmem_eval::ControllableDimensionPolicy::FixtureDeclared,
-            },
-            run_root: directory.path().to_path_buf(),
-        };
-        let run = run_continuity_scenario(&mut runtime, &scenario, &retrieval())
-            .await
-            .unwrap();
-        assert_eq!(run.outcome.status, crate::ScenarioStatus::NotRun);
-        assert_eq!(
-            run.outcome.missing_features,
-            [ScenarioFeature::IntentionMemory]
-        );
-        assert!(run.operation_counts.is_empty());
-        assert!(run.traces.is_empty());
-        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        for (subtype, feature) in [
+            (
+                AuthoredMemoryKind::Intention,
+                ScenarioFeature::IntentionMemory,
+            ),
+            (
+                AuthoredMemoryKind::Thread,
+                ScenarioFeature::ThreadProvenance,
+            ),
+        ] {
+            let mut scenario = situated_scenario();
+            let InteractionEvent::Derive { memory, .. } = &mut scenario.events[2] else {
+                panic!("derive");
+            };
+            memory.subtype = subtype;
+            if subtype == AuthoredMemoryKind::Thread {
+                let mut replacement = scenario.events[2].clone();
+                let InteractionEvent::Derive {
+                    event_id,
+                    timestamp,
+                    memory,
+                    ..
+                } = &mut replacement
+                else {
+                    unreachable!()
+                };
+                *event_id = "replacement".into();
+                *timestamp += chrono::Duration::minutes(1);
+                memory.subtype = AuthoredMemoryKind::Commitment;
+                memory.supersedes = vec!["promise".into()];
+                scenario.events.insert(3, replacement);
+            }
+            let directory = tempfile::tempdir().unwrap();
+            let mut runtime = ContinuityRuntime {
+                active: None,
+                config: Box::new(BenchmarkRunConfig {
+                    run_id: "not-run".into(),
+                    dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
+                    backend: Default::default(),
+                    retrieval: retrieval(),
+                    ingest: Default::default(),
+                    metrics: Default::default(),
+                }),
+                embedding_binding: EmbeddingRuntimeBinding::Controllable {
+                    fixture: scenario
+                        .embedding
+                        .controllable_similarity()
+                        .unwrap()
+                        .clone(),
+                    dimension_policy: cmem_eval::ControllableDimensionPolicy::FixtureDeclared,
+                },
+                run_root: directory.path().to_path_buf(),
+            };
+            let run = run_continuity_scenario(&mut runtime, &scenario, &retrieval())
+                .await
+                .unwrap();
+            assert_eq!(run.outcome.status, crate::ScenarioStatus::NotRun);
+            assert_eq!(run.outcome.missing_features, [feature]);
+            assert!(run.operation_counts.is_empty());
+            assert!(run.traces.is_empty());
+            assert!(runtime.active.is_none());
+            assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
     }
 
     #[test]
