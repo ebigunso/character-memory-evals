@@ -185,7 +185,6 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
             timestamp: timestamp(at)?,
             scene: named("kiln_workshop"),
             topic,
-            partition: None,
             assertions: Box::new(assertions),
             measures: ProbeMeasures {
                 bystanders: bystanders.clone(),

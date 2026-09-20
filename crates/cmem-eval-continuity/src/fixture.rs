@@ -184,14 +184,6 @@ pub enum ExpectedWriteWarning {
     ChurningChain,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "by", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ScenePartition {
-    Participants,
-    Setting,
-    Custom { key: String },
-}
-
 pub type RecallReason = CueKind;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -246,7 +238,6 @@ pub struct CarriedAssertion {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OmissionReason {
-    Partition,
     Resolution,
     Supersession,
     Suppression,
@@ -330,7 +321,6 @@ pub enum AssertionSubject {
     Scene { memory: String, scene: String },
     ElapsedSinceMet(String),
     Staleness(String),
-    Partition,
     WriteWarning(ExpectedWriteWarning),
 }
 
@@ -350,7 +340,6 @@ pub enum ScenarioFeature {
     PlaceDescription,
     ActivityName,
     ActivityDescription,
-    Partition,
     Direction,
     DueDate,
     Trigger,
@@ -360,7 +349,6 @@ pub enum ScenarioFeature {
     ThreadProvenance,
     CueTrace,
     ReferenceTrace,
-    PartitionTrace,
     MemorySceneTrace,
     ElapsedSinceMet,
     Staleness,
@@ -374,7 +362,6 @@ pub enum ScenarioFeature {
 pub struct ComputedProbeGold {
     pub elapsed_since_met: BTreeMap<String, chrono::Duration>,
     pub staleness: BTreeMap<String, chrono::Duration>,
-    pub partition_applied: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -402,7 +389,6 @@ pub enum SituatedInput {
         query_id: String,
         scene: SceneInput,
         topic: Option<String>,
-        partition: Option<ScenePartition>,
     },
 }
 
@@ -662,8 +648,6 @@ pub enum InteractionEvent {
         scene: SceneSelection,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         topic: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        partition: Option<ScenePartition>,
         #[serde(default)]
         assertions: Box<ProbeAssertions>,
         #[serde(default)]
@@ -1124,13 +1108,11 @@ impl ContinuityScenario {
                 query_id,
                 scene,
                 topic,
-                partition,
                 ..
             } => Some(SituatedInput::Probe {
                 query_id: query_id.clone(),
                 scene: self.scene(scene, &location)?.input(),
                 topic: topic.clone(),
-                partition: partition.clone(),
             }),
             _ => None,
         })
@@ -1613,7 +1595,6 @@ impl ContinuityScenario {
                     query_id,
                     scene,
                     topic,
-                    partition,
                     assertions,
                     measures,
                     ..
@@ -1684,20 +1665,6 @@ impl ContinuityScenario {
                     } else {
                         requirements.features.insert(ScenarioFeature::NoTopic);
                     }
-                    if let Some(partition) = partition {
-                        if let ScenePartition::Custom { key } = partition {
-                            require_non_empty(&location, "probe.partition.key", key)?;
-                            if !scene.custom.contains_key(key) {
-                                return Err(location.error(
-                                    "probe.partition.key",
-                                    FixtureAdmissionKind::NotAdmitted(key.clone()),
-                                ));
-                            }
-                        }
-                        requirements
-                            .features
-                            .extend([ScenarioFeature::Partition, ScenarioFeature::PartitionTrace]);
-                    }
                     let gold = ProbeAdmission {
                         location: &location,
                         character: self.character_entity.as_deref(),
@@ -1714,7 +1681,6 @@ impl ContinuityScenario {
                         assertions,
                         measures,
                         scene,
-                        partition.as_ref(),
                         &mut requirements.features,
                     )?;
                     requirements.probes.insert(query_id.clone(), gold);
@@ -1998,11 +1964,7 @@ impl InteractionEvent {
     pub fn assertion_identities(&self) -> BTreeSet<AssertionIdentity> {
         let mut subjects = Vec::new();
         match self {
-            Self::Probe {
-                assertions,
-                partition,
-                ..
-            } => {
+            Self::Probe { assertions, .. } => {
                 subjects.extend(
                     assertions
                         .carried
@@ -2059,9 +2021,6 @@ impl InteractionEvent {
                         .cloned()
                         .map(AssertionSubject::Staleness),
                 );
-                if partition.is_some() {
-                    subjects.push(AssertionSubject::Partition);
-                }
             }
             Self::Derive {
                 expected_warning: Some(warning),
@@ -2391,7 +2350,6 @@ impl ProbeAdmission<'_> {
         assertions: &ProbeAssertions,
         measures: &ProbeMeasures,
         scene: &Scene,
-        partition: Option<&ScenePartition>,
         features: &mut BTreeSet<ScenarioFeature>,
     ) -> Result<ComputedProbeGold, FixtureError> {
         let location = self.location;
@@ -2434,12 +2392,6 @@ impl ProbeAdmission<'_> {
                 return Err(location.error(
                     "probe.assertions.omitted",
                     FixtureAdmissionKind::Overlap(assertion.memory.clone()),
-                ));
-            }
-            if assertion.reason == OmissionReason::Partition && partition.is_none() {
-                return Err(location.error(
-                    "probe.assertions.omitted",
-                    FixtureAdmissionKind::RequiredWith("partition omission"),
                 ));
             }
             features.insert(ScenarioFeature::OmissionReasons);
@@ -2620,10 +2572,7 @@ impl ProbeAdmission<'_> {
             }
             features.insert(ScenarioFeature::MemorySceneTrace);
         }
-        let mut gold = ComputedProbeGold {
-            partition_applied: partition.is_some(),
-            ..Default::default()
-        };
+        let mut gold = ComputedProbeGold::default();
         require_distinct(
             location,
             "probe.assertions.elapsed_since_met",
@@ -2991,7 +2940,6 @@ event_id = "reunion"
 query_id = "encounter-probe"
 timestamp = "2024-01-08T09:00:00Z"
 scene = {kind = "named", name = "encounter"}
-partition = {by = "participants"}
 [scenarios.events.assertions]
 carried = [
   {memory = "last-meeting", reason = "pair", section = "episodes"},
@@ -3305,7 +3253,7 @@ bystanders = ["distractor"]
             ]);
             let identities =
                 parse_as(&value, extension).unwrap().scenarios[0].events[5].assertion_identities();
-            assert_eq!(identities.len(), 11);
+            assert_eq!(identities.len(), 10);
             value["scenarios"][0]["events"][5]["assertions"]["not_cued"]
                 .as_array_mut()
                 .unwrap()
@@ -3683,7 +3631,7 @@ bystanders = ["distractor"]
             ]);
             let loaded = parse_as(&value, extension).unwrap();
             let identities = loaded.scenarios[0].events[5].assertion_identities();
-            assert_eq!(identities.len(), 12);
+            assert_eq!(identities.len(), 11);
             value["scenarios"][0]["events"][5]["assertions"]["in_order"]
                 .as_array_mut()
                 .unwrap()
@@ -3895,7 +3843,6 @@ bystanders = ["distractor"]
         );
         // The memory was authored three days ago, but supported five days ago.
         assert_eq!(gold.staleness["promise"], chrono::Duration::days(5));
-        assert!(gold.partition_applied);
         assert_eq!(
             scenario.requirements.features,
             BTreeSet::from([
@@ -3906,14 +3853,12 @@ bystanders = ["distractor"]
                 ScenarioFeature::NoTopic,
                 ScenarioFeature::ReferenceTime,
                 ScenarioFeature::ParticipantName,
-                ScenarioFeature::Partition,
                 ScenarioFeature::Direction,
                 ScenarioFeature::DueDate,
                 ScenarioFeature::Trigger,
                 ScenarioFeature::AuthoredDerivedMemory,
                 ScenarioFeature::CueTrace,
                 ScenarioFeature::ReferenceTrace,
-                ScenarioFeature::PartitionTrace,
                 ScenarioFeature::MemorySceneTrace,
                 ScenarioFeature::ElapsedSinceMet,
                 ScenarioFeature::Staleness,
@@ -4163,6 +4108,30 @@ bystanders = ["distractor"]
     }
 
     #[test]
+    fn situated_partition_inputs_are_rejected_in_both_formats() {
+        for extension in ["json", "toml"] {
+            for omission in [false, true] {
+                let mut value = situated_value();
+                let probe = &mut value["scenarios"][0]["events"][5];
+                if omission {
+                    probe["assertions"]["omitted"][0]["reason"] = Value::from("partition");
+                } else {
+                    probe["partition"] = serde_json::json!({"by": "participants"});
+                }
+                match parse_as(&value, extension).unwrap_err() {
+                    FixtureError::Shape {
+                        location, field, ..
+                    } => {
+                        assert_eq!(location, FixtureLocation::scenario("encounter"));
+                        assert_eq!(field.as_deref(), (!omission).then_some("partition"));
+                    }
+                    other => panic!("expected typed shape error, got {other}"),
+                }
+            }
+        }
+    }
+
+    #[test]
     fn situated_support_and_assertions_cannot_reference_future_or_contradictory_labels() {
         let cases = [
             (
@@ -4175,11 +4144,6 @@ bystanders = ["distractor"]
                 "probe.measures.bystanders",
                 FixtureAdmissionKind::Overlap("promise".into()),
             ),
-            (
-                "partition",
-                "probe.assertions.omitted",
-                FixtureAdmissionKind::RequiredWith("partition omission"),
-            ),
         ];
         for (case, field, kind) in cases {
             let mut value = situated_value();
@@ -4187,10 +4151,6 @@ bystanders = ["distractor"]
             match case {
                 "future" => events[3]["memory"]["experiences"] = serde_json::json!(["promise"]),
                 "bystander" => events[5]["measures"]["bystanders"] = serde_json::json!(["promise"]),
-                "partition" => {
-                    events[5].as_object_mut().unwrap().remove("partition");
-                    events[5]["assertions"]["omitted"][0]["reason"] = Value::from("partition");
-                }
                 _ => unreachable!(),
             }
             let event = if case == "future" {
@@ -4317,7 +4277,7 @@ bystanders = ["distractor"]
         let before = parse_as(&value, "json").unwrap();
         let event = &before.scenarios[0].events[5];
         let identities = event.assertion_identities();
-        assert_eq!(identities.len(), 10);
+        assert_eq!(identities.len(), 9);
         assert!(identities.contains(&AssertionIdentity {
             event_id: "reunion".into(),
             assertion: AssertionSubject::References(PerceivedReference::Name {

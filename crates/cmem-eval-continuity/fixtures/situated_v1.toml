@@ -4,7 +4,7 @@ schema_version = 3
 seed = 7
 
 # B1: Mara knows two neighbors through the allotment. A private worry remains
-# known at the shared table; only the application's partition excludes it.
+# known at the shared table, with its private scene reported.
 [[scenarios]]
 fixture_id = "b1-allotment-confidence"
 namespace = "situated-b1"
@@ -53,20 +53,9 @@ topic = "The allotment budget"
 [scenarios.events.assertions]
 carried = [{memory = "private-worry", reason = "topic"}, {memory = "shared-seeds", reason = "topic"}]
 scenes = [{memory = "private-worry", scene = "jo_private"}, {memory = "shared-seeds", scene = "shared_table"}]
-[[scenarios.events]]
-kind = "probe"
-event_id = "partitioned-table"
-query_id = "b1-setting-partition"
-timestamp = "2025-03-03T10:01:00Z"
-scene = {kind = "named", name = "shared_table"}
-topic = "The allotment budget"
-partition = {by = "setting"}
-[scenarios.events.assertions]
-carried = [{memory = "shared-seeds", reason = "topic"}]
-omitted = [{memory = "private-worry", reason = "partition"}]
 
-# B2: one play, two accounts. "Everyone present now was present then" allows
-# the rehearsal memory in a pair, but excludes the private aside in the group.
+# B2: one play, two accounts. Both the group plan and the private aside
+# come to mind in either scene, each with its own scene reported.
 [[scenarios]]
 fixture_id = "b2-rehearsal-and-aside"
 namespace = "situated-b2"
@@ -117,17 +106,6 @@ carried = [{memory = "group-plan", reason = "topic"}, {memory = "private-aside",
 scenes = [{memory = "group-plan", scene = "rehearsal"}, {memory = "private-aside", scene = "aside"}]
 [[scenarios.events]]
 kind = "probe"
-event_id = "pair-partition"
-query_id = "b2-pair-partition"
-timestamp = "2025-04-02T18:01:00Z"
-scene = {kind = "named", name = "aside"}
-topic = "The opening solo"
-partition = {by = "participants"}
-[scenarios.events.assertions]
-carried = [{memory = "group-plan", reason = "topic"}, {memory = "private-aside", reason = "topic"}]
-scenes = [{memory = "group-plan", scene = "rehearsal"}, {memory = "private-aside", scene = "aside"}]
-[[scenarios.events]]
-kind = "probe"
 event_id = "group-default"
 query_id = "b2-group-default"
 timestamp = "2025-04-03T18:00:00Z"
@@ -136,17 +114,6 @@ topic = "The opening solo"
 [scenarios.events.assertions]
 carried = [{memory = "group-plan", reason = "topic"}, {memory = "private-aside", reason = "topic"}]
 scenes = [{memory = "group-plan", scene = "rehearsal"}, {memory = "private-aside", scene = "aside"}]
-[[scenarios.events]]
-kind = "probe"
-event_id = "group-partition"
-query_id = "b2-group-partition"
-timestamp = "2025-04-03T18:01:00Z"
-scene = {kind = "named", name = "rehearsal"}
-topic = "The opening solo"
-partition = {by = "participants"}
-[scenarios.events.assertions]
-carried = [{memory = "group-plan", reason = "topic"}]
-omitted = [{memory = "private-aside", reason = "partition"}]
 
 # B3: the same workshop contains a trusted friend, a strained collaboration
 # and someone Mara has just met. Only a written repair replaces the strain.

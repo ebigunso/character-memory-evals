@@ -1014,7 +1014,6 @@ mod tests {
                 name: "pair".into(),
             },
             topic: None,
-            partition: None,
             assertions: Box::new(assertions.clone()),
             measures: measures.clone(),
         };
