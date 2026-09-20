@@ -1741,7 +1741,6 @@ pub(crate) mod tests {
                 *event_id = "replacement".into();
                 *timestamp += chrono::Duration::minutes(1);
                 memory.subtype = AuthoredMemoryKind::Commitment;
-                memory.supersedes = vec!["promise".into()];
                 scenario.events.insert(3, replacement);
             }
             let directory = tempfile::tempdir().unwrap();

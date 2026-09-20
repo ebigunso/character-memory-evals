@@ -1505,10 +1505,7 @@ impl ContinuityScenario {
                             &location,
                             "derive.supersedes",
                             target,
-                            &[
-                                ContinuityObjectKind::DerivedMemory,
-                                ContinuityObjectKind::MemoryThread,
-                            ],
+                            &[ContinuityObjectKind::DerivedMemory],
                             &authored_memories,
                         )?;
                     }
@@ -3273,6 +3270,7 @@ bystanders = ["distractor"]
             serde_json::json!(["distractor", "old-note"]);
         assert!(parse_as(&value, extension).is_ok());
         value["scenarios"][0]["events"][3]["memory"]["subtype"] = Value::from("thread");
+        value["scenarios"][0]["events"][4]["memory"]["supersedes"] = serde_json::json!([]);
         assert_eq!(
             admission_of(parse_as(&value, extension).unwrap_err()),
             expected_admission(
@@ -3518,6 +3516,7 @@ bystanders = ["distractor"]
                     let mut value = situated_value();
                     let scenario = &mut value["scenarios"][0];
                     scenario["events"][3]["memory"]["subtype"] = Value::from("thread");
+                    scenario["events"][4]["memory"]["supersedes"] = serde_json::json!([]);
                     scenario["scenes"]["mismatch"] = scenario["scenes"]["pair"].clone();
                     scenario["scenes"]["mismatch"][slot] = content;
                     scenario["events"][5]["assertions"]["scenes"] =
@@ -3773,6 +3772,7 @@ bystanders = ["distractor"]
                 let mut value = situated_value();
                 let scenario = &mut value["scenarios"][0];
                 scenario["events"][3]["memory"]["subtype"] = Value::from(subtype);
+                scenario["events"][4]["memory"]["supersedes"] = serde_json::json!([]);
                 let mut scene = scenario["scenes"]["pair"].clone();
                 scene["what"] = serde_json::json!({"by": "key", "key": "old-note"});
                 scenario["scenes"]["asserted-activity"] = scene;
@@ -3968,6 +3968,7 @@ bystanders = ["distractor"]
                         let mut value = situated_value();
                         let scenario = &mut value["scenarios"][0];
                         scenario["events"][3]["memory"]["subtype"] = Value::from(subtype);
+                        scenario["events"][4]["memory"]["supersedes"] = serde_json::json!([]);
                         let mut scene = scenario["scenes"]["pair"].clone();
                         scene["what"] = serde_json::json!({"by": "key", "key": "old-note"});
                         let selection = if named {
