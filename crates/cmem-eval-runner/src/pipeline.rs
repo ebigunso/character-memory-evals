@@ -93,7 +93,11 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
             executable.push(scenario.clone());
         }
     }
-    let frozen_embedding_providers = validate_continuity_embedding_sizes(&config, &executable)?;
+    let frozen_embedding_providers = if executable.is_empty() {
+        HashMap::new()
+    } else {
+        validate_continuity_embedding_sizes(&config, &executable)?
+    };
     run_continuity_pipeline(
         args,
         config,

@@ -114,6 +114,36 @@ impl ScenarioOutcome {
         }
     }
 
+    pub(crate) fn record_probe(
+        &mut self,
+        scenario: &crate::ContinuityScenario,
+        event: &crate::InteractionEvent,
+        pack: &cmem_eval::RetrievedContextPack,
+    ) {
+        let crate::InteractionEvent::Probe {
+            query_id,
+            assertions,
+            measures,
+            ..
+        } = event
+        else {
+            unreachable!("probe outcome requires a probe event");
+        };
+        let checks = crate::check_probe_assertions(event, pack);
+        if checks
+            .iter()
+            .any(|result| result.check.status == ScenarioStatus::Failed)
+        {
+            self.status = ScenarioStatus::Failed;
+        }
+        self.assertions.extend(checks);
+        self.probes.insert(
+            query_id.clone(),
+            crate::situated_probe_measures(scenario, assertions, measures, Some(pack)),
+        );
+        self.record_retrieval(pack);
+    }
+
     pub fn record_retrieval(&mut self, pack: &cmem_eval::RetrievedContextPack) {
         let passed = self.omission_reason_invariant.status != ScenarioStatus::Failed
             && crate::omissions_have_reasons(pack.outcomes());
@@ -584,6 +614,122 @@ mod tests {
         assert!(write_continuity_report(&path, &report).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), existing);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn executed_probe_records_checks_measures_and_failure_status() {
+        use cmem_eval::character_memory::{
+            ContinuityContextPack, EpisodeDraft, RetrievalRationale, RetrieveOutcome,
+        };
+        let scenario = crate::driver::tests::situated_scenario();
+        let event: crate::InteractionEvent = serde_json::from_value(serde_json::json!({
+            "kind":"probe", "event_id":"probe", "query_id":"probe", "timestamp":"2024-01-04T09:00:00Z",
+            "scene":{"kind":"named","name":"pair"}, "topic":"Garden",
+            "assertions":{
+                "carried":[{"memory":"visit","reason":"pair","section":"episodes"}],
+                "in_order":[["visit","noise"]]
+            },
+            "measures":{"bystanders":["noise"]}
+        })).unwrap();
+        let visit = EpisodeDraft::new("visit").into_domain().unwrap();
+        let noise = EpisodeDraft::new("noise").into_domain().unwrap();
+        let refs = [(visit.id, "visit"), (noise.id, "noise")]
+            .map(|(id, external_id)| {
+                (
+                    id.to_string(),
+                    cmem_eval::MemoryEndpointInput {
+                        object_type: cmem_eval::ObjectType::Episode,
+                        external_id: external_id.into(),
+                    },
+                )
+            })
+            .into_iter()
+            .collect();
+        let native = RetrieveOutcome {
+            pack: ContinuityContextPack {
+                relevant_episodes: vec![visit, noise],
+                ..ContinuityContextPack::empty()
+            },
+            rationale: RetrievalRationale::new("native probe"),
+            trace: None,
+        };
+        let pack = cmem_eval::RetrievedContextPack::from_ranked_items(
+            vec![],
+            vec![native.clone()],
+            cmem_eval::ContextRenderer::PlainText,
+        )
+        .with_object_refs(refs);
+        let mut outcome = ScenarioOutcome::executed();
+        outcome.record_probe(&scenario, &event, &pack);
+        assert_eq!(outcome.assertions.len(), 2);
+        assert!(
+            outcome
+                .assertions
+                .iter()
+                .all(|result| result.check.status == ScenarioStatus::Passed)
+        );
+        assert_eq!(outcome.status, ScenarioStatus::Passed);
+        assert_eq!(
+            outcome.omission_reason_invariant.status,
+            ScenarioStatus::Passed
+        );
+        assert_eq!(
+            outcome.probes["probe"].carried_recall_by_reason["pair"].recall,
+            Some(1.0)
+        );
+        assert_eq!(outcome.probes["probe"].bystander_context_share, Some(0.5));
+        assert_eq!(outcome.probes["probe"].context_tokens, Some(0));
+
+        let mut wrong_section = event.clone();
+        let crate::InteractionEvent::Probe { assertions, .. } = &mut wrong_section else {
+            unreachable!()
+        };
+        assertions.carried[0].section = Some(crate::MemorySection::Commitments);
+        let mut failed = ScenarioOutcome::executed();
+        failed.record_probe(&scenario, &wrong_section, &pack);
+        assert_eq!(
+            failed
+                .assertions
+                .iter()
+                .filter(|result| result.check.status == ScenarioStatus::Failed)
+                .count(),
+            1
+        );
+        assert_eq!(failed.status, ScenarioStatus::Failed);
+        failed.record_probe(&scenario, &event, &pack);
+        assert_eq!(failed.status, ScenarioStatus::Failed);
+
+        let mut unexplained = native;
+        unexplained.rationale.lifecycle_omission_count = 1;
+        let unexplained = cmem_eval::RetrievedContextPack::from_ranked_items(
+            vec![],
+            vec![unexplained],
+            cmem_eval::ContextRenderer::PlainText,
+        )
+        .with_object_refs(pack.object_refs().clone());
+        let mut failed = ScenarioOutcome::executed();
+        failed.record_probe(&scenario, &event, &unexplained);
+        assert!(
+            failed
+                .assertions
+                .iter()
+                .all(|result| result.check.status == ScenarioStatus::Passed)
+        );
+        assert_eq!(
+            failed.omission_reason_invariant.status,
+            ScenarioStatus::Failed
+        );
+        assert_eq!(failed.status, ScenarioStatus::Failed);
+        failed.record_probe(&scenario, &event, &pack);
+        assert_eq!(
+            failed.omission_reason_invariant.status,
+            ScenarioStatus::Failed
+        );
+        assert_eq!(failed.status, ScenarioStatus::Failed);
+        assert_eq!(
+            combined_invariant([&outcome, &failed].into_iter()).status,
+            ScenarioStatus::Failed
+        );
     }
 
     #[test]

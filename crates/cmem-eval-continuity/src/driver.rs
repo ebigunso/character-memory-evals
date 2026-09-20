@@ -12,8 +12,9 @@ use cmem_eval::{
     EmbeddingRuntimeBinding, EntityInput, EntityType, EpisodeInput, ForgetCascadePolicyInput,
     ForgetMemoryInput, GraphEnrichmentInput, LinkMemoryInput, MemoryEndpointInput, MemoryLinkInput,
     MemoryThreadInput, NamespaceLifecycleResult, ObjectType, ObservationInput, PrepareWriteInput,
-    RelationType, ReplacementDerivedMemoryInput, RetentionState, RetrievalConfig, RetrieveInput,
-    RetrievedContextPack, SourceProvenanceInput, Stability, SuppressionPolicyInput, ThreadStatus,
+    PreparedWritePlan, RelationType, ReplacementDerivedMemoryInput, RetentionState,
+    RetrievalConfig, RetrieveInput, RetrievedContextPack, SourceProvenanceInput, Stability,
+    SuppressionPolicyInput, ThreadStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,16 +42,21 @@ pub fn scenario_missing_features(scenario: &ContinuityScenario) -> Result<Vec<Sc
         .collect())
 }
 
-enum SituatedWrite {
+enum MappedSituatedInput {
     Experience(PrepareWriteInput),
     Derive(GraphEnrichmentInput),
+    #[expect(
+        dead_code,
+        reason = "remove when the core contract can carry probe scene and reference time"
+    )]
+    Probe(RetrieveInput),
 }
 
 fn map_situated_input(
     namespace: &str,
     timestamp: chrono::DateTime<Utc>,
     input: SituatedInput,
-) -> Result<SituatedWrite> {
+) -> Result<MappedSituatedInput> {
     let timestamp = timestamp.to_rfc3339_opts(SecondsFormat::AutoSi, true);
     Ok(match input {
         SituatedInput::Experience {
@@ -71,7 +77,7 @@ fn map_situated_input(
                     _ => bail!("unsupported write participant passed the feature gate"),
                 })
                 .collect::<Result<Vec<_>>>()?;
-            SituatedWrite::Experience(PrepareWriteInput {
+            MappedSituatedInput::Experience(PrepareWriteInput {
                 namespace: namespace.into(),
                 content: text,
                 observation_external_id: observation_external_id(&external_id),
@@ -143,7 +149,7 @@ fn map_situated_input(
                     metadata: serde_json::Value::Null,
                 });
             }
-            SituatedWrite::Derive(input)
+            MappedSituatedInput::Derive(input)
         }
         SituatedInput::Probe { .. } => {
             bail!("the pinned library cannot receive a probe scene and reference time")
@@ -437,10 +443,12 @@ pub async fn run_continuity_scenario(
 
     for (event_index, event) in scenario.events.iter().enumerate() {
         match event {
-            InteractionEvent::Experience { .. } | InteractionEvent::Derive { .. } => {
-                let input = scenario.situated_input(event)?.expect("situated write");
+            InteractionEvent::Experience { .. }
+            | InteractionEvent::Derive { .. }
+            | InteractionEvent::Probe { .. } => {
+                let input = scenario.situated_input(event)?.expect("situated event");
                 match map_situated_input(&scenario.namespace, event.timestamp(), input)? {
-                    SituatedWrite::Experience(input) => {
+                    MappedSituatedInput::Experience(input) => {
                         let external_id = input.episode_external_id.clone();
                         let observation_id = input.observation_external_id.clone();
                         history.push(format!(
@@ -450,11 +458,17 @@ pub async fn run_continuity_scenario(
                             input.content
                         ));
                         let plan = runtime.adapter().prepare(input).await?;
-                        let result = runtime
-                            .adapter()
-                            .commit(plan, CommitWriteOptions::default())
-                            .await?;
-                        write_outcomes.push(result.outcome);
+                        increment(&mut run.operation_counts, "prepare");
+                        write_outcomes.push(
+                            commit_validated_plan(
+                                runtime.adapter(),
+                                scenario,
+                                event.event_id(),
+                                plan,
+                                &mut run.operation_counts,
+                            )
+                            .await?,
+                        );
                         increment(&mut run.operation_counts, "experience");
                         for (id, object_type) in [
                             (external_id.clone(), ObjectType::Episode),
@@ -474,7 +488,7 @@ pub async fn run_continuity_scenario(
                             );
                         }
                     }
-                    SituatedWrite::Derive(input) => {
+                    MappedSituatedInput::Derive(input) => {
                         for memory in &input.derived_memories {
                             admitted.insert(
                                 memory.external_id.clone(),
@@ -515,12 +529,12 @@ pub async fn run_continuity_scenario(
                         write_outcomes.extend(runtime.adapter().remember_enrichment(input).await?);
                         increment(&mut run.operation_counts, "derive");
                     }
+                    MappedSituatedInput::Probe(input) => {
+                        let pack = runtime.adapter().retrieve(input).await?;
+                        increment(&mut run.operation_counts, "retrieve");
+                        run.outcome.record_probe(scenario, event, &pack);
+                    }
                 }
-            }
-            InteractionEvent::Probe { .. } => {
-                // ProbeScene and ReferenceTime are deliberately unsupported at
-                // this pin. No textual stand-in can preserve these inputs.
-                bail!("unsupported probe passed the static feature gate");
             }
             InteractionEvent::Remember {
                 event_id,
@@ -584,7 +598,7 @@ pub async fn run_continuity_scenario(
                     write_outcomes.push(result.outcome);
                     increment(&mut run.operation_counts, "remember_observation");
                 } else {
-                    let mut plan = runtime
+                    let plan = runtime
                         .adapter()
                         .prepare(PrepareWriteInput {
                             namespace: scenario.namespace.clone(),
@@ -605,37 +619,16 @@ pub async fn run_continuity_scenario(
                         })
                         .await?;
                     increment(&mut run.operation_counts, "prepare");
-                    let validations = runtime.adapter().validate_plan(&plan).await?;
-                    increment(&mut run.operation_counts, "validate_plan");
-                    if validations
-                        .iter()
-                        .any(|validation| validation.status == CandidateValidationStatus::Invalid)
-                    {
-                        bail!(
-                            "scenario {:?} event {event_id:?} produced an invalid write plan: {validations:?}",
-                            scenario.fixture_id
-                        );
-                    }
-                    plan.plan.validations = validations;
-                    let commit = runtime
-                        .adapter()
-                        .commit(plan, CommitWriteOptions::default())
-                        .await?;
-                    increment(&mut run.operation_counts, "commit");
-                    if !commit.repair_needed.is_empty() {
-                        bail!(
-                            "scenario {:?} event {event_id:?} committed with repair-needed markers: {:?}",
-                            scenario.fixture_id,
-                            commit.repair_needed
-                        );
-                    }
-                    if commit.vector_indexed_object_refs.is_empty() {
-                        bail!(
-                            "scenario {:?} event {event_id:?} committed without vector-indexed objects",
-                            scenario.fixture_id
-                        );
-                    }
-                    write_outcomes.push(commit.outcome);
+                    write_outcomes.push(
+                        commit_validated_plan(
+                            runtime.adapter(),
+                            scenario,
+                            event_id,
+                            plan,
+                            &mut run.operation_counts,
+                        )
+                        .await?,
+                    );
                 }
                 admitted.insert(
                     external_id.clone(),
@@ -1079,6 +1072,43 @@ pub async fn run_continuity_scenario(
     Ok(run)
 }
 
+async fn commit_validated_plan(
+    adapter: &CharacterMemoryAdapter,
+    scenario: &ContinuityScenario,
+    event_id: &str,
+    mut plan: PreparedWritePlan,
+    operation_counts: &mut BTreeMap<String, usize>,
+) -> Result<cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>> {
+    let validations = adapter.validate_plan(&plan).await?;
+    increment(operation_counts, "validate_plan");
+    if validations
+        .iter()
+        .any(|validation| validation.status == CandidateValidationStatus::Invalid)
+    {
+        bail!(
+            "scenario {:?} event {event_id:?} produced an invalid write plan: {validations:?}",
+            scenario.fixture_id
+        );
+    }
+    plan.plan.validations = validations;
+    let commit = adapter.commit(plan, CommitWriteOptions::default()).await?;
+    increment(operation_counts, "commit");
+    if !commit.repair_needed.is_empty() {
+        bail!(
+            "scenario {:?} event {event_id:?} committed with repair-needed markers: {:?}",
+            scenario.fixture_id,
+            commit.repair_needed
+        );
+    }
+    if commit.vector_indexed_object_refs.is_empty() {
+        bail!(
+            "scenario {:?} event {event_id:?} committed without vector-indexed objects",
+            scenario.fixture_id
+        );
+    }
+    Ok(commit.outcome)
+}
+
 async fn retrieve_query(
     adapter: &CharacterMemoryAdapter,
     scenario: &ContinuityScenario,
@@ -1423,11 +1453,62 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn situated_experience_rejects_degraded_native_write() {
+        let mut scenario = situated_scenario();
+        let mut query = scenario.events.pop().unwrap();
+        let InteractionEvent::Query { text, expected, .. } = &mut query else {
+            unreachable!()
+        };
+        *text = "Weather".into();
+        expected.relevant_external_ids = vec!["visit".into()];
+        scenario.events.truncate(1);
+        scenario.events.push(query);
+        scenario.analyze().unwrap();
+        let mut fixture = scenario
+            .embedding
+            .controllable_similarity()
+            .unwrap()
+            .clone();
+        // A valid provider that cannot embed this experience produces a native
+        // repair-needed outcome after persisting the graph.
+        fixture
+            .concepts
+            .retain(|_, concept| !concept.inputs.iter().any(|input| input == "Garden"));
+        let mut config = BenchmarkRunConfig {
+            run_id: "degraded-write".into(),
+            dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
+            backend: Default::default(),
+            retrieval: retrieval(),
+            ingest: Default::default(),
+            metrics: Default::default(),
+        };
+        config.backend.embedding.vector_size = Some(fixture.vector_size);
+        let directory = tempfile::tempdir().unwrap();
+        let mut runtime = ContinuityRuntime::new(
+            directory.path(),
+            &config,
+            EmbeddingRuntimeBinding::Controllable {
+                dimension_policy: cmem_eval::ControllableDimensionPolicy::FixtureDeclared,
+                fixture,
+            },
+        )
+        .await
+        .unwrap();
+        let result = run_continuity_scenario(&mut runtime, &scenario, &config.retrieval).await;
+        runtime.cleanup(&scenario.namespace).await.unwrap();
+        assert!(
+            result.is_err(),
+            "a degraded experience must not be reported as passed"
+        );
+    }
+
+    #[tokio::test]
     async fn situated_control_forwards_authored_fields_into_native_memories() {
         let scenario = situated_scenario();
         assert!(scenario_missing_features(&scenario).unwrap().is_empty());
         let run = run_embedded(&scenario).await;
         assert_eq!(run.outcome.status, crate::ScenarioStatus::Passed);
+        assert_eq!(run.operation_counts.get("validate_plan"), Some(&2));
         let pack = &run.traces[0].retrieval;
         let native = &pack.outcomes()[0].pack;
         let external = |id: cmem_eval::character_memory::MemoryId| {
@@ -1508,7 +1589,7 @@ pub(crate) mod tests {
                 panic!("derive");
             };
             memory.subtype = subtype;
-            let SituatedWrite::Derive(mapped) = map_situated_input(
+            let MappedSituatedInput::Derive(mapped) = map_situated_input(
                 &scenario.namespace,
                 scenario.events[2].timestamp(),
                 SituatedInput::Derive {

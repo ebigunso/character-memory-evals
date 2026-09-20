@@ -38,7 +38,7 @@ async fn situated_toml_cli_keeps_mixed_and_all_not_run_scenarios() {
         let config_path = if name == "all-not-run" {
             let path = dir.path().join("unreachable.toml");
             let text = fs::read_to_string(&config).unwrap().replace("[backend]", "[backend]\nvector_store_mode = \"service\"\nqdrant_connection_string = \"http://127.0.0.1:1\"");
-            fs::write(&path, text).unwrap();
+            fs::write(&path, text.replace("vector_size = 32", "")).unwrap();
             path
         } else {
             config.clone()

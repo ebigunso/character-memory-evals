@@ -1737,7 +1737,12 @@ fn flatten_outcome(
         });
     }
 
-    let object_refs = [
+    RetrievedContextPack::from_ranked_items(items, vec![outcome], ContextRenderer::WithIdentity)
+        .with_object_refs(outcome_object_refs(state))
+}
+
+fn outcome_object_refs(state: &ExternalIdRegistry) -> BTreeMap<String, MemoryEndpointInput> {
+    [
         (ObjectType::Episode, &state.reverse_episode_ids),
         (ObjectType::Entity, &state.reverse_entity_ids),
         (ObjectType::MemoryThread, &state.reverse_thread_ids),
@@ -1769,9 +1774,7 @@ fn flatten_outcome(
                 )
             }),
     )
-    .collect();
-    RetrievedContextPack::from_ranked_items(items, vec![outcome], ContextRenderer::WithIdentity)
-        .with_object_refs(object_refs)
+    .collect()
 }
 
 fn vector_hits_to_context_pack(
@@ -1846,6 +1849,7 @@ fn vector_hits_to_context_pack(
     }
 
     RetrievedContextPack::from_ranked_items(items, outcomes, ContextRenderer::WithIdentity)
+        .with_object_refs(outcome_object_refs(snapshot))
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -4686,10 +4690,41 @@ mod tests {
                     text: Some("episode summary".to_string()),
                 },
             ],
-            Vec::new(),
+            vec![RetrieveOutcome {
+                pack: ContinuityContextPack {
+                    relevant_episodes: vec![episode(episode_id)],
+                    salient_observations: vec![{
+                        let mut observation = ObservationDraft::new(episode_id, "turn text")
+                            .into_domain()
+                            .unwrap();
+                        observation.id = observation_id;
+                        observation
+                    }],
+                    ..ContinuityContextPack::empty()
+                },
+                rationale: RetrievalRationale::new("vector-only"),
+                trace: None,
+            }],
         );
 
         assert_eq!(pack.items().len(), 2);
+        let native = &pack.outcomes()[0].pack;
+        assert_eq!(
+            pack.object_refs()
+                .get(&native.relevant_episodes[0].id.to_string()),
+            Some(&MemoryEndpointInput {
+                object_type: ObjectType::Episode,
+                external_id: "s1".into(),
+            })
+        );
+        assert_eq!(
+            pack.object_refs()[&native.salient_observations[0].id.to_string()].external_id,
+            "s1:turn:1"
+        );
+        assert_eq!(
+            pack.object_refs()[&native.salient_observations[0].episode_id.to_string()].external_id,
+            "s1"
+        );
         assert_eq!(pack.items()[0].kind, ObjectType::Observation);
         assert_eq!(pack.items()[0].external_id.as_deref(), Some("s1:turn:1"));
         assert_eq!(pack.items()[0].episode_external_id.as_deref(), Some("s1"));
