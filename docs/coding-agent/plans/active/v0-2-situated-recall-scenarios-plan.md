@@ -241,6 +241,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - datasets/enriched/** (untracked local snapshot, manifest and builder report outputs; the preserved bare-id pair under .agent-work is kept)
   - scripts/enrichment/build_snapshots.py
   - scripts/enrichment/README.md
+  - configs/locomo_*.toml and configs/longmemeval_s_*.toml (the snapshot path only; none of the benchmark configs is register-cited, only continuity configs are, and if one turns out to be cited it is left alone and a new config is added beside it)
   - crates/cmem-eval-continuity/fixtures/embeddings/** (new files only, and only under Open Question 1)
   - .github/workflows/ci.yml (the fixture path of the smoke step only, and only if the checked fixture is replaced)
   - README.md
