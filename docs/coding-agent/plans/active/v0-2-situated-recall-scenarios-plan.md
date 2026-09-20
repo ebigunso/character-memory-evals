@@ -19,7 +19,7 @@
 
 ## Planner-added requirements
 - A "not run" outcome beside passed and failed, decided for a whole scenario from the features it needs. Needed because: evaluation comes before the library work by ruling, so most scenarios cannot be asked of the pinned library on day one, and a scenario that runs with part of its input dropped can pass for the wrong reason.
-- New scenarios use the controllable-similarity embedding provider, and a text with no assigned concept is its own concept. Needed because: their texts are in no frozen store, the frozen stores are register-cited bytes, cue properties do not depend on real embedding geometry, and hand-authored scenarios cannot reasonably assign a concept to every text. The loud-topic set uses the same provider, since it saturates the content cue by construction.
+- New scenarios use the controllable-similarity embedding provider. A scenario may set `embedding.own_concept = true`, and then a text with no assigned concept is its own concept; absent or false keeps the strict rule that every text is assigned exactly once, which is what protects generated fixtures. Needed because: their texts are in no frozen store, the frozen stores are register-cited bytes, cue properties do not depend on real embedding geometry, and hand-authored scenarios cannot reasonably assign a concept to every text. The loud-topic set uses the same provider, since it saturates the content cue by construction.
 - A repeat comparison over scenario outcomes and assertion results. Needed because: the CLI diff compares retrieved identities and metrics only, so an assertion could flip between two runs while the diff reports zero differences.
 
 ## Scope / Non-goals
@@ -27,7 +27,7 @@
 - Non-goals: the behavioral tier (disclosure, posture, generated retelling; scheduled with the library's generation phase); a general assertion language; write-side scenes given by name or description (resolving them is consolidation's work in the library's v0.3, so v0.2 write-side scenes use keys, identity or setting); replaying experiences through reflection and comparing against the authored derived memories (the shape allows it; nothing is built for it); the LoCoMo and LongMemEval hybrid runs (decided 2026-09-20: once at the library's v0.2 closeout under their own authorization); any edit to a register-cited fixture, store, manifest, config or artifact; any library change; sealing any evidence.
 
 ## Design
-- Chosen: a scenario is a readable story of experiences, the derived memories a caller authors from them, and probes. Narrative scenarios are hand-authored in one TOML file; scale scenarios (the loud-topic set) are generated as JSON in the existing pattern; both deserialize into the same types, chosen by file extension. The new shape is additive to the current one, so there is one loader and one shape, no version dispatch and no tolerance code, and the loader stays fail-closed as an input contract (unknown keys rejected, the `schema_version` equality check kept and unchanged while the change is additive), in the TOML form as in JSON, because a misspelled assertion key that is silently ignored passes vacuously: the existing checked fixtures keep loading only because nothing in them changed meaning, and the day a shape change invalidates them (Task_4 may be that day) they are regenerated as new files and the old ones remain as sealed bytes nothing reads. Structure: one loader, one driver, one report; the authored scene is mapped to the library's input in one place in the adapter, which also declares the set of features it forwards. Evolution: when the library's scene shape is set, only that mapping and the feature set change; the same experiences and derived memories can later serve the generation phase. Verification: loading, feature derivation and assertion checking are unit-testable with no store; scenarios run service-free. Operation: no new runtime cost outside the new scenarios. Human: the decider can read a scenario and judge whether it is the catalog situation. Safety: gold (what a reference means, assertions, bystanders) never reaches the library; a participant given by name or description reaches it as that text only.
+- Chosen: a scenario is a readable story of experiences, the derived memories a caller authors from them, and probes. Narrative scenarios are hand-authored in one TOML file; scale scenarios (the loud-topic set) are generated as JSON in the existing pattern; both deserialize into the same types, chosen by file extension. The new shape is additive to the current one, so there is one loader and one shape, no version dispatch and no tolerance code, and the loader stays fail-closed as an input contract (unknown keys rejected, the `schema_version` equality check kept and unchanged while the change is additive), in the TOML form as in JSON, because a misspelled assertion key that is silently ignored passes vacuously: the existing checked fixtures keep loading only because nothing in them changed meaning, and the day a shape change invalidates them (Task_4 may be that day) they are regenerated as new files and the old ones remain as sealed bytes nothing reads. Structure: one loader, one driver, one report; the authored scene is mapped to the core adapter contract in one place in the continuity driver, with the supported feature set as a const beside it and a drift test between the two; the core crate carries and forwards fields and learns nothing about scenarios (ADR-I-0004). Evolution: when the library's scene shape is set, only that mapping and the feature set change; the same experiences and derived memories can later serve the generation phase. Verification: loading, feature derivation and assertion checking are unit-testable with no store; scenarios run service-free. Operation: no new runtime cost outside the new scenarios. Human: the decider can read a scenario and judge whether it is the catalog situation. Safety: gold (what a reference means, assertions, bystanders) never reaches the library; a participant given by name or description reaches it as that text only.
 - Alternative: build the scenarios with the Rust generator and check in JSON, extending `Remember` and `Query` in place. Structure: no second file format. Evolution: same. Verification: byte-identity tests for free. Human: a scenario is builder calls, so judging it against the catalog means reading code; and `Remember` writes an episode, an observation and a generic reflection from one text, which cannot state a relationship state, a last interaction and obligations in both directions as distinct memories with distinct evidence (D4).
 - Alternative: Rust integration tests against the library's new API once it exists. Verification: strongest typing, but nothing can be written before the library API exists, which inverts the evaluation-first ruling, and every library shape change edits every test.
 - Alternative: a general predicate language over the native outcome. Evolution: couples fixtures to the library's serialized field names, which the groundwork is about to change; errors surface at run time, not at load.
@@ -37,7 +37,7 @@
 A scenario has an id, the catalog situations it serves, the character's own entity, entities (id, label and kind as perceived), named scenes, and events in time order. Every event has an id unique in its scenario; the id of an `experience` or a `derive` is that memory's external id. An assertion's identity is its event's id, its kind and its subject, never its position, so reordering unchanged assertions is not a difference.
 - A scene: who (each participant given by identity key, by name, or by description, with the entity the author means kept beside it as gold), where, what, custom. Declared once per scenario and referenced, so "the same scene" and "a different scene" are statements by reference (B1, B2). A probe may also give a scene inline.
 - `experience`: what happened, in a scene, at a time, with text and an optional speaker. Writes an episode and its observations.
-- `derive`: a derived memory a caller authors: subtype, text, the experiences it rests on, the entities it is about, what it supersedes, and where the situation needs them an actor and a counterpart, a due date, a trigger, and a write warning the author expects (near-verbatim restatement, churning chain; the C4 proxy).
+- `derive`: a derived memory a caller authors, with its own timestamp (events are chronological, and the timestamp is forwarded per memory as its creation time) and no scene of its own, since its scene follows from the experiences it rests on: subtype, text, the experiences it rests on, the entities it is about, what it supersedes, and where the situation needs them an actor and a counterpart, a due date, a trigger, and a write warning the author expects (near-verbatim restatement, churning chain; the C4 proxy).
 - `probe`: a time, a scene, an optional topic, an optional partition; then assertions and measures.
 - `correct`, `forget`, `link`, `restart` are unchanged. `Remember` and `Query` stay for the generated canonical set, so its baselines stay comparable.
 
@@ -53,7 +53,7 @@ Assertions on a probe (must hold):
 
 Measures on a probe (reported, never asserted): recall of `carried` grouped by reason; `bystanders`, distractors on cue grounds only (nothing present, due, dated, triggered, in progress or on topic calls for them), reported as a context share: admitted bystanders over all admitted memories in the pack, counted per authored memory: one count per `experience` or `derive` external id, an admitted episode or observation crediting its experience once, entities and threads not counted; null when a scenario is not run or nothing is admitted. It is a cost measure, not distractor recall, and an unlabelled memory is never counted as irrelevant; in the generated loud-topic set every distractor is labelled, so the share is exact there. Context tokens are the existing `count_tokens` over the pack's context text, zero for an empty pack and null for a scenario that is not run, so a scenario that was never asked does not look free. A memory is never a bystander because of the scene it was formed in, since that share would measure that a cross-scene memory failed to surface (ADR-D-0019). The temporal rationale share is already a metric and is read off the report.
 
-Support is decided per scenario and statically: the adapter declares the features it forwards to the pinned library (a scene on a write, a scene on a probe, no topic, a reference time, a participant by name, a participant by description, a partition, direction, due date, trigger, each trace fact), a scenario's needed features follow from its content, and a scenario needing a feature the adapter lacks is not run and is reported with the missing features. Nothing is dropped or coerced to make a scenario run. Once a scenario runs, an absent fact is a failure.
+Support is decided per scenario and statically: the continuity driver declares the features it can forward to the pinned library through the core adapter contract (a scene on a write, a scene on a probe, no topic, a reference time, a participant by name, a participant by description, a partition, direction, due date, trigger, each trace fact), a scenario's needed features follow from its content, and a scenario needing a feature outside that set is not run and is reported with the missing features. Nothing is dropped or coerced to make a scenario run. Once a scenario runs, an absent fact is a failure.
 
 ### Scenario groups (from the v0.2 draft, section 4)
 B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, tasks and favors across long gaps, the loud-topic set (generated: cued items still carried while the content cue is saturated), and C4 as a retrieval proxy only (same surviving basis and current state across scenes and times, no stale-current leakage, the write warning; it does not establish consistent retelling). Each group has a default case and, where the draft names one, a control. Probe-side scenes exercise key, name and description, including one ambiguous and one unknown reference. B2 carries a partition probe in each direction: a group memory probed from a one-on-one with a member, and a one-on-one memory probed from the group.
@@ -100,7 +100,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval-benchmark-convert/src/lib.rs (mechanical consumer migration only)
 - depends_on: []
 - description: |
-  The scenario shape in the Design section, additive to the current types, loadable from TOML and JSON, validated at load, with the computed gold (elapsed since the pair last met, staleness) and the per-scenario needed-feature set derived by the loader. A text with no assigned concept is its own concept. The shapes are as-perceived and library-neutral; the library's Rust types are not the model.
+  The scenario shape in the Design section, additive to the current types, loadable from TOML and JSON, validated at load, with the computed gold (elapsed since the pair last met, staleness) and the per-scenario needed-feature set derived by the loader. `embedding.own_concept` is the explicit per-scenario opt-in described under Planner-added requirements; the strict default and the generator's rejection test stay unchanged. The shapes are as-perceived and library-neutral; the library's Rust types are not the model.
 - acceptance:
   - The D4 example of the Design discussion (a keyed write-side scene, a commitment with direction and due date, a probe with a participant by name and no topic, one assertion of each kind, bystanders) loads from TOML and validates, and its needed features and computed gold are what a reader would expect.
   - Gold never appears in what the loader hands the driver as library input: a participant given by name or description carries only that text.
@@ -158,7 +158,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - README.md (the situated run recipe and the report's new parts)
 - depends_on: [Task_1]
 - description: |
-  Run `experience`, `derive` and `probe` events through the adapter; the adapter declares the features it forwards to the pinned library; a scenario needing more is not run and is reported with what is missing. Check assertions against the native outcome and write outcomes; report the measures; carry scenario outcomes into the run output; add the repeat comparison. The run reports; it does not enforce thresholds. `gap_days` and the gap-recall buckets stay untouched.
+  Run `experience`, `derive` and `probe` events through the adapter; the continuity driver maps them to the core adapter contract and declares the supported feature set beside that mapping; a scenario needing more is not run and is reported with what is missing. Check assertions against the native outcome and write outcomes; report the measures; carry scenario outcomes into the run output; add the repeat comparison. The run reports; it does not enforce thresholds. `gap_days` and the gap-recall buckets stay untouched.
 - acceptance:
   - Against library `d0fe82d`, a small situated fixture in the task's own tests runs service-free: a scenario the library can be asked today (experience and derive writes with keyed participants and no direction, due date or trigger, retrieved by a legacy Query; every probe needs a scene and a reference time, so no probe is askable at this pin) runs on real results, and a scenario needing an unforwardable feature (one on the probe side, one on the write side) is not run, with no adapter-side operation of any kind for it (no namespace opened, nothing written, no retrieval issued).
   - The CLI loads a fixture by its extension, shown by an end-to-end run of a TOML fixture; every selected scenario appears in the report whether or not it ran, a run whose scenarios are all not run succeeds, and a mixed run omits none.
@@ -178,6 +178,29 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
     required: true
     owner: reviewer
     detail: "Tier D diff review with the reviewer evidence clause; confirm run stores were cleaned up"
+
+### Task_7: A scenario can say an experience was salient
+- type: impl
+- owns:
+  - crates/cmem-eval-continuity/src/fixture.rs
+  - crates/cmem-eval-continuity/src/driver.rs
+  - crates/cmem-eval-continuity/fixtures/situated_v1.toml
+- depends_on: [Task_2, Task_3]
+- description: |
+  The draft's section 6 lists "recent high-salience episodes" among what a scene with no topic returns, and an `experience` cannot say it was salient. Add an optional salience to `experience` (the legacy `Remember` already has one and the library already takes it), forward it, and give D1 a recent salient experience carried with the reason "recent and salient" beside a recent unremarkable one that is not asserted either way.
+- acceptance:
+  - An `experience` with a salience loads in TOML and JSON and reaches the library as authored; an absent salience keeps today's behavior and bytes.
+  - The D1 scenario carries the recent salient experience with that reason, and the probe-cue audit of Task_2 still holds for the scenario.
+  - The checked generated fixtures are still reproduced byte for byte.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: "the three repository validation commands; the README smoke recipe; both situated fixtures load"
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: "Tier D diff review with the reviewer evidence clause"
 
 ### Task_4: The harness follows the library's schema groundwork
 - type: impl
@@ -218,9 +241,9 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval/src/adapter.rs
   - crates/cmem-eval-continuity/src/driver.rs
   - crates/cmem-eval-continuity/src/report.rs
-- depends_on: [Task_4]
+- depends_on: [Task_4, Task_7]
 - description: |
-  External dependency: the library slices that add the scene, the reference time, the partition, the routes and the trace facts. Map the authored scene to the library's input in one place and extend the adapter's feature set as each slice lands; the reference time is forwarded (today `query_date` stops at the adapter). May land in steps; each step reduces the "not run" count and never re-authors a scenario to fit the library.
+  External dependency: the library slices that add the scene, the reference time, the partition, the routes and the trace facts. Extend together, as each slice lands, the core adapter contract and its forwarding, the driver's one mapping function, and the supported feature set beside it; the reference time is forwarded (today `query_date` stops at the adapter). May land in steps; each step reduces the "not run" count and never re-authors a scenario to fit the library.
 - acceptance:
   - No scenario in the situated fixtures is "not run".
   - A scenario that fails is reported to the library plan's owner with the trace, not adjusted.
@@ -265,6 +288,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 
 - Wave 1: [Task_1]
 - Wave 2 (parallel): [Task_2, Task_3], then the Orchestrator's starting run over the integrated result
+- Wave 2b: [Task_7] (needs nothing from the library; stacks on Wave 2)
 - Wave 3: [Task_4] (starts when the library groundwork branch exists)
 - Wave 4: [Task_5] (follows library slices; may be several steps)
 - Wave 5: [Task_6]
@@ -284,7 +308,7 @@ Waves 1 and 2 need nothing from the library, start on approval, stack on each ot
   - Summary: Task_2, 15 narrative scenarios and a generated loud-topic scenario, 40 probes (PR 56). Task_3, the run: passed, failed or not run per scenario decided before any runtime exists, assertions against the native outcome, the measures, TOML loading in the CLI, `compare-continuity`, the config and the README recipe.
   - Validation evidence: Task_2 Tier D approved twice with independent byte-identical regeneration, Tier A approved after seven scenario changes (accidental anniversaries, a trigger probe equal to its trigger string, a C6 probe with the departed person present, no suppression scenario, due instants equal to probe instants, a vacuous activity control, sibling inconsistencies). Task_3 Tier D approved at eebf41e after one finding (fractional timestamps truncated on the way to the library). Ingestion bytes for LoCoMo and LongMemEval unchanged; six protected hashes match.
   - Starting run (orchestrator, library d0fe82d, harness e7063ce, two runs each, release build): narrative 15 of 15 not run, 125 assertions not run; loud-topic 1 of 1 not run, 9 assertions; zero namespaces opened; `compare-continuity` reports no differences for either pair. Every scenario lacks `probe_scene`, `reference_time` and `omission_reasons`; 14 lack `write_scene_where`; 11 `no_topic`; 6 `cue_trace`; 6 `staleness`; 4 `direction`; 3 `memory_scene_trace`; 3 `elapsed_since_met`; 2 each `partition`, `partition_trace`, `participant_name`, `participant_description`, `reference_trace`, `write_warnings`, `trigger`, `intention_memory`; 1 each `due_date`, `write_scene_what`, `thread_provenance`. This list is what Task_5 has to make forwardable.
-  - Notes: known language gap, an `experience` has no salience, so "recent high-salience episodes" (draft section 6) cannot be authored yet; scheduled as a small follow-up before Task_5.
+  - Notes: known language gap, an `experience` has no salience, so "recent high-salience episodes" (draft section 6) cannot be authored yet; now Task_7, which Task_5 depends on.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
