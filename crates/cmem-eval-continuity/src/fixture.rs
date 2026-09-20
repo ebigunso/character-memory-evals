@@ -1309,6 +1309,15 @@ impl ContinuityScenario {
             .iter()
             .map(|entity| (entity.external_id.clone(), ContinuityObjectKind::Entity))
             .collect::<BTreeMap<_, _>>();
+        for entity in &self.entities {
+            admit_external_id(
+                &scenario,
+                "entity.naming_belief_external_id",
+                &naming_belief_external_id(&entity.external_id),
+                ContinuityObjectKind::DerivedMemory,
+                &mut admitted_external_ids,
+            )?;
+        }
         let mut previous_timestamp = None;
         let assigned_inputs = controllable_embedding.map(|embedding| {
             embedding
@@ -2044,6 +2053,10 @@ pub(crate) fn observation_external_id(external_id: &str) -> String {
 
 pub(crate) fn derived_external_id(external_id: &str) -> String {
     format!("{external_id}:derived")
+}
+
+pub(crate) fn naming_belief_external_id(entity_external_id: &str) -> String {
+    format!("continuity:entity-name:{entity_external_id}")
 }
 
 pub fn canonical_fixture_bytes(fixtures: &ContinuityFixtureSet) -> anyhow::Result<Vec<u8>> {
@@ -5512,6 +5525,23 @@ bystanders = ["distractor"]
 
         let bytes = serde_json::to_vec(&fixtures).unwrap();
         assert_eq!(parse_fixture_bytes(&bytes).unwrap(), fixtures);
+    }
+
+    #[test]
+    fn public_parser_rejects_naming_belief_id_collisions_in_both_formats() {
+        let naming_id = "continuity:entity-name:intended-entity";
+        let value: Value = toml::from_str(&SITUATED_CASE.replace("old-note", naming_id)).unwrap();
+        for extension in ["json", "toml"] {
+            assert_eq!(
+                admission_of(parse_as(&value, extension).unwrap_err()),
+                expected_admission(
+                    "encounter",
+                    Some(naming_id),
+                    "derive.external_id",
+                    FixtureAdmissionKind::Duplicate(naming_id.into()),
+                )
+            );
+        }
     }
 
     #[test]

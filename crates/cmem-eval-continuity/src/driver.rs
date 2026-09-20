@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     AuthoredMemoryKind, ContinuityScenario, ExpectedRelevance, InteractionEvent,
     PerceivedReference, ScenarioFeature, ScenarioOutcome, ScenarioPattern, SituatedInput,
-    derived_external_id, observation_external_id,
+    derived_external_id, naming_belief_external_id, observation_external_id,
 };
 
 // Keep this declaration and the one scenario-to-contract mapping below together.
@@ -412,7 +412,7 @@ pub async fn run_continuity_scenario(
         .entities
         .iter()
         .map(|entity| DerivedMemoryInput {
-            external_id: format!("continuity:entity-name:{}", entity.external_id),
+            external_id: naming_belief_external_id(&entity.external_id),
             created_at: None,
             derived_type: DerivedType::Claim,
             text: entity.label.clone(),
