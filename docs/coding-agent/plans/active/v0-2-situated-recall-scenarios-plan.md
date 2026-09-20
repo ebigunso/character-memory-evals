@@ -124,7 +124,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval-continuity/src/bin/**
 - depends_on: [Task_1]
 - description: |
-  Hand-author the narrative scenario groups listed in the Design section in the TOML file, each naming its catalog situation, with its default case and control, and comments where a reader needs the story. Generate the loud-topic set. Read the library's catalog sections B, C4, C6 and D and the v0.2 draft sections 1, 2 and 6 for what each property means; ADR-D-0019 governs B1 and B2.
+  Hand-author the narrative scenario groups listed in the Design section in the TOML file, each naming its catalog situation, with its default case and control, and comments where a reader needs the story. Generate the loud-topic set. Read the library's catalog sections B, C4, C6 and D and the v0.2 draft sections 1, 2 and 6 for what each property means; library ADR-D-0038 governs B1 and B2.
 - acceptance:
   - Every group has at least one scenario whose assertions state that group's property and nothing the behavioral tier owns.
   - Probe-side scenes appear by key, by name and by description, with one ambiguous and one unknown reference; B2 has the partition probe in each direction.
