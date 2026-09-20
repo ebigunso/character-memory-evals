@@ -31,12 +31,12 @@
 - Alternative: build the scenarios with the Rust generator and check in JSON, extending `Remember` and `Query` in place. Structure: no second file format. Evolution: same. Verification: byte-identity tests for free. Human: a scenario is builder calls, so judging it against the catalog means reading code; and `Remember` writes an episode, an observation and a generic reflection from one text, which cannot state a relationship state, a last interaction and obligations in both directions as distinct memories with distinct evidence (D4).
 - Alternative: Rust integration tests against the library's new API once it exists. Verification: strongest typing, but nothing can be written before the library API exists, which inverts the evaluation-first ruling, and every library shape change edits every test.
 - Alternative: a general predicate language over the native outcome. Evolution: couples fixtures to the library's serialized field names, which the groundwork is about to change; errors surface at run time, not at load.
-- Why chosen: it can be written before the library work and survive it, it separates what happened from what the character holds about it (the library's own model, ADR-D-0028), and it keeps assertion and measurement apart so ADR-D-0019 is never violated by a measure. Fit: library v0.2 draft section 4; this repository's strictness rule in `docs/coding-agent/rules/common.md`; the compatibility policy (no dual paths) for the loader; ADR-I-0005 governs run artifacts only and itself warns against loosening input contracts.
+- Why chosen: it can be written before the library work and survive it, it separates what happened from what the character holds about it (the library's own model, ADR-D-0028), and it keeps assertion and measurement apart so ADR-D-0038 is never violated by a measure. Fit: library v0.2 draft section 4; this repository's strictness rule in `docs/coding-agent/rules/common.md`; the compatibility policy (no dual paths) for the loader; ADR-I-0005 governs run artifacts only and itself warns against loosening input contracts.
 
 ### The scenario shape
 The contract lives with the code: `crates/cmem-eval-continuity/README.md` documents the shape, each assertion and its identity, the measures, the cue vocabulary, the needed features and the not-run rule, and how to author and run a scenario. This plan keeps the intent that contract serves:
 - A scenario is a readable story: experiences, the derived memories a caller authors from them, and probes, in named scenes given as perceived. Gold (what a reference means, assertions, bystanders) cannot reach the library.
-- Assertions must hold; measures are only reported. There is no bare absence assertion and no memory is a bystander because of the scene it was formed in, because recall is never gated by default (ADR-D-0019). An omission always names its reason, and an old-but-current memory is never a negative merely for being old (ADR-D-0018).
+- Assertions must hold; measures are only reported. There is no bare absence assertion and no memory is a bystander because of the scene it was formed in, because recall is never gated by the scene, by default or by option (library ADR-D-0038). An omission always names its reason, and an old-but-current memory is never a negative merely for being old (ADR-D-0018).
 - The carried reason is the author's catalog-level why and only groups recall. Where cues co-occur in the situation itself, `cued` and `not_cued` read the trace's cue kinds, one closed vocabulary; current state is not a cue kind.
 - The loader is a fail-closed input contract in TOML as in JSON; computed gold (elapsed since the pair last met, staleness) comes from authored timestamps, never authored numbers.
 - A result is a real answer from the library or an explicit not run, decided per scenario and statically from what the harness can forward end to end; nothing is dropped or coerced to make a scenario run, and a value the harness already forwards is a forwarding test, not a feature.
@@ -60,7 +60,7 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, tasks and favors acros
 ## Context (workspace)
 - Related files/areas: `.agent-work/orchestrator/v0-2-eval-census-report.md` (the census this plan rests on); `crates/cmem-eval-continuity/src/{fixture,generator,driver,metrics,report}.rs`; `crates/cmem-eval/src/{memory_adapter,adapter,controllable_similarity_embedding,metrics,results,outcome}.rs`; `crates/cmem-eval-runner/src/{pipeline,diff}.rs`; `configs/continuity_smoke.toml`.
 - Existing patterns or references: the driver forces the trace on and retains the native `RetrieveOutcome`; `flatten_outcome` loses section membership, so section assertions read the native pack; the hub-scale scenario is the pattern for generated scale; the orchestrator rule "treat a forthcoming public API as the target contract and isolate current unavailability".
-- Design record consulted and deviations from its acceptance: library ADR-D-0019, D-0022, D-0024, D-0028, D-0029, D-0030, D-0034, ADR-I-0020, ADR-I-0022; this repository's ADR-I-0004 and ADR-I-0005. No deviation.
+- Design record consulted and deviations from its acceptance: library ADR-D-0038, D-0022, D-0024, D-0028, D-0029, D-0030, D-0034, ADR-I-0020, ADR-I-0022; this repository's ADR-I-0004 and ADR-I-0005. No deviation.
 
 ### Protected assets (from the census, so the gates are reproducible from a fresh checkout)
 SHA-256, all under `crates/cmem-eval-continuity/fixtures/`:
@@ -124,7 +124,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval-continuity/src/bin/**
 - depends_on: [Task_1]
 - description: |
-  Hand-author the narrative scenario groups listed in the Design section in the TOML file, each naming its catalog situation, with its default case and control, and comments where a reader needs the story. Generate the loud-topic set. Read the library's catalog sections B, C4, C6 and D and the v0.2 draft sections 1, 2 and 6 for what each property means; ADR-D-0019 governs B1 and B2.
+  Hand-author the narrative scenario groups listed in the Design section in the TOML file, each naming its catalog situation, with its default case and control, and comments where a reader needs the story. Generate the loud-topic set. Read the library's catalog sections B, C4, C6 and D and the v0.2 draft sections 1, 2 and 6 for what each property means; library ADR-D-0038 governs B1 and B2.
 - acceptance:
   - Every group has at least one scenario whose assertions state that group's property and nothing the behavioral tier owns.
   - Probe-side scenes appear by key, by name and by description, with one ambiguous and one unknown reference; B2 has the partition probe in each direction.
@@ -246,7 +246,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 - owns:
   - crates/cmem-eval/src/**
   - crates/cmem-eval-continuity/src/** (as the library's actual deletions require; the census question 3 list)
-  - crates/cmem-eval-continuity/fixtures/** (new files only, and only if a shape change invalidates the checked fixtures)
+  - crates/cmem-eval-continuity/fixtures/** (register-cited or already-merged fixtures are never edited: a shape change that invalidates one adds a new file beside it; fixtures authored in this unmerged stack and cited nowhere, the situated set and the generated loud-topic set, are edited in place)
   - crates/cmem-eval-runner/src/**
   - crates/cmem-eval-locomo/src/ingest.rs
   - crates/cmem-eval-benchmark-convert/src/lib.rs
@@ -339,7 +339,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 Waves 1 and 2 need nothing from the library, start on approval, stack on each other and merge on their own. Waves 3 and later branch from main when their library dependency exists, so they never hold Waves 1 and 2 open. Order for Wave 3: the library groundwork merges first and Task_4 merges immediately after; CI resolves library main, so a short red window on this repository's main is accepted rather than worked around.
 
 ## Rollback / Safety
-- Every change is additive to the fixture shape or follows a library change; reverting a PR restores the previous state for Waves 1, 2 and 2b. From Wave 3 on that is not enough: CI resolves library `main`, so once the library groundwork has merged, reverting this repository alone leaves it building against an incompatible library. Rolling back Task_4 or later means a coordinated library revert, or pinning CI and the sibling checkout to the library commit before the groundwork until it is sorted out; the Orchestrator owns that call. Protected bytes are verified by hash in every task that works near them.
+- Every change is additive to the fixture shape or follows a library change; reverting a PR restores the previous state for Waves 1, 2, 2b and 2c. From Wave 3 on that is not enough: CI resolves library `main`, so once the library groundwork has merged, reverting this repository alone leaves it building against an incompatible library. Rolling back Task_4 or later means a coordinated library revert, or pinning CI and the sibling checkout to the library commit before the groundwork until it is sorted out; the Orchestrator owns that call. Protected bytes are verified by hash in every task that works near them.
 
 ## Progress Log (append-only)
 
