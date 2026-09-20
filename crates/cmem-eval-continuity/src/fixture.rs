@@ -782,6 +782,7 @@ pub enum FixtureAdmissionKind {
     MissingQuery,
     MustEndWithQuery,
     InvalidSceneReference,
+    MissingSceneCharacter,
     NotAdmittedActivity(String),
     WriteSceneMustUseKeys,
     RequiredWith(&'static str),
@@ -924,6 +925,12 @@ impl fmt::Display for FixtureAdmissionKind {
                 "must end with a scripted query so every cumulative operation outcome is emitted"
             ),
             Self::InvalidSceneReference => write!(f, "invalid scene reference"),
+            Self::MissingSceneCharacter => {
+                write!(
+                    f,
+                    "scene must include the scenario character as a participant"
+                )
+            }
             Self::NotAdmittedActivity(id) => write!(
                 f,
                 "activity key {id:?} must reference an earlier authored thread or open loop"
@@ -1303,7 +1310,14 @@ impl ContinuityScenario {
         }
         for (name, scene) in &self.scenes {
             require_non_empty(&scenario, "scenes", name)?;
-            validate_scene(scene, false, &scenario, &declared_entities, None)?;
+            validate_scene(
+                scene,
+                false,
+                &scenario,
+                &declared_entities,
+                None,
+                self.character_entity.as_deref(),
+            )?;
         }
         let mut requirements = ScenarioRequirements::default();
         let mut support_times = BTreeMap::new();
@@ -1358,6 +1372,7 @@ impl ContinuityScenario {
                         &location,
                         &declared_entities,
                         Some(&activities),
+                        self.character_entity.as_deref(),
                     )?;
                     if let Some(speaker) = speaker {
                         require_entity(
@@ -1598,6 +1613,7 @@ impl ContinuityScenario {
                         &location,
                         &declared_entities,
                         Some(&activities),
+                        self.character_entity.as_deref(),
                     )?;
                     for (reference, name_feature, description_feature) in scene
                         .who
@@ -1664,6 +1680,7 @@ impl ContinuityScenario {
                     }
                     let gold = ProbeAdmission {
                         location: &location,
+                        character: self.character_entity.as_deref(),
                         entities: &declared_entities,
                         memories: &authored_memories,
                         support_times: &support_times,
@@ -2229,6 +2246,7 @@ fn validate_scene(
     location: &FixtureLocation,
     entities: &BTreeSet<&str>,
     activities: Option<&BTreeSet<&str>>,
+    character: Option<&str>,
 ) -> Result<(), FixtureError> {
     let mut participants = BTreeSet::new();
     for person in &scene.who {
@@ -2298,11 +2316,20 @@ fn validate_scene(
         require_non_empty(location, "scene.custom.key", key)?;
         require_non_empty(location, "scene.custom.value", value)?;
     }
+    if !character.is_some_and(|character| {
+        scene.who.iter().any(|person| {
+            person.gold_entity.as_deref() == Some(character)
+                || matches!(&person.reference, PerceivedReference::Key { key } if key == character)
+        })
+    }) {
+        return Err(location.error("scene.who", FixtureAdmissionKind::MissingSceneCharacter));
+    }
     Ok(())
 }
 
 struct ProbeAdmission<'a> {
     location: &'a FixtureLocation,
+    character: Option<&'a str>,
     entities: &'a BTreeSet<&'a str>,
     memories: &'a BTreeMap<String, ContinuityObjectKind>,
     support_times: &'a BTreeMap<String, DateTime<Utc>>,
@@ -2519,6 +2546,7 @@ impl ProbeAdmission<'_> {
                 location,
                 self.entities,
                 Some(self.activities),
+                self.character,
             )?;
             let source_scene = self
                 .memory_scenes
@@ -2590,7 +2618,16 @@ impl ProbeAdmission<'_> {
         }
         require_distinct(location, "probe.measures.bystanders", &measures.bystanders)?;
         for id in &measures.bystanders {
-            memory("probe.measures.bystanders", id)?;
+            require_admitted_kind(
+                location,
+                "probe.measures.bystanders",
+                id,
+                &[
+                    ContinuityObjectKind::Episode,
+                    ContinuityObjectKind::DerivedMemory,
+                ],
+                self.memories,
+            )?;
             if carried.contains(id.as_str()) {
                 return Err(location.error(
                     "probe.measures.bystanders",
@@ -2938,6 +2975,126 @@ bystanders = ["distractor"]
         value
     }
 
+    fn check_scene_character_admission(extension: &str) {
+        for (event_index, scene_name, event_id) in
+            [(0, "pair", "early-meeting"), (5, "encounter", "reunion")]
+        {
+            for inline in [false, true] {
+                let mut value = situated_value();
+                if inline {
+                    let scene = value["scenarios"][0]["scenes"][scene_name].clone();
+                    value["scenarios"][0]["events"][event_index]["scene"] =
+                        serde_json::json!({"kind": "inline", "scene": scene});
+                }
+                assert!(parse_as(&value, extension).is_ok());
+                let scene = if inline {
+                    &mut value["scenarios"][0]["events"][event_index]["scene"]["scene"]
+                } else {
+                    &mut value["scenarios"][0]["scenes"][scene_name]
+                };
+                scene["who"].as_array_mut().unwrap().remove(0);
+                // A self key outside who cannot make the character a participant.
+                scene["where"] = serde_json::json!({"by": "key", "key": "self"});
+                assert_eq!(
+                    admission_of(parse_as(&value, extension).unwrap_err()),
+                    expected_admission(
+                        "encounter",
+                        inline.then_some(event_id),
+                        "scene.who",
+                        FixtureAdmissionKind::MissingSceneCharacter
+                    )
+                );
+            }
+        }
+        for by in ["name", "description"] {
+            for inline in [false, true] {
+                let mut value = situated_value();
+                let mut scene = value["scenarios"][0]["scenes"]["encounter"].clone();
+                scene["who"][0] = serde_json::json!({
+                    "reference": {"by": by, "text": "Character"}, "gold_entity": "self"
+                });
+                if inline {
+                    value["scenarios"][0]["events"][5]["scene"] =
+                        serde_json::json!({"kind": "inline", "scene": scene});
+                } else {
+                    value["scenarios"][0]["scenes"]["encounter"] = scene;
+                }
+                let admitted = parse_as(&value, extension).unwrap();
+                assert_eq!(
+                    admitted.scenarios[0].requirements.probes["encounter-probe"].elapsed_since_met
+                        ["intended-entity"],
+                    chrono::Duration::days(5)
+                );
+                let scene = if inline {
+                    &mut value["scenarios"][0]["events"][5]["scene"]["scene"]
+                } else {
+                    &mut value["scenarios"][0]["scenes"]["encounter"]
+                };
+                scene["who"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("gold_entity");
+                assert_eq!(
+                    admission_of(parse_as(&value, extension).unwrap_err()),
+                    expected_admission(
+                        "encounter",
+                        inline.then_some("reunion"),
+                        "scene.who",
+                        FixtureAdmissionKind::MissingSceneCharacter
+                    )
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn situated_scene_character_json() {
+        check_scene_character_admission("json");
+    }
+
+    #[test]
+    fn situated_scene_character_toml() {
+        check_scene_character_admission("toml");
+    }
+
+    fn check_bystander_memory_kinds(extension: &str) {
+        let mut value = situated_value();
+        value["scenarios"][0]["events"][5]["measures"]["bystanders"] =
+            serde_json::json!(["distractor", "old-note"]);
+        assert!(parse_as(&value, extension).is_ok());
+        value["scenarios"][0]["events"][3]["memory"]["subtype"] = Value::from("thread");
+        assert_eq!(
+            admission_of(parse_as(&value, extension).unwrap_err()),
+            expected_admission(
+                "encounter",
+                Some("reunion"),
+                "probe.measures.bystanders",
+                FixtureAdmissionKind::UnsupportedKind {
+                    external_id: "old-note".into(),
+                    found: ContinuityObjectKind::MemoryThread,
+                    allowed: &[
+                        ContinuityObjectKind::Episode,
+                        ContinuityObjectKind::DerivedMemory
+                    ],
+                }
+            )
+        );
+        // Threads remain valid subjects for the existing memory assertions.
+        value["scenarios"][0]["events"][5]["measures"]["bystanders"] =
+            serde_json::json!(["distractor"]);
+        assert!(parse_as(&value, extension).is_ok());
+    }
+
+    #[test]
+    fn situated_bystander_kinds_json() {
+        check_bystander_memory_kinds("json");
+    }
+
+    #[test]
+    fn situated_bystander_kinds_toml() {
+        check_bystander_memory_kinds("toml");
+    }
+
     #[test]
     fn situated_not_cued_identity_and_admission_use_memory_and_cue() {
         for extension in ["json", "toml"] {
@@ -3136,7 +3293,10 @@ bystanders = ["distractor"]
                 for (slot, content) in [
                     (
                         "who",
-                        serde_json::json!([{ "reference": {"by": "key", "key": "other"}}]),
+                        serde_json::json!([
+                            {"reference": {"by": "key", "key": "self"}},
+                            {"reference": {"by": "key", "key": "other"}}
+                        ]),
                     ),
                     (
                         "where",
