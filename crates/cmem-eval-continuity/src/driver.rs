@@ -51,7 +51,7 @@ fn map_situated_input(
     timestamp: chrono::DateTime<Utc>,
     input: SituatedInput,
 ) -> Result<SituatedWrite> {
-    let timestamp = timestamp.to_rfc3339_opts(SecondsFormat::Secs, true);
+    let timestamp = timestamp.to_rfc3339_opts(SecondsFormat::AutoSi, true);
     Ok(match input {
         SituatedInput::Experience {
             external_id,
@@ -1413,9 +1413,9 @@ pub(crate) mod tests {
                 "scenes": {"pair":{"who":[{"reference":{"by":"key","key":"self"}},{"reference":{"by":"key","key":"ada"}}]}},
                 "embedding": {"provider":"controllable_similarity", "own_concept":true, "seed":7, "vector_size":16, "noise_magnitude":0.01, "clusters":{}, "concepts":{}},
                 "events": [
-                    {"kind":"experience", "event_id":"visit", "timestamp":"2024-01-01T09:00:00Z", "text":"Garden", "scene":{"kind":"named","name":"pair"}, "speaker":"ada"},
+                    {"kind":"experience", "event_id":"visit", "timestamp":"2024-01-01T09:00:00.123456789Z", "text":"Garden", "scene":{"kind":"named","name":"pair"}, "speaker":"ada"},
                     {"kind":"experience", "event_id":"noise", "timestamp":"2024-01-02T09:00:00Z", "text":"Weather", "scene":{"kind":"named","name":"pair"}},
-                    {"kind":"derive", "event_id":"promise", "timestamp":"2024-01-03T09:00:00Z", "memory":{"subtype":"commitment", "text":"Garden commitment", "experiences":["visit"], "about":["ada"]}},
+                    {"kind":"derive", "event_id":"promise", "timestamp":"2024-01-03T09:00:00.987654321Z", "memory":{"subtype":"commitment", "text":"Garden commitment", "experiences":["visit"], "about":["ada"]}},
                     {"kind":"query", "event_id":"ask", "query_id":"ask", "timestamp":"2024-01-04T09:00:00Z", "text":"Garden", "expected":{"relevant_external_ids":["visit","promise"], "irrelevant_external_ids":[]}}
                 ]
             }]
