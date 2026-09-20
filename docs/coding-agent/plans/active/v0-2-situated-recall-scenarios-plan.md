@@ -179,17 +179,21 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
     owner: reviewer
     detail: "Tier D diff review with the reviewer evidence clause; confirm run stores were cleaned up"
 
-### Task_7: A scenario can say an experience was salient
+### Task_7: A scenario can say an experience was salient, and that a cue admitted a memory
 - type: impl
 - owns:
   - crates/cmem-eval-continuity/src/fixture.rs
   - crates/cmem-eval-continuity/src/driver.rs
+  - crates/cmem-eval-continuity/src/metrics.rs
+  - crates/cmem-eval/src/memory_adapter.rs (an optional salience on the staged write input only)
+  - crates/cmem-eval/src/adapter.rs (applying that salience to the staged episode and observation only)
   - crates/cmem-eval-continuity/fixtures/situated_v1.toml
 - depends_on: [Task_2, Task_3]
 - description: |
-  The draft's section 6 lists "recent high-salience episodes" among what a scene with no topic returns, and an `experience` cannot say it was salient. Add an optional salience to `experience` (the legacy `Remember` already has one and the library already takes it), forward it, and give D1 a recent salient experience carried with the reason "recent and salient" beside a recent unremarkable one that is not asserted either way.
+  The draft's section 6 lists "recent high-salience episodes" among what a scene with no topic returns, and an `experience` cannot say it was salient. Add an optional salience to `experience` (the legacy `Remember` already has one and the library already takes it), forward it, and give D1 a recent salient experience carried with the reason "recent and salient" beside a recent unremarkable one that is not asserted either way. Second, add a `cued` assertion, the positive twin of `not_cued`: a memory is admitted by the named cue kind, possibly among others, read from the same trace fact. In the catalog's own situations cues co-occur (D7's intention is about the counterpart who appears; D9's date match surfaces when the person is present), so in a small namespace `carried` alone passes on the pair cue even if the trigger or date cue does not exist. Add `cued` to the positive cases of D7 (trigger), D9 (date), D1 with D8 (due) and D5 (activity), keeping the scenes the catalog describes.
 - acceptance:
   - An `experience` with a salience loads in TOML and JSON and reaches the library as authored; an absent salience keeps today's behavior and bytes.
+  - `cued` loads and validates like `not_cued`, needs the same trace feature, has a position-free identity, and a memory cannot be both `cued` and `not_cued` for one cue on one probe.
   - The D1 scenario carries the recent salient experience with that reason, and the probe-cue audit of Task_2 still holds for the scenario.
   - The checked generated fixtures are still reproduced byte for byte.
 - validation:
@@ -331,6 +335,13 @@ Waves 1 and 2 need nothing from the library, start on approval, stack on each ot
   - Plan delta (what changed): (1) own-concept embedding is an explicit per-scenario opt-in, not a default, so the strict exact-coverage rule keeps protecting generated fixtures. (2) The one mapping place is the continuity driver, with the supported feature set as a const beside it and a drift test, because the continuity crate depends on the core crate and core must not learn a dataset concept (ADR-I-0004); this replaces the plan's wording that the adapter declares the features. (3) Needed features were split so each is forwarded whole or not at all: write-scene participants apart from where, what and custom; one feature per derived subtype with no native kind, preference included, since choosing between the library's user and assistant preference kinds is an open decider question; thread provenance. The Task_3 worker made that change in `fixture.rs` under a pre-ruling limited to the requirements derivation. (4) `created_at` sits on each derived-memory input, not on the batch. (5) No JSON duplicate-key visitor; no positive "admitted by cue" assertion; a due item is due on or after its due instant and probes avoid equality; loud-topic bystanders are near-misses authored as plain experiences.
   - Tradeoffs considered: recorded with each ruling in the agmsg history.
   - User approval: not needed; none is contract-shape for the library.
+  - Record proposed: none
+
+- 2026-09-20 Decision: a positive `cued` assertion is added, reversing the earlier ruling that declined it.
+  - Trigger / new insight: the Tier A review and the external review independently found that D7 and D9 pass on the pair cue alone. The fix they suggest, removing the person from the scene, contradicts the catalog: D7 is the counterpart appearing and D9 is a date match while the person is present. The cues co-occur in the situation itself, so isolation cannot come from the scene, and the loud-topic set only presses due, pair and state.
+  - Plan delta (what changed): Task_7 gains the `cued` assertion and its use in D7, D9, D1 with D8 and D5, plus the two core adapter files for salience forwarding.
+  - Tradeoffs considered: `cued` names a cue kind, which is closer to mechanism than `carried`; accepted because `not_cued` already reads the same trace fact, the library draft itself records which cue admitted each item, and the alternative leaves four section 6 criteria satisfiable by a library without those cues.
+  - User approval: not needed; no library contract implication beyond the trace requirement already listed.
   - Record proposed: none
 
 ## Notes
