@@ -10,7 +10,7 @@
 - Decision each part informs: the assertions inform the library's acceptance of v0.2 (draft section 6) and the shape of its scene input; recall by reason under the loud-topic set informs route-floor calibration; bystander share and context tokens inform the cost of situated recall; the re-baseline informs whether pack-admission changes cost recall or context.
 
 ## Definition of Done
-- Every scenario group in the library's v0.2 draft, section 4, exists as at least one scenario that names its catalog situation and carries its retrieval-tier property, checked with no language model.
+- Every scenario group in the library's v0.2 draft, section 4, exists as at least one scenario that names its catalog situation and states its retrieval-tier property as assertions on its probes and writes (there is no separate property field; the assertions are the property), checked with no language model.
 - A run reports each scenario as passed, failed, or not run with the missing features named, and reports recall of what the moment calls for grouped by reason, bystander share, and context tokens. A first run against library `d0fe82d` is recorded in the Progress Log as the starting point.
 - After the library's schema groundwork the workspace builds, the three validation commands pass, and the smoke recipe runs, with no register-cited byte changed.
 - After the library's scene and routes land, no scenario is "not run", and the draft's section 6 retrieval-tier criteria can be read off one run report.
@@ -34,7 +34,7 @@
 - Why chosen: it can be written before the library work and survive it, it separates what happened from what the character holds about it (the library's own model, ADR-D-0028), and it keeps assertion and measurement apart so ADR-D-0019 is never violated by a measure. Fit: library v0.2 draft section 4; this repository's strictness rule in `docs/coding-agent/rules/common.md`; the compatibility policy (no dual paths) for the loader; ADR-I-0005 governs run artifacts only and itself warns against loosening input contracts.
 
 ### The scenario shape
-A scenario has an id, the catalog situations it serves, the character's own entity, entities (id, label and kind as perceived), named scenes, and events in time order.
+A scenario has an id, the catalog situations it serves, the character's own entity, entities (id, label and kind as perceived), named scenes, and events in time order. Every event has an id unique in its scenario; the id of an `experience` or a `derive` is that memory's external id. An assertion's identity is its event's id, its kind and its subject, never its position, so reordering unchanged assertions is not a difference.
 - A scene: who (each participant given by identity key, by name, or by description, with the entity the author means kept beside it as gold), where, what, custom. Declared once per scenario and referenced, so "the same scene" and "a different scene" are statements by reference (B1, B2). A probe may also give a scene inline.
 - `experience`: what happened, in a scene, at a time, with text and an optional speaker. Writes an episode and its observations.
 - `derive`: a derived memory a caller authors: subtype, text, the experiences it rests on, the entities it is about, what it supersedes, and where the situation needs them an actor and a counterpart, a due date, a trigger, and a write warning the author expects (near-verbatim restatement, churning chain; the C4 proxy).
@@ -51,7 +51,7 @@ Assertions on a probe (must hold):
 - the scene reported on a carried memory; elapsed time since the pair last met and staleness as age, both checked against values the loader computes from the authored timestamps, never authored numbers.
 - one run-wide invariant: no omission on lifecycle or currency grounds without a reason (draft section 6).
 
-Measures on a probe (reported, never asserted): recall of `carried` grouped by reason; `bystanders`, distractors on cue grounds only (nothing present, due, dated, triggered, in progress or on topic calls for them), reported as a context share: admitted bystanders over all admitted memories in the pack, counted per memory, null when a scenario is not run or nothing is admitted. It is a cost measure, not distractor recall, and an unlabelled memory is never counted as irrelevant; in the generated loud-topic set every distractor is labelled, so the share is exact there. Context tokens. A memory is never a bystander because of the scene it was formed in, since that share would measure that a cross-scene memory failed to surface (ADR-D-0019). The temporal rationale share is already a metric and is read off the report.
+Measures on a probe (reported, never asserted): recall of `carried` grouped by reason; `bystanders`, distractors on cue grounds only (nothing present, due, dated, triggered, in progress or on topic calls for them), reported as a context share: admitted bystanders over all admitted memories in the pack, counted per authored memory: one count per `experience` or `derive` external id, an admitted episode or observation crediting its experience once, entities and threads not counted; null when a scenario is not run or nothing is admitted. It is a cost measure, not distractor recall, and an unlabelled memory is never counted as irrelevant; in the generated loud-topic set every distractor is labelled, so the share is exact there. Context tokens are the existing `count_tokens` over the pack's context text, zero for an empty pack and null for a scenario that is not run, so a scenario that was never asked does not look free. A memory is never a bystander because of the scene it was formed in, since that share would measure that a cross-scene memory failed to surface (ADR-D-0019). The temporal rationale share is already a metric and is read off the report.
 
 Support is decided per scenario and statically: the adapter declares the features it forwards to the pinned library (a scene on a write, a scene on a probe, no topic, a reference time, a participant by name, a participant by description, a partition, direction, due date, trigger, each trace fact), a scenario's needed features follow from its content, and a scenario needing a feature the adapter lacks is not run and is reported with the missing features. Nothing is dropped or coerced to make a scenario run. Once a scenario runs, an absent fact is a failure.
 
@@ -82,7 +82,7 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, tasks and favors acros
 
 ## Tasks
 
-Reviewer evidence, for every task below: besides the diff review, the Reviewer produces the evidence `docs/coding-agent/rules/reviewer.md` requires for the files a task touches (an independent fixture regeneration with both hashes for generated fixtures and generator changes; for the hand-authored `situated_v1.toml`, which is its own source and cannot be regenerated, load and admission validation plus the catalog review of Task_2 instead, and no generator is written to satisfy the rule; a diff against the stored baseline for driver, report or metric changes; the embedded adapter suite with executed counts for adapter changes). "Unchanged smoke output" is shown by a diff against a smoke run taken at the task's base commit, not by two runs at the tip.
+Reviewer evidence, for every task below: besides the diff review, the Reviewer produces the evidence `docs/coding-agent/rules/reviewer.md` requires for the files a task touches (an independent fixture regeneration with both hashes for generated fixtures and generator changes; for the hand-authored `situated_v1.toml`, which is its own source and cannot be regenerated, load and admission validation plus the catalog review of Task_2 instead, and no generator is written to satisfy the rule; a diff against the stored baseline for driver, report or metric changes; the embedded adapter suite with executed counts for adapter changes). "Unchanged smoke output" is shown by a diff against a smoke run taken at the task's base commit, not by two runs at the tip. Where a task asks for two runs at the tip, they show determinism only; the regression evidence for a driver, report or metric change is always the comparison with the task-base or stored baseline.
 
 ### Task_1: A situated scenario can be stated and loaded
 - type: impl
@@ -102,13 +102,13 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 - acceptance:
   - The D4 example of the Design discussion (a keyed write-side scene, a commitment with direction and due date, a probe with a participant by name and no topic, one assertion of each kind, bystanders) loads from TOML and validates, and its needed features and computed gold are what a reader would expect.
   - Gold never appears in what the loader hands the driver as library input: a participant given by name or description carries only that text.
-  - Load rejects an assertion that references an undeclared memory, an `omitted` without a reason, a write-side scene given by name or description, and an unknown key in either format.
+  - Every memory an assertion or a `bystanders` list names is the external id of an `experience` or `derive` declared earlier in the scenario; load rejects an unknown or duplicate id in either, a memory that is both carried and a bystander on one probe, events out of time order, a duplicate declaration, and any other reference (a scene, the character's own entity, a participant key or its gold entity, a speaker, a derive's sources, subjects, superseded memory, actor or counterpart, a reference's candidates) that does not resolve to an earlier declaration of the permitted kind, an `omitted` without a reason, a write-side scene given by name or description, and an unknown key in either format.
   - The checked fixtures load unchanged and both existing generators reproduce them byte for byte, with no version dispatch or tolerance code added.
 - validation:
   - kind: command
     required: true
     owner: worker
-    detail: "cargo fmt --all --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace"
+    detail: "cargo fmt --all --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace; the README smoke recipe"
   - kind: review
     required: true
     owner: reviewer
@@ -153,14 +153,16 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval/src/adapter.rs
   - crates/cmem-eval-runner/src/**
   - configs/continuity_situated.toml
+  - README.md (the situated run recipe and the report's new parts)
 - depends_on: [Task_1]
 - description: |
   Run `experience`, `derive` and `probe` events through the adapter; the adapter declares the features it forwards to the pinned library; a scenario needing more is not run and is reported with what is missing. Check assertions against the native outcome and write outcomes; report the measures; carry scenario outcomes into the run output; add the repeat comparison. The run reports; it does not enforce thresholds. `gap_days` and the gap-recall buckets stay untouched.
 - acceptance:
-  - Against library `d0fe82d`, a small situated fixture in the task's own tests runs service-free: a scenario the library can be asked today (experience and derive writes with keyed participants and no direction, due date or trigger, retrieved by a legacy Query; every probe needs a scene and a reference time, so no probe is askable at this pin) runs on real results, and a scenario needing an unforwardable feature (one on the probe side, one on the write side) is not run, with no synthetic or empty-topic retrieval issued.
+  - Against library `d0fe82d`, a small situated fixture in the task's own tests runs service-free: a scenario the library can be asked today (experience and derive writes with keyed participants and no direction, due date or trigger, retrieved by a legacy Query; every probe needs a scene and a reference time, so no probe is askable at this pin) runs on real results, and a scenario needing an unforwardable feature (one on the probe side, one on the write side) is not run, with no adapter-side operation of any kind for it (no namespace opened, nothing written, no retrieval issued).
+  - The CLI loads a fixture by its extension, shown by an end-to-end run of a TOML fixture; every selected scenario appears in the report whether or not it ran, a run whose scenarios are all not run succeeds, and a mixed run omits none.
   - Section assertions read the native pack, not flattened items.
   - The repeat comparison covers scenario outcomes, each assertion's identity, result and reason, and the run-wide invariant, and a test shows one changed assertion is detected; the existing CLI diff keeps measuring only what it measures today.
-  - The smoke recipe's output is unchanged.
+  - The smoke recipe's output is unchanged, and the README gives the situated run recipe and describes the new report parts.
 - validation:
   - kind: command
     required: true
@@ -225,7 +227,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - kind: command
     required: true
     owner: worker
-    detail: "the three repository validation commands; two situated runs and the repeat comparison"
+    detail: "the three repository validation commands; the README smoke recipe; two situated runs and the repeat comparison"
   - kind: review
     required: true
     owner: reviewer
