@@ -1,6 +1,6 @@
 # Plan: Situated-recall scenarios for the library's v0.2 phase
 
-- status: draft
+- status: approved
 - generated: 2026-09-20
 - last_updated: 2026-09-20
 - work_type: code
@@ -281,6 +281,13 @@ Waves 1 and 2 need nothing from the library, start on approval, stack on each ot
   - Plan delta: experiences, derived memories and probes as separate events; assertions kept apart from measures; support decided per scenario from a feature set; hand-authored TOML for narrative scenarios and generation only for scale; one additive shape with no version dispatch; two requirements handed to the library plan.
   - Tradeoffs considered: a second file format beside JSON, accepted for reviewability; regenerating the checked fixtures now, declined because nothing in them changed meaning.
   - User approval: shape approved 2026-09-20; the benchmark hybrid runs are deferred to the library's v0.2 closeout by the same ruling.
+  - Record proposed: none
+
+- 2026-09-20 Decision: plan approved by the decider after Tier D (APPROVED at ba34364) and two Tier A passes.
+  - Trigger / new insight: none; approval.
+  - Plan delta (what changed): status approved. The additive loader (no version bump, fixtures regenerated only if invalidated) stands as written. Open Question 1 stays conditional and needs its own authorization if Task_4 reports that assumption A1 failed.
+  - Tradeoffs considered: none new.
+  - User approval: yes, 2026-09-20.
   - Record proposed: none
 
 ## Notes
