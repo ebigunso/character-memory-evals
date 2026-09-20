@@ -1158,9 +1158,10 @@ impl ContinuityScenario {
         inputs
     }
 
-    /// Exact texts requested from the frozen provider after CharacterMemory
-    /// composes and normalizes write surfaces. Queries bypass that write-time
-    /// normalization and therefore remain byte-exact fixture text.
+    /// Embedding lookup inventory: write surfaces collapse whitespace, while
+    /// queries trim only outer whitespace, preserving internal whitespace.
+    /// Unsupported scene/trigger fields retain authored text until their native
+    /// consumers define a lookup contract.
     pub fn runtime_embedding_inputs(&self) -> BTreeSet<String> {
         let mut inputs = self
             .entities
@@ -1180,7 +1181,7 @@ impl ContinuityScenario {
                 }
                 InteractionEvent::Probe { topic, .. } => {
                     if let Some(topic) = topic {
-                        inputs.insert(topic.clone());
+                        inputs.insert(topic.trim().to_string());
                     }
                 }
                 InteractionEvent::Remember {
@@ -1202,7 +1203,7 @@ impl ContinuityScenario {
                     inputs.insert(runtime_memory_embedding_text(replacement_text));
                 }
                 InteractionEvent::Query { text, .. } => {
-                    inputs.insert(text.clone());
+                    inputs.insert(text.trim().to_string());
                 }
                 InteractionEvent::Forget { .. }
                 | InteractionEvent::Link { .. }
@@ -1599,7 +1600,7 @@ impl ContinuityScenario {
                             &location,
                             "probe.topic",
                             assigned_inputs.as_ref(),
-                            topic,
+                            topic.trim(),
                         )?;
                     } else {
                         requirements.features.insert(ScenarioFeature::NoTopic);
@@ -1850,7 +1851,7 @@ impl ContinuityScenario {
                         &location,
                         "query.text",
                         assigned_inputs.as_ref(),
-                        text,
+                        text.trim(),
                     )?;
                     validate_expected_relevance(
                         &location,
@@ -4208,7 +4209,7 @@ bystanders = ["distractor"]
     }
 
     #[test]
-    fn runtime_embedding_inputs_normalize_writes_but_preserve_queries() {
+    fn runtime_embedding_inputs_follow_write_and_query_normalization() {
         let mut fixture = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = &mut fixture.scenarios[0];
         let remember = scenario
@@ -4232,15 +4233,103 @@ bystanders = ["distractor"]
         let InteractionEvent::Query { text, .. } = &mut scenario.events[1] else {
             unreachable!()
         };
-        *text = "  target\nquery  ".to_string();
+        *text = "  target  query\n\t".to_string();
 
         assert_eq!(
             scenario.runtime_embedding_inputs(),
-            BTreeSet::from([
-                "  target\nquery  ".to_string(),
-                "remembered target".to_string(),
-            ])
+            BTreeSet::from(["target  query".to_string(), "remembered target".to_string(),])
         );
+    }
+
+    #[tokio::test]
+    async fn query_embedding_admission_matches_native_trim_only_lookup() {
+        const RAW: &str = "  unique  query\n\t";
+        const TRIMMED: &str = "unique  query";
+        for extension in ["json", "toml"] {
+            for probe in [false, true] {
+                let mut value = strict_situated_value();
+                let scenario = &mut value["scenarios"][0];
+                if probe {
+                    scenario["events"][5]["topic"] = Value::from(RAW);
+                } else {
+                    scenario["events"] = serde_json::json!([
+                        {"kind": "remember", "event_id": "visit", "external_id": "visit",
+                         "timestamp": "2024-01-01T09:00:00Z", "text": "We planned the garden.",
+                         "entity_external_ids": [], "salience": 0.5},
+                        {"kind": "query", "event_id": "ask", "query_id": "ask",
+                         "timestamp": "2024-01-02T09:00:00Z", "text": RAW,
+                         "expected": {"relevant_external_ids": ["visit"], "irrelevant_external_ids": []}}
+                    ]);
+                }
+                scenario["embedding"]["clusters"]["query"] = serde_json::json!(vec![1.0; 16]);
+                scenario["embedding"]["concepts"]["query"] =
+                    serde_json::json!({"cluster": "query", "inputs": [RAW]});
+                for assigned in [RAW, "unique query"] {
+                    value["scenarios"][0]["embedding"]["concepts"]["query"]["inputs"] =
+                        serde_json::json!([assigned]);
+                    assert_eq!(
+                        admission_of(parse_as(&value, extension).unwrap_err()),
+                        expected_admission(
+                            "encounter",
+                            Some(if probe { "reunion" } else { "ask" }),
+                            if probe { "probe.topic" } else { "query.text" },
+                            FixtureAdmissionKind::UnassignedEmbeddingInput(TRIMMED.into())
+                        ),
+                        "{extension}, probe={probe}, assignment={assigned:?}"
+                    );
+                }
+                value["scenarios"][0]["embedding"]["concepts"]["query"]["inputs"] =
+                    serde_json::json!([TRIMMED]);
+                let loaded = parse_as(&value, extension).unwrap();
+                let scenario = &loaded.scenarios[0];
+                let inputs = scenario.runtime_embedding_inputs();
+                assert!(inputs.contains(TRIMMED));
+                assert!(!inputs.contains(RAW));
+                assert!(!inputs.contains("unique query"));
+                if probe {
+                    assert!(
+                        matches!(scenario.situated_input(scenario.events.last().unwrap()).unwrap(),
+                        Some(SituatedInput::Probe { topic: Some(topic), .. }) if topic == RAW)
+                    );
+                    continue; // This library pin cannot forward a situated probe yet.
+                }
+
+                // Exercise the real library lookup: only the trim-only key is assigned.
+                let embeddings = scenario
+                    .embedding
+                    .controllable_similarity()
+                    .unwrap()
+                    .clone();
+                let mut config = BenchmarkRunConfig {
+                    run_id: "query-trim-drift".into(),
+                    dataset: DatasetId::new("continuity").unwrap(),
+                    backend: Default::default(),
+                    retrieval: Default::default(),
+                    ingest: Default::default(),
+                    metrics: Default::default(),
+                };
+                config.backend.embedding.provider = EmbeddingProviderConfig::ControllableSimilarity;
+                config.backend.embedding.vector_size = Some(embeddings.vector_size);
+                let binding = cmem_eval::EmbeddingRuntimeBinding::Controllable {
+                    dimension_policy: cmem_eval::ControllableDimensionPolicy::Exact {
+                        vector_size: embeddings.vector_size,
+                    },
+                    fixture: embeddings,
+                };
+                let directory = tempfile::tempdir().unwrap();
+                let mut runtime = crate::ContinuityRuntime::new(directory.path(), &config, binding)
+                    .await
+                    .unwrap();
+                let result =
+                    crate::run_continuity_scenario(&mut runtime, scenario, &config.retrieval).await;
+                runtime.cleanup(&scenario.namespace).await.unwrap();
+                drop(runtime);
+                directory.close().unwrap();
+                let run = result.expect("native retrieval must use the admitted trim-only key");
+                assert_eq!(run.traces.len(), 1);
+                assert_eq!(run.traces[0].query, RAW);
+            }
+        }
     }
 
     #[test]
