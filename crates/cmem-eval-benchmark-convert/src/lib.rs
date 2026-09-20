@@ -807,7 +807,7 @@ fn build_embedding_manifest(
                 }),
                 InteractionEvent::Query { text, .. } => texts.push(FrozenEmbeddingText {
                     id: converted.query_text_id.clone(),
-                    text: text.clone(),
+                    text: text.trim().to_string(),
                 }),
                 InteractionEvent::Forget { .. }
                 | InteractionEvent::Link { .. }
@@ -1029,7 +1029,7 @@ mod tests {
         let longmemeval = cmem_eval_longmemeval::load_value(json!([{
             "question_id": "lme",
             "question_type": "knowledge-update",
-            "question": "What is current?\nExactly.",
+            "question": " \tWhat is current?\nExactly.\n ",
             "question_date": "2024/01/04 (Thu) 00:00",
             "haystack_session_ids": ["old", "new", "background"],
             "haystack_dates": [
@@ -1081,7 +1081,10 @@ mod tests {
         let InteractionEvent::Query { text, expected, .. } = scenario.events.last().unwrap() else {
             panic!("last event must be query");
         };
-        assert_eq!(text.as_bytes(), "What is current?\nExactly.".as_bytes());
+        assert_eq!(
+            text.as_bytes(),
+            " \tWhat is current?\nExactly.\n ".as_bytes()
+        );
         assert_eq!(expected.relevant_external_ids, ["new:turn:1"]);
         assert!(
             expected
@@ -1160,7 +1163,7 @@ mod tests {
                 "session_3_date_time": "1:00 pm on 3 May, 2023",
                 "session_3": [{"dia_id":"D3:1","speaker":"Caroline","text":"background"}]
             },
-            "qa": [{"question":"Who remembers?","category":3,"evidence":["D1:1"]}]
+            "qa": [{"question":" \tWho  remembers?\n ","category":3,"evidence":["D1:1"]}]
         }]))
         .unwrap();
 
@@ -1196,6 +1199,12 @@ mod tests {
             .collect::<BTreeSet<_>>();
         assert!(manifest_texts.contains("Caroline"));
         assert!(manifest_texts.contains("Melanie"));
+        assert!(manifest_texts.contains("Who  remembers?"));
+        assert!(!manifest_texts.contains(" \tWho  remembers?\n "));
+        let InteractionEvent::Query { text, .. } = scenario.events.last().unwrap() else {
+            panic!("last event must be query");
+        };
+        assert_eq!(text, " \tWho  remembers?\n ");
     }
 
     #[test]
