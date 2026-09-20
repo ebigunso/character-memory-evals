@@ -154,8 +154,8 @@
           "due": {
             "cluster": "due",
             "inputs": [
-              "I promised Nia to return her telescope on July tenth.",
-              "I owe Nia her telescope back."
+              "I promised Ellis to return their telescope on July tenth.",
+              "I owe Ellis their telescope back."
             ]
           },
           "kiln-near-misses": {
@@ -963,10 +963,10 @@
           "kind": "experience",
           "event_id": "agreement",
           "timestamp": "2025-06-01T10:00:00Z",
-          "text": "I promised Nia to return her telescope on July tenth.",
+          "text": "I promised Ellis to return their telescope on July tenth.",
           "scene": {
             "kind": "named",
-            "name": "nia_kitchen"
+            "name": "pottery_class"
           },
           "speaker": "mara"
         },
@@ -976,17 +976,17 @@
           "timestamp": "2025-06-01T10:01:00Z",
           "memory": {
             "subtype": "commitment",
-            "text": "I owe Nia her telescope back.",
+            "text": "I owe Ellis their telescope back.",
             "experiences": [
               "agreement"
             ],
             "about": [
               "mara",
-              "nia"
+              "ellis"
             ],
             "supersedes": [],
             "actor": "mara",
-            "counterpart": "nia",
+            "counterpart": "ellis",
             "due": "2025-07-10T10:00:00Z"
           }
         },
@@ -1020,9 +1020,9 @@
         },
         {
           "kind": "probe",
-          "event_id": "quiet",
-          "query_id": "loud-topic-quiet",
-          "timestamp": "2025-07-10T10:00:00Z",
+          "event_id": "before-due",
+          "query_id": "loud-topic-before-due",
+          "timestamp": "2025-07-10T06:00:00Z",
           "scene": {
             "kind": "named",
             "name": "kiln_workshop"
@@ -1030,9 +1030,107 @@
           "assertions": {
             "carried": [
               {
-                "memory": "return-telescope",
-                "reason": "due"
+                "memory": "last-visit",
+                "reason": "pair"
               },
+              {
+                "memory": "nia-state",
+                "reason": "pair"
+              }
+            ],
+            "in_order": [],
+            "omitted": [],
+            "not_cued": [
+              {
+                "memory": "return-telescope",
+                "cue": "due"
+              }
+            ],
+            "references": [],
+            "scenes": [],
+            "elapsed_since_met": [],
+            "staleness": []
+          },
+          "measures": {
+            "bystanders": [
+              "pottery-anecdote-00",
+              "pottery-anecdote-01",
+              "pottery-anecdote-02",
+              "pottery-anecdote-03",
+              "pottery-anecdote-04",
+              "pottery-anecdote-05",
+              "pottery-anecdote-06",
+              "pottery-anecdote-07",
+              "pottery-anecdote-08",
+              "pottery-anecdote-09",
+              "pottery-anecdote-10",
+              "pottery-anecdote-11",
+              "pottery-anecdote-12",
+              "pottery-anecdote-13",
+              "pottery-anecdote-14",
+              "pottery-anecdote-15",
+              "pottery-anecdote-16",
+              "pottery-anecdote-17",
+              "pottery-anecdote-18",
+              "pottery-anecdote-19",
+              "pottery-anecdote-20",
+              "pottery-anecdote-21",
+              "pottery-anecdote-22",
+              "pottery-anecdote-23",
+              "pottery-anecdote-24",
+              "pottery-anecdote-25",
+              "pottery-anecdote-26",
+              "pottery-anecdote-27",
+              "pottery-anecdote-28",
+              "pottery-anecdote-29",
+              "pottery-anecdote-30",
+              "pottery-anecdote-31",
+              "pottery-anecdote-32",
+              "pottery-anecdote-33",
+              "pottery-anecdote-34",
+              "pottery-anecdote-35",
+              "pottery-anecdote-36",
+              "pottery-anecdote-37",
+              "pottery-anecdote-38",
+              "pottery-anecdote-39",
+              "pottery-anecdote-40",
+              "pottery-anecdote-41",
+              "pottery-anecdote-42",
+              "pottery-anecdote-43",
+              "pottery-anecdote-44",
+              "pottery-anecdote-45",
+              "pottery-anecdote-46",
+              "pottery-anecdote-47",
+              "pottery-anecdote-48",
+              "pottery-anecdote-49",
+              "pottery-anecdote-50",
+              "pottery-anecdote-51",
+              "pottery-anecdote-52",
+              "pottery-anecdote-53",
+              "pottery-anecdote-54",
+              "pottery-anecdote-55",
+              "pottery-anecdote-56",
+              "pottery-anecdote-57",
+              "pottery-anecdote-58",
+              "pottery-anecdote-59",
+              "pottery-anecdote-60",
+              "pottery-anecdote-61",
+              "pottery-anecdote-62",
+              "pottery-anecdote-63"
+            ]
+          }
+        },
+        {
+          "kind": "probe",
+          "event_id": "quiet",
+          "query_id": "loud-topic-quiet",
+          "timestamp": "2025-07-10T14:00:00Z",
+          "scene": {
+            "kind": "named",
+            "name": "kiln_workshop"
+          },
+          "assertions": {
+            "carried": [
               {
                 "memory": "last-visit",
                 "reason": "pair"
@@ -1040,6 +1138,10 @@
               {
                 "memory": "nia-state",
                 "reason": "pair"
+              },
+              {
+                "memory": "return-telescope",
+                "reason": "due"
               }
             ],
             "in_order": [],
@@ -1123,7 +1225,7 @@
           "kind": "probe",
           "event_id": "loud",
           "query_id": "loud-topic-loud",
-          "timestamp": "2025-07-10T10:00:00Z",
+          "timestamp": "2025-07-10T14:00:00Z",
           "scene": {
             "kind": "named",
             "name": "kiln_workshop"
@@ -1132,16 +1234,16 @@
           "assertions": {
             "carried": [
               {
-                "memory": "return-telescope",
-                "reason": "due"
-              },
-              {
                 "memory": "last-visit",
                 "reason": "pair"
               },
               {
                 "memory": "nia-state",
                 "reason": "pair"
+              },
+              {
+                "memory": "return-telescope",
+                "reason": "due"
               }
             ],
             "in_order": [],

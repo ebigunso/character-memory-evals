@@ -10,9 +10,9 @@ use cmem_eval::{ControllableSimilarityFixture, SimilarityConceptFixture};
 use crate::{
     AuthoredMemory, AuthoredMemoryKind, CONTINUITY_FIXTURE_SCHEMA_VERSION, CarriedAssertion,
     ContinuityEntityKind, ContinuityFixtureSet, ContinuityScenario, ContinuityScenarioEmbedding,
-    EntityDeclaration, ExpectedRelevance, InteractionEvent, PerceivedReference, ProbeAssertions,
-    ProbeMeasures, RecallReason, RememberSurfaceTexts, ScenarioPattern, Scene, SceneParticipant,
-    SceneSelection, ThreadMembership,
+    CueKind, EntityDeclaration, ExpectedRelevance, InteractionEvent, NotCuedAssertion,
+    PerceivedReference, ProbeAssertions, ProbeMeasures, RecallReason, RememberSurfaceTexts,
+    ScenarioPattern, Scene, SceneParticipant, SceneSelection, ThreadMembership,
 };
 
 pub const CHECKED_FIXTURE_SEED: u64 = 0x0000_0000_0135_2768;
@@ -86,8 +86,9 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
             speaker: Some("ellis".into()),
         });
     }
-    let agreement = "I promised Nia to return her telescope on July tenth.";
-    let promise = "I owe Nia her telescope back.";
+    // Ellis is absent at the probes, so this promise is not cued by its counterpart.
+    let agreement = "I promised Ellis to return their telescope on July tenth.";
+    let promise = "I owe Ellis their telescope back.";
     let last_visit =
         "Nia told me her mother had come home from hospital and thanked me for checking in.";
     let state = "Nia trusts me with family news and is relieved that her mother is home.";
@@ -95,7 +96,7 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
         event_id: "agreement".into(),
         timestamp: timestamp("2025-06-01T10:00:00Z")?,
         text: agreement.into(),
-        scene: named("nia_kitchen"),
+        scene: named("pottery_class"),
         speaker: Some("mara".into()),
     });
     events.push(InteractionEvent::Derive {
@@ -105,10 +106,10 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
             subtype: AuthoredMemoryKind::Commitment,
             text: promise.into(),
             experiences: vec!["agreement".into()],
-            about: vec!["mara".into(), "nia".into()],
+            about: vec!["mara".into(), "ellis".into()],
             supersedes: Vec::new(),
             actor: Some("mara".into()),
-            counterpart: Some("nia".into()),
+            counterpart: Some("ellis".into()),
             due: Some(timestamp("2025-07-10T10:00:00Z")?),
             trigger: None,
         },
@@ -137,30 +138,44 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
         },
         expected_warning: None,
     });
-    // Hold the moment fixed; adding the topic must not starve its other cues.
-    for (id, topic) in [("quiet", None), ("loud", Some(topic.to_string()))] {
-        events.push(InteractionEvent::Probe {
-            event_id: id.into(),
-            query_id: format!("loud-topic-{id}"),
-            timestamp: timestamp("2025-07-10T10:00:00Z")?,
-            scene: named("kiln_workshop"),
-            topic,
-            partition: None,
-            assertions: Box::new(ProbeAssertions {
-                carried: [
-                    ("return-telescope", RecallReason::Due),
-                    ("last-visit", RecallReason::Pair),
-                    ("nia-state", RecallReason::Pair),
-                ]
+    // The deadline is 10:00. Probe hours before and after it, never at equality.
+    // Hold the later moment fixed; adding the topic must not starve its other cues.
+    for (id, at, topic) in [
+        ("before-due", "2025-07-10T06:00:00Z", None),
+        ("quiet", "2025-07-10T14:00:00Z", None),
+        ("loud", "2025-07-10T14:00:00Z", Some(topic.to_string())),
+    ] {
+        let mut assertions = ProbeAssertions {
+            carried: ["last-visit", "nia-state"]
                 .into_iter()
-                .map(|(memory, reason)| CarriedAssertion {
+                .map(|memory| CarriedAssertion {
                     memory: memory.into(),
-                    reason,
+                    reason: RecallReason::Pair,
                     section: None,
                 })
                 .collect(),
-                ..Default::default()
-            }),
+            ..Default::default()
+        };
+        if id == "before-due" {
+            assertions.not_cued.push(NotCuedAssertion {
+                memory: "return-telescope".into(),
+                cue: CueKind::Due,
+            });
+        } else {
+            assertions.carried.push(CarriedAssertion {
+                memory: "return-telescope".into(),
+                reason: RecallReason::Due,
+                section: None,
+            });
+        }
+        events.push(InteractionEvent::Probe {
+            event_id: id.into(),
+            query_id: format!("loud-topic-{id}"),
+            timestamp: timestamp(at)?,
+            scene: named("kiln_workshop"),
+            topic,
+            partition: None,
+            assertions: Box::new(assertions),
             measures: ProbeMeasures {
                 bystanders: bystanders.clone(),
             },
