@@ -108,6 +108,22 @@ pub struct SceneInput {
 }
 
 impl Scene {
+    fn same_context(&self, other: &Self) -> bool {
+        self.place == other.place
+            && self.what == other.what
+            && self.custom == other.custom
+            && self
+                .who
+                .iter()
+                .map(|p| &p.reference)
+                .collect::<BTreeSet<_>>()
+                == other
+                    .who
+                    .iter()
+                    .map(|p| &p.reference)
+                    .collect::<BTreeSet<_>>()
+    }
+
     pub fn input(&self) -> SceneInput {
         SceneInput {
             who: self
@@ -161,7 +177,7 @@ pub struct AuthoredMemory {
     pub trigger: Option<IntentionTrigger>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum ExpectedWriteWarning {
     NearVerbatimRestatement,
@@ -189,7 +205,7 @@ pub enum RecallReason {
     Topic,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum CueKind {
     Pair,
@@ -305,13 +321,13 @@ pub enum AssertionSubject {
     Carried(String),
     InOrder(Vec<String>),
     Omitted(String),
-    NotCued(String),
+    NotCued { memory: String, cue: CueKind },
     References(PerceivedReference),
     Scene { memory: String, scene: String },
     ElapsedSinceMet(String),
     Staleness(String),
     Partition,
-    WriteWarning(String),
+    WriteWarning(ExpectedWriteWarning),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -1142,9 +1158,10 @@ impl ContinuityScenario {
         inputs
     }
 
-    /// Exact texts requested from the frozen provider after CharacterMemory
-    /// composes and normalizes write surfaces. Queries bypass that write-time
-    /// normalization and therefore remain byte-exact fixture text.
+    /// Embedding lookup inventory: write surfaces collapse whitespace, while
+    /// queries trim only outer whitespace, preserving internal whitespace.
+    /// Unsupported scene/trigger fields retain authored text until their native
+    /// consumers define a lookup contract.
     pub fn runtime_embedding_inputs(&self) -> BTreeSet<String> {
         let mut inputs = self
             .entities
@@ -1158,10 +1175,13 @@ impl ContinuityScenario {
                 }
                 InteractionEvent::Derive { memory, .. } => {
                     inputs.insert(runtime_memory_embedding_text(&memory.text));
+                    if let Some(IntentionTrigger::Topic { text }) = &memory.trigger {
+                        inputs.insert(text.clone());
+                    }
                 }
                 InteractionEvent::Probe { topic, .. } => {
                     if let Some(topic) = topic {
-                        inputs.insert(topic.clone());
+                        inputs.insert(topic.trim().to_string());
                     }
                 }
                 InteractionEvent::Remember {
@@ -1183,7 +1203,7 @@ impl ContinuityScenario {
                     inputs.insert(runtime_memory_embedding_text(replacement_text));
                 }
                 InteractionEvent::Query { text, .. } => {
-                    inputs.insert(text.clone());
+                    inputs.insert(text.trim().to_string());
                 }
                 InteractionEvent::Forget { .. }
                 | InteractionEvent::Link { .. }
@@ -1251,19 +1271,17 @@ impl ContinuityScenario {
                 ));
             }
             if let Some(embedding) = controllable_embedding {
+                let label = runtime_memory_embedding_text(&entity.label);
                 let found = embedding
                     .concepts
                     .values()
                     .flat_map(|concept| &concept.inputs)
-                    .filter(|input| *input == &entity.label)
+                    .filter(|input| *input == &label)
                     .count();
                 if found != 1 {
                     return Err(scenario.error(
                         "entity.label",
-                        FixtureAdmissionKind::ConceptAssignments {
-                            label: entity.label.clone(),
-                            found,
-                        },
+                        FixtureAdmissionKind::ConceptAssignments { label, found },
                     ));
                 }
             }
@@ -1284,6 +1302,7 @@ impl ContinuityScenario {
         let mut requirements = ScenarioRequirements::default();
         let mut support_times = BTreeMap::new();
         let mut authored_memories = BTreeMap::new();
+        let mut memory_scenes: BTreeMap<&str, &Scene> = BTreeMap::new();
         let mut activities = BTreeSet::new();
         let mut last_met = BTreeMap::new();
         let mut query_ids = BTreeSet::new();
@@ -1347,7 +1366,7 @@ impl ContinuityScenario {
                         &location,
                         "experience.text",
                         assigned_inputs.as_ref(),
-                        text,
+                        &runtime_memory_embedding_text(text),
                     )?;
                     admit_external_id(
                         &location,
@@ -1366,6 +1385,7 @@ impl ContinuityScenario {
                     support_times.insert(external_id.clone(), timestamp);
                     support_times.insert(observation_external_id(external_id), timestamp);
                     authored_memories.insert(external_id.clone(), ContinuityObjectKind::Episode);
+                    memory_scenes.insert(external_id, scene);
                     let keys = scene
                         .who
                         .iter()
@@ -1394,7 +1414,7 @@ impl ContinuityScenario {
                         &location,
                         "derive.text",
                         assigned_inputs.as_ref(),
-                        &memory.text,
+                        &runtime_memory_embedding_text(&memory.text),
                     )?;
                     if memory.experiences.is_empty() {
                         return Err(
@@ -1410,6 +1430,14 @@ impl ContinuityScenario {
                             &[ContinuityObjectKind::Episode],
                             &authored_memories,
                         )?;
+                    }
+                    let source_scene = memory_scenes[memory.experiences[0].as_str()];
+                    if memory
+                        .experiences
+                        .iter()
+                        .all(|id| source_scene.same_context(memory_scenes[id.as_str()]))
+                    {
+                        memory_scenes.insert(external_id, source_scene);
                     }
                     require_distinct(&location, "derive.about", &memory.about)?;
                     for entity in &memory.about {
@@ -1572,7 +1600,7 @@ impl ContinuityScenario {
                             &location,
                             "probe.topic",
                             assigned_inputs.as_ref(),
-                            topic,
+                            topic.trim(),
                         )?;
                     } else {
                         requirements.features.insert(ScenarioFeature::NoTopic);
@@ -1598,6 +1626,7 @@ impl ContinuityScenario {
                         support_times: &support_times,
                         last_met: &last_met,
                         scenes: &self.scenes,
+                        memory_scenes: &memory_scenes,
                         activities: &activities,
                         timestamp,
                     }
@@ -1667,7 +1696,7 @@ impl ContinuityScenario {
                                 &location,
                                 field,
                                 assigned_inputs.as_ref(),
-                                surface_text,
+                                &runtime_memory_embedding_text(surface_text),
                             )?;
                         }
                     }
@@ -1675,7 +1704,7 @@ impl ContinuityScenario {
                         &location,
                         "remember.text",
                         assigned_inputs.as_ref(),
-                        text,
+                        &runtime_memory_embedding_text(text),
                     )?;
                     admit_external_id(
                         &location,
@@ -1728,7 +1757,7 @@ impl ContinuityScenario {
                         &location,
                         "correct.replacement_text",
                         assigned_inputs.as_ref(),
-                        replacement_text,
+                        &runtime_memory_embedding_text(replacement_text),
                     )?;
                     admit_external_id(
                         &location,
@@ -1822,7 +1851,7 @@ impl ContinuityScenario {
                         &location,
                         "query.text",
                         assigned_inputs.as_ref(),
-                        text,
+                        text.trim(),
                     )?;
                     validate_expected_relevance(
                         &location,
@@ -1917,7 +1946,10 @@ impl InteractionEvent {
                     assertions
                         .not_cued
                         .iter()
-                        .map(|a| AssertionSubject::NotCued(a.memory.clone())),
+                        .map(|a| AssertionSubject::NotCued {
+                            memory: a.memory.clone(),
+                            cue: a.cue,
+                        }),
                 );
                 subjects.extend(
                     assertions
@@ -1948,11 +1980,10 @@ impl InteractionEvent {
                 }
             }
             Self::Derive {
-                event_id,
-                expected_warning: Some(_),
+                expected_warning: Some(warning),
                 ..
             } => {
-                subjects.push(AssertionSubject::WriteWarning(event_id.clone()));
+                subjects.push(AssertionSubject::WriteWarning(*warning));
             }
             _ => {}
         }
@@ -2234,6 +2265,7 @@ struct ProbeAdmission<'a> {
     support_times: &'a BTreeMap<String, DateTime<Utc>>,
     last_met: &'a BTreeMap<String, DateTime<Utc>>,
     scenes: &'a BTreeMap<String, Scene>,
+    memory_scenes: &'a BTreeMap<&'a str, &'a Scene>,
     activities: &'a BTreeSet<&'a str>,
     timestamp: DateTime<Utc>,
 }
@@ -2325,16 +2357,16 @@ impl ProbeAdmission<'_> {
             }
             features.insert(ScenarioFeature::PackOrder);
         }
-        require_distinct(
-            location,
-            "probe.assertions.not_cued",
-            assertions
-                .not_cued
-                .iter()
-                .map(|assertion| &assertion.memory),
-        )?;
+        let mut not_cued = BTreeSet::new();
         for assertion in &assertions.not_cued {
             memory("probe.assertions.not_cued", &assertion.memory)?;
+            let subject = (&assertion.memory, assertion.cue);
+            if !not_cued.insert(subject) {
+                return Err(location.error(
+                    "probe.assertions.not_cued",
+                    FixtureAdmissionKind::Duplicate(serde_json::to_string(&subject).unwrap()),
+                ));
+            }
             features.insert(ScenarioFeature::CueTrace);
         }
         let mut references = BTreeSet::new();
@@ -2445,6 +2477,21 @@ impl ProbeAdmission<'_> {
                 self.entities,
                 Some(self.activities),
             )?;
+            let source_scene = self
+                .memory_scenes
+                .get(assertion.memory.as_str())
+                .ok_or_else(|| {
+                    location.error(
+                        "probe.assertions.scenes",
+                        FixtureAdmissionKind::InvalidAssertion("memory has no single source scene"),
+                    )
+                })?;
+            if !source_scene.same_context(asserted_scene) {
+                return Err(location.error(
+                    "probe.assertions.scenes",
+                    FixtureAdmissionKind::DiffersFrom("memory.scene"),
+                ));
+            }
             features.insert(ScenarioFeature::MemorySceneTrace);
         }
         let mut gold = ComputedProbeGold {
@@ -2849,6 +2896,267 @@ bystanders = ["distractor"]
     }
 
     #[test]
+    fn situated_not_cued_identity_and_admission_use_memory_and_cue() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            let before =
+                parse_as(&value, extension).unwrap().scenarios[0].events[5].assertion_identities();
+            value["scenarios"][0]["events"][5]["assertions"]["not_cued"][0]["cue"] =
+                Value::from("topic");
+            let after =
+                parse_as(&value, extension).unwrap().scenarios[0].events[5].assertion_identities();
+            assert_eq!(before.symmetric_difference(&after).count(), 2);
+            assert_eq!(
+                serde_json::to_value(after.difference(&before).next().unwrap()).unwrap()["subject"],
+                serde_json::json!({"memory": "distractor", "cue": "topic"})
+            );
+            value["scenarios"][0]["events"][5]["assertions"]["not_cued"] = serde_json::json!([
+                {"memory": "distractor", "cue": "date"},
+                {"memory": "distractor", "cue": "topic"}
+            ]);
+            let identities =
+                parse_as(&value, extension).unwrap().scenarios[0].events[5].assertion_identities();
+            assert_eq!(identities.len(), 11);
+            value["scenarios"][0]["events"][5]["assertions"]["not_cued"]
+                .as_array_mut()
+                .unwrap()
+                .reverse();
+            assert_eq!(
+                parse_as(&value, extension).unwrap().scenarios[0].events[5].assertion_identities(),
+                identities
+            );
+            let controls = value["scenarios"][0]["events"][5]["assertions"]["not_cued"]
+                .as_array_mut()
+                .unwrap();
+            controls.push(controls[0].clone());
+            assert_eq!(
+                admission_of(parse_as(&value, extension).unwrap_err()),
+                expected_admission(
+                    "encounter",
+                    Some("reunion"),
+                    "probe.assertions.not_cued",
+                    FixtureAdmissionKind::Duplicate("[\"distractor\",\"topic\"]".into())
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn situated_write_warning_identity_includes_expected_kind() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            let before =
+                parse_as(&value, extension).unwrap().scenarios[0].events[4].assertion_identities();
+            value["scenarios"][0]["events"][4]["expected_warning"] = Value::from("churning_chain");
+            let after =
+                parse_as(&value, extension).unwrap().scenarios[0].events[4].assertion_identities();
+            assert_eq!(before.symmetric_difference(&after).count(), 2);
+            assert_eq!(
+                serde_json::to_value(after.first().unwrap()).unwrap(),
+                serde_json::json!({"event_id": "promise", "kind": "write_warning", "subject": "churning_chain"})
+            );
+        }
+    }
+
+    #[test]
+    fn situated_strict_embedding_admission_checks_normalized_write_inputs() {
+        for extension in ["json", "toml"] {
+            for (pointer, field, event_id) in [
+                ("/entities/0/label", "entity.label", None),
+                ("/events/0/text", "experience.text", Some("early-meeting")),
+                ("/events/4/memory/text", "derive.text", Some("promise")),
+                ("/events/5/text", "remember.text", Some("legacy")),
+                (
+                    "/events/5/surface_texts/episode",
+                    "remember.surface_texts.episode",
+                    Some("legacy"),
+                ),
+                (
+                    "/events/5/surface_texts/observation",
+                    "remember.surface_texts.observation",
+                    Some("legacy"),
+                ),
+                (
+                    "/events/5/surface_texts/derived",
+                    "remember.surface_texts.derived",
+                    Some("legacy"),
+                ),
+                (
+                    "/events/6/replacement_text",
+                    "correct.replacement_text",
+                    Some("correction"),
+                ),
+            ] {
+                let mut value = situated_value();
+                let scenario = &mut value["scenarios"][0];
+                let events = scenario["events"].as_array_mut().unwrap();
+                events.insert(5, serde_json::json!({
+                    "kind": "remember", "event_id": "legacy", "external_id": "legacy",
+                    "timestamp": "2024-01-06T09:00:00Z", "text": "Legacy episode",
+                    "entity_external_ids": [], "salience": 0.5,
+                    "surface_texts": {"episode": "Legacy episode", "observation": "Legacy observation", "derived": "Legacy derived"}
+                }));
+                events.insert(6, serde_json::json!({
+                    "kind": "correct", "event_id": "correction", "target_external_id": "legacy",
+                    "replacement_external_id": "replacement", "replacement_text": "Corrected memory",
+                    "timestamp": "2024-01-07T09:00:00Z"
+                }));
+                let normalized = "Normalized write input".to_string();
+                let padded = format!("  {}\n\t", normalized.replace(' ', "  "));
+                *scenario.pointer_mut(pointer).unwrap() = Value::from(padded.clone());
+                if field == "remember.text" {
+                    scenario["events"][5]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("surface_texts");
+                } else if field == "remember.surface_texts.episode" {
+                    scenario["events"][5]["text"] = Value::from(padded.clone());
+                }
+                let mut strict =
+                    serde_json::to_value(parse_as(&value, extension).unwrap()).unwrap();
+                strict["scenarios"][0]["embedding"]["own_concept"] = Value::from(false);
+                strict["scenarios"][0]["events"][5]
+                    .as_object_mut()
+                    .unwrap()
+                    .retain(|_, value| !value.is_null());
+                let mut invalid = strict.clone();
+                for concept in invalid["scenarios"][0]["embedding"]["concepts"]
+                    .as_object_mut()
+                    .unwrap()
+                    .values_mut()
+                {
+                    concept["inputs"]
+                        .as_array_mut()
+                        .unwrap()
+                        .retain(|input| input != &normalized);
+                }
+                invalid["scenarios"][0]["embedding"]["concepts"]
+                    .as_object_mut()
+                    .unwrap()
+                    .retain(|_, concept| !concept["inputs"].as_array().unwrap().is_empty());
+                let error = admission_of(parse_as(&invalid, extension).unwrap_err());
+                let kind = if field == "entity.label" {
+                    FixtureAdmissionKind::ConceptAssignments {
+                        label: normalized.clone(),
+                        found: 0,
+                    }
+                } else {
+                    FixtureAdmissionKind::UnassignedEmbeddingInput(normalized.clone())
+                };
+                assert_eq!(
+                    error,
+                    expected_admission("encounter", event_id, field, kind),
+                    "{extension}, {pointer}"
+                );
+                // Only the normalized write text needs an assignment; fixture text stays untouched.
+                for concept in strict["scenarios"][0]["embedding"]["concepts"]
+                    .as_object_mut()
+                    .unwrap()
+                    .values_mut()
+                {
+                    concept["inputs"]
+                        .as_array_mut()
+                        .unwrap()
+                        .retain(|input| input != &padded);
+                }
+                strict["scenarios"][0]["embedding"]["concepts"]
+                    .as_object_mut()
+                    .unwrap()
+                    .retain(|_, concept| !concept["inputs"].as_array().unwrap().is_empty());
+                assert!(
+                    parse_as(&strict, extension).is_ok(),
+                    "{extension}, {pointer}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn situated_runtime_embedding_inventory_includes_topic_triggers() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            value["scenarios"][0]["events"][4]["memory"]["trigger"] =
+                serde_json::json!({"kind": "topic", "text": "  unique trigger\ntext  "});
+            let loaded = parse_as(&value, extension).unwrap();
+            assert!(
+                loaded.scenarios[0]
+                    .runtime_embedding_inputs()
+                    .contains("  unique trigger\ntext  ")
+            );
+        }
+    }
+
+    #[test]
+    fn situated_scene_assertions_match_memory_provenance() {
+        for extension in ["json", "toml"] {
+            for memory in ["last-meeting", "promise"] {
+                for (slot, content) in [
+                    (
+                        "who",
+                        serde_json::json!([{ "reference": {"by": "key", "key": "other"}}]),
+                    ),
+                    (
+                        "where",
+                        serde_json::json!({"by": "setting", "key": "elsewhere"}),
+                    ),
+                    ("what", serde_json::json!({"by": "key", "key": "old-note"})),
+                    ("custom", serde_json::json!({"project": "another project"})),
+                ] {
+                    let mut value = situated_value();
+                    let scenario = &mut value["scenarios"][0];
+                    scenario["events"][3]["memory"]["subtype"] = Value::from("thread");
+                    scenario["scenes"]["mismatch"] = scenario["scenes"]["pair"].clone();
+                    scenario["scenes"]["mismatch"][slot] = content;
+                    scenario["events"][5]["assertions"]["scenes"] =
+                        serde_json::json!([{"memory": memory, "scene": "mismatch"}]);
+                    assert_eq!(
+                        admission_of(parse_as(&value, extension).unwrap_err()),
+                        expected_admission(
+                            "encounter",
+                            Some("reunion"),
+                            "probe.assertions.scenes",
+                            FixtureAdmissionKind::DiffersFrom("memory.scene")
+                        ),
+                        "{extension}, {memory}, {slot}"
+                    );
+                }
+            }
+            let mut value = situated_value();
+            let scenario = &mut value["scenarios"][0];
+            let mut equivalent = scenario["scenes"]["pair"].clone();
+            equivalent["who"].as_array_mut().unwrap().reverse();
+            equivalent["who"][0]["gold_entity"] = Value::from("intended-entity");
+            scenario["scenes"]["alias"] = equivalent.clone();
+            scenario["events"][1]["scene"] =
+                serde_json::json!({"kind": "inline", "scene": equivalent});
+            scenario["events"][5]["assertions"]["scenes"] = serde_json::json!([
+                {"memory": "last-meeting", "scene": "pair"},
+                {"memory": "promise", "scene": "alias"}
+            ]);
+            assert!(parse_as(&value, extension).is_ok());
+            value["scenarios"][0]["events"][4]["memory"]["experiences"] =
+                serde_json::json!(["early-meeting", "distractor"]);
+            assert_eq!(
+                admission_of(parse_as(&value, extension).unwrap_err()),
+                expected_admission(
+                    "encounter",
+                    Some("reunion"),
+                    "probe.assertions.scenes",
+                    FixtureAdmissionKind::InvalidAssertion("memory has no single source scene")
+                )
+            );
+            value["scenarios"][0]["events"][5]["assertions"]["scenes"]
+                .as_array_mut()
+                .unwrap()
+                .pop();
+            assert!(
+                parse_as(&value, extension).is_ok(),
+                "mixed-source derivation without a scene assertion is valid"
+            );
+        }
+    }
+
+    #[test]
     fn situated_scene_reference_texts_require_embedding_assignments() {
         for extension in ["json", "toml"] {
             for slot in ["who", "where", "what"] {
@@ -3055,13 +3363,34 @@ bystanders = ["distractor"]
                 let mut scene = scenario["scenes"]["pair"].clone();
                 scene["what"] = serde_json::json!({"by": "key", "key": "old-note"});
                 scenario["scenes"]["asserted-activity"] = scene;
+                let mut experience = scenario["events"][1].clone();
+                experience["event_id"] = Value::from("activity-experience");
+                experience["timestamp"] = Value::from("2024-01-07T09:00:00Z");
+                experience["scene"] =
+                    serde_json::json!({"kind": "named", "name": "asserted-activity"});
+                scenario["events"][5]["assertions"]["carried"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(
+                        serde_json::json!({"memory": "activity-experience", "reason": "activity"}),
+                    );
+                scenario["events"][5]["assertions"]["scenes"][0]["memory"] =
+                    Value::from("activity-experience");
                 scenario["events"][5]["assertions"]["scenes"][0]["scene"] =
                     Value::from("asserted-activity");
+                scenario["events"]
+                    .as_array_mut()
+                    .unwrap()
+                    .insert(5, experience);
                 assert!(parse_as(&value, extension).is_ok());
                 for id in ["unknown", "future-activity", "promise"] {
                     let mut invalid = value.clone();
-                    invalid["scenarios"][0]["scenes"]["asserted-activity"]["what"]["key"] =
-                        Value::from(id);
+                    let mut invalid_scene =
+                        invalid["scenarios"][0]["scenes"]["asserted-activity"].clone();
+                    invalid_scene["what"]["key"] = Value::from(id);
+                    invalid["scenarios"][0]["scenes"]["invalid-activity"] = invalid_scene;
+                    invalid["scenarios"][0]["events"][6]["assertions"]["scenes"][0]["scene"] =
+                        Value::from("invalid-activity");
                     if id == "future-activity" {
                         let mut future = invalid["scenarios"][0]["events"][3].clone();
                         future["event_id"] = Value::from(id);
@@ -3089,6 +3418,8 @@ bystanders = ["distractor"]
     fn situated_scene_assertion_identity_includes_expected_scene() {
         for extension in ["json", "toml"] {
             let mut value = situated_value();
+            value["scenarios"][0]["scenes"]["alias"] =
+                value["scenarios"][0]["scenes"]["pair"].clone();
             value["scenarios"][0]["events"][5]["assertions"]["scenes"] = serde_json::json!([
                 {"memory": "last-meeting", "scene": "pair"},
                 {"memory": "promise", "scene": "pair"}
@@ -3104,14 +3435,14 @@ bystanders = ["distractor"]
                 before
             );
             value["scenarios"][0]["events"][5]["assertions"]["scenes"][1]["scene"] =
-                Value::from("other");
+                Value::from("alias");
             let after =
                 parse_as(&value, extension).unwrap().scenarios[0].events[5].assertion_identities();
             assert_eq!(before.symmetric_difference(&after).count(), 2);
             let added = serde_json::to_value(after.difference(&before).next().unwrap()).unwrap();
             assert_eq!(
                 added["subject"],
-                serde_json::json!({"memory": "last-meeting", "scene": "other"})
+                serde_json::json!({"memory": "last-meeting", "scene": "alias"})
             );
         }
     }
@@ -3561,6 +3892,8 @@ bystanders = ["distractor"]
                 let first = values[0].clone();
                 let duplicate = if list == "in_order" {
                     serde_json::to_string(&first).unwrap()
+                } else if list == "not_cued" {
+                    serde_json::to_string(&(&first["memory"], &first["cue"])).unwrap()
                 } else {
                     values
                         .pointer(pointer)
@@ -3876,7 +4209,7 @@ bystanders = ["distractor"]
     }
 
     #[test]
-    fn runtime_embedding_inputs_normalize_writes_but_preserve_queries() {
+    fn runtime_embedding_inputs_follow_write_and_query_normalization() {
         let mut fixture = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = &mut fixture.scenarios[0];
         let remember = scenario
@@ -3900,15 +4233,103 @@ bystanders = ["distractor"]
         let InteractionEvent::Query { text, .. } = &mut scenario.events[1] else {
             unreachable!()
         };
-        *text = "  target\nquery  ".to_string();
+        *text = "  target  query\n\t".to_string();
 
         assert_eq!(
             scenario.runtime_embedding_inputs(),
-            BTreeSet::from([
-                "  target\nquery  ".to_string(),
-                "remembered target".to_string(),
-            ])
+            BTreeSet::from(["target  query".to_string(), "remembered target".to_string(),])
         );
+    }
+
+    #[tokio::test]
+    async fn query_embedding_admission_matches_native_trim_only_lookup() {
+        const RAW: &str = "  unique  query\n\t";
+        const TRIMMED: &str = "unique  query";
+        for extension in ["json", "toml"] {
+            for probe in [false, true] {
+                let mut value = strict_situated_value();
+                let scenario = &mut value["scenarios"][0];
+                if probe {
+                    scenario["events"][5]["topic"] = Value::from(RAW);
+                } else {
+                    scenario["events"] = serde_json::json!([
+                        {"kind": "remember", "event_id": "visit", "external_id": "visit",
+                         "timestamp": "2024-01-01T09:00:00Z", "text": "We planned the garden.",
+                         "entity_external_ids": [], "salience": 0.5},
+                        {"kind": "query", "event_id": "ask", "query_id": "ask",
+                         "timestamp": "2024-01-02T09:00:00Z", "text": RAW,
+                         "expected": {"relevant_external_ids": ["visit"], "irrelevant_external_ids": []}}
+                    ]);
+                }
+                scenario["embedding"]["clusters"]["query"] = serde_json::json!(vec![1.0; 16]);
+                scenario["embedding"]["concepts"]["query"] =
+                    serde_json::json!({"cluster": "query", "inputs": [RAW]});
+                for assigned in [RAW, "unique query"] {
+                    value["scenarios"][0]["embedding"]["concepts"]["query"]["inputs"] =
+                        serde_json::json!([assigned]);
+                    assert_eq!(
+                        admission_of(parse_as(&value, extension).unwrap_err()),
+                        expected_admission(
+                            "encounter",
+                            Some(if probe { "reunion" } else { "ask" }),
+                            if probe { "probe.topic" } else { "query.text" },
+                            FixtureAdmissionKind::UnassignedEmbeddingInput(TRIMMED.into())
+                        ),
+                        "{extension}, probe={probe}, assignment={assigned:?}"
+                    );
+                }
+                value["scenarios"][0]["embedding"]["concepts"]["query"]["inputs"] =
+                    serde_json::json!([TRIMMED]);
+                let loaded = parse_as(&value, extension).unwrap();
+                let scenario = &loaded.scenarios[0];
+                let inputs = scenario.runtime_embedding_inputs();
+                assert!(inputs.contains(TRIMMED));
+                assert!(!inputs.contains(RAW));
+                assert!(!inputs.contains("unique query"));
+                if probe {
+                    assert!(
+                        matches!(scenario.situated_input(scenario.events.last().unwrap()).unwrap(),
+                        Some(SituatedInput::Probe { topic: Some(topic), .. }) if topic == RAW)
+                    );
+                    continue; // This library pin cannot forward a situated probe yet.
+                }
+
+                // Exercise the real library lookup: only the trim-only key is assigned.
+                let embeddings = scenario
+                    .embedding
+                    .controllable_similarity()
+                    .unwrap()
+                    .clone();
+                let mut config = BenchmarkRunConfig {
+                    run_id: "query-trim-drift".into(),
+                    dataset: DatasetId::new("continuity").unwrap(),
+                    backend: Default::default(),
+                    retrieval: Default::default(),
+                    ingest: Default::default(),
+                    metrics: Default::default(),
+                };
+                config.backend.embedding.provider = EmbeddingProviderConfig::ControllableSimilarity;
+                config.backend.embedding.vector_size = Some(embeddings.vector_size);
+                let binding = cmem_eval::EmbeddingRuntimeBinding::Controllable {
+                    dimension_policy: cmem_eval::ControllableDimensionPolicy::Exact {
+                        vector_size: embeddings.vector_size,
+                    },
+                    fixture: embeddings,
+                };
+                let directory = tempfile::tempdir().unwrap();
+                let mut runtime = crate::ContinuityRuntime::new(directory.path(), &config, binding)
+                    .await
+                    .unwrap();
+                let result =
+                    crate::run_continuity_scenario(&mut runtime, scenario, &config.retrieval).await;
+                runtime.cleanup(&scenario.namespace).await.unwrap();
+                drop(runtime);
+                directory.close().unwrap();
+                let run = result.expect("native retrieval must use the admitted trim-only key");
+                assert_eq!(run.traces.len(), 1);
+                assert_eq!(run.traces[0].query, RAW);
+            }
+        }
     }
 
     #[test]
