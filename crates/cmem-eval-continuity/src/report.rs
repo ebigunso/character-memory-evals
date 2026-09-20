@@ -149,7 +149,11 @@ impl ScenarioOutcome {
             && crate::omissions_have_reasons(pack.outcomes());
         self.omission_reason_invariant = CheckResult::checked(
             passed,
-            "native lifecycle and currency omissions are accounted for by reason",
+            if passed {
+                "native lifecycle and currency omissions are accounted for by reason"
+            } else {
+                "at least one retrieval omitted a memory without a native reason"
+            },
         );
         if !passed {
             self.status = ScenarioStatus::Failed;
@@ -715,16 +719,14 @@ mod tests {
                 .iter()
                 .all(|result| result.check.status == ScenarioStatus::Passed)
         );
-        assert_eq!(
-            failed.omission_reason_invariant.status,
-            ScenarioStatus::Failed
+        let failed_invariant = CheckResult::checked(
+            false,
+            "at least one retrieval omitted a memory without a native reason",
         );
+        assert_eq!(failed.omission_reason_invariant, failed_invariant);
         assert_eq!(failed.status, ScenarioStatus::Failed);
         failed.record_probe(&scenario, &event, &pack);
-        assert_eq!(
-            failed.omission_reason_invariant.status,
-            ScenarioStatus::Failed
-        );
+        assert_eq!(failed.omission_reason_invariant, failed_invariant);
         assert_eq!(failed.status, ScenarioStatus::Failed);
         assert_eq!(
             combined_invariant([&outcome, &failed].into_iter()).status,
