@@ -437,7 +437,9 @@ pub async fn run_continuity_scenario(
                 entities,
                 ..GraphEnrichmentInput::default()
             })
-            .await?,
+            .await?
+            .map(|outcome| checked_write_outcome(scenario, "entities", outcome))
+            .transpose()?,
     );
     increment(&mut run.operation_counts, "remember");
 
@@ -526,7 +528,16 @@ pub async fn run_continuity_scenario(
                                 thread.summary
                             ));
                         }
-                        write_outcomes.extend(runtime.adapter().remember_enrichment(input).await?);
+                        write_outcomes.extend(
+                            runtime
+                                .adapter()
+                                .remember_enrichment(input)
+                                .await?
+                                .map(|outcome| {
+                                    checked_write_outcome(scenario, event.event_id(), outcome)
+                                })
+                                .transpose()?,
+                        );
                         increment(&mut run.operation_counts, "derive");
                     }
                     MappedSituatedInput::Probe(input) => {
@@ -578,7 +589,7 @@ pub async fn run_continuity_scenario(
                             }),
                         })
                         .await?;
-                    write_outcomes.push(result.outcome);
+                    write_outcomes.push(checked_write_outcome(scenario, event_id, result.outcome)?);
                     increment(&mut run.operation_counts, "remember_episode");
                     let result = runtime
                         .adapter()
@@ -595,7 +606,7 @@ pub async fn run_continuity_scenario(
                             }),
                         })
                         .await?;
-                    write_outcomes.push(result.outcome);
+                    write_outcomes.push(checked_write_outcome(scenario, event_id, result.outcome)?);
                     increment(&mut run.operation_counts, "remember_observation");
                 } else {
                     let plan = runtime
@@ -763,7 +774,9 @@ pub async fn run_continuity_scenario(
                             links: association_links,
                             ..GraphEnrichmentInput::default()
                         })
-                        .await?,
+                        .await?
+                        .map(|outcome| checked_write_outcome(scenario, event_id, outcome))
+                        .transpose()?,
                 );
                 for _ in 0..association_count {
                     increment(&mut run.operation_counts, "link");
@@ -1093,20 +1106,35 @@ async fn commit_validated_plan(
     plan.plan.validations = validations;
     let commit = adapter.commit(plan, CommitWriteOptions::default()).await?;
     increment(operation_counts, "commit");
-    if !commit.repair_needed.is_empty() {
+    checked_write_outcome(scenario, event_id, commit.outcome)
+}
+
+fn checked_write_outcome(
+    scenario: &ContinuityScenario,
+    event_id: &str,
+    recorded: cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>,
+) -> Result<cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>> {
+    let outcome = &recorded.outcome;
+    if !outcome.repair_needed.is_empty() {
         bail!(
             "scenario {:?} event {event_id:?} committed with repair-needed markers: {:?}",
             scenario.fixture_id,
-            commit.repair_needed
+            outcome.repair_needed
         );
     }
-    if commit.vector_indexed_object_refs.is_empty() {
+    if let Some(failure) = &outcome.vector_indexing_failure {
+        bail!(
+            "scenario {:?} event {event_id:?} committed with vector-indexing failure: {failure:?}",
+            scenario.fixture_id
+        );
+    }
+    if outcome.vector_indexed_object_ids.is_empty() {
         bail!(
             "scenario {:?} event {event_id:?} committed without vector-indexed objects",
             scenario.fixture_id
         );
     }
-    Ok(commit.outcome)
+    Ok(recorded)
 }
 
 async fn retrieve_query(
@@ -1453,53 +1481,54 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn situated_experience_rejects_degraded_native_write() {
-        let mut scenario = situated_scenario();
-        let mut query = scenario.events.pop().unwrap();
-        let InteractionEvent::Query { text, expected, .. } = &mut query else {
-            unreachable!()
-        };
-        *text = "Weather".into();
-        expected.relevant_external_ids = vec!["visit".into()];
-        scenario.events.truncate(1);
-        scenario.events.push(query);
-        scenario.analyze().unwrap();
-        let mut fixture = scenario
-            .embedding
-            .controllable_similarity()
-            .unwrap()
-            .clone();
-        // A valid provider that cannot embed this experience produces a native
-        // repair-needed outcome after persisting the graph.
-        fixture
-            .concepts
-            .retain(|_, concept| !concept.inputs.iter().any(|input| input == "Garden"));
-        let mut config = BenchmarkRunConfig {
-            run_id: "degraded-write".into(),
-            dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
-            backend: Default::default(),
-            retrieval: retrieval(),
-            ingest: Default::default(),
-            metrics: Default::default(),
-        };
-        config.backend.embedding.vector_size = Some(fixture.vector_size);
-        let directory = tempfile::tempdir().unwrap();
-        let mut runtime = ContinuityRuntime::new(
-            directory.path(),
-            &config,
-            EmbeddingRuntimeBinding::Controllable {
-                dimension_policy: cmem_eval::ControllableDimensionPolicy::FixtureDeclared,
-                fixture,
-            },
-        )
-        .await
-        .unwrap();
-        let result = run_continuity_scenario(&mut runtime, &scenario, &config.retrieval).await;
-        runtime.cleanup(&scenario.namespace).await.unwrap();
-        assert!(
-            result.is_err(),
-            "a degraded experience must not be reported as passed"
-        );
+    async fn situated_writes_reject_degraded_native_outcomes() {
+        for missing_input in ["Garden", "Garden commitment"] {
+            let mut scenario = situated_scenario();
+            let mut query = scenario.events.pop().unwrap();
+            let InteractionEvent::Query { text, expected, .. } = &mut query else {
+                unreachable!()
+            };
+            *text = "Weather".into();
+            expected.relevant_external_ids = vec!["visit".into()];
+            scenario.events.push(query);
+            scenario.analyze().unwrap();
+            let mut fixture = scenario
+                .embedding
+                .controllable_similarity()
+                .unwrap()
+                .clone();
+            // A valid provider that cannot embed this write produces a native
+            // repair-needed outcome after persisting the graph.
+            fixture
+                .concepts
+                .retain(|_, concept| !concept.inputs.iter().any(|input| input == missing_input));
+            let mut config = BenchmarkRunConfig {
+                run_id: "degraded-write".into(),
+                dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
+                backend: Default::default(),
+                retrieval: retrieval(),
+                ingest: Default::default(),
+                metrics: Default::default(),
+            };
+            config.backend.embedding.vector_size = Some(fixture.vector_size);
+            let directory = tempfile::tempdir().unwrap();
+            let mut runtime = ContinuityRuntime::new(
+                directory.path(),
+                &config,
+                EmbeddingRuntimeBinding::Controllable {
+                    dimension_policy: cmem_eval::ControllableDimensionPolicy::FixtureDeclared,
+                    fixture,
+                },
+            )
+            .await
+            .unwrap();
+            let result = run_continuity_scenario(&mut runtime, &scenario, &config.retrieval).await;
+            runtime.cleanup(&scenario.namespace).await.unwrap();
+            assert!(
+                result.is_err(),
+                "a write with an unavailable embedding for {missing_input:?} must not pass"
+            );
+        }
     }
 
     #[tokio::test]
