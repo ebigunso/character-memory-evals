@@ -246,7 +246,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 - owns:
   - crates/cmem-eval/src/**
   - crates/cmem-eval-continuity/src/** (as the library's actual deletions require; the census question 3 list)
-  - crates/cmem-eval-continuity/fixtures/** (new files only, and only if a shape change invalidates the checked fixtures)
+  - crates/cmem-eval-continuity/fixtures/** (register-cited or already-merged fixtures are never edited: a shape change that invalidates one adds a new file beside it; fixtures authored in this unmerged stack and cited nowhere, the situated set and the generated loud-topic set, are edited in place)
   - crates/cmem-eval-runner/src/**
   - crates/cmem-eval-locomo/src/ingest.rs
   - crates/cmem-eval-benchmark-convert/src/lib.rs
