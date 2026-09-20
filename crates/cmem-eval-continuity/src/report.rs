@@ -176,6 +176,7 @@ pub struct ContinuityReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AggregateContinuityReport {
+    pub carried_recall_by_reason: BTreeMap<String, crate::CarriedRecall>,
     pub omission_reason_invariant: CheckResult,
     pub degradation: DegradationSummary,
     pub query_count: usize,
@@ -188,6 +189,7 @@ pub struct AggregateContinuityReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ScenarioContinuityReport {
+    pub carried_recall_by_reason: BTreeMap<String, crate::CarriedRecall>,
     pub outcome: ScenarioOutcome,
     pub query_count: usize,
     pub metrics: NumericMetricSummary,
@@ -236,6 +238,9 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
             (
                 fixture_id.clone(),
                 ScenarioContinuityReport {
+                    carried_recall_by_reason: crate::metrics::pool_carried_recall(
+                        input.outcomes[&fixture_id].probes.values(),
+                    ),
                     outcome: input.outcomes[&fixture_id].clone(),
                     query_count: metrics.len(),
                     metrics: aggregate_numeric_metrics(&metrics),
@@ -250,6 +255,12 @@ pub fn assemble_continuity_report(input: ContinuityReportInput<'_>) -> Result<Co
         .collect();
     Ok(ContinuityReport {
         aggregate: AggregateContinuityReport {
+            carried_recall_by_reason: crate::metrics::pool_carried_recall(
+                input
+                    .outcomes
+                    .values()
+                    .flat_map(|outcome| outcome.probes.values()),
+            ),
             omission_reason_invariant: combined_invariant(input.outcomes.values()),
             degradation: summary.degradation,
             query_count: summary.num_questions,
@@ -318,6 +329,13 @@ pub fn compare_continuity_reports(
     compare(
         None,
         None,
+        "carried_recall_by_reason",
+        serde_json::json!(before.aggregate.carried_recall_by_reason),
+        serde_json::json!(after.aggregate.carried_recall_by_reason),
+    );
+    compare(
+        None,
+        None,
         "omission_reason_invariant",
         serde_json::json!(before.aggregate.omission_reason_invariant),
         serde_json::json!(after.aggregate.omission_reason_invariant),
@@ -328,8 +346,39 @@ pub fn compare_continuity_reports(
         .chain(after.scenarios.keys())
         .collect::<std::collections::BTreeSet<_>>()
     {
+        compare(
+            Some(id.clone()),
+            None,
+            "carried_recall_by_reason",
+            serde_json::json!(
+                before
+                    .scenarios
+                    .get(id)
+                    .map(|scenario| &scenario.carried_recall_by_reason)
+            ),
+            serde_json::json!(
+                after
+                    .scenarios
+                    .get(id)
+                    .map(|scenario| &scenario.carried_recall_by_reason)
+            ),
+        );
         let left = before.scenarios.get(id).map(|scenario| &scenario.outcome);
         let right = after.scenarios.get(id).map(|scenario| &scenario.outcome);
+        let probe_recalls = |outcome: Option<&ScenarioOutcome>| {
+            outcome
+                .into_iter()
+                .flat_map(|outcome| &outcome.probes)
+                .map(|(id, probe)| (id.clone(), probe.carried_recall_by_reason.clone()))
+                .collect::<BTreeMap<_, _>>()
+        };
+        compare(
+            Some(id.clone()),
+            None,
+            "probe_carried_recall_by_reason",
+            serde_json::json!(probe_recalls(left)),
+            serde_json::json!(probe_recalls(right)),
+        );
         compare(
             Some(id.clone()),
             None,
@@ -817,6 +866,178 @@ mod tests {
                 }));
             }
         }
+    }
+
+    #[test]
+    fn carried_recall_pools_counts_across_probes_and_scenarios_and_compares_nulls() {
+        use crate::{CarriedAssertion, RecallReason, situated_probe_measures};
+        use cmem_eval::character_memory::{
+            ContinuityContextPack, EpisodeDraft, RetrievalRationale, RetrieveOutcome,
+        };
+        use cmem_eval::{ContextRenderer, RetrievedContextPack};
+        let scenario = crate::driver::tests::situated_scenario();
+        let episodes = (0..9)
+            .map(|i| {
+                EpisodeDraft::new(format!("memory {i}"))
+                    .into_domain()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let refs = episodes
+            .iter()
+            .enumerate()
+            .map(|(i, episode)| {
+                (
+                    episode.id.to_string(),
+                    cmem_eval::MemoryEndpointInput {
+                        object_type: cmem_eval::ObjectType::Episode,
+                        external_id: format!("memory-{i}"),
+                    },
+                )
+            })
+            .collect();
+        let pack = RetrievedContextPack::from_ranked_items(
+            vec![],
+            vec![RetrieveOutcome {
+                pack: ContinuityContextPack {
+                    relevant_episodes: episodes,
+                    ..ContinuityContextPack::empty()
+                },
+                rationale: RetrievalRationale::new("probe"),
+                trace: None,
+            }],
+            ContextRenderer::PlainText,
+        )
+        .with_object_refs(refs);
+        let measures = |memories: Vec<String>, ran: bool| {
+            situated_probe_measures(
+                &scenario,
+                &crate::ProbeAssertions {
+                    carried: memories
+                        .into_iter()
+                        .map(|memory| CarriedAssertion {
+                            memory,
+                            reason: RecallReason::Pair,
+                            section: None,
+                        })
+                        .collect(),
+                    ..Default::default()
+                },
+                &Default::default(),
+                ran.then_some(&pack),
+            )
+        };
+        let mut first = ScenarioOutcome::executed();
+        first.probes = BTreeMap::from([
+            ("miss".into(), measures(vec!["absent".into()], true)),
+            (
+                "nine".into(),
+                measures((0..9).map(|i| format!("memory-{i}")).collect(), true),
+            ),
+        ]);
+        let mut second = ScenarioOutcome::executed();
+        second
+            .probes
+            .insert("another-miss".into(), measures(vec!["absent".into()], true));
+        let mut skipped = ScenarioOutcome::executed();
+        skipped.status = ScenarioStatus::NotRun;
+        skipped
+            .probes
+            .insert("skipped".into(), measures(vec!["memory-0".into()], false));
+        let report = assemble_continuity_report(ContinuityReportInput {
+            config: Value::Null,
+            traces: &[],
+            outcomes: &BTreeMap::from([
+                ("first".into(), first),
+                ("second".into(), second),
+                ("skipped".into(), skipped),
+            ]),
+            metric_family: &crate::continuity_metric_family(&Default::default(), &[]),
+        })
+        .unwrap();
+        assert_eq!(
+            report.scenarios["first"].carried_recall_by_reason["pair"],
+            crate::CarriedRecall {
+                expected: 10,
+                admitted: Some(9),
+                recall: Some(0.9)
+            }
+        );
+        assert_eq!(
+            report.aggregate.carried_recall_by_reason["pair"],
+            crate::CarriedRecall {
+                expected: 11,
+                admitted: Some(9),
+                recall: Some(9.0 / 11.0)
+            }
+        );
+        assert_eq!(
+            report.scenarios["second"].carried_recall_by_reason["pair"].recall,
+            Some(0.0)
+        );
+        assert_eq!(
+            report.scenarios["skipped"].carried_recall_by_reason["pair"],
+            crate::CarriedRecall {
+                expected: 0,
+                admitted: None,
+                recall: None
+            }
+        );
+        assert_eq!(
+            report.scenarios["skipped"].outcome.probes["skipped"].carried_recall_by_reason["pair"]
+                .expected,
+            1
+        );
+        assert_eq!(
+            report.aggregate.carried_recall_by_reason["date"].recall,
+            None
+        );
+        assert_eq!(
+            report.scenarios["first"].carried_recall_by_reason["date"].recall,
+            None
+        );
+        assert!(compare_continuity_reports(&report, &report).is_empty());
+        let mut changed = report.clone();
+        changed
+            .aggregate
+            .carried_recall_by_reason
+            .get_mut("pair")
+            .unwrap()
+            .recall = Some(0.5);
+        let changed_scenario = changed.scenarios.get_mut("first").unwrap();
+        changed_scenario
+            .carried_recall_by_reason
+            .get_mut("pair")
+            .unwrap()
+            .recall = Some(0.5);
+        changed_scenario
+            .outcome
+            .probes
+            .get_mut("miss")
+            .unwrap()
+            .carried_recall_by_reason
+            .get_mut("pair")
+            .unwrap()
+            .recall = None;
+        let differences = compare_continuity_reports(&report, &changed);
+        assert_eq!(differences.len(), 3);
+        assert!(
+            differences
+                .iter()
+                .any(|d| d.scenario_id.is_none() && d.field == "carried_recall_by_reason")
+        );
+        assert!(
+            differences
+                .iter()
+                .any(|d| d.scenario_id.as_deref() == Some("first")
+                    && d.field == "carried_recall_by_reason")
+        );
+        assert!(
+            differences
+                .iter()
+                .any(|d| d.scenario_id.as_deref() == Some("first")
+                    && d.field == "probe_carried_recall_by_reason")
+        );
     }
 
     #[test]

@@ -456,7 +456,7 @@ pub struct SupersessionResult {
     pub superseded_by_external_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PrepareWriteInput {
     pub namespace: String,
     pub content: String,
@@ -466,6 +466,8 @@ pub struct PrepareWriteInput {
     pub participant_entity_external_ids: Vec<String>,
     #[serde(default)]
     pub speaker_entity_external_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub salience: Option<f32>,
     #[serde(default)]
     pub episode_started_at: Option<String>,
     #[serde(default)]

@@ -86,6 +86,8 @@ Continuity runs require Rust 1.97.0, the sibling `../CharacterMemory` checkout, 
 
 ### Run situated scenarios
 
+See the [scenario authoring contract](crates/cmem-eval-continuity/README.md) for the fixture shape, assertions, measures, cues and feature support.
+
 Situated fixtures describe experiences, authored derived memories and probes in TOML or JSON. The loader selects the format from the extension. Each scenario is checked against the pinned library's supported features before an adapter is constructed: a missing feature makes the whole scenario `not_run`, with no namespace, writes or retrieval. At library `d0fe82d`, probes require scene and reference-time inputs that the library cannot receive. Keyed-participant experiences and native derived types can run with a legacy query; write-side where/what/custom, intention, preference, thread provenance, direction, due dates and triggers remain unsupported at that pin.
 
 Run the narrative catalog and the generated loud-topic set into separate directories. The controllable-similarity config uses width 32 and pads smaller fixture vectors without changing their geometry:

@@ -64,6 +64,7 @@ fn map_situated_input(
             text,
             scene,
             speaker,
+            salience,
         } => {
             anyhow::ensure!(
                 scene.place.is_none() && scene.what.is_none() && scene.custom.is_empty(),
@@ -84,6 +85,7 @@ fn map_situated_input(
                 episode_external_id: external_id,
                 participant_entity_external_ids: participants,
                 speaker_entity_external_id: speaker,
+                salience,
                 episode_started_at: Some(timestamp.clone()),
                 observation_observed_at: Some(timestamp),
                 raw_refs: Vec::new(),
@@ -618,6 +620,7 @@ pub async fn run_continuity_scenario(
                             observation_external_id: observation_external_id.clone(),
                             participant_entity_external_ids: Vec::new(),
                             speaker_entity_external_id: None,
+                            salience: None,
                             episode_started_at: Some(scripted_timestamp.clone()),
                             observation_observed_at: Some(scripted_timestamp.clone()),
                             raw_refs: vec![original_raw_ref.clone()],
@@ -1480,6 +1483,69 @@ pub(crate) mod tests {
         })).unwrap()).unwrap().scenarios.remove(0)
     }
 
+    #[test]
+    fn situated_gold_sentinels_never_reach_mapped_writes_or_probe_projection() {
+        let mut value = serde_json::to_value(situated_scenario()).unwrap();
+        value["entities"].as_array_mut().unwrap().push(serde_json::json!({
+            "external_id":"gold-only-person-6e924", "label":"Visitor", "entity_type":"person", "is_hub":false
+        }));
+        value["events"][2]["expected_warning"] = "churning_chain".into();
+        value["events"][3] = serde_json::json!({
+            "kind":"probe", "event_id":"probe", "query_id":"probe", "timestamp":"2024-01-04T09:00:00Z",
+            "scene":{"kind":"inline", "scene":{"who":[
+                {"reference":{"by":"key","key":"self"}},
+                {"reference":{"by":"description","text":"the visitor in a red coat"}, "gold_entity":"gold-only-person-6e924"}
+            ]}},
+            "assertions":{
+                "carried":[{"memory":"promise", "reason":"recent_and_salient", "section":"character_signals"}],
+                "references":[{"participant":{"by":"description","text":"the visitor in a red coat"}, "resolution":{"status":"resolved","entity":"gold-only-person-6e924"}}]
+            }
+        });
+        let fixture = crate::parse_fixture_bytes(
+            &serde_json::to_vec(&serde_json::json!({
+                "schema_version":3, "seed":7, "scenarios":[value]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let scenario = &fixture.scenarios[0];
+        let sentinels = [
+            "recent_and_salient",
+            "gold-only-person-6e924",
+            "churning_chain",
+            "character_signals",
+        ];
+        let authored = serde_json::to_string(scenario).unwrap();
+        for sentinel in sentinels {
+            assert!(authored.contains(sentinel));
+        }
+        let assert_no_gold = |encoded: String| {
+            for sentinel in sentinels {
+                assert!(!encoded.contains(sentinel), "gold leaked: {sentinel}");
+            }
+        };
+        for event in &scenario.events {
+            let input = scenario.situated_input(event).unwrap().unwrap();
+            assert_no_gold(serde_json::to_string(&input).unwrap());
+            let mapped = map_situated_input(&scenario.namespace, event.timestamp(), input);
+            if matches!(event, InteractionEvent::Probe { .. }) {
+                // No mapped retrieval input exists at this library pin. The gold-free
+                // projection is checked above; unsupported probes must still reject.
+                assert!(mapped.is_err());
+                continue;
+            }
+            match mapped.unwrap() {
+                MappedSituatedInput::Experience(input) => {
+                    assert_no_gold(serde_json::to_string(&input).unwrap())
+                }
+                MappedSituatedInput::Derive(input) => {
+                    assert_no_gold(serde_json::to_string(&input).unwrap())
+                }
+                MappedSituatedInput::Probe(_) => unreachable!(),
+            }
+        }
+    }
+
     #[tokio::test]
     async fn situated_writes_reject_degraded_native_outcomes() {
         for missing_input in ["Garden", "Garden commitment"] {
@@ -1533,7 +1599,11 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn situated_control_forwards_authored_fields_into_native_memories() {
-        let scenario = situated_scenario();
+        let mut scenario = situated_scenario();
+        let InteractionEvent::Experience { salience, .. } = &mut scenario.events[0] else {
+            unreachable!()
+        };
+        *salience = Some(0.83);
         assert!(scenario_missing_features(&scenario).unwrap().is_empty());
         let run = run_embedded(&scenario).await;
         assert_eq!(run.outcome.status, crate::ScenarioStatus::Passed);
@@ -1558,12 +1628,14 @@ pub(crate) mod tests {
         );
         assert_eq!(visit.started_at, Some(scenario.events[0].timestamp()));
         assert_eq!(visit.created_at, scenario.events[0].timestamp());
+        assert_eq!(visit.salience_score, 0.83);
         let observation = native
             .salient_observations
             .iter()
             .find(|observation| observation.episode_id == visit.id)
             .unwrap();
         assert_eq!(external(observation.speaker_entity_id.unwrap()), "ada");
+        assert_eq!(observation.salience_score, 0.83);
         assert_eq!(
             observation.observed_at,
             Some(scenario.events[0].timestamp())
@@ -1618,6 +1690,7 @@ pub(crate) mod tests {
                 panic!("derive");
             };
             memory.subtype = subtype;
+            memory.supersedes = vec!["prior-state".into()];
             let MappedSituatedInput::Derive(mapped) = map_situated_input(
                 &scenario.namespace,
                 scenario.events[2].timestamp(),
@@ -1630,6 +1703,10 @@ pub(crate) mod tests {
                 panic!("derive mapping");
             };
             assert_eq!(mapped.derived_memories[0].derived_type, expected);
+            assert_eq!(
+                mapped.derived_memories[0].supersedes_external_ids,
+                ["prior-state"]
+            );
         }
     }
 

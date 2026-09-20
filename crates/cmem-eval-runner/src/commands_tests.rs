@@ -23,7 +23,7 @@ async fn situated_toml_cli_keeps_mixed_and_all_not_run_scenarios() {
     gated["namespace"] = "gated".into();
     gated["events"][1] = serde_json::json!({
         "kind":"probe", "event_id":"probe", "query_id":"probe", "timestamp":"2024-01-02T09:00:00Z", "scene":{"kind":"named","name":"alone"},
-        "assertions":{"carried":[{"memory":"visit","reason":"own_day"}]}, "measures":{"bystanders":[]}
+        "assertions":{"carried":[{"memory":"visit","reason":"own_day"}], "cued":[{"memory":"visit","cue":"own_day"}]}, "measures":{"bystanders":[]}
     });
     for (name, scenarios) in [
         ("mixed", vec![control, gated.clone()]),
@@ -67,13 +67,32 @@ async fn situated_toml_cli_keeps_mixed_and_all_not_run_scenarios() {
                 .missing_features
                 .contains(&cmem_eval_continuity::ScenarioFeature::ProbeScene)
         );
-        assert_eq!(gated.assertions.len(), 1);
+        assert_eq!(gated.assertions.len(), 2);
         assert_eq!(gated.assertions[0].check.status, ScenarioStatus::NotRun);
+        assert_eq!(gated.assertions[1].check.status, ScenarioStatus::NotRun);
+        assert!(
+            gated
+                .missing_features
+                .contains(&cmem_eval_continuity::ScenarioFeature::CueTrace)
+        );
         assert_eq!(gated.probes["probe"].context_tokens, None);
         assert_eq!(gated.probes["probe"].bystander_context_share, None);
         assert_eq!(
             gated.probes["probe"].carried_recall_by_reason["own_day"].recall,
             None
+        );
+        assert!(
+            report
+                .aggregate
+                .carried_recall_by_reason
+                .values()
+                .all(|count| count.recall.is_none())
+        );
+        assert!(
+            report.scenarios["gated"]
+                .carried_recall_by_reason
+                .values()
+                .all(|count| count.recall.is_none())
         );
         let header: serde_json::Value =
             serde_json::from_slice(&fs::read(out_dir.join("header.json")).unwrap()).unwrap();
@@ -103,6 +122,58 @@ async fn situated_toml_cli_keeps_mixed_and_all_not_run_scenarios() {
             "compare-continuity",
             out_dir.join("report.json").to_str().unwrap(),
             out_dir.join("report.json").to_str().unwrap(),
+        ])
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
+
+        let mut changed = report.clone();
+        changed
+            .aggregate
+            .carried_recall_by_reason
+            .get_mut("own_day")
+            .unwrap()
+            .recall = Some(0.0);
+        changed
+            .scenarios
+            .get_mut("gated")
+            .unwrap()
+            .outcome
+            .assertions
+            .iter_mut()
+            .find(|result| {
+                matches!(
+                    result.identity.assertion,
+                    cmem_eval_continuity::AssertionSubject::Cued { .. }
+                )
+            })
+            .unwrap()
+            .check
+            .status = ScenarioStatus::Passed;
+        let changed_path = out_dir.join("changed.json");
+        cmem_eval_continuity::write_continuity_report(&changed_path, &changed).unwrap();
+        let reread = read_continuity_report(&changed_path).unwrap();
+        let differences = cmem_eval_continuity::compare_continuity_reports(&report, &reread);
+        assert_eq!(differences.len(), 2);
+        assert!(
+            differences
+                .iter()
+                .any(|d| d.field == "carried_recall_by_reason" && d.scenario_id.is_none())
+        );
+        assert!(
+            differences
+                .iter()
+                .any(|d| d.assertion.as_ref().is_some_and(|identity| matches!(
+                    identity.assertion,
+                    cmem_eval_continuity::AssertionSubject::Cued { .. }
+                )))
+        );
+        Cli::try_parse_from([
+            "cmem-eval",
+            "compare-continuity",
+            out_dir.join("report.json").to_str().unwrap(),
+            changed_path.to_str().unwrap(),
         ])
         .unwrap()
         .run()

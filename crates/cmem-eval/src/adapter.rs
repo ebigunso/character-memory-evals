@@ -2193,6 +2193,10 @@ fn staged_source_drafts(
             input.namespace, input.observation_external_id
         ))
     });
+    if let Some(salience) = input.salience {
+        episode.salience_score = salience;
+        observation.salience_score = salience;
+    }
     Ok((episode, observation))
 }
 
@@ -3748,6 +3752,7 @@ mod tests {
                     observation_external_id: "new-observation".to_string(),
                     participant_entity_external_ids: Vec::new(),
                     speaker_entity_external_id: None,
+                    salience: None,
                     episode_started_at: None,
                     observation_observed_at: None,
                     raw_refs: Vec::new(),
@@ -3894,6 +3899,7 @@ mod tests {
                 observation_external_id: "observation-external".to_string(),
                 participant_entity_external_ids: Vec::new(),
                 speaker_entity_external_id: None,
+                salience: None,
                 episode_started_at: Some("2025-01-01T00:00:00Z".to_string()),
                 observation_observed_at: Some("2025-01-01T00:00:00Z".to_string()),
                 raw_refs: vec!["fixture://continuity/restart".to_string()],
@@ -4857,6 +4863,7 @@ mod tests {
             observation_external_id: "observation".to_string(),
             participant_entity_external_ids: Vec::new(),
             speaker_entity_external_id: None,
+            salience: None,
             episode_started_at: Some("2025-02-03T04:05:06Z".to_string()),
             observation_observed_at: Some("2025-02-03T04:05:06Z".to_string()),
             raw_refs: Vec::new(),
@@ -4883,6 +4890,32 @@ mod tests {
             observation.observed_at.unwrap().to_rfc3339(),
             "2025-02-03T04:05:06+00:00"
         );
+        assert_eq!(episode.salience_score, EpisodeDraft::new("").salience_score);
+        assert_eq!(
+            observation.salience_score,
+            ObservationDraft::new(episode.id.unwrap(), "").salience_score
+        );
+        let encoded = serde_json::to_value(&input).unwrap();
+        assert!(encoded.get("salience").is_none());
+        assert_eq!(
+            serde_json::from_value::<PrepareWriteInput>(encoded).unwrap(),
+            input
+        );
+        for salience in [0.0, 0.83, 1.0] {
+            input.salience = Some(salience);
+            let (episode, observation) = staged_source_drafts(
+                &input,
+                deterministic_id(&input.namespace, "episode", &input.episode_external_id),
+                deterministic_id(
+                    &input.namespace,
+                    "observation",
+                    &input.observation_external_id,
+                ),
+            )
+            .unwrap();
+            assert_eq!(episode.salience_score, salience);
+            assert_eq!(observation.salience_score, salience);
+        }
         let directory = tempdir().unwrap();
         let adapter =
             CharacterMemoryAdapter::new(directory.path(), &adapter_config("staged-plan".into()))
