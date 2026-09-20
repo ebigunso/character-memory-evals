@@ -8,9 +8,11 @@ use chrono::{DateTime, Utc};
 use cmem_eval::{ControllableSimilarityFixture, SimilarityConceptFixture};
 
 use crate::{
-    CONTINUITY_FIXTURE_SCHEMA_VERSION, ContinuityEntityKind, ContinuityFixtureSet,
-    ContinuityScenario, ContinuityScenarioEmbedding, EntityDeclaration, ExpectedRelevance,
-    InteractionEvent, RememberSurfaceTexts, ScenarioPattern, ThreadMembership,
+    AuthoredMemory, AuthoredMemoryKind, CONTINUITY_FIXTURE_SCHEMA_VERSION, CarriedAssertion,
+    ContinuityEntityKind, ContinuityFixtureSet, ContinuityScenario, ContinuityScenarioEmbedding,
+    CueKind, EntityDeclaration, ExpectedRelevance, InteractionEvent, NotCuedAssertion,
+    PerceivedReference, ProbeAssertions, ProbeMeasures, RecallReason, RememberSurfaceTexts,
+    ScenarioPattern, Scene, SceneParticipant, SceneSelection, ThreadMembership,
 };
 
 pub const CHECKED_FIXTURE_SEED: u64 = 0x0000_0000_0135_2768;
@@ -38,6 +40,199 @@ pub fn generate_fixture_set(seed: u64) -> Result<ContinuityFixtureSet> {
             entrenched_correction(seed)?,
             autobiographical(seed)?,
         ],
+    };
+    fixtures.validate()?;
+    Ok(fixtures)
+}
+
+/// A content cue with more near-misses than the smoke candidate and section budgets.
+pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtureSet> {
+    let topic = "Which thermocouple fits the new electric kiln?";
+    let mut topic_inputs = vec![topic.to_string()];
+    let mut bystanders = Vec::new();
+    let scene = |counterpart: &str, setting: &str| Scene {
+        who: ["mara", counterpart]
+            .into_iter()
+            .map(|key| SceneParticipant {
+                reference: PerceivedReference::Key { key: key.into() },
+                gold_entity: None,
+            })
+            .collect(),
+        place: Some(PerceivedReference::Setting {
+            key: setting.into(),
+        }),
+        ..Default::default()
+    };
+    let named = |name: &str| SceneSelection::Named { name: name.into() };
+    let mut events = Vec::new();
+    // Bystander means a near-miss, not generally irrelevant knowledge: these
+    // pottery anecdotes resemble the kiln topic but do not answer it. No person,
+    // due date, activity or own-day cue calls for them here. They are experiences,
+    // never current state, and share only the synthetic content concept.
+    // 64 distinct experiences exceed 48 vector candidates and both 8-item
+    // episode/observation budgets in continuity_smoke.toml.
+    for index in 0..64 {
+        let id = format!("pottery-anecdote-{index:02}");
+        let text = format!(
+            "At pottery class {index:02}, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts."
+        );
+        topic_inputs.push(text.clone());
+        bystanders.push(id.clone());
+        events.push(InteractionEvent::Experience {
+            event_id: id,
+            timestamp: timestamp("2024-01-01T10:00:00Z")? + chrono::Duration::days(index),
+            text,
+            scene: named("pottery_class"),
+            speaker: Some("ellis".into()),
+        });
+    }
+    // Ellis is absent at the probes, so this promise is not cued by its counterpart.
+    let agreement = "I promised Ellis to return their telescope on July tenth.";
+    let promise = "I owe Ellis their telescope back.";
+    let last_visit =
+        "Nia told me her mother had come home from hospital and thanked me for checking in.";
+    let state = "Nia trusts me with family news and is relieved that her mother is home.";
+    events.push(InteractionEvent::Experience {
+        event_id: "agreement".into(),
+        timestamp: timestamp("2025-06-01T10:00:00Z")?,
+        text: agreement.into(),
+        scene: named("pottery_class"),
+        speaker: Some("mara".into()),
+    });
+    events.push(InteractionEvent::Derive {
+        event_id: "return-telescope".into(),
+        timestamp: timestamp("2025-06-01T10:01:00Z")?,
+        memory: AuthoredMemory {
+            subtype: AuthoredMemoryKind::Commitment,
+            text: promise.into(),
+            experiences: vec!["agreement".into()],
+            about: vec!["mara".into(), "ellis".into()],
+            supersedes: Vec::new(),
+            actor: Some("mara".into()),
+            counterpart: Some("ellis".into()),
+            due: Some(timestamp("2025-07-10T10:00:00Z")?),
+            trigger: None,
+        },
+        expected_warning: None,
+    });
+    events.push(InteractionEvent::Experience {
+        event_id: "last-visit".into(),
+        timestamp: timestamp("2025-07-01T10:00:00Z")?,
+        text: last_visit.into(),
+        scene: named("nia_kitchen"),
+        speaker: Some("nia".into()),
+    });
+    events.push(InteractionEvent::Derive {
+        event_id: "nia-state".into(),
+        timestamp: timestamp("2025-07-01T10:01:00Z")?,
+        memory: AuthoredMemory {
+            subtype: AuthoredMemoryKind::RelationshipNote,
+            text: state.into(),
+            experiences: vec!["last-visit".into()],
+            about: vec!["mara".into(), "nia".into()],
+            supersedes: Vec::new(),
+            actor: None,
+            counterpart: None,
+            due: None,
+            trigger: None,
+        },
+        expected_warning: None,
+    });
+    // The deadline is 10:00. Probe hours before and after it, never at equality.
+    // Hold the later moment fixed; adding the topic must not starve its other cues.
+    for (id, at, topic) in [
+        ("before-due", "2025-07-10T06:00:00Z", None),
+        ("quiet", "2025-07-10T14:00:00Z", None),
+        ("loud", "2025-07-10T14:00:00Z", Some(topic.to_string())),
+    ] {
+        let mut assertions = ProbeAssertions {
+            carried: ["last-visit", "nia-state"]
+                .into_iter()
+                .map(|memory| CarriedAssertion {
+                    memory: memory.into(),
+                    reason: RecallReason::Pair,
+                    section: None,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        if id == "before-due" {
+            assertions.not_cued.push(NotCuedAssertion {
+                memory: "return-telescope".into(),
+                cue: CueKind::Due,
+            });
+        } else {
+            assertions.carried.push(CarriedAssertion {
+                memory: "return-telescope".into(),
+                reason: RecallReason::Due,
+                section: None,
+            });
+        }
+        events.push(InteractionEvent::Probe {
+            event_id: id.into(),
+            query_id: format!("loud-topic-{id}"),
+            timestamp: timestamp(at)?,
+            scene: named("kiln_workshop"),
+            topic,
+            partition: None,
+            assertions: Box::new(assertions),
+            measures: ProbeMeasures {
+                bystanders: bystanders.clone(),
+            },
+        });
+    }
+    let inputs = [
+        ("kiln-near-misses", topic_inputs),
+        ("due", vec![agreement.into(), promise.into()]),
+        ("last-visit", vec![last_visit.into()]),
+        ("state", vec![state.into()]),
+        ("people", vec!["Mara".into(), "Nia".into(), "Ellis".into()]),
+    ];
+    let mut clusters = BTreeMap::new();
+    let mut concepts = BTreeMap::new();
+    for (dimension, (id, inputs)) in inputs.into_iter().enumerate() {
+        let mut vector = vec![0.0; EMBEDDING_VECTOR_SIZE];
+        vector[dimension] = 1.0;
+        clusters.insert(id.to_string(), vector);
+        concepts.insert(
+            id.to_string(),
+            SimilarityConceptFixture {
+                cluster: id.into(),
+                inputs,
+            },
+        );
+    }
+    let fixtures = ContinuityFixtureSet {
+        schema_version: CONTINUITY_FIXTURE_SCHEMA_VERSION,
+        seed,
+        scenarios: vec![ContinuityScenario {
+            fixture_id: "loud-topic-pottery-near-misses".into(),
+            namespace: format!("situated-loud-topic-{seed:016x}"),
+            pattern: ScenarioPattern::Situated,
+            catalog_situations: vec!["D4".into(), "D6".into(), "D8".into()],
+            character_entity: Some("mara".into()),
+            scenes: BTreeMap::from([
+                ("pottery_class".into(), scene("ellis", "pottery-class")),
+                ("nia_kitchen".into(), scene("nia", "nia-kitchen")),
+                ("kiln_workshop".into(), scene("nia", "new-kiln-workshop")),
+            ]),
+            entities: vec![
+                entity("mara", ContinuityEntityKind::Person, "Mara", false),
+                entity("nia", ContinuityEntityKind::Person, "Nia", false),
+                entity("ellis", ContinuityEntityKind::Person, "Ellis", false),
+            ],
+            embedding: ContinuityScenarioEmbedding::controllable_similarity_provider(
+                ControllableSimilarityFixture {
+                    seed,
+                    vector_size: EMBEDDING_VECTOR_SIZE,
+                    noise_magnitude: 0.0,
+                    clusters,
+                    concepts,
+                },
+            ),
+            events,
+            requirements: Default::default(),
+        }],
     };
     fixtures.validate()?;
     Ok(fixtures)
@@ -2087,6 +2282,103 @@ mod tests {
 
     const PROCESS_PROBE_PATH: &str = "CMEM_CONTINUITY_FIXTURE_PROBE_PATH";
     const CHECKED_FIXTURE: &[u8] = include_bytes!("../fixtures/continuity_v3.json");
+
+    #[test]
+    fn situated_fixtures_load_and_loud_topic_regenerates_exactly() {
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+        crate::read_fixture(&fixtures.join("situated_v1.toml")).unwrap();
+        crate::read_fixture(&fixtures.join("situated_loud_topic_v1.json")).unwrap();
+        assert_eq!(
+            canonical_fixture_bytes(
+                &generate_situated_loud_topic_fixture(CHECKED_FIXTURE_SEED).unwrap()
+            )
+            .unwrap(),
+            fs::read(fixtures.join("situated_loud_topic_v1.json")).unwrap(),
+        );
+    }
+
+    #[test]
+    fn loud_topic_saturates_smoke_content_candidates_without_matching_cued_memories() {
+        let fixtures = generate_situated_loud_topic_fixture(CHECKED_FIXTURE_SEED).unwrap();
+        let scenario = &fixtures.scenarios[0];
+        let provider = cmem_eval::ControllableSimilarityEmbeddingProvider::new(
+            scenario
+                .embedding
+                .controllable_similarity()
+                .unwrap()
+                .clone(),
+        )
+        .unwrap();
+        let InteractionEvent::Probe {
+            topic: Some(topic),
+            assertions,
+            measures,
+            ..
+        } = scenario.events.last().unwrap()
+        else {
+            panic!("expected the loud-topic probe");
+        };
+        let smoke: toml::Value =
+            toml::from_str(include_str!("../../../configs/continuity_smoke.toml")).unwrap();
+        let policy = &smoke["retrieval"]["surface_policy"];
+        for budget in [
+            &policy["max_vector_candidates"],
+            &policy["sections"]["relevant_episodes"],
+            &policy["sections"]["salient_observations"],
+        ] {
+            assert!(measures.bystanders.len() > budget.as_integer().unwrap() as usize);
+        }
+        let topic_vector = provider.vector_for_text(topic).unwrap();
+        let near_misses = scenario
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                InteractionEvent::Experience { event_id, text, .. }
+                    if provider.concept_for_text(text) == provider.concept_for_text(topic) =>
+                {
+                    Some(event_id)
+                }
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(near_misses, measures.bystanders.iter().collect());
+        for id in &measures.bystanders {
+            let event = scenario
+                .events
+                .iter()
+                .find(|event| event.event_id() == id)
+                .unwrap();
+            let InteractionEvent::Experience { text, .. } = event else {
+                panic!("near-misses must be experiences, never current state");
+            };
+            assert_eq!(provider.vector_for_text(text).unwrap(), topic_vector);
+        }
+        for carried in &assertions.carried {
+            let event = scenario
+                .events
+                .iter()
+                .find(|event| event.event_id() == carried.memory)
+                .unwrap();
+            let text = match event {
+                InteractionEvent::Experience { text, .. } => text,
+                InteractionEvent::Derive { memory, .. } => &memory.text,
+                _ => panic!("expected an authored memory"),
+            };
+            assert_ne!(
+                provider.concept_for_text(text),
+                provider.concept_for_text(topic)
+            );
+            let vector = provider.vector_for_text(text).unwrap();
+            assert_eq!(
+                vector
+                    .iter()
+                    .zip(&topic_vector)
+                    .map(|(a, b)| a * b)
+                    .sum::<f32>(),
+                0.0
+            );
+        }
+    }
 
     #[test]
     fn checked_fixture_is_canonical_and_covers_every_scenario_pattern() {

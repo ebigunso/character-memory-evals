@@ -1,0 +1,1095 @@
+# Stories concern what arrives in recall, never what the character chooses to say.
+# Omitted section assertions are deliberate: the draft promises recall, not a slot.
+schema_version = 3
+seed = 7
+
+# B1: Mara knows two neighbors through the allotment. A private worry remains
+# known at the shared table; only the application's partition excludes it.
+[[scenarios]]
+fixture_id = "b1-allotment-confidence"
+namespace = "situated-b1"
+pattern = "situated"
+catalog_situations = ["B1"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {allotment = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+concepts = {allotment = {cluster = "allotment", inputs = ["Jo told me privately that the allotment rent is becoming hard to afford.", "At the allotment table, Jo, Iman and I agreed to share the cost of seeds.", "The allotment budget"]}}
+[scenarios.scenes.jo_private]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+where = {by = "setting", key = "jo-kitchen"}
+[scenarios.scenes.shared_table]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}, {reference = {by = "key", key = "iman"}}]
+where = {by = "setting", key = "allotment-table"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "private-worry"
+timestamp = "2025-03-01T10:00:00Z"
+text = "Jo told me privately that the allotment rent is becoming hard to afford."
+scene = {kind = "named", name = "jo_private"}
+speaker = "jo"
+[[scenarios.events]]
+kind = "experience"
+event_id = "shared-seeds"
+timestamp = "2025-03-02T10:00:00Z"
+text = "At the allotment table, Jo, Iman and I agreed to share the cost of seeds."
+scene = {kind = "named", name = "shared_table"}
+[[scenarios.events]]
+kind = "probe"
+event_id = "at-table"
+query_id = "b1-default"
+timestamp = "2025-03-03T10:00:00Z"
+scene = {kind = "named", name = "shared_table"}
+topic = "The allotment budget"
+[scenarios.events.assertions]
+carried = [{memory = "private-worry", reason = "topic"}, {memory = "shared-seeds", reason = "topic"}]
+scenes = [{memory = "private-worry", scene = "jo_private"}, {memory = "shared-seeds", scene = "shared_table"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "partitioned-table"
+query_id = "b1-setting-partition"
+timestamp = "2025-03-03T10:01:00Z"
+scene = {kind = "named", name = "shared_table"}
+topic = "The allotment budget"
+partition = {by = "setting"}
+[scenarios.events.assertions]
+carried = [{memory = "shared-seeds", reason = "topic"}]
+omitted = [{memory = "private-worry", reason = "partition"}]
+
+# B2: one play, two accounts. "Everyone present now was present then" allows
+# the rehearsal memory in a pair, but excludes the private aside in the group.
+[[scenarios]]
+fixture_id = "b2-rehearsal-and-aside"
+namespace = "situated-b2"
+pattern = "situated"
+catalog_situations = ["B2"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {play = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+concepts = {play = {cluster = "play", inputs = ["At rehearsal, Jo, Iman and I agreed that Jo would sing the opening solo.", "After rehearsal Jo told me alone that singing the opening solo frightened them.", "The opening solo"]}}
+[scenarios.scenes.rehearsal]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}, {reference = {by = "key", key = "iman"}}]
+where = {by = "setting", key = "village-stage"}
+[scenarios.scenes.aside]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+where = {by = "setting", key = "stage-door"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "group-plan"
+timestamp = "2025-04-01T18:00:00Z"
+text = "At rehearsal, Jo, Iman and I agreed that Jo would sing the opening solo."
+scene = {kind = "named", name = "rehearsal"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "private-aside"
+timestamp = "2025-04-01T19:00:00Z"
+text = "After rehearsal Jo told me alone that singing the opening solo frightened them."
+scene = {kind = "named", name = "aside"}
+speaker = "jo"
+[[scenarios.events]]
+kind = "probe"
+event_id = "pair-default"
+query_id = "b2-pair-default"
+timestamp = "2025-04-02T18:00:00Z"
+scene = {kind = "named", name = "aside"}
+topic = "The opening solo"
+[scenarios.events.assertions]
+carried = [{memory = "group-plan", reason = "topic"}, {memory = "private-aside", reason = "topic"}]
+scenes = [{memory = "group-plan", scene = "rehearsal"}, {memory = "private-aside", scene = "aside"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "pair-partition"
+query_id = "b2-pair-partition"
+timestamp = "2025-04-02T18:01:00Z"
+scene = {kind = "named", name = "aside"}
+topic = "The opening solo"
+partition = {by = "participants"}
+[scenarios.events.assertions]
+carried = [{memory = "group-plan", reason = "topic"}, {memory = "private-aside", reason = "topic"}]
+scenes = [{memory = "group-plan", scene = "rehearsal"}, {memory = "private-aside", scene = "aside"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "group-default"
+query_id = "b2-group-default"
+timestamp = "2025-04-03T18:00:00Z"
+scene = {kind = "named", name = "rehearsal"}
+topic = "The opening solo"
+[scenarios.events.assertions]
+carried = [{memory = "group-plan", reason = "topic"}, {memory = "private-aside", reason = "topic"}]
+scenes = [{memory = "group-plan", scene = "rehearsal"}, {memory = "private-aside", scene = "aside"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "group-partition"
+query_id = "b2-group-partition"
+timestamp = "2025-04-03T18:01:00Z"
+scene = {kind = "named", name = "rehearsal"}
+topic = "The opening solo"
+partition = {by = "participants"}
+[scenarios.events.assertions]
+carried = [{memory = "group-plan", reason = "topic"}]
+omitted = [{memory = "private-aside", reason = "partition"}]
+
+# B3: the same workshop contains a trusted friend, a strained collaboration
+# and someone Mara has just met. Only a written repair replaces the strain.
+[[scenarios]]
+fixture_id = "b3-workshop-relationships"
+namespace = "situated-b3"
+pattern = "situated"
+catalog_situations = ["B3"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
+  {external_id = "kit", label = "Kit", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {}
+concepts = {}
+[scenarios.scenes.jo]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+where = {by = "setting", key = "repair-workshop"}
+[scenarios.scenes.iman]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "iman"}}]
+where = {by = "setting", key = "repair-workshop"}
+[scenarios.scenes.kit]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "kit"}}]
+where = {by = "setting", key = "repair-workshop"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "jo-helped"
+timestamp = "2025-01-01T10:00:00Z"
+text = "Jo stayed after closing to help me finish the repair, as they often do."
+scene = {kind = "named", name = "jo"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "jo-trust"
+timestamp = "2025-01-01T10:01:00Z"
+memory = {subtype = "relationship_note", text = "Jo and I trust each other with unfinished work.", experiences = ["jo-helped"], about = ["mara", "jo"]}
+[[scenarios.events]]
+kind = "experience"
+event_id = "iman-dispute"
+timestamp = "2025-01-02T10:00:00Z"
+text = "Iman was upset that I lent their tools without asking."
+scene = {kind = "named", name = "iman"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "iman-strain"
+timestamp = "2025-01-02T10:01:00Z"
+memory = {subtype = "relationship_note", text = "Iman does not yet trust my care of shared tools.", experiences = ["iman-dispute"], about = ["mara", "iman"]}
+[[scenarios.events]]
+kind = "experience"
+event_id = "kit-introduction"
+timestamp = "2025-01-03T10:00:00Z"
+text = "Kit introduced themselves at the workshop; this was our first conversation."
+scene = {kind = "named", name = "kit"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "kit-new"
+timestamp = "2025-01-03T10:01:00Z"
+memory = {subtype = "relationship_note", text = "Kit is a new acquaintance; we have only exchanged introductions.", experiences = ["kit-introduction"], about = ["mara", "kit"]}
+[[scenarios.events]]
+kind = "probe"
+event_id = "see-jo"
+query_id = "b3-trusted"
+timestamp = "2025-01-04T09:00:00Z"
+scene = {kind = "named", name = "jo"}
+[scenarios.events.assertions]
+carried = [{memory = "jo-trust", reason = "pair"}]
+not_cued = [{memory = "iman-strain", cue = "pair"}, {memory = "kit-new", cue = "pair"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "see-iman"
+query_id = "b3-strained"
+timestamp = "2025-01-04T10:00:00Z"
+scene = {kind = "named", name = "iman"}
+[scenarios.events.assertions]
+carried = [{memory = "iman-strain", reason = "pair"}]
+not_cued = [{memory = "jo-trust", cue = "pair"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "see-kit"
+query_id = "b3-new"
+timestamp = "2025-01-04T11:00:00Z"
+scene = {kind = "named", name = "kit"}
+[scenarios.events.assertions]
+carried = [{memory = "kit-new", reason = "pair"}]
+not_cued = [{memory = "jo-trust", cue = "pair"}, {memory = "iman-strain", cue = "pair"}]
+[[scenarios.events]]
+kind = "experience"
+event_id = "iman-repair"
+timestamp = "2025-01-05T10:00:00Z"
+text = "I replaced the missing tools and apologized; Iman said we could start again."
+scene = {kind = "named", name = "iman"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "iman-rebuilding"
+timestamp = "2025-01-05T10:01:00Z"
+memory = {subtype = "relationship_note", text = "Iman and I are rebuilding trust after I made good the tools.", experiences = ["iman-repair"], about = ["mara", "iman"], supersedes = ["iman-strain"]}
+[[scenarios.events]]
+kind = "probe"
+event_id = "see-iman-again"
+query_id = "b3-current"
+timestamp = "2025-02-05T10:00:00Z"
+scene = {kind = "named", name = "iman"}
+[scenarios.events.assertions]
+carried = [{memory = "iman-rebuilding", reason = "pair"}]
+omitted = [{memory = "iman-strain", reason = "supersession"}]
+staleness = ["iman-rebuilding"]
+
+# D1/D8: the bill comes to mind before conversation, remains due while the
+# conversation is about something else, and stops being pending after payment.
+[[scenarios]]
+fixture_id = "d1-d8-morning-deadline"
+namespace = "situated-d1-d8"
+pattern = "situated"
+catalog_situations = ["D1", "D8"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {}
+concepts = {}
+[scenarios.scenes.pair]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+where = {by = "setting", key = "allotment-office"}
+[scenarios.scenes.morning]
+who = [{reference = {by = "key", key = "mara"}}]
+where = {by = "setting", key = "mara-kitchen"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "bill-agreement"
+timestamp = "2025-02-01T12:00:00Z"
+text = "I promised Jo to pay our allotment water bill on March first."
+scene = {kind = "named", name = "pair"}
+speaker = "mara"
+[[scenarios.events]]
+kind = "derive"
+event_id = "pay-water"
+timestamp = "2025-02-01T12:01:00Z"
+memory = {subtype = "commitment", text = "I owe Jo payment of our allotment water bill.", experiences = ["bill-agreement"], about = ["mara", "jo"], actor = "mara", counterpart = "jo", due = "2025-03-01T08:00:00Z"}
+[[scenarios.events]]
+kind = "probe"
+event_id = "before-due"
+query_id = "d1-d8-before"
+timestamp = "2025-03-01T04:00:00Z"
+scene = {kind = "named", name = "morning"}
+[scenarios.events.assertions]
+not_cued = [{memory = "pay-water", cue = "due"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "wake-up"
+query_id = "d1-d8-due"
+timestamp = "2025-03-01T10:00:00Z"
+scene = {kind = "named", name = "morning"}
+[scenarios.events.assertions]
+carried = [{memory = "pay-water", reason = "due"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "overdue"
+query_id = "d1-d8-overdue"
+timestamp = "2025-03-03T08:00:00Z"
+scene = {kind = "named", name = "morning"}
+topic = "How to mend a bicycle puncture"
+[scenarios.events.assertions]
+carried = [{memory = "pay-water", reason = "due"}]
+staleness = ["pay-water"]
+[[scenarios.events]]
+kind = "experience"
+event_id = "paid"
+timestamp = "2025-03-03T09:00:00Z"
+text = "I paid the water bill and Jo acknowledged the receipt."
+scene = {kind = "named", name = "pair"}
+[[scenarios.events]]
+kind = "link"
+event_id = "payment-resolves"
+external_id = "water-resolution"
+timestamp = "2025-03-03T09:01:00Z"
+from_external_id = "paid"
+relation = "fulfills_commitment"
+to_external_id = "pay-water"
+[[scenarios.events]]
+kind = "probe"
+event_id = "next-morning"
+query_id = "d1-d8-resolved"
+timestamp = "2025-03-04T08:00:00Z"
+scene = {kind = "named", name = "morning"}
+[scenarios.events.assertions]
+omitted = [{memory = "pay-water", reason = "resolution"}]
+
+# D4: seeing Nia brings the pair's picture, including what each owes the other.
+[[scenarios]]
+fixture_id = "d4-library-door"
+namespace = "situated-d4"
+pattern = "situated"
+catalog_situations = ["D4"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "nia", label = "Nia", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {nia = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+concepts = {nia = {cluster = "nia", inputs = ["Nia", "the librarian with the copper walking stick"]}}
+[scenarios.scenes.library]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "nia"}}]
+where = {by = "setting", key = "village-library"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "last-conversation"
+timestamp = "2025-05-01T16:00:00Z"
+text = "Nia, the librarian with the copper walking stick, told me her father is recovering. I offered to return her atlas; she offered to find my missing reservation slip."
+scene = {kind = "named", name = "library"}
+speaker = "nia"
+[[scenarios.events]]
+kind = "derive"
+event_id = "nia-state"
+timestamp = "2025-05-01T16:01:00Z"
+memory = {subtype = "relationship_note", text = "Nia trusts me with news of her father's recovery; she has a lot on her mind.", experiences = ["last-conversation"], about = ["mara", "nia"]}
+[[scenarios.events]]
+kind = "derive"
+event_id = "atlas-owed"
+timestamp = "2025-05-01T16:02:00Z"
+memory = {subtype = "commitment", text = "I owe Nia her atlas back.", experiences = ["last-conversation"], about = ["mara", "nia"], actor = "mara", counterpart = "nia"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "slip-awaited"
+timestamp = "2025-05-01T16:03:00Z"
+memory = {subtype = "open_loop", text = "Nia offered to find my reservation slip; I am waiting for it.", experiences = ["last-conversation"], about = ["mara", "nia"], actor = "nia", counterpart = "mara"}
+[[scenarios.events]]
+kind = "probe"
+event_id = "heard-nia"
+query_id = "d4-by-name"
+timestamp = "2025-05-08T09:00:00Z"
+scene = {kind = "inline", scene = {who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "name", text = "Nia"}, gold_entity = "nia"}], where = {by = "setting", key = "market"}}}
+[scenarios.events.assertions]
+carried = [{memory = "last-conversation", reason = "pair"}, {memory = "nia-state", reason = "pair"}, {memory = "atlas-owed", reason = "pair"}, {memory = "slip-awaited", reason = "pair"}]
+references = [{participant = {by = "name", text = "Nia"}, resolution = {status = "resolved", entity = "nia"}}]
+elapsed_since_met = ["nia"]
+[[scenarios.events]]
+kind = "probe"
+event_id = "recognized-stick"
+query_id = "d4-by-description"
+timestamp = "2025-05-08T09:01:00Z"
+scene = {kind = "inline", scene = {who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "description", text = "the librarian with the copper walking stick"}, gold_entity = "nia"}]}}
+[scenarios.events.assertions]
+carried = [{memory = "last-conversation", reason = "pair"}, {memory = "nia-state", reason = "pair"}, {memory = "atlas-owed", reason = "pair"}, {memory = "slip-awaited", reason = "pair"}]
+references = [{participant = {by = "description", text = "the librarian with the copper walking stick"}, resolution = {status = "resolved", entity = "nia"}}]
+elapsed_since_met = ["nia"]
+
+# An overheard name can mean two people. An unknown visitor supplies no pair cue.
+[[scenarios]]
+fixture_id = "d4-uncertain-arrivals"
+namespace = "situated-d4-references"
+pattern = "situated"
+catalog_situations = ["D4"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "alex-baker", label = "Alex", entity_type = "person", is_hub = false},
+  {external_id = "alex-potter", label = "Alex", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {}
+concepts = {}
+[scenarios.scenes.bakery]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "alex-baker"}}]
+where = {by = "setting", key = "bakery"}
+[scenarios.scenes.pottery]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "alex-potter"}}]
+where = {by = "setting", key = "pottery"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "baker-news"
+timestamp = "2025-06-01T09:00:00Z"
+text = "Alex at the bakery told me the bread oven had finally been repaired."
+scene = {kind = "named", name = "bakery"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "potter-news"
+timestamp = "2025-06-02T09:00:00Z"
+text = "Alex at the pottery told me the blue glaze had worked."
+scene = {kind = "named", name = "pottery"}
+[[scenarios.events]]
+kind = "probe"
+event_id = "alex-at-door"
+query_id = "d4-ambiguous"
+timestamp = "2025-06-03T09:00:00Z"
+scene = {kind = "inline", scene = {who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "name", text = "Alex"}}]}}
+[scenarios.events.assertions]
+carried = [{memory = "baker-news", reason = "pair"}, {memory = "potter-news", reason = "pair"}]
+references = [{participant = {by = "name", text = "Alex"}, resolution = {status = "ambiguous", candidates = ["alex-baker", "alex-potter"]}}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "unknown-visitor"
+query_id = "d4-unknown"
+timestamp = "2025-06-03T10:00:00Z"
+scene = {kind = "inline", scene = {who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "description", text = "an unfamiliar courier in a silver helmet"}}]}}
+[scenarios.events.assertions]
+references = [{participant = {by = "description", text = "an unfamiliar courier in a silver helmet"}, resolution = {status = "unknown"}}]
+not_cued = [{memory = "baker-news", cue = "pair"}, {memory = "potter-news", cue = "pair"}]
+
+# D5: work resumes from its constraint, failed attempt and last decision.
+[[scenarios]]
+fixture_id = "d5-resume-greenhouse"
+namespace = "situated-d5"
+pattern = "situated"
+catalog_situations = ["D5"]
+character_entity = "mara"
+entities = [{external_id = "mara", label = "Mara", entity_type = "person", is_hub = false}]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {}
+concepts = {}
+[scenarios.scenes.shed]
+who = [{reference = {by = "key", key = "mara"}}]
+where = {by = "setting", key = "garden-shed"}
+[scenarios.scenes.building]
+who = [{reference = {by = "key", key = "mara"}}]
+where = {by = "setting", key = "garden-shed"}
+what = {by = "key", key = "greenhouse-work"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "constraint"
+timestamp = "2025-03-01T09:00:00Z"
+text = "I measured the greenhouse doorway: the new frame must fit through a seventy-centimeter opening."
+scene = {kind = "named", name = "shed"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "greenhouse-work"
+timestamp = "2025-03-01T09:01:00Z"
+memory = {subtype = "thread", text = "I am building a replacement greenhouse frame that must fit through the doorway.", experiences = ["constraint"], about = ["mara"]}
+[[scenarios.events]]
+kind = "experience"
+event_id = "failed-frame"
+timestamp = "2025-03-02T09:00:00Z"
+text = "My first frame was too wide to turn through the doorway."
+scene = {kind = "named", name = "building"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "hinge-decision"
+timestamp = "2025-03-03T09:00:00Z"
+text = "I decided to hinge the frame at the middle and stopped just before drilling the holes."
+scene = {kind = "named", name = "building"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "shed-radio"
+timestamp = "2025-03-04T09:00:00Z"
+text = "While taking a break in the shed, I tuned the radio and heard the result of the village football match."
+scene = {kind = "named", name = "shed"}
+[[scenarios.events]]
+kind = "probe"
+event_id = "resume"
+query_id = "d5-resume"
+timestamp = "2025-03-10T09:00:00Z"
+scene = {kind = "named", name = "building"}
+[scenarios.events.assertions]
+carried = [{memory = "greenhouse-work", reason = "activity"}, {memory = "constraint", reason = "activity"}, {memory = "failed-frame", reason = "activity"}, {memory = "hinge-decision", reason = "activity"}]
+in_order = [["constraint", "failed-frame", "hinge-decision"]]
+not_cued = [{memory = "shed-radio", cue = "activity"}]
+
+# D6: an explicit suppression is a lifecycle control on topical recall. Mara
+# elects to suppress a drafting mnemonic; the route plan remains available.
+[[scenarios]]
+fixture_id = "d6-suppress-draft-mnemonic"
+namespace = "situated-d6-suppression"
+pattern = "situated"
+catalog_situations = ["D6"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {canal = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+concepts = {canal = {cluster = "canal", inputs = ["Our canal outing follows the towpath to the stone bridge, then turns toward the orchard.", "I use the rhyme stone then home to rehearse the route for the canal outing.", "Which route did we plan for the canal outing?"]}}
+[scenarios.scenes.planning]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+where = {by = "setting", key = "jo-kitchen"}
+[scenarios.scenes.alone]
+who = [{reference = {by = "key", key = "mara"}}]
+where = {by = "setting", key = "mara-desk"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "route-plan"
+timestamp = "2025-04-06T10:00:00Z"
+text = "Our canal outing follows the towpath to the stone bridge, then turns toward the orchard."
+scene = {kind = "named", name = "planning"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "draft-mnemonic"
+timestamp = "2025-04-06T10:01:00Z"
+memory = {subtype = "reflection", text = "I use the rhyme stone then home to rehearse the route for the canal outing.", experiences = ["route-plan"], about = ["mara"]}
+[[scenarios.events]]
+kind = "probe"
+event_id = "recall-before-suppression"
+query_id = "d6-before-suppression"
+timestamp = "2025-04-09T10:00:00Z"
+scene = {kind = "named", name = "alone"}
+topic = "Which route did we plan for the canal outing?"
+[scenarios.events.assertions]
+carried = [{memory = "route-plan", reason = "topic"}, {memory = "draft-mnemonic", reason = "topic"}]
+# The caller explicitly stops this mnemonic influencing recall. The source
+# experience is retained; neither age nor the private setting makes it ineligible.
+[[scenarios.events]]
+kind = "forget"
+event_id = "suppress-mnemonic"
+timestamp = "2025-04-09T11:00:00Z"
+target_external_ids = ["draft-mnemonic"]
+suppress_derived_from_target = false
+apply_to_derived_from_target = false
+[[scenarios.events]]
+kind = "probe"
+event_id = "recall-after-suppression"
+query_id = "d6-after-suppression"
+timestamp = "2025-04-09T12:00:00Z"
+scene = {kind = "named", name = "alone"}
+topic = "Which route did we plan for the canal outing?"
+[scenarios.events.assertions]
+carried = [{memory = "route-plan", reason = "topic"}]
+omitted = [{memory = "draft-mnemonic", reason = "suppression"}]
+
+# D7: the intention is cued by the arrival, or by the promised topic, without
+# needing its actual content to be repeated in the probe.
+[[scenarios]]
+fixture_id = "d7-waiting-for-jo"
+namespace = "situated-d7"
+pattern = "situated"
+catalog_situations = ["D7"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {dinner = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+concepts = {dinner = {cluster = "dinner", inputs = ["Thursday dinner", "Are you coming to the hall on Thursday?"]}}
+[scenarios.scenes.alone]
+who = [{reference = {by = "key", key = "mara"}}]
+where = {by = "setting", key = "mara-kitchen"}
+[scenarios.scenes.jo]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+[scenarios.scenes.iman]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "iman"}}]
+[[scenarios.events]]
+kind = "experience"
+event_id = "dinner-moved"
+timestamp = "2025-07-01T09:00:00Z"
+text = "The hall called: Thursday's dinner has moved to the smaller room. I made a note to tell Jo when I see them, and to mention the step at the door if the dinner comes up."
+scene = {kind = "named", name = "alone"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "tell-jo"
+timestamp = "2025-07-01T09:01:00Z"
+memory = {subtype = "intention", text = "When Jo appears, tell them the meal is in the smaller room.", experiences = ["dinner-moved"], about = ["mara", "jo"], actor = "mara", counterpart = "jo", trigger = {kind = "participant", entity = "jo"}}
+[[scenarios.events]]
+kind = "derive"
+event_id = "mention-step"
+timestamp = "2025-07-01T09:02:00Z"
+memory = {subtype = "intention", text = "Mention the step at the smaller room's door when the meal is discussed.", experiences = ["dinner-moved"], about = ["mara"], trigger = {kind = "topic", text = "Thursday dinner"}}
+[[scenarios.events]]
+kind = "probe"
+event_id = "iman-arrives"
+query_id = "d7-absent-control"
+timestamp = "2025-07-02T10:00:00Z"
+scene = {kind = "named", name = "iman"}
+topic = "The weather"
+[scenarios.events.assertions]
+not_cued = [{memory = "tell-jo", cue = "trigger"}, {memory = "mention-step", cue = "trigger"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "jo-arrives"
+query_id = "d7-person-trigger"
+timestamp = "2025-07-02T11:00:00Z"
+scene = {kind = "named", name = "jo"}
+[scenarios.events.assertions]
+carried = [{memory = "tell-jo", reason = "trigger"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "dinner-arises"
+query_id = "d7-topic-trigger"
+timestamp = "2025-07-02T12:00:00Z"
+scene = {kind = "named", name = "iman"}
+topic = "Are you coming to the hall on Thursday?"
+[scenarios.events.assertions]
+carried = [{memory = "mention-step", reason = "trigger"}]
+not_cued = [{memory = "tell-jo", cue = "trigger"}]
+
+# D9: the anniversary is of a dated experience, not an extracted future date.
+# On neighboring dates the memory may still arrive by the pair cue.
+[[scenarios]]
+fixture_id = "d9-a-year-at-the-bakery"
+namespace = "situated-d9"
+pattern = "situated"
+catalog_situations = ["D9"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {}
+concepts = {}
+[scenarios.scenes.bakery]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+where = {by = "setting", key = "jo-bakery"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "opening-day"
+timestamp = "2024-09-14T09:00:00Z"
+text = "Jo unlocked their bakery for the first time; I helped serve the first customers."
+scene = {kind = "named", name = "bakery"}
+[[scenarios.events]]
+kind = "probe"
+event_id = "week-before"
+query_id = "d9-before-date"
+timestamp = "2025-09-07T09:00:00Z"
+scene = {kind = "named", name = "bakery"}
+[scenarios.events.assertions]
+carried = [{memory = "opening-day", reason = "pair"}]
+not_cued = [{memory = "opening-day", cue = "date"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "anniversary"
+query_id = "d9-date-match"
+timestamp = "2025-09-14T09:00:00Z"
+scene = {kind = "named", name = "bakery"}
+[scenarios.events.assertions]
+carried = [{memory = "opening-day", reason = "date"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "week-after"
+query_id = "d9-after-date"
+timestamp = "2025-09-21T09:00:00Z"
+scene = {kind = "named", name = "bakery"}
+[scenarios.events.assertions]
+carried = [{memory = "opening-day", reason = "pair"}]
+not_cued = [{memory = "opening-day", cue = "date"}]
+
+# D11/C6: silence alone does not end a relationship. A later farewell is a
+# written change; the parting and the surviving relationship remain recallable.
+[[scenarios]]
+fixture_id = "d11-c6-reunion-and-departure"
+namespace = "situated-d11-c6"
+pattern = "situated"
+catalog_situations = ["D11", "C6"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "nia", label = "Nia", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {farewell = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+concepts = {farewell = {cluster = "farewell", inputs = ["Nia said she was moving overseas for good. We said goodbye to our Saturday walks and promised to treasure them.", "Nia has moved overseas; our Saturday walks have ended, but I remember our friendship warmly.", "The walks we used to take before Nia moved away"]}}
+[scenarios.scenes.river]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "nia"}}]
+where = {by = "setting", key = "river-walk"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "last-walk"
+timestamp = "2024-01-10T10:00:00Z"
+text = "Nia and I walked by the river. She was waiting to hear back from an interview, and we agreed to keep our Saturday walks."
+scene = {kind = "named", name = "river"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "walking-friends"
+timestamp = "2024-01-10T10:01:00Z"
+memory = {subtype = "relationship_note", text = "Nia and I are Saturday walking companions; her interview was the last thing on her mind.", experiences = ["last-walk"], about = ["mara", "nia"]}
+[[scenarios.events]]
+kind = "experience"
+event_id = "spring-apart"
+timestamp = "2024-04-12T10:00:00Z"
+text = "I spent the spring repairing the greenhouse and planting beans."
+scene = {kind = "inline", scene = {who = [{reference = {by = "key", key = "mara"}}]}}
+[[scenarios.events]]
+kind = "experience"
+event_id = "winter-apart"
+timestamp = "2024-12-12T10:00:00Z"
+text = "I finished binding a sketchbook during the winter evenings."
+scene = {kind = "inline", scene = {who = [{reference = {by = "key", key = "mara"}}]}}
+[[scenarios.events]]
+kind = "probe"
+event_id = "return-after-silence"
+query_id = "d11-still-current"
+timestamp = "2025-03-10T10:00:00Z"
+scene = {kind = "named", name = "river"}
+[scenarios.events.assertions]
+carried = [{memory = "last-walk", reason = "pair"}, {memory = "walking-friends", reason = "pair"}]
+elapsed_since_met = ["nia"]
+staleness = ["walking-friends"]
+[[scenarios.events]]
+kind = "experience"
+event_id = "farewell"
+timestamp = "2025-03-10T10:05:00Z"
+text = "Nia said she was moving overseas for good. We said goodbye to our Saturday walks and promised to treasure them."
+scene = {kind = "named", name = "river"}
+speaker = "nia"
+[[scenarios.events]]
+kind = "derive"
+event_id = "former-walking-companions"
+timestamp = "2025-03-10T10:06:00Z"
+memory = {subtype = "relationship_note", text = "Nia has moved overseas; our Saturday walks have ended, but I remember our friendship warmly.", experiences = ["farewell"], about = ["mara", "nia"], supersedes = ["walking-friends"]}
+# Reminiscence with no counterpart present, well away from any anniversary.
+[[scenarios.events]]
+kind = "probe"
+event_id = "remember-absent-nia"
+query_id = "c6-reminiscence"
+timestamp = "2025-11-06T10:00:00Z"
+scene = {kind = "inline", scene = {who = [{reference = {by = "key", key = "mara"}}], where = {by = "setting", key = "mara-kitchen"}}}
+topic = "The walks we used to take before Nia moved away"
+[scenarios.events.assertions]
+carried = [{memory = "farewell", reason = "topic"}, {memory = "former-walking-companions", reason = "topic"}]
+omitted = [{memory = "walking-friends", reason = "supersession"}]
+staleness = ["former-walking-companions"]
+[[scenarios.events]]
+kind = "probe"
+event_id = "nia-visits"
+query_id = "c6-departure-recorded"
+timestamp = "2026-04-02T10:00:00Z"
+scene = {kind = "named", name = "river"}
+[scenarios.events.assertions]
+carried = [{memory = "farewell", reason = "pair"}, {memory = "former-walking-companions", reason = "pair"}]
+omitted = [{memory = "walking-friends", reason = "supersession"}]
+elapsed_since_met = ["nia"]
+staleness = ["former-walking-companions"]
+
+# D13: Mara's day exists regardless of which friend asks about it.
+[[scenarios]]
+fixture_id = "d13-my-day"
+namespace = "situated-d13"
+pattern = "situated"
+catalog_situations = ["D13"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {}
+concepts = {}
+[scenarios.scenes.alone]
+who = [{reference = {by = "key", key = "mara"}}]
+[[scenarios.events]]
+kind = "experience"
+event_id = "morning"
+timestamp = "2025-08-01T08:00:00Z"
+text = "I kneaded bread before breakfast."
+scene = {kind = "named", name = "alone"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "afternoon"
+timestamp = "2025-08-01T14:00:00Z"
+text = "I took my repaired bicycle down to the river and watched the herons."
+scene = {kind = "named", name = "alone"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "evening"
+timestamp = "2025-08-01T18:00:00Z"
+text = "I finished binding my sketchbook and put it on the shelf."
+scene = {kind = "named", name = "alone"}
+[[scenarios.events]]
+kind = "probe"
+event_id = "jo-asks"
+query_id = "d13-jo"
+timestamp = "2025-08-01T20:00:00Z"
+scene = {kind = "inline", scene = {who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]}}
+[scenarios.events.assertions]
+carried = [{memory = "morning", reason = "own_day"}, {memory = "afternoon", reason = "own_day"}, {memory = "evening", reason = "own_day"}]
+in_order = [["morning", "afternoon", "evening"]]
+[[scenarios.events]]
+kind = "probe"
+event_id = "iman-asks"
+query_id = "d13-iman"
+timestamp = "2025-08-01T20:01:00Z"
+scene = {kind = "inline", scene = {who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "iman"}}]}}
+[scenarios.events.assertions]
+carried = [{memory = "morning", reason = "own_day"}, {memory = "afternoon", reason = "own_day"}, {memory = "evening", reason = "own_day"}]
+in_order = [["morning", "afternoon", "evening"]]
+
+# ADR-D-0018: a dispatch instruction and a favor survive a long quiet interval.
+[[scenarios]]
+fixture_id = "tasks-and-favors-after-a-year"
+namespace = "situated-tasks-favors"
+pattern = "situated"
+catalog_situations = ["D5", "D7", "D11", "E7"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {}
+concepts = {}
+[scenarios.scenes.pair]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+where = {by = "setting", key = "jo-kitchen"}
+[scenarios.scenes.task]
+who = [{reference = {by = "key", key = "mara"}}]
+what = {by = "key", key = "seed-task"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "instructions"
+timestamp = "2024-02-01T10:00:00Z"
+text = "Jo asked me to save the red bean seeds for next planting season, keeping each variety in a separate paper packet so the children can compare them. They also asked me to bring back their small brass key when we next meet."
+scene = {kind = "named", name = "pair"}
+speaker = "jo"
+[[scenarios.events]]
+kind = "derive"
+event_id = "seed-task"
+timestamp = "2024-02-01T10:01:00Z"
+memory = {subtype = "open_loop", text = "Save red bean seeds by variety in separate paper packets for the children's comparison next season.", experiences = ["instructions"], about = ["mara", "jo"], actor = "mara", counterpart = "jo"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "key-favor"
+timestamp = "2024-02-01T10:02:00Z"
+memory = {subtype = "intention", text = "Bring Jo their small brass key when we next meet.", experiences = ["instructions"], about = ["mara", "jo"], actor = "mara", counterpart = "jo", trigger = {kind = "participant", entity = "jo"}}
+[[scenarios.events]]
+kind = "probe"
+event_id = "next-season"
+query_id = "tasks-year-gap"
+timestamp = "2025-02-19T10:00:00Z"
+scene = {kind = "named", name = "task"}
+[scenarios.events.assertions]
+carried = [{memory = "instructions", reason = "activity"}, {memory = "seed-task", reason = "activity"}]
+staleness = ["seed-task"]
+[[scenarios.events]]
+kind = "probe"
+event_id = "next-meeting"
+query_id = "favors-year-gap"
+timestamp = "2025-02-20T10:00:00Z"
+scene = {kind = "named", name = "pair"}
+[scenarios.events.assertions]
+carried = [{memory = "instructions", reason = "pair"}, {memory = "key-favor", reason = "trigger"}]
+elapsed_since_met = ["jo"]
+staleness = ["key-favor"]
+
+# C4 is only a retrieval proxy: the basis and current restatement survive a
+# change of audience and a gap. No generated retelling is judged here.
+[[scenarios]]
+fixture_id = "c4-the-flood-story"
+namespace = "situated-c4"
+pattern = "situated"
+catalog_situations = ["C4"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "iman", label = "Iman", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {flood = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+concepts = {flood = {cluster = "flood", inputs = ["Jo and I carried the seed boxes upstairs during the flood. The lower shelves were soaked, but all the seeds survived.", "Jo and I saved all the seeds from the flood.", "Jo and I saved all the seeds from the flood. Jo asks that the story remain private.", "The seed boxes in the flood"]}}
+[scenarios.scenes.flood]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+where = {by = "setting", key = "allotment-store"}
+[scenarios.scenes.with_jo]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+where = {by = "setting", key = "jo-kitchen"}
+[scenarios.scenes.with_iman]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "iman"}}]
+where = {by = "setting", key = "village-cafe"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "flood-basis"
+timestamp = "2025-01-10T10:00:00Z"
+text = "Jo and I carried the seed boxes upstairs during the flood. The lower shelves were soaked, but all the seeds survived."
+scene = {kind = "named", name = "flood"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "first-account"
+timestamp = "2025-01-10T10:01:00Z"
+memory = {subtype = "reflection", text = "Jo and I saved all the seeds from the flood.", experiences = ["flood-basis"], about = ["mara", "jo"]}
+[[scenarios.events]]
+kind = "experience"
+event_id = "privacy-request"
+timestamp = "2025-01-11T10:00:00Z"
+text = "Jo asked me not to retell the rescue at the cafe; the memory is still ours."
+scene = {kind = "named", name = "with_jo"}
+speaker = "jo"
+[[scenarios.events]]
+kind = "derive"
+event_id = "current-account"
+timestamp = "2025-01-11T10:01:00Z"
+expected_warning = "near_verbatim_restatement"
+memory = {subtype = "reflection", text = "Jo and I saved all the seeds from the flood. Jo asks that the story remain private.", experiences = ["flood-basis", "privacy-request"], about = ["mara", "jo"], supersedes = ["first-account"]}
+[[scenarios.events]]
+kind = "probe"
+event_id = "jo-remembers"
+query_id = "c4-same-basis"
+timestamp = "2025-01-12T10:00:00Z"
+scene = {kind = "named", name = "with_jo"}
+topic = "The seed boxes in the flood"
+[scenarios.events.assertions]
+carried = [{memory = "flood-basis", reason = "topic"}, {memory = "current-account", reason = "topic"}]
+omitted = [{memory = "first-account", reason = "supersession"}]
+scenes = [{memory = "flood-basis", scene = "flood"}]
+[[scenarios.events]]
+kind = "probe"
+event_id = "iman-remembers-months-later"
+query_id = "c4-other-scene-months-later"
+timestamp = "2025-07-12T10:00:00Z"
+scene = {kind = "named", name = "with_iman"}
+topic = "The seed boxes in the flood"
+[scenarios.events.assertions]
+carried = [{memory = "flood-basis", reason = "topic"}, {memory = "current-account", reason = "topic"}]
+omitted = [{memory = "first-account", reason = "supersession"}]
+scenes = [{memory = "flood-basis", scene = "flood"}]
+staleness = ["current-account"]
+
+# A caller keeps rewriting the same account without new evidence. Six changes
+# in one minute must warn by the final write; earlier warnings are unasserted.
+[[scenarios]]
+fixture_id = "c4-churning-account"
+namespace = "situated-c4-churn"
+pattern = "situated"
+catalog_situations = ["C4"]
+character_entity = "mara"
+entities = [
+  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
+  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+]
+[scenarios.embedding]
+provider = "controllable_similarity"
+own_concept = true
+seed = 7
+vector_size = 32
+noise_magnitude = 0.01
+clusters = {}
+concepts = {}
+[scenarios.scenes.garden]
+who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
+where = {by = "setting", key = "allotment"}
+[[scenarios.events]]
+kind = "experience"
+event_id = "shared-harvest"
+timestamp = "2025-09-01T10:00:00Z"
+text = "Jo and I picked the last beans and divided the harvest equally."
+scene = {kind = "named", name = "garden"}
+[[scenarios.events]]
+kind = "derive"
+event_id = "account-0"
+timestamp = "2025-09-01T10:01:00Z"
+memory = {subtype = "reflection", text = "We shared the final bean harvest equally.", experiences = ["shared-harvest"], about = ["mara", "jo"]}
+[[scenarios.events]]
+kind = "derive"
+event_id = "account-1"
+timestamp = "2025-09-01T10:01:10Z"
+memory = {subtype = "reflection", text = "Jo and I each took half of the last beans.", experiences = ["shared-harvest"], about = ["mara", "jo"], supersedes = ["account-0"]}
+[[scenarios.events]]
+kind = "derive"
+event_id = "account-2"
+timestamp = "2025-09-01T10:01:20Z"
+memory = {subtype = "reflection", text = "Our last picking left equal shares for Jo and me.", experiences = ["shared-harvest"], about = ["mara", "jo"], supersedes = ["account-1"]}
+[[scenarios.events]]
+kind = "derive"
+event_id = "account-3"
+timestamp = "2025-09-01T10:01:30Z"
+memory = {subtype = "reflection", text = "Neither of us took more than the other from the final harvest.", experiences = ["shared-harvest"], about = ["mara", "jo"], supersedes = ["account-2"]}
+[[scenarios.events]]
+kind = "derive"
+event_id = "account-4"
+timestamp = "2025-09-01T10:01:40Z"
+memory = {subtype = "reflection", text = "The remaining beans went half to Jo and half to me.", experiences = ["shared-harvest"], about = ["mara", "jo"], supersedes = ["account-3"]}
+[[scenarios.events]]
+kind = "derive"
+event_id = "account-5"
+timestamp = "2025-09-01T10:01:50Z"
+memory = {subtype = "reflection", text = "We made two equal piles from the last picking.", experiences = ["shared-harvest"], about = ["mara", "jo"], supersedes = ["account-4"]}
+[[scenarios.events]]
+kind = "derive"
+event_id = "account-6"
+timestamp = "2025-09-01T10:02:00Z"
+expected_warning = "churning_chain"
+memory = {subtype = "reflection", text = "Jo and I split the season's final beans evenly.", experiences = ["shared-harvest"], about = ["mara", "jo"], supersedes = ["account-5"]}
+[[scenarios.events]]
+kind = "probe"
+event_id = "stable-basis"
+query_id = "c4-churn-current"
+timestamp = "2025-10-01T10:00:00Z"
+scene = {kind = "named", name = "garden"}
+[scenarios.events.assertions]
+carried = [{memory = "shared-harvest", reason = "pair"}, {memory = "account-6", reason = "pair"}]
+omitted = [{memory = "account-0", reason = "supersession"}, {memory = "account-1", reason = "supersession"}, {memory = "account-2", reason = "supersession"}, {memory = "account-3", reason = "supersession"}, {memory = "account-4", reason = "supersession"}, {memory = "account-5", reason = "supersession"}]
+staleness = ["account-6"]
