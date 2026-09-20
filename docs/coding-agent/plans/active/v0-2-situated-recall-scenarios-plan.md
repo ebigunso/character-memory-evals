@@ -216,6 +216,31 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
     owner: reviewer
     detail: "Tier D diff review with the reviewer evidence clause; Tier A review that the changed D1, D5, D7 and D9 cases are still the catalog situations and the draft's section 6, not a mechanism"
 
+### Task_8: The scenarios stop asking for a partition
+- type: impl
+- owns:
+  - crates/cmem-eval-continuity/src/**
+  - crates/cmem-eval-continuity/fixtures/situated_v1.toml
+  - crates/cmem-eval-continuity/README.md
+  - crates/cmem-eval-runner/src/** (only where a partition is named)
+  - README.md (only where a partition is named)
+- depends_on: [Task_7]
+- description: |
+  The library's ADR-D-0038 (accepted 2026-09-21) withdraws the query-time partition: no recall is gated by the scene, by default or by option, and the library computes no verdict about who may hear a memory; it reports each memory's scene as recorded and the present scene as given, including when it is partial. Remove the partition from the scenario language (the probe field, its needed features, the omission reason, the implicit applied-policy assertion) and from B1 and B2, which keep their default probes: the memory from the other scene is carried with its scene reported. Add nothing in its place; there is no audience assertion.
+- acceptance:
+  - No partition field, feature, omission reason or assertion remains in the language, the fixtures, the crate README or the root README, and a fixture that names one is rejected as an unknown key.
+  - B1 and B2 still state their situations: cross-scene recall with the scene reported, in both directions for B2, with the probe-cue audit still holding.
+  - The generated fixtures are still reproduced byte for byte, the six protected hashes match, and the situated fixtures still load and report every scenario not run at the pinned library with zero namespaces.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: "the three repository validation commands; the README smoke recipe against the task base; both situated fixtures load"
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: "Tier D diff review with the reviewer evidence clause; Tier A check of the revised B1 and B2 against the catalog and ADR-D-0038"
+
 ### Task_4: The harness follows the library's schema groundwork
 - type: impl
 - owns:
@@ -306,6 +331,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 - Wave 1: [Task_1]
 - Wave 2 (parallel): [Task_2, Task_3], then the Orchestrator's starting run over the integrated result
 - Wave 2b: [Task_7] (needs nothing from the library; stacks on Wave 2)
+- Wave 2c: [Task_8] (needs nothing from the library; stacks on Wave 2b)
 - Wave 3: [Task_4] (starts when the library groundwork branch exists)
 - Wave 4: [Task_5] (follows library slices; may be several steps)
 - Wave 5: [Task_6]
@@ -363,6 +389,13 @@ Waves 1 and 2 need nothing from the library, start on approval, stack on each ot
   - Tradeoffs considered: the not-run gate is scaffolding for the period before a library slice lands; it recurs each library phase that is evaluated first, so it stays, but it is not grown beyond what a landing order needs.
   - User approval: requested by the decider 2026-09-20.
   - Record proposed: none
+
+- 2026-09-21 Decision: the partition leaves the scenarios, following the library's ADR-D-0038.
+  - Trigger / new insight: the decider judged the recall-side partition by character behavior rather than application compliance: a character from whom a confidence is withheld is ignorant, not discreet, and what it perceives of the room is often partial, so neither an omission policy nor a computed "shared with everyone present" verdict holds up. ADR-D-0038 replaces ADR-D-0019.
+  - Plan delta (what changed): Task_8 removes the partition from the language and from B1 and B2, and adds nothing in its place. This is the reviewed fixture revision the plan allowed for a library ruling on partitions. The requirement "a partition over participants has a stated meaning" is withdrawn from the list handed to the library.
+  - Tradeoffs considered: none kept; the scene assertion on a carried memory already states what B1 and B2 measure.
+  - User approval: yes, 2026-09-21.
+  - Record proposed: none here; the record is the library's.
 
 ## Notes
 - Risks: the library's scene shape may want something the as-perceived fixture scene cannot say; that is a finding for the library plan, and the fixture follows the catalog, not the API. The assertion list may grow; each addition names the scenario that needs it. The `section` on a `carried` assertion couples a scenario to the library's pack section names, so it is used only where the draft itself names a section.
