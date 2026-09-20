@@ -102,7 +102,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 - acceptance:
   - The D4 example of the Design discussion (a keyed write-side scene, a commitment with direction and due date, a probe with a participant by name and no topic, one assertion of each kind, bystanders) loads from TOML and validates, and its needed features and computed gold are what a reader would expect.
   - Gold never appears in what the loader hands the driver as library input: a participant given by name or description carries only that text.
-  - Load rejects an assertion that references an undeclared memory, an `omitted` without a reason, a write-side scene given by name or description, and an unknown key in either format.
+  - Every memory an assertion or a `bystanders` list names is the external id of an `experience` or `derive` declared earlier in the scenario; load rejects an unknown or duplicate id in either, an `omitted` without a reason, a write-side scene given by name or description, and an unknown key in either format.
   - The checked fixtures load unchanged and both existing generators reproduce them byte for byte, with no version dispatch or tolerance code added.
 - validation:
   - kind: command
