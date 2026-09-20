@@ -1,6 +1,6 @@
 # Plan: Situated-recall scenarios for the library's v0.2 phase
 
-- status: approved
+- status: in_progress
 - generated: 2026-09-20
 - last_updated: 2026-09-20
 - work_type: code
@@ -61,6 +61,8 @@ B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, tasks and favors acros
 ### What the scenarios require of the library (handed to the library plan)
 - The trace names every cue kind that admitted an item, not only the first and not only the route. Several cue kinds may share a route (due, date and own day are all time; pair and activity are both entity), and a D9 control cannot be read from a route-level trace because the memory legitimately arrives by the pair cue. Grounded in ADR-D-0022: each cue kind's admission is measured against starvation.
 - A partition over participants needs a stated meaning. The B2 scenarios are authored to "everyone present now was present then" (a group memory may surface in a one-on-one with a member; a one-on-one memory is omitted in the group). The library plan confirms or rules otherwise, and the scenarios follow the ruling. A memory with no recorded participants is left unasserted under a partition until the library rules.
+- The pair cue needs a counterpart other than the character's own entity. The self is a participant in every scene (ADR-D-0020), so if an admission through the self alone is labelled pair, every pair control fails.
+- The C4 churn example is six restatements within one minute, with the warning asserted on the final replacement only; the threshold is the library plan's to set.
 
 ## Compatibility stance (required if a contract/interface/persisted format is touched)
 - surface: the continuity fixture shape (additive; a TOML form beside JSON), the adapter contract types in `memory_adapter.rs` (change with the library at Task_4), run output (gains scenario outcomes), the local untracked enrichment snapshots.
@@ -274,7 +276,15 @@ Waves 1 and 2 need nothing from the library, start on approval, stack on each ot
 
 ## Progress Log (append-only)
 
-- (none yet)
+- 2026-09-20 Wave 1 completed: [Task_1]
+  - Summary: the situated scenario language, loadable from TOML and JSON, fail-closed, with gold-free library input, computed gold, needed features and position-free assertion identities. PR 54.
+  - Validation evidence: Tier D approved at 323835b after one finding (a scene's activity key was validated as an entity; it now resolves to an earlier authored thread or open loop). Both generators reproduce the checked fixtures byte for byte; six protected hashes match; base-versus-tip smoke diff zero. The runner's symlink test fails on the development machine (Windows OS 1314, no symlink privilege) and passed in CI on PR 54, which closes the orchestrator-owned check.
+  - Notes: reviewer and worker checkouts live under C:/w with a pinned library worktree.
+- 2026-09-20 Wave 2 completed: [Task_2, Task_3]
+  - Summary: Task_2, 15 narrative scenarios and a generated loud-topic scenario, 40 probes (PR 56). Task_3, the run: passed, failed or not run per scenario decided before any runtime exists, assertions against the native outcome, the measures, TOML loading in the CLI, `compare-continuity`, the config and the README recipe.
+  - Validation evidence: Task_2 Tier D approved twice with independent byte-identical regeneration, Tier A approved after seven scenario changes (accidental anniversaries, a trigger probe equal to its trigger string, a C6 probe with the departed person present, no suppression scenario, due instants equal to probe instants, a vacuous activity control, sibling inconsistencies). Task_3 Tier D approved at eebf41e after one finding (fractional timestamps truncated on the way to the library). Ingestion bytes for LoCoMo and LongMemEval unchanged; six protected hashes match.
+  - Starting run (orchestrator, library d0fe82d, harness e7063ce, two runs each, release build): narrative 15 of 15 not run, 125 assertions not run; loud-topic 1 of 1 not run, 9 assertions; zero namespaces opened; `compare-continuity` reports no differences for either pair. Every scenario lacks `probe_scene`, `reference_time` and `omission_reasons`; 14 lack `write_scene_where`; 11 `no_topic`; 6 `cue_trace`; 6 `staleness`; 4 `direction`; 3 `memory_scene_trace`; 3 `elapsed_since_met`; 2 each `partition`, `partition_trace`, `participant_name`, `participant_description`, `reference_trace`, `write_warnings`, `trigger`, `intention_memory`; 1 each `due_date`, `write_scene_what`, `thread_provenance`. This list is what Task_5 has to make forwardable.
+  - Notes: known language gap, an `experience` has no salience, so "recent high-salience episodes" (draft section 6) cannot be authored yet; scheduled as a small follow-up before Task_5.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
@@ -290,6 +300,13 @@ Waves 1 and 2 need nothing from the library, start on approval, stack on each ot
   - Plan delta (what changed): status approved. The additive loader (no version bump, fixtures regenerated only if invalidated) stands as written. Open Question 1 stays conditional and needs its own authorization if Task_4 reports that assumption A1 failed.
   - Tradeoffs considered: none new.
   - User approval: yes, 2026-09-20.
+  - Record proposed: none
+
+- 2026-09-20 Decision: rulings made during Waves 1 and 2.
+  - Trigger / new insight: worker design alerts and review findings.
+  - Plan delta (what changed): (1) own-concept embedding is an explicit per-scenario opt-in, not a default, so the strict exact-coverage rule keeps protecting generated fixtures. (2) The one mapping place is the continuity driver, with the supported feature set as a const beside it and a drift test, because the continuity crate depends on the core crate and core must not learn a dataset concept (ADR-I-0004); this replaces the plan's wording that the adapter declares the features. (3) Needed features were split so each is forwarded whole or not at all: write-scene participants apart from where, what and custom; one feature per derived subtype with no native kind, preference included, since choosing between the library's user and assistant preference kinds is an open decider question; thread provenance. The Task_3 worker made that change in `fixture.rs` under a pre-ruling limited to the requirements derivation. (4) `created_at` sits on each derived-memory input, not on the batch. (5) No JSON duplicate-key visitor; no positive "admitted by cue" assertion; a due item is due on or after its due instant and probes avoid equality; loud-topic bystanders are near-misses authored as plain experiences.
+  - Tradeoffs considered: recorded with each ruling in the agmsg history.
+  - User approval: not needed; none is contract-shape for the library.
   - Record proposed: none
 
 ## Notes
