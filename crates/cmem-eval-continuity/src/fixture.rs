@@ -307,7 +307,7 @@ pub enum AssertionSubject {
     Omitted(String),
     NotCued(String),
     References(PerceivedReference),
-    Scene(String),
+    Scene { memory: String, scene: String },
     ElapsedSinceMet(String),
     Staleness(String),
     Partition,
@@ -323,6 +323,10 @@ pub enum ScenarioFeature {
     ReferenceTime,
     ParticipantName,
     ParticipantDescription,
+    PlaceName,
+    PlaceDescription,
+    ActivityName,
+    ActivityDescription,
     Partition,
     Direction,
     DueDate,
@@ -1453,7 +1457,13 @@ impl ContinuityScenario {
                                 &declared_entities,
                             )?,
                             IntentionTrigger::Topic { text } => {
-                                require_non_empty(&location, "derive.trigger", text)?
+                                require_non_empty(&location, "derive.trigger", text)?;
+                                require_embedding_input(
+                                    &location,
+                                    "derive.trigger",
+                                    assigned_inputs.as_ref(),
+                                    text,
+                                )?;
                             }
                         }
                         requirements.features.insert(ScenarioFeature::Trigger);
@@ -1518,26 +1528,43 @@ impl ContinuityScenario {
                         &declared_entities,
                         Some(&activities),
                     )?;
-                    for reference in scene
+                    for (reference, name_feature, description_feature) in scene
                         .who
                         .iter()
-                        .map(|person| &person.reference)
-                        .chain(scene.place.iter())
-                        .chain(scene.what.iter())
+                        .map(|person| {
+                            (
+                                &person.reference,
+                                ScenarioFeature::ParticipantName,
+                                ScenarioFeature::ParticipantDescription,
+                            )
+                        })
+                        .chain(scene.place.iter().map(|reference| {
+                            (
+                                reference,
+                                ScenarioFeature::PlaceName,
+                                ScenarioFeature::PlaceDescription,
+                            )
+                        }))
+                        .chain(scene.what.iter().map(|reference| {
+                            (
+                                reference,
+                                ScenarioFeature::ActivityName,
+                                ScenarioFeature::ActivityDescription,
+                            )
+                        }))
                     {
-                        match reference {
-                            PerceivedReference::Name { .. } => {
-                                requirements
-                                    .features
-                                    .insert(ScenarioFeature::ParticipantName);
-                            }
-                            PerceivedReference::Description { .. } => {
-                                requirements
-                                    .features
-                                    .insert(ScenarioFeature::ParticipantDescription);
-                            }
-                            _ => {}
-                        }
+                        let (text, feature) = match reference {
+                            PerceivedReference::Name { text } => (text, name_feature),
+                            PerceivedReference::Description { text } => (text, description_feature),
+                            _ => continue,
+                        };
+                        require_embedding_input(
+                            &location,
+                            "scene.reference.text",
+                            assigned_inputs.as_ref(),
+                            text,
+                        )?;
+                        requirements.features.insert(feature);
                     }
                     if let Some(topic) = topic {
                         require_non_empty(&location, "probe.topic", topic)?;
@@ -1571,6 +1598,7 @@ impl ContinuityScenario {
                         support_times: &support_times,
                         last_met: &last_met,
                         scenes: &self.scenes,
+                        activities: &activities,
                         timestamp,
                     }
                     .validate(
@@ -1897,12 +1925,10 @@ impl InteractionEvent {
                         .iter()
                         .map(|a| AssertionSubject::References(a.participant.clone())),
                 );
-                subjects.extend(
-                    assertions
-                        .scenes
-                        .iter()
-                        .map(|a| AssertionSubject::Scene(a.memory.clone())),
-                );
+                subjects.extend(assertions.scenes.iter().map(|a| AssertionSubject::Scene {
+                    memory: a.memory.clone(),
+                    scene: a.scene.clone(),
+                }));
                 subjects.extend(
                     assertions
                         .elapsed_since_met
@@ -2175,7 +2201,12 @@ fn validate_scene(
             (PerceivedReference::Key { key }, false) => {
                 require_entity(location, "scene.reference.key", key, entities)?
             }
-            (PerceivedReference::Setting { key }, _) => {
+            (PerceivedReference::Setting { .. }, true) => {
+                return Err(
+                    location.error("scene.what", FixtureAdmissionKind::InvalidSceneReference)
+                );
+            }
+            (PerceivedReference::Setting { key }, false) => {
                 require_non_empty(location, "scene.reference.key", key)?
             }
             (PerceivedReference::Name { text } | PerceivedReference::Description { text }, _) => {
@@ -2203,6 +2234,7 @@ struct ProbeAdmission<'a> {
     support_times: &'a BTreeMap<String, DateTime<Utc>>,
     last_met: &'a BTreeMap<String, DateTime<Utc>>,
     scenes: &'a BTreeMap<String, Scene>,
+    activities: &'a BTreeSet<&'a str>,
     timestamp: DateTime<Utc>,
 }
 
@@ -2265,12 +2297,15 @@ impl ProbeAdmission<'_> {
             }
             features.insert(ScenarioFeature::OmissionReasons);
         }
-        require_distinct(
-            location,
-            "probe.assertions.in_order",
-            assertions.in_order.iter().flatten(),
-        )?;
+        let mut orders = BTreeSet::new();
         for order in &assertions.in_order {
+            require_distinct(location, "probe.assertions.in_order", order)?;
+            if !orders.insert(order) {
+                return Err(location.error(
+                    "probe.assertions.in_order",
+                    FixtureAdmissionKind::Duplicate(serde_json::to_string(order).unwrap()),
+                ));
+            }
             if order.len() < 2 {
                 return Err(location.error(
                     "probe.assertions.in_order",
@@ -2320,6 +2355,14 @@ impl ProbeAdmission<'_> {
                     FixtureAdmissionKind::Duplicate(
                         serde_json::to_string(&assertion.participant).unwrap(),
                     ),
+                ));
+            }
+            if let PerceivedReference::Key { key } = &person.reference
+                && !matches!(&assertion.resolution, ExpectedReferenceResolution::Resolved { entity } if entity == key)
+            {
+                return Err(location.error(
+                    "probe.assertions.references",
+                    FixtureAdmissionKind::DiffersFrom("scene.who.reference.key"),
                 ));
             }
             match &assertion.resolution {
@@ -2389,12 +2432,19 @@ impl ProbeAdmission<'_> {
                     FixtureAdmissionKind::NotAdmitted(assertion.memory.clone()),
                 ));
             }
-            if !self.scenes.contains_key(&assertion.scene) {
-                return Err(location.error(
+            let asserted_scene = self.scenes.get(&assertion.scene).ok_or_else(|| {
+                location.error(
                     "probe.assertions.scenes",
                     FixtureAdmissionKind::NotAdmitted(assertion.scene.clone()),
-                ));
-            }
+                )
+            })?;
+            validate_scene(
+                asserted_scene,
+                false,
+                location,
+                self.entities,
+                Some(self.activities),
+            )?;
             features.insert(ScenarioFeature::MemorySceneTrace);
         }
         let mut gold = ComputedProbeGold {
@@ -2790,6 +2840,322 @@ bystanders = ["distractor"]
             std::path::Path::new(&format!("scenario.{extension}")),
             &bytes,
         )
+    }
+
+    fn strict_situated_value() -> Value {
+        let mut value = serde_json::to_value(parse_as(&situated_value(), "json").unwrap()).unwrap();
+        value["scenarios"][0]["embedding"]["own_concept"] = Value::Bool(false);
+        value
+    }
+
+    #[test]
+    fn situated_scene_reference_texts_require_embedding_assignments() {
+        for extension in ["json", "toml"] {
+            for slot in ["who", "where", "what"] {
+                for by in ["name", "description"] {
+                    for named in [true, false] {
+                        let mut value = strict_situated_value();
+                        let scenario = &mut value["scenarios"][0];
+                        let mut scene = scenario["scenes"]["encounter"].clone();
+                        let reference =
+                            serde_json::json!({"by": by, "text": "Unassigned scene reference"});
+                        if slot == "who" {
+                            scene["who"][1]["reference"] = reference;
+                            scenario["events"][5]["assertions"]["references"] =
+                                serde_json::json!([]);
+                        } else {
+                            scene[slot] = reference;
+                        }
+                        if named {
+                            scenario["scenes"]["encounter"] = scene;
+                        } else {
+                            scenario["events"][5]["scene"] =
+                                serde_json::json!({"kind": "inline", "scene": scene});
+                        }
+                        assert_eq!(
+                            admission_of(parse_as(&value, extension).unwrap_err()),
+                            expected_admission(
+                                "encounter",
+                                Some("reunion"),
+                                "scene.reference.text",
+                                FixtureAdmissionKind::UnassignedEmbeddingInput(
+                                    "Unassigned scene reference".into()
+                                )
+                            ),
+                            "{extension}, {slot}, {by}, named={named}"
+                        );
+                        value["scenarios"][0]["embedding"]["own_concept"] = Value::Bool(true);
+                        assert!(parse_as(&value, extension).is_ok());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn situated_topic_triggers_require_embedding_assignments() {
+        for extension in ["json", "toml"] {
+            let mut value = strict_situated_value();
+            value["scenarios"][0]["events"][4]["memory"]["trigger"] =
+                serde_json::json!({"kind": "topic", "text": "Unassigned topic trigger"});
+            assert_eq!(
+                admission_of(parse_as(&value, extension).unwrap_err()),
+                expected_admission(
+                    "encounter",
+                    Some("promise"),
+                    "derive.trigger",
+                    FixtureAdmissionKind::UnassignedEmbeddingInput(
+                        "Unassigned topic trigger".into()
+                    )
+                )
+            );
+            value["scenarios"][0]["events"][4]["memory"]["trigger"]["text"] =
+                Value::from("I will bring the book.");
+            assert!(parse_as(&value, extension).is_ok());
+        }
+    }
+
+    #[test]
+    fn situated_reference_features_follow_scene_roles() {
+        let role_features = [
+            "participant_name",
+            "participant_description",
+            "place_name",
+            "place_description",
+            "activity_name",
+            "activity_description",
+        ];
+        for extension in ["json", "toml"] {
+            for (slot, by, expected) in [
+                ("who", "name", "participant_name"),
+                ("who", "description", "participant_description"),
+                ("where", "name", "place_name"),
+                ("where", "description", "place_description"),
+                ("what", "name", "activity_name"),
+                ("what", "description", "activity_description"),
+            ] {
+                let mut value = situated_value();
+                let mut scene =
+                    serde_json::json!({"who": [{"reference": {"by": "key", "key": "self"}}]});
+                let reference = serde_json::json!({"by": by, "text": "Perceived reference"});
+                if slot == "who" {
+                    scene["who"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(serde_json::json!({"reference": reference}));
+                } else {
+                    scene[slot] = reference;
+                }
+                value["scenarios"][0]["events"][5]["scene"] =
+                    serde_json::json!({"kind": "inline", "scene": scene});
+                value["scenarios"][0]["events"][5]["assertions"]["references"] =
+                    serde_json::json!([]);
+                let loaded = parse_as(&value, extension).unwrap();
+                let features: Vec<String> = serde_json::from_value(
+                    serde_json::to_value(&loaded.scenarios[0].requirements.features).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    features
+                        .iter()
+                        .filter(|feature| role_features.contains(&feature.as_str()))
+                        .map(String::as_str)
+                        .collect::<Vec<_>>(),
+                    [expected],
+                    "{extension}, {slot}, {by}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn situated_order_assertions_allow_shared_members_but_have_unique_subjects() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            let assertions = &mut value["scenarios"][0]["events"][5]["assertions"];
+            assertions["carried"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({"memory": "early-meeting", "reason": "pair"}));
+            assertions["in_order"] = serde_json::json!([
+                ["last-meeting", "promise"],
+                ["last-meeting", "early-meeting"]
+            ]);
+            let loaded = parse_as(&value, extension).unwrap();
+            let identities = loaded.scenarios[0].events[5].assertion_identities();
+            assert_eq!(identities.len(), 12);
+            value["scenarios"][0]["events"][5]["assertions"]["in_order"]
+                .as_array_mut()
+                .unwrap()
+                .reverse();
+            assert_eq!(
+                parse_as(&value, extension).unwrap().scenarios[0].events[5].assertion_identities(),
+                identities
+            );
+            for (orders, duplicate) in [
+                (
+                    serde_json::json!([["last-meeting", "last-meeting"]]),
+                    "last-meeting".to_string(),
+                ),
+                (
+                    serde_json::json!([["last-meeting", "promise"], ["last-meeting", "promise"]]),
+                    "[\"last-meeting\",\"promise\"]".to_string(),
+                ),
+            ] {
+                value["scenarios"][0]["events"][5]["assertions"]["in_order"] = orders;
+                assert_eq!(
+                    admission_of(parse_as(&value, extension).unwrap_err()),
+                    expected_admission(
+                        "encounter",
+                        Some("reunion"),
+                        "probe.assertions.in_order",
+                        FixtureAdmissionKind::Duplicate(duplicate)
+                    )
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn situated_key_reference_assertions_resolve_to_that_key() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            value["scenarios"][0]["scenes"]["encounter"]["who"][1] =
+                serde_json::json!({"reference": {"by": "key", "key": "intended-entity"}});
+            value["scenarios"][0]["events"][5]["assertions"]["references"][0]["participant"] =
+                serde_json::json!({"by": "key", "key": "intended-entity"});
+            assert!(parse_as(&value, extension).is_ok());
+            for resolution in [
+                serde_json::json!({"status": "unknown"}),
+                serde_json::json!({"status": "ambiguous", "candidates": ["intended-entity", "other"]}),
+                serde_json::json!({"status": "resolved", "entity": "other"}),
+            ] {
+                value["scenarios"][0]["events"][5]["assertions"]["references"][0]["resolution"] =
+                    resolution;
+                assert_eq!(
+                    admission_of(parse_as(&value, extension).unwrap_err()),
+                    expected_admission(
+                        "encounter",
+                        Some("reunion"),
+                        "probe.assertions.references",
+                        FixtureAdmissionKind::DiffersFrom("scene.who.reference.key")
+                    )
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn situated_asserted_scenes_require_prior_activities() {
+        for extension in ["json", "toml"] {
+            for subtype in ["thread", "open_loop"] {
+                let mut value = situated_value();
+                let scenario = &mut value["scenarios"][0];
+                scenario["events"][3]["memory"]["subtype"] = Value::from(subtype);
+                let mut scene = scenario["scenes"]["pair"].clone();
+                scene["what"] = serde_json::json!({"by": "key", "key": "old-note"});
+                scenario["scenes"]["asserted-activity"] = scene;
+                scenario["events"][5]["assertions"]["scenes"][0]["scene"] =
+                    Value::from("asserted-activity");
+                assert!(parse_as(&value, extension).is_ok());
+                for id in ["unknown", "future-activity", "promise"] {
+                    let mut invalid = value.clone();
+                    invalid["scenarios"][0]["scenes"]["asserted-activity"]["what"]["key"] =
+                        Value::from(id);
+                    if id == "future-activity" {
+                        let mut future = invalid["scenarios"][0]["events"][3].clone();
+                        future["event_id"] = Value::from(id);
+                        future["timestamp"] = Value::from("2024-01-09T09:00:00Z");
+                        invalid["scenarios"][0]["events"]
+                            .as_array_mut()
+                            .unwrap()
+                            .push(future);
+                    }
+                    assert_eq!(
+                        admission_of(parse_as(&invalid, extension).unwrap_err()),
+                        expected_admission(
+                            "encounter",
+                            Some("reunion"),
+                            "scene.what.key",
+                            FixtureAdmissionKind::NotAdmittedActivity(id.into())
+                        )
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn situated_scene_assertion_identity_includes_expected_scene() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            value["scenarios"][0]["events"][5]["assertions"]["scenes"] = serde_json::json!([
+                {"memory": "last-meeting", "scene": "pair"},
+                {"memory": "promise", "scene": "pair"}
+            ]);
+            let before =
+                parse_as(&value, extension).unwrap().scenarios[0].events[5].assertion_identities();
+            value["scenarios"][0]["events"][5]["assertions"]["scenes"]
+                .as_array_mut()
+                .unwrap()
+                .reverse();
+            assert_eq!(
+                parse_as(&value, extension).unwrap().scenarios[0].events[5].assertion_identities(),
+                before
+            );
+            value["scenarios"][0]["events"][5]["assertions"]["scenes"][1]["scene"] =
+                Value::from("other");
+            let after =
+                parse_as(&value, extension).unwrap().scenarios[0].events[5].assertion_identities();
+            assert_eq!(before.symmetric_difference(&after).count(), 2);
+            let added = serde_json::to_value(after.difference(&before).next().unwrap()).unwrap();
+            assert_eq!(
+                added["subject"],
+                serde_json::json!({"memory": "last-meeting", "scene": "other"})
+            );
+        }
+    }
+
+    #[test]
+    fn situated_setting_references_are_only_places() {
+        for extension in ["json", "toml"] {
+            for named in [true, false] {
+                let mut value = situated_value();
+                let scene = value["scenarios"][0]["scenes"]["encounter"].clone();
+                if !named {
+                    value["scenarios"][0]["events"][5]["scene"] =
+                        serde_json::json!({"kind": "inline", "scene": scene});
+                }
+                assert!(parse_as(&value, extension).is_ok());
+                for slot in ["what", "who"] {
+                    let mut invalid = value.clone();
+                    let scene = if named {
+                        &mut invalid["scenarios"][0]["scenes"]["encounter"]
+                    } else {
+                        &mut invalid["scenarios"][0]["events"][5]["scene"]["scene"]
+                    };
+                    let reference = serde_json::json!({"by": "setting", "key": "opaque-setting"});
+                    if slot == "who" {
+                        scene["who"][0]["reference"] = reference;
+                    } else {
+                        scene[slot] = reference;
+                    }
+                    assert_eq!(
+                        admission_of(parse_as(&invalid, extension).unwrap_err()),
+                        expected_admission(
+                            "encounter",
+                            if named { None } else { Some("reunion") },
+                            if slot == "who" {
+                                "scene.who"
+                            } else {
+                                "scene.what"
+                            },
+                            FixtureAdmissionKind::InvalidSceneReference
+                        )
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -3192,13 +3558,17 @@ bystanders = ["distractor"]
 
                 let mut value = situated_value();
                 let values = &mut value["scenarios"][0]["events"][5][group][list];
-                let duplicate = values
-                    .pointer(pointer)
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .to_string();
                 let first = values[0].clone();
+                let duplicate = if list == "in_order" {
+                    serde_json::to_string(&first).unwrap()
+                } else {
+                    values
+                        .pointer(pointer)
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .to_string()
+                };
                 values.as_array_mut().unwrap().push(first);
                 assert_eq!(
                     admission_of(parse_as(&value, extension).unwrap_err()),
