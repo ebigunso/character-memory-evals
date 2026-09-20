@@ -756,6 +756,7 @@ pub enum FixtureAdmissionKind {
     MissingQuery,
     MustEndWithQuery,
     InvalidSceneReference,
+    NotAdmittedActivity(String),
     WriteSceneMustUseKeys,
     RequiredWith(&'static str),
     InvalidAssertion(&'static str),
@@ -897,6 +898,10 @@ impl fmt::Display for FixtureAdmissionKind {
                 "must end with a scripted query so every cumulative operation outcome is emitted"
             ),
             Self::InvalidSceneReference => write!(f, "invalid scene reference"),
+            Self::NotAdmittedActivity(id) => write!(
+                f,
+                "activity key {id:?} must reference an earlier authored thread or open loop"
+            ),
             Self::WriteSceneMustUseKeys => {
                 write!(f, "write-side scenes require identity or setting keys")
             }
@@ -1270,11 +1275,12 @@ impl ContinuityScenario {
         }
         for (name, scene) in &self.scenes {
             require_non_empty(&scenario, "scenes", name)?;
-            validate_scene(scene, false, &scenario, &declared_entities)?;
+            validate_scene(scene, false, &scenario, &declared_entities, None)?;
         }
         let mut requirements = ScenarioRequirements::default();
         let mut support_times = BTreeMap::new();
         let mut authored_memories = BTreeMap::new();
+        let mut activities = BTreeSet::new();
         let mut last_met = BTreeMap::new();
         let mut query_ids = BTreeSet::new();
         let mut admitted_external_ids = self
@@ -1317,7 +1323,13 @@ impl ContinuityScenario {
                 } => {
                     self.require_situated_header(&location)?;
                     let scene = self.scene(scene, &location)?;
-                    validate_scene(scene, true, &location, &declared_entities)?;
+                    validate_scene(
+                        scene,
+                        true,
+                        &location,
+                        &declared_entities,
+                        Some(&activities),
+                    )?;
                     if let Some(speaker) = speaker {
                         require_entity(
                             &location,
@@ -1471,6 +1483,12 @@ impl ContinuityScenario {
                             .unwrap(),
                     );
                     authored_memories.insert(external_id.clone(), kind);
+                    if matches!(
+                        memory.subtype,
+                        AuthoredMemoryKind::Thread | AuthoredMemoryKind::OpenLoop
+                    ) {
+                        activities.insert(external_id.as_str());
+                    }
                     requirements
                         .features
                         .insert(ScenarioFeature::AuthoredDerivedMemory);
@@ -1493,7 +1511,13 @@ impl ContinuityScenario {
                         ));
                     }
                     let scene = self.scene(scene, &location)?;
-                    validate_scene(scene, false, &location, &declared_entities)?;
+                    validate_scene(
+                        scene,
+                        false,
+                        &location,
+                        &declared_entities,
+                        Some(&activities),
+                    )?;
                     for reference in scene
                         .who
                         .iter()
@@ -2104,6 +2128,7 @@ fn validate_scene(
     write: bool,
     location: &FixtureLocation,
     entities: &BTreeSet<&str>,
+    activities: Option<&BTreeSet<&str>>,
 ) -> Result<(), FixtureError> {
     let mut participants = BTreeSet::new();
     for person in &scene.who {
@@ -2133,16 +2158,27 @@ fn validate_scene(
         .iter()
         .map(|person| &person.reference)
         .chain(scene.place.iter())
-        .chain(scene.what.iter())
+        .map(|reference| (reference, false))
+        .chain(scene.what.iter().map(|reference| (reference, true)))
     {
         match reference {
-            PerceivedReference::Key { key } => {
+            (PerceivedReference::Key { key }, true) => {
+                require_non_empty(location, "scene.what.key", key)?;
+                // Named scenes precede events; activity identity is admitted when the scene is used.
+                if activities.is_some_and(|activities| !activities.contains(key.as_str())) {
+                    return Err(location.error(
+                        "scene.what.key",
+                        FixtureAdmissionKind::NotAdmittedActivity(key.clone()),
+                    ));
+                }
+            }
+            (PerceivedReference::Key { key }, false) => {
                 require_entity(location, "scene.reference.key", key, entities)?
             }
-            PerceivedReference::Setting { key } => {
+            (PerceivedReference::Setting { key }, _) => {
                 require_non_empty(location, "scene.reference.key", key)?
             }
-            PerceivedReference::Name { text } | PerceivedReference::Description { text } => {
+            (PerceivedReference::Name { text } | PerceivedReference::Description { text }, _) => {
                 if write {
                     return Err(location.error(
                         "scene.reference",
@@ -2809,6 +2845,121 @@ bystanders = ["distractor"]
             provider.concept_for_text("Bert")
         );
         assert!(provider.concept_for_text("Ada").is_some());
+    }
+
+    #[test]
+    fn situated_activity_keys_resolve_prior_threads_and_open_loops_at_use() {
+        for extension in ["json", "toml"] {
+            for subtype in ["thread", "open_loop"] {
+                for named in [true, false] {
+                    for write in [true, false] {
+                        let mut value = situated_value();
+                        let scenario = &mut value["scenarios"][0];
+                        scenario["events"][3]["memory"]["subtype"] = Value::from(subtype);
+                        let mut scene = scenario["scenes"]["pair"].clone();
+                        scene["what"] = serde_json::json!({"by": "key", "key": "old-note"});
+                        let selection = if named {
+                            scenario["scenes"]["activity"] = scene;
+                            serde_json::json!({"kind": "named", "name": "activity"})
+                        } else {
+                            serde_json::json!({"kind": "inline", "scene": scene})
+                        };
+                        let event_id = if write {
+                            "activity-experience"
+                        } else {
+                            "reunion"
+                        };
+                        if write {
+                            scenario["events"].as_array_mut().unwrap().insert(5, serde_json::json!({
+                                "kind": "experience", "event_id": event_id,
+                                "timestamp": "2024-01-07T09:00:00Z", "text": "Working on the activity.",
+                                "scene": selection
+                            }));
+                        } else {
+                            scenario["events"][5]["scene"] = selection;
+                            scenario["events"][5]["assertions"]["references"] =
+                                serde_json::json!([]);
+                        }
+                        let loaded = parse_as(&value, extension).unwrap();
+                        let scenario = &loaded.scenarios[0];
+                        match scenario
+                            .situated_input(&scenario.events[5])
+                            .unwrap()
+                            .unwrap()
+                        {
+                            SituatedInput::Experience { scene, .. }
+                            | SituatedInput::Probe { scene, .. } => {
+                                assert_eq!(
+                                    scene.what,
+                                    Some(PerceivedReference::Key {
+                                        key: "old-note".into()
+                                    })
+                                );
+                            }
+                            _ => unreachable!(),
+                        }
+
+                        for id in [
+                            "unknown",
+                            "self",
+                            "last-meeting",
+                            "promise",
+                            "future-activity",
+                        ] {
+                            let mut invalid = value.clone();
+                            let scenario = &mut invalid["scenarios"][0];
+                            if named {
+                                scenario["scenes"]["activity"]["what"]["key"] = Value::from(id);
+                            } else {
+                                scenario["events"][5]["scene"]["scene"]["what"]["key"] =
+                                    Value::from(id);
+                            }
+                            if id == "future-activity" {
+                                let mut future = scenario["events"][3].clone();
+                                future["event_id"] = Value::from(id);
+                                future["timestamp"] = Value::from("2024-01-09T09:00:00Z");
+                                scenario["events"].as_array_mut().unwrap().push(future);
+                            }
+                            assert_eq!(
+                                admission_of(parse_as(&invalid, extension).unwrap_err()),
+                                expected_admission(
+                                    "encounter",
+                                    Some(event_id),
+                                    "scene.what.key",
+                                    FixtureAdmissionKind::NotAdmittedActivity(id.into())
+                                ),
+                                "{extension}, {subtype}, named={named}, write={write}, key={id}"
+                            );
+                        }
+
+                        for participant in [true, false] {
+                            let mut invalid = value.clone();
+                            let scenario = &mut invalid["scenarios"][0];
+                            let scene = if named {
+                                &mut scenario["scenes"]["activity"]
+                            } else {
+                                &mut scenario["events"][5]["scene"]["scene"]
+                            };
+                            let entity_reference = if participant {
+                                &mut scene["who"][0]["reference"]
+                            } else {
+                                &mut scene["where"]
+                            };
+                            *entity_reference = serde_json::json!({"by": "key", "key": "old-note"});
+                            assert_eq!(
+                                admission_of(parse_as(&invalid, extension).unwrap_err()),
+                                expected_admission(
+                                    "encounter",
+                                    if named { None } else { Some(event_id) },
+                                    "scene.reference.key",
+                                    FixtureAdmissionKind::Undeclared("old-note".into())
+                                )
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
