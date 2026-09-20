@@ -3194,6 +3194,27 @@ bystanders = ["distractor"]
         check_scene_character_admission("toml");
     }
 
+    #[test]
+    fn situated_supersedes_rejects_thread_targets() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            value["scenarios"][0]["events"][3]["memory"]["subtype"] = Value::from("thread");
+            assert_eq!(
+                admission_of(parse_as(&value, extension).unwrap_err()),
+                expected_admission(
+                    "encounter",
+                    Some("promise"),
+                    "derive.supersedes",
+                    FixtureAdmissionKind::UnsupportedKind {
+                        external_id: "old-note".into(),
+                        found: ContinuityObjectKind::MemoryThread,
+                        allowed: &[ContinuityObjectKind::DerivedMemory],
+                    }
+                )
+            );
+        }
+    }
+
     fn check_bystander_memory_kinds(extension: &str) {
         let mut value = situated_value();
         value["scenarios"][0]["events"][5]["measures"]["bystanders"] =
