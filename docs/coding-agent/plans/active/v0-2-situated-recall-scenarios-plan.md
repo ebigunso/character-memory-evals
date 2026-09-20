@@ -206,6 +206,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval/src/adapter.rs (applying that salience to the staged episode and observation only)
   - crates/cmem-eval-continuity/fixtures/situated_v1.toml
   - crates/cmem-eval-continuity/README.md (new: the scenario contract)
+  - README.md (the link to it only)
   - crates/cmem-eval-continuity/fixtures/situated_loud_topic_v1.json (regenerated)
   - crates/cmem-eval-continuity/src/generator.rs (the loud-topic generation only)
 - depends_on: [Task_2, Task_3]
@@ -276,6 +277,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 - description: |
   External dependency: the library slices that add the scene, the reference time, the partition, the routes and the trace facts. Each step records the exact library commit it validates against in the Decision Log and the run headers, with the sibling checkout pinned to it. Extend together, as each slice lands, the core adapter contract and its forwarding, the driver's one mapping function, and the supported feature set beside it; the reference time is forwarded (today `query_date` stops at the adapter). May land in steps; each step reduces the "not run" count and never re-authors a scenario to fit the library.
 - acceptance:
+  - A feature joins the supported set only together with a drift test showing a distinctive authored value reaches the library-facing input whole, so a dropped or coerced field fails in the harness and is never blamed on the library.
   - No scenario in the situated fixtures is "not run".
   - A scenario that fails is reported to the library plan's owner with the trace, not adjusted.
   - The report lets the v0.2 draft's section 6 retrieval-tier criteria be read off one run.
