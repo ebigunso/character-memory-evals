@@ -51,7 +51,9 @@ Assertions on a probe (must hold):
 - `references`: a participant reference resolved, was ambiguous (with the candidates), or was unknown.
 - a probe that carries a partition asserts, with no further authoring, that the trace records the applied policy (draft section 6).
 - the scene reported on a carried memory; elapsed time since the pair last met and staleness as age, both checked against values the loader computes from the authored timestamps, never authored numbers.
+- a write warning, the one assertion that sits on a `derive` rather than a probe: the author names the warning kind expected (near-verbatim restatement, churning chain), it passes when the library's native outcome for that write carries a warning of that kind and fails otherwise, its identity is the derive's id, the kind and the warning kind, and an unknown warning kind is rejected at load.
 - one run-wide invariant: no omission on lifecycle or currency grounds without a reason (draft section 6).
+- Every assertion and measure that reads native retrieval data reads all of a retrieval's native outcomes, never only the first; a pack can hold separate episode and observation outcomes.
 
 Measures on a probe (reported, never asserted): recall of `carried` grouped by reason, null for a scenario that is not run and for a reason with no carried targets among the probes that ran, so an unasked scenario never reads as zero recall; `bystanders`, distractors on cue grounds only (no cue kind of the closed vocabulary calls for them on that probe: not pair, due, date, trigger, activity, own day, recent and salient, or topic; this is an authoring rule the Tier A review checks, since the harness cannot compute it), reported as a context share: admitted bystanders over all admitted memories in the pack, counted per authored memory: one count per `experience` or `derive` external id, an admitted episode or observation crediting its experience once, entities and threads not counted; null when a scenario is not run or nothing is admitted. It is a cost measure, not distractor recall, and an unlabelled memory is never counted as irrelevant; in the generated loud-topic set every distractor is labelled, so the share is exact there. Context tokens are the existing `count_tokens` over the pack's context text, zero for an empty pack and null for a scenario that is not run, so a scenario that was never asked does not look free. A memory is never a bystander because of the scene it was formed in, since that share would measure that a cross-scene memory failed to surface (ADR-D-0019). The temporal rationale share is already a metric and is read off the report.
 
@@ -203,7 +205,8 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - A sentinel test plants distinctive gold strings (a carried reason, a reference's gold entity used nowhere else, an expected warning, a distinctive assertion section) in a scenario and shows none of them appears in any mapped write or retrieval input handed to the adapter; a bystander's id is also its memory's id and legitimately appears in the write, so for bystanders the test shows structurally that no mapped input has a field the classification could travel in; a speaker on an experience and a supersession on a derive are derived needed features like any other forwarded field, each in the driver's supported set only with a drift test showing the value reaches the core input.
   - `cued` loads and validates like `not_cued`, needs the same trace feature, has a position-free identity, and a memory cannot be both `cued` and `not_cued` for one cue on one probe.
   - Load rejects a scene assertion on a derive whose sources come from different scenes; recall by reason is null, not zero, for a not-run scenario and for a reason with no carried targets, covered in report and repeat-comparison tests.
-  - The D1 scenario carries the recent salient experience with that reason, and the probe-cue audit of Task_2 still holds for the scenario.
+  - A regression case with both an episode outcome and an observation outcome shows assertions and measures aggregate every native outcome.
+  - The D1 scenario carries the recent salient experience with that reason and asserts `cued` recent and salient on it, and the probe-cue audit of Task_2 still holds for the scenario.
   - The checked generated fixtures are still reproduced byte for byte.
 - validation:
   - kind: command
@@ -231,12 +234,12 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - README.md
 - depends_on: [Task_3, Task_7]
 - description: |
-  External dependency: the library's schema-groundwork branch (named in the Decision Log when it exists). Track the library's new shapes with no shims: names and kinds become beliefs about a notion, interpreted-memory confidence goes, and whatever the library's value audit deletes goes with it. Link confidence follows the library's ruling, not this plan. If a deletion invalidates the checked fixtures, regenerate them as new files with the same texts and point the smoke, the tests and the README at them; the old files stay as bytes. Regenerate the local snapshots with their builder.
+  External dependency: the library's schema-groundwork branch. The exact library commit validated against is recorded in the Decision Log and in every run header, the sibling checkout is pinned to it, and all of this task's validation runs at that commit, never at a moving branch name. Track the library's new shapes with no shims: names and kinds become beliefs about a notion, interpreted-memory confidence goes, and whatever the library's value audit deletes goes with it. Link confidence follows the library's ruling, not this plan. If a deletion invalidates the checked fixtures, regenerate them as new files with the same texts and point the smoke, the tests and the README at them; the old files stay as bytes. Regenerate the local snapshots with their builder.
 - acceptance:
   - The workspace builds against the groundwork branch and the three validation commands pass.
   - The smoke recipe runs and two runs diff to zero; any difference from the pre-groundwork smoke output is listed with its cause.
   - No register-cited byte changed; if assumption A1 fails, the task stops and reports instead of touching a store.
-  - Source speaker attribution survives the move to beliefs in the converter and the snapshot builder.
+  - Source speaker attribution survives the move to beliefs in the converter and the snapshot builder: behavioral text bytes are unchanged, and the speaker is carried by native references (entities and beliefs), not by metadata, shown for both outputs (`docs/coding-agent/rules/reviewer.md`).
 - validation:
   - kind: command
     required: true
@@ -256,7 +259,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval-continuity/src/report.rs
 - depends_on: [Task_4, Task_7]
 - description: |
-  External dependency: the library slices that add the scene, the reference time, the partition, the routes and the trace facts. Extend together, as each slice lands, the core adapter contract and its forwarding, the driver's one mapping function, and the supported feature set beside it; the reference time is forwarded (today `query_date` stops at the adapter). May land in steps; each step reduces the "not run" count and never re-authors a scenario to fit the library.
+  External dependency: the library slices that add the scene, the reference time, the partition, the routes and the trace facts. Each step records the exact library commit it validates against in the Decision Log and the run headers, with the sibling checkout pinned to it. Extend together, as each slice lands, the core adapter contract and its forwarding, the driver's one mapping function, and the supported feature set beside it; the reference time is forwarded (today `query_date` stops at the adapter). May land in steps; each step reduces the "not run" count and never re-authors a scenario to fit the library.
 - acceptance:
   - No scenario in the situated fixtures is "not run".
   - A scenario that fails is reported to the library plan's owner with the trace, not adjusted.
