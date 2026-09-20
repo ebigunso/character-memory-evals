@@ -6,84 +6,102 @@
 - work_type: code
 
 ## Goal
-- Before the library implements situated recall, this repository can state each v0.2 catalog situation as a scenario with a checkable retrieval-tier property, and reports per property whether it passed, failed, or could not be asked of the library yet. As the library's v0.2 slices land, the same scenarios move from "cannot be asked" to pass or fail with no re-authoring, and the pollution and context-size baselines are re-measured once.
-- Decision each part informs: the scenarios inform the library's acceptance of v0.2 (draft section 6) and the shape of its scene input; the loud-topic probe informs route-floor calibration; the re-baseline informs whether pack-admission changes cost recall or context.
+- Before the library implements situated recall, this repository can state each v0.2 catalog situation as a scenario a person can read and judge, with assertions that must hold and measures that are reported, and says of each scenario whether it passed, failed, or was not run because the pinned library cannot be asked yet. As the library's v0.2 slices land, the same scenarios start running with no re-authoring, and the pollution and context-size baselines are re-measured once.
+- Decision each part informs: the assertions inform the library's acceptance of v0.2 (draft section 6) and the shape of its scene input; recall by reason under the loud-topic set informs route-floor calibration; bystander share and context tokens inform the cost of situated recall; the re-baseline informs whether pack-admission changes cost recall or context.
 
 ## Definition of Done
-- Every scenario group in the library's v0.2 draft, section 4, exists as at least one scenario that names its catalog situation and carries its retrieval-tier property as an expectation, checked with no language model.
-- A continuity run reports, per expectation: pass, fail, or unsupported (the pinned library cannot be asked; decided statically, never from a run's result). A first run against library `d0fe82d` is recorded in this plan's Progress Log as the starting point.
-- After the library's schema groundwork (entity as a notion, no interpreted-memory confidence, the value-audit deletions) the workspace builds, the three validation commands pass, and the smoke recipe runs, with no register-cited byte changed.
-- After the library's scene and routes land, every scenario is asked (none unsupported), and the draft's section 6 retrieval-tier criteria can be read off one run report.
+- Every scenario group in the library's v0.2 draft, section 4, exists as at least one scenario that names its catalog situation and carries its retrieval-tier property, checked with no language model.
+- A run reports each scenario as passed, failed, or not run with the missing features named, and reports recall of what the moment calls for grouped by reason, bystander share, and context tokens. A first run against library `d0fe82d` is recorded in the Progress Log as the starting point.
+- After the library's schema groundwork the workspace builds, the three validation commands pass, and the smoke recipe runs, with no register-cited byte changed.
+- After the library's scene and routes land, no scenario is "not run", and the draft's section 6 retrieval-tier criteria can be read off one run report.
 - The continuity baselines of ADR-I-0022 (pollution, context size, gap recall, the graph-only probe) are re-measured once at the library commit that closes v0.2 pack admission, with the comparability conditions from the census stated beside the numbers.
 - README describes what ships; the plan closes in completed.
 
 ## Planner-added requirements
-- An "unsupported" outcome beside pass and fail. Needed because: evaluation comes before the library work by ruling, so most properties cannot be asked of the pinned library on day one, and a scenario that silently does not run is indistinguishable from one that passes.
-- New scenarios use the controllable-similarity embedding provider. Needed because: their texts are in no frozen store, the frozen stores are register-cited bytes, and route properties do not depend on real embedding geometry. The loud-topic probe uses it too, since it saturates the content route by construction; only the re-baseline of the canonical set needs real geometry, and it reuses the existing frozen store (Open Question 1 covers the case where it cannot).
+- A "not run" outcome beside passed and failed, decided for a whole scenario from the features it needs. Needed because: evaluation comes before the library work by ruling, so most scenarios cannot be asked of the pinned library on day one, and a scenario that runs with part of its input dropped can pass for the wrong reason.
+- New scenarios use the controllable-similarity embedding provider, and a text with no assigned concept is its own concept. Needed because: their texts are in no frozen store, the frozen stores are register-cited bytes, cue properties do not depend on real embedding geometry, and hand-authored scenarios cannot reasonably assign a concept to every text. The loud-topic set uses the same provider, since it saturates the content cue by construction.
+- A repeat comparison over scenario outcomes and assertion results. Needed because: the CLI diff compares retrieved identities and metrics only, so an assertion could flip between two runs while the diff reports zero differences.
 
 ## Scope / Non-goals
-- Scope: `crates/cmem-eval-continuity` (scenario language, generator, driver, metrics, report, a new fixture file); `crates/cmem-eval` (adapter and adapter contract, result keys) where the library's changed shapes pass through; `crates/cmem-eval-runner/src/enrichment.rs`, `crates/cmem-eval-locomo/src/ingest.rs`, `crates/cmem-eval-benchmark-convert`, and `scripts/enrichment/build_snapshots.py` for the schema groundwork only; one new config; README.
-- Non-goals: the behavioral tier (disclosure, posture, generated retelling; scheduled with the library's generation phase); a general assertion language; any edit to `continuity_v3.json`, `continuity_benchmarks_v1.json`, the frozen stores, their manifests, or any register-cited config or artifact; LoCoMo and LongMemEval scoring changes; any library change (the library plan owns those); sealing any evidence.
+- Scope: `crates/cmem-eval-continuity` (scenario language, loader, generator, driver, metrics, report, new fixture files); `crates/cmem-eval-runner` (handoff of scenario outcomes into the run output, the repeat comparison, config tests); `crates/cmem-eval` (adapter and adapter contract) where the library's shapes pass through; `crates/cmem-eval-locomo/src/ingest.rs`, `crates/cmem-eval-benchmark-convert`, and `scripts/enrichment/build_snapshots.py` for the schema groundwork only; new configs; README.
+- Non-goals: the behavioral tier (disclosure, posture, generated retelling; scheduled with the library's generation phase); a general assertion language; write-side scenes given by name or description (resolving them is consolidation's work in the library's v0.3, so v0.2 write-side scenes use identity keys); replaying experiences through reflection and comparing against the authored derived memories (the shape allows it; nothing is built for it); the LoCoMo and LongMemEval hybrid runs (decided 2026-09-20: once at the library's v0.2 closeout under their own authorization); any edit to a register-cited fixture, store, manifest, config or artifact; any library change; sealing any evidence.
 
 ## Design
-- Chosen: one scenario language, extended. The continuity fixture schema gains, as optional fields under a new version, an authored scene on remember and on query (given as perceived: descriptions, names, keys; ADR-D-0029), an optional topic, an optional partition, typed derived memories with direction, due date and trigger, and a closed list of expectation kinds. Entities keep their label and kind as perceived; how those become beliefs about a notion is the driver's mapping in Task_4, and an authored belief enters the language only when a scenario needs one (ADR-D-0034 leaves the forms of beliefs open). The existing v3 files stay loadable unmodified by the same loader. Expectations are checked against the library's native outcome (pack sections, trace, write outcomes), which the driver already retains. Structure: one loader, one driver, one report; the scene is authored in the fixture and mapped to the library's input in one place in the driver. Evolution: when the library's scene shape is set, only that mapping changes; a new expectation kind is one enum arm. Verification: fixture validation and expectation checking are unit-testable with no store; scenarios run service-free. Operation: no new runtime cost outside the new scenarios. Human: a scenario reads as the catalog situation it names. Safety: gold labels stay in expectations and never reach ingestion (common rule).
-- Alternative: author the scenarios as Rust integration tests against the library's new API once it exists. Structure: no fixture change, but a second way to state a continuity scenario. Evolution: every library shape change edits every test. Verification: strongest typing, but nothing can be written until the library API exists, which inverts the evaluation-first ruling. Operation, Human, Safety: same.
-- Alternative: a general predicate language over the native outcome (JSON paths and comparators). Structure: smaller Rust surface, larger fixture surface. Evolution: couples fixtures to the library's serialized field names, which the groundwork is about to change. Verification: errors surface at run time, not at fixture load.
-- Why chosen: it is the only one that can be written before the library work and survive it, and the closed expectation list is what the census says is needed and no more (the census found no need for a general language). Fit: library v0.2 draft section 4 ("evaluation first", "scenarios are named by catalog situation and carry their retrieval-tier property"); this repository's strictness rule in `docs/coding-agent/rules/common.md`.
+- Chosen: a scenario is a readable story of experiences, the derived memories a caller authors from them, and probes. Narrative scenarios are hand-authored in one TOML file; scale scenarios (the loud-topic set) are generated as JSON in the existing pattern; both deserialize into the same types, chosen by file extension. The new shape is additive to the current one, so there is one loader and one shape, no version dispatch and no tolerance code: the existing checked fixtures keep loading only because nothing in them changed meaning, and the day a shape change invalidates them (Task_4 may be that day) they are regenerated as new files and the old ones remain as sealed bytes nothing reads. Structure: one loader, one driver, one report; the authored scene is mapped to the library's input in one place in the adapter, which also declares the set of features it forwards. Evolution: when the library's scene shape is set, only that mapping and the feature set change; the same experiences and derived memories can later serve the generation phase. Verification: loading, feature derivation and assertion checking are unit-testable with no store; scenarios run service-free. Operation: no new runtime cost outside the new scenarios. Human: the decider can read a scenario and judge whether it is the catalog situation. Safety: gold (what a reference means, assertions, bystanders) never reaches the library; a participant given by name or description reaches it as that text only.
+- Alternative: build the scenarios with the Rust generator and check in JSON, extending `Remember` and `Query` in place. Structure: no second file format. Evolution: same. Verification: byte-identity tests for free. Human: a scenario is builder calls, so judging it against the catalog means reading code; and `Remember` writes an episode, an observation and a generic reflection from one text, which cannot state a relationship state, a last interaction and obligations in both directions as distinct memories with distinct evidence (D4).
+- Alternative: Rust integration tests against the library's new API once it exists. Verification: strongest typing, but nothing can be written before the library API exists, which inverts the evaluation-first ruling, and every library shape change edits every test.
+- Alternative: a general predicate language over the native outcome. Evolution: couples fixtures to the library's serialized field names, which the groundwork is about to change; errors surface at run time, not at load.
+- Why chosen: it can be written before the library work and survive it, it separates what happened from what the character holds about it (the library's own model, ADR-D-0028), and it keeps assertion and measurement apart so ADR-D-0019 is never violated by a measure. Fit: library v0.2 draft section 4; this repository's strictness rule in `docs/coding-agent/rules/common.md`; ADR-I-0005 and the compatibility policy (no dual paths) for the loader.
 
-### The closed list of expectation kinds
-Each is observed on the native outcome. Fixtures name cue kinds (pair recency, due, date match, trigger, activity, topic), never library routes; the driver's one mapping place translates them.
-- Unsupported is decided statically, from whether the adapter can forward the whole of a query's input and whether the outcome type has the field, never from a run's result. If any part of a query's input cannot be forwarded, every expectation on that query is unsupported, so a control cannot pass for the wrong reason. The same holds for what a scenario writes: an expectation is supported only if every authored input it depends on (the scene on its memories, a typed memory's subtype, direction, due date or trigger) reaches the library as authored. Unsupported setup is never dropped or coerced and then judged. Once everything is forwarded, an absent fact is a fail.
-- section membership: a memory is in a named pack section; optionally in a stated order within it (D5, D13). "Is not in the pack" is allowed only with a named omission reason (partition, resolution, supersession, suppression); recall is never gated by default (ADR-D-0019), so a control is stated as "not admitted on cue kind X", not as absence.
-- the scene reported on an admitted memory: participants, setting, when (B1, B2).
-- trace facts: the scene was partial; a partition was applied; elapsed time since the pair last met; an omission with its reason (resolution, supersession, suppression, partition); which cue kind admitted an item; elapsed time's expected value is computed from the authored timestamps at load; a reference was ambiguous or unknown.
-- staleness reported as age on a current item (D11, C6).
-- a write warning was raised (near-verbatim restatement, churning chain; the C4 proxy).
-- one run-wide invariant beside the per-expectation checks: no omission on lifecycle or currency grounds without a reason (draft section 6).
-The temporal rationale share is already a metric and is read off the report; it needs no expectation kind. The scene includes the draft's custom field, since a partition may range over it.
+### The scenario shape
+A scenario has an id, the catalog situations it serves, the character's own entity, entities (id, label and kind as perceived), named scenes, and events in time order.
+- A scene: who (each participant given by identity key, by name, or by description, with the entity the author means kept beside it as gold), where, what, custom. Declared once per scenario and referenced, so "the same scene" and "a different scene" are statements by reference (B1, B2). A probe may also give a scene inline.
+- `experience`: what happened, in a scene, at a time, with text and an optional speaker. Writes an episode and its observations.
+- `derive`: a derived memory a caller authors: subtype, text, the experiences it rests on, the entities it is about, what it supersedes, and where the situation needs them an actor and a counterpart, a due date, a trigger, and a write warning the author expects (near-verbatim restatement, churning chain; the C4 proxy).
+- `probe`: a time, a scene, an optional topic, an optional partition; then assertions and measures.
+- `correct`, `forget`, `link`, `restart` are unchanged. `Remember` and `Query` stay for the generated canonical set, so its baselines stay comparable.
 
-### Scenario groups and the property each carries (from the v0.2 draft, section 4)
-B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, the graph-only probe under a loud topic, tasks and favors across long gaps, and C4 as a retrieval proxy only (same surviving basis and current state across scenes and times, no stale-current leakage, the write warning; it does not establish consistent retelling). Each group has a default case and, where the draft names one, a control (a non-matching date, an absent counterpart, the partition off and on).
+Assertions on a probe (must hold):
+- `carried`: a memory is admitted, with the author's catalog-level reason (pair, due, date, trigger, activity, own day, topic) and, only where the draft itself names one, the pack section.
+- `in_order`: the relative order of some carried memories (D5, D13).
+- `omitted`: a memory is not admitted, always with a reason (partition, resolution, supersession, suppression). There is no bare absence assertion: recall is never gated by default (ADR-D-0019).
+- `not_cued`: a control; a memory is not admitted by a named cue (a non-matching date, an absent counterpart). It may still arrive by another cue.
+- `references`: a participant reference resolved, was ambiguous (with the candidates), or was unknown.
+- the scene reported on a carried memory; elapsed time since the pair last met and staleness as age, both checked against values the loader computes from the authored timestamps, never authored numbers.
+- one run-wide invariant: no omission on lifecycle or currency grounds without a reason (draft section 6).
+
+Measures on a probe (reported, never asserted): recall of `carried` grouped by reason; `bystanders`, memories the moment does not call for, reported as the share admitted; context tokens. The temporal rationale share is already a metric and is read off the report.
+
+Support is decided per scenario and statically: the adapter declares the features it forwards to the pinned library (a scene on a write, a scene on a probe, no topic, a reference time, a participant by name, a participant by description, a partition, direction, due date, trigger, each trace fact), a scenario's needed features follow from its content, and a scenario needing a feature the adapter lacks is not run and is reported with the missing features. Nothing is dropped or coerced to make a scenario run. Once a scenario runs, an absent fact is a failure.
+
+### Scenario groups (from the v0.2 draft, section 4)
+B1, B2, B3, D1 with D8, D4, D5, D7, D9, D11 with C6, D13, tasks and favors across long gaps, the loud-topic set (generated: cued items still carried while the content cue is saturated), and C4 as a retrieval proxy only (same surviving basis and current state across scenes and times, no stale-current leakage, the write warning; it does not establish consistent retelling). Each group has a default case and, where the draft names one, a control. Probe-side scenes exercise key, name and description, including one ambiguous and one unknown reference. B2 carries a partition probe in each direction: a group memory probed from a one-on-one with a member, and a one-on-one memory probed from the group.
+
+### What the scenarios require of the library (handed to the library plan)
+- The trace lists every cue that admitted an item, not only the first; otherwise a `not_cued` control can pass falsely.
+- A partition over participants needs a stated meaning. The B2 scenarios are authored to "everyone present now was present then" (a group memory may surface in a one-on-one with a member; a one-on-one memory is omitted in the group). The library plan confirms or rules otherwise, and the scenarios follow the ruling.
 
 ## Compatibility stance (required if a contract/interface/persisted format is touched)
-- surface: the continuity fixture schema (new version, additive), the adapter contract types in `memory_adapter.rs` (entity, derived-memory and link inputs change with the library), result metric keys, the local untracked enrichment snapshots.
+- surface: the continuity fixture shape (additive; a TOML form beside JSON), the adapter contract types in `memory_adapter.rs` (change with the library at Task_4), run output (gains scenario outcomes), the local untracked enrichment snapshots.
 - stance: break
-- justification: every consumer is in this workspace and the repository's compatibility policy is to track the library's latest surface with no shims. The exception is register-cited bytes, which are untouched by construction: v3 files stay loadable because they are inputs of live tests and the smoke, not for old-artifact parseability. Local snapshots are regenerated by their builder, and the 2026-09-16 record keeps the old hashes.
+- justification: every consumer is in this workspace, the compatibility policy is to track the latest surface with no shims, and ADR-I-0005 guarantees sealed evidence as bytes by hash only. No code exists to keep an old fixture loadable; when a shape change invalidates the checked fixtures they are regenerated as new files (the frozen-store manifests bind to texts, not to a fixture hash, so the stores still apply) and the re-baseline names the changed input hash as an intentional difference.
 
 ## Context (workspace)
-- Related files/areas: `.agent-work/orchestrator/v0-2-eval-census-report.md` (the census this plan rests on; promote nothing from it); `crates/cmem-eval-continuity/src/{fixture,generator,driver,metrics,report}.rs`; `crates/cmem-eval/src/{memory_adapter,adapter,metrics,results,outcome}.rs`; `configs/continuity_smoke.toml`.
-- Existing patterns or references: the driver forces the trace on and retains the native `RetrieveOutcome`; `flatten_outcome` loses section membership, so section expectations read the native pack; the orchestrator rule "treat a forthcoming public API as the target contract and isolate current unavailability".
-- Design record consulted and deviations from its acceptance: library ADR-D-0019, D-0022, D-0024, D-0029, D-0030, D-0034, ADR-I-0020, ADR-I-0022; this repository's ADR-I-0004 and ADR-I-0005. No deviation.
+- Related files/areas: `.agent-work/orchestrator/v0-2-eval-census-report.md` (the census this plan rests on); `crates/cmem-eval-continuity/src/{fixture,generator,driver,metrics,report}.rs`; `crates/cmem-eval/src/{memory_adapter,adapter,controllable_similarity_embedding,metrics,results,outcome}.rs`; `crates/cmem-eval-runner/src/{pipeline,diff}.rs`; `configs/continuity_smoke.toml`.
+- Existing patterns or references: the driver forces the trace on and retains the native `RetrieveOutcome`; `flatten_outcome` loses section membership, so section assertions read the native pack; the hub-scale scenario is the pattern for generated scale; the orchestrator rule "treat a forthcoming public API as the target contract and isolate current unavailability".
+- Design record consulted and deviations from its acceptance: library ADR-D-0019, D-0022, D-0024, D-0028, D-0029, D-0030, D-0034, ADR-I-0020, ADR-I-0022; this repository's ADR-I-0004 and ADR-I-0005. No deviation.
 
 ## Open Questions (max 3)
 - Q1: If assumption A1 fails (the move to notions changes the embedded text of the canonical set), may a new store be frozen for it with one live provider call (new file, new hash; existing stores untouched), and is the before and after then accepted as a comparison with changed content? Recommended: yes to both, decided only if Task_4 reports the failure. No live call is planned otherwise.
-- Q2: Whether the LoCoMo and LongMemEval hybrid runs (live provider, eight runs last time) are repeated for v0.2. Recommended: not in this plan; once at the library's v0.2 closeout under its own authorization, since this plan's re-baseline is the continuity one the draft names.
 
 ## Assumptions
-- A1: After the entity becomes a notion, the driver can author a v3 entity's label as the text of a naming belief, so the frozen stores still cover the v3 and benchmark fixtures. Source: unverified (the library's belief shape and embedding text are not set); checked by Task_4, which stops and reports if it fails rather than touching a store.
-- A2: The library's v0.2 trace exposes the facts in the expectation list under public fields. Source: v0.2 draft section 3; checked by Task_5. A fact the library does not expose is raised to the library plan, never inferred here.
-- A3: Library `main` moving breaks this repository's CI until Task_4 lands, because the dependency is a path and CI resolves library `main`. Source: census question 6. The Orchestrator sequences Task_4 against the library's groundwork branch library first, this repository immediately after (see Task Waves).
+- A1: After the entity becomes a notion, the driver can author an entity's label as the text of a naming belief, so the frozen stores still cover the canonical and benchmark fixtures. Source: unverified (the library's belief shape and embedding text are not set); checked by Task_4, which stops and reports if it fails rather than touching a store.
+- A2: The library's v0.2 trace exposes the facts the assertions read under public fields. Source: v0.2 draft section 3; checked by Task_5. A fact the library does not expose is raised to the library plan, never inferred here.
+- A3: Library `main` moving breaks this repository's CI until Task_4 lands, because the dependency is a path and CI resolves library `main`. Source: census question 6. Order: library first, this repository immediately after (see Task Waves).
 
 ## Tasks
 
-Reviewer evidence, for every task below: besides the diff review, the Reviewer produces the evidence `docs/coding-agent/rules/reviewer.md` requires for the files a task touches (an independent fixture regeneration with both hashes for fixture or generator changes; a diff against the stored baseline for driver, report or metric changes; the embedded adapter suite with executed counts for adapter changes). "Unchanged v3 smoke output" is shown by a diff against a smoke run taken at the task's base commit, not by two runs at the tip.
+Reviewer evidence, for every task below: besides the diff review, the Reviewer produces the evidence `docs/coding-agent/rules/reviewer.md` requires for the files a task touches (an independent fixture regeneration with both hashes for fixture or generator changes; a diff against the stored baseline for driver, report or metric changes; the embedded adapter suite with executed counts for adapter changes). "Unchanged smoke output" is shown by a diff against a smoke run taken at the task's base commit, not by two runs at the tip.
 
-### Task_1: The scenario language can state a situated scenario
+### Task_1: A situated scenario can be stated and loaded
 - type: impl
 - owns:
   - crates/cmem-eval-continuity/src/fixture.rs
   - crates/cmem-eval-continuity/src/lib.rs
+  - crates/cmem-eval-continuity/Cargo.toml
+  - crates/cmem-eval/src/controllable_similarity_embedding.rs
   - crates/cmem-eval-continuity/src/generator.rs (mechanical consumer migration only)
-  - crates/cmem-eval-continuity/src/driver.rs (mechanical consumer migration only)
+  - crates/cmem-eval-continuity/src/driver.rs (mechanical consumer migration only; new event kinds may be rejected as not yet runnable)
   - crates/cmem-eval-continuity/src/metrics.rs (mechanical consumer migration only)
   - crates/cmem-eval-benchmark-convert/src/lib.rs (mechanical consumer migration only)
 - depends_on: []
 - description: |
-  Extend the fixture schema under a new version with the authored scene, optional topic, optional partition, typed derived memories (subtype, actor and counterpart, due date, trigger), the catalog situation a scenario serves, and the closed expectation list in the Design section. Validation at load. The existing Rust consumers build these types with struct literals and exhaustive matches, so this task carries the mechanical edits that keep the workspace compiling; both existing generators keep emitting version 3 output byte for byte. The shapes are as-perceived and library-neutral; the library's Rust types are not the model.
+  The scenario shape in the Design section, additive to the current types, loadable from TOML and JSON, validated at load, with the computed gold (elapsed since the pair last met, staleness) and the per-scenario needed-feature set derived by the loader. A text with no assigned concept is its own concept. The shapes are as-perceived and library-neutral; the library's Rust types are not the model.
 - acceptance:
-  - A scenario with a scene and no topic, a partition, a typed commitment with direction and due date, and one expectation of each kind loads and validates.
-  - `continuity_v3.json` and `continuity_benchmarks_v1.json` load unmodified through the same loader, and their byte-identity tests still pass.
-  - A field introduced by the new version is rejected in a version 3 file; an expectation that references an undeclared memory is rejected at load.
+  - The D4 example of the Design discussion (a keyed write-side scene, a commitment with direction and due date, a probe with a participant by name and no topic, one assertion of each kind, bystanders) loads from TOML and validates, and its needed features and computed gold are what a reader would expect.
+  - Gold never appears in what the loader hands the driver as library input: a participant given by name or description carries only that text.
+  - Load rejects an assertion that references an undeclared memory, an `omitted` without a reason, and a write-side scene given by name or description.
+  - The checked fixtures load unchanged and both existing generators reproduce them byte for byte, with no version dispatch or tolerance code added.
 - validation:
   - kind: command
     required: true
@@ -92,21 +110,23 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - kind: review
     required: true
     owner: reviewer
-    detail: "Tier D diff review against acceptance; confirm no register-cited byte changed (hashes in the census report)"
+    detail: "Tier D diff review with the reviewer evidence clause; sha256 of the six protected assets against the census table"
 
 ### Task_2: The v0.2 situations exist as scenarios
 - type: impl
 - owns:
+  - crates/cmem-eval-continuity/fixtures/situated_v1.toml
+  - crates/cmem-eval-continuity/fixtures/situated_loud_topic_v1.json
   - crates/cmem-eval-continuity/src/generator.rs
-  - crates/cmem-eval-continuity/fixtures/continuity_situated_v1.json
+  - crates/cmem-eval-continuity/src/bin/**
 - depends_on: [Task_1]
 - description: |
-  Author the scenario groups listed in the Design section, each naming its catalog situation, with its default case and control. Use the controllable-similarity provider. Read the library's catalog sections B, C4, C6 and D and the v0.2 draft sections 1, 2 and 6 for what each property means; ADR-D-0019 governs B1 and B2 (the default is recall across scenes with the scene reported; omission only under an explicit partition).
+  Hand-author the narrative scenario groups listed in the Design section in the TOML file, each naming its catalog situation, with its default case and control, and comments where a reader needs the story. Generate the loud-topic set. Read the library's catalog sections B, C4, C6 and D and the v0.2 draft sections 1, 2 and 6 for what each property means; ADR-D-0019 governs B1 and B2.
 - acceptance:
-  - Every group in the list has at least one scenario, and each scenario's expectations state that group's property and nothing the behavioral tier owns.
-  - Scenes are given as perceived in at least three forms across the set: by key, by name, and by description, including one ambiguous and one unknown reference.
-  - Old-but-current memories are never labelled as negatives; an expected omission always names its reason; no default (no partition) query carries a bare absence expectation.
-  - The generator reproduces the fixture file byte for byte.
+  - Every group has at least one scenario whose assertions state that group's property and nothing the behavioral tier owns.
+  - Probe-side scenes appear by key, by name and by description, with one ambiguous and one unknown reference; B2 has the partition probe in each direction.
+  - Old-but-current memories are never bystanders or omissions; every `omitted` names its reason; no probe without a partition asserts an omission on scene grounds.
+  - The file loads and validates; the generator reproduces the loud-topic file byte for byte.
 - validation:
   - kind: command
     required: true
@@ -115,24 +135,30 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - kind: review
     required: true
     owner: reviewer
-    detail: "Tier A altitude review of the scenarios against the catalog and the v0.2 draft (do they test the situation or a mechanism?), plus Tier D on the diff"
+    detail: "Tier A altitude review of the scenarios against the catalog and the v0.2 draft (do they test the situation or a mechanism?), plus Tier D on the diff with the reviewer evidence clause"
+  - kind: manual
+    required: false
+    owner: user
+    detail: "The decider may read situated_v1.toml and judge the scenarios against the catalog before Wave 3"
 
-### Task_3: A run reports pass, fail, or unsupported per expectation
+### Task_3: A run says passed, failed, or not run for each scenario, and reports the measures
 - type: impl
 - owns:
   - crates/cmem-eval-continuity/src/driver.rs
   - crates/cmem-eval-continuity/src/metrics.rs
   - crates/cmem-eval-continuity/src/report.rs
-  - crates/cmem-eval-runner/src/** (the handoff of expectation results and catalog identity into the run output, the repeat comparison, and the current-config test)
+  - crates/cmem-eval/src/memory_adapter.rs
+  - crates/cmem-eval/src/adapter.rs
+  - crates/cmem-eval-runner/src/**
   - configs/continuity_situated.toml
 - depends_on: [Task_1]
 - description: |
-  Check expectations against the native outcome and write outcomes; report per expectation and per scenario group. Whatever the pinned library cannot be asked (a scene, a reference time, a partition, a typed memory it cannot take) is unsupported with the reason, never a silent skip and never a fail. `gap_days` and the gap-recall buckets stay untouched, since Task_6 re-measures them. The run reports; it does not enforce thresholds.
+  Run `experience`, `derive` and `probe` events through the adapter; the adapter declares the features it forwards to the pinned library; a scenario needing more is not run and is reported with what is missing. Check assertions against the native outcome and write outcomes; report the measures; carry scenario outcomes into the run output; add the repeat comparison. The run reports; it does not enforce thresholds. `gap_days` and the gap-recall buckets stay untouched.
 - acceptance:
-  - Against library `d0fe82d` a small situated fixture in the task's own tests runs to completion service-free, with no synthetic or empty-topic retrieval issued for an unsupported query (the run over Task_2's real fixture is the Orchestrator's wave-integration check), every expectation has one of the three outcomes, each unsupported outcome names what the library lacks, and unsupported is decided per the static rule in the Design section (unit tests show that a query with an unforwardable scene yields no pass, and that a forwardable query over a memory whose required write field cannot be forwarded is unsupported).
-  - Section expectations read the native pack, not flattened items.
-  - A repeat comparison covers each expectation's identity, outcome and reason and the run-wide invariant, and a test shows that one changed expectation is detected; the existing CLI diff keeps measuring only what it measures today.
-  - The v3 smoke recipe is unchanged in output.
+  - Against library `d0fe82d`, a small situated fixture in the task's own tests runs service-free: a scenario the library can be asked passes or fails on real results, and a scenario needing an unforwardable feature (one on the probe side, one on the write side) is not run, with no synthetic or empty-topic retrieval issued.
+  - Section assertions read the native pack, not flattened items.
+  - The repeat comparison covers scenario outcomes, each assertion's identity, result and reason, and the run-wide invariant, and a test shows one changed assertion is detected; the existing CLI diff keeps measuring only what it measures today.
+  - The smoke recipe's output is unchanged.
 - validation:
   - kind: command
     required: true
@@ -141,7 +167,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - kind: command
     required: true
     owner: orchestrator
-    detail: "After Wave 2 integration: two runs of configs/continuity_situated.toml over Task_2's fixture at library d0fe82d, the repeat comparison, and the result recorded in the Progress Log"
+    detail: "After Wave 2 integration: two runs of configs/continuity_situated.toml over Task_2's fixtures at library d0fe82d, the repeat comparison, and the result recorded in the Progress Log"
   - kind: review
     required: true
     owner: reviewer
@@ -152,20 +178,21 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 - owns:
   - crates/cmem-eval/src/**
   - crates/cmem-eval-continuity/src/** (as the library's actual deletions require; the census question 3 list)
+  - crates/cmem-eval-continuity/fixtures/** (new files only, and only if a shape change invalidates the checked fixtures)
   - crates/cmem-eval-runner/src/**
-  - datasets/enriched/** (untracked local snapshot, manifest and builder report outputs; the preserved bare-id pair under .agent-work is kept)
   - crates/cmem-eval-locomo/src/ingest.rs
   - crates/cmem-eval-benchmark-convert/src/lib.rs
+  - datasets/enriched/** (untracked local snapshot, manifest and builder report outputs; the preserved bare-id pair under .agent-work is kept)
   - scripts/enrichment/build_snapshots.py
   - scripts/enrichment/README.md
   - README.md
 - depends_on: [Task_3]
 - description: |
-  External dependency: the library's schema-groundwork branch (named in the Decision Log when it exists). Track the library's new shapes with no shims: names and kinds become beliefs about a notion, interpreted-memory confidence goes, and whatever the library's value audit deletes goes with it. Link confidence follows the library's ruling, not this plan. Regenerate the local snapshots with their builder. The census (question 3) is the site list.
+  External dependency: the library's schema-groundwork branch (named in the Decision Log when it exists). Track the library's new shapes with no shims: names and kinds become beliefs about a notion, interpreted-memory confidence goes, and whatever the library's value audit deletes goes with it. Link confidence follows the library's ruling, not this plan. If a deletion invalidates the checked fixtures, regenerate them as new files with the same texts and point the smoke, the tests and the README at them; the old files stay as bytes. Regenerate the local snapshots with their builder.
 - acceptance:
   - The workspace builds against the groundwork branch and the three validation commands pass.
   - The smoke recipe runs and two runs diff to zero; any difference from the pre-groundwork smoke output is listed with its cause.
-  - No register-cited byte changed; if assumption A1 fails, the task stops and reports instead of touching a fixture or store.
+  - No register-cited byte changed; if assumption A1 fails, the task stops and reports instead of touching a store.
   - Source speaker attribution survives the move to beliefs in the converter and the snapshot builder.
 - validation:
   - kind: command
@@ -175,7 +202,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - kind: review
     required: true
     owner: reviewer
-    detail: "Tier D diff review"
+    detail: "Tier D diff review with the reviewer evidence clause"
 
 ### Task_5: The scenarios are asked of the library's scene and routes
 - type: impl
@@ -186,39 +213,38 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval-continuity/src/report.rs
 - depends_on: [Task_4]
 - description: |
-  External dependency: the library slices that add the scene, the reference time, the partition, the routes and the trace facts. Map the authored scene to the library's input in one place; forward the reference time (today `query_date` stops at the adapter). May land in steps as library slices merge; each step reduces the unsupported count and never re-authors a scenario to fit the library.
+  External dependency: the library slices that add the scene, the reference time, the partition, the routes and the trace facts. Map the authored scene to the library's input in one place and extend the adapter's feature set as each slice lands; the reference time is forwarded (today `query_date` stops at the adapter). May land in steps; each step reduces the "not run" count and never re-authors a scenario to fit the library.
 - acceptance:
-  - No expectation in the situated fixture is unsupported.
+  - No scenario in the situated fixtures is "not run".
   - A scenario that fails is reported to the library plan's owner with the trace, not adjusted.
   - The report lets the v0.2 draft's section 6 retrieval-tier criteria be read off one run.
 - validation:
   - kind: command
     required: true
     owner: worker
-    detail: "the three repository validation commands; two situated runs and a diff"
+    detail: "the three repository validation commands; two situated runs and the repeat comparison"
   - kind: review
     required: true
     owner: reviewer
-    detail: "Tier D diff review; Tier A check that no scenario was weakened to pass"
+    detail: "Tier D diff review with the reviewer evidence clause; Tier A check that no scenario was weakened to pass"
 
 ### Task_6: The continuity baselines are re-measured once
 - type: test
 - owns:
-  - configs/continuity_situated_loud_topic.toml
-  - crates/cmem-eval-continuity/fixtures/embeddings/**
+  - crates/cmem-eval-continuity/fixtures/embeddings/** (new files only, and only under Open Question 1)
   - docs/coding-agent/plans/active/v0-2-situated-recall-scenarios-plan.md
 - depends_on: [Task_5]
 - description: |
-  At the library commit that closes v0.2 pack admission: the loud-topic probe on the controllable provider (due, pair-recency and state cues still admit their items while the content route is saturated), and one re-measurement of pollution, context size, gap recall and the graph-only probe on the canonical 15-scenario set, under the comparability conditions in the census (question 4). The canonical set reuses its existing frozen store; a new frozen file is made only under Open Question 1, and existing stores are never touched. Lab-notebook grade: numbers, config and input hashes, and both commits in the Decision Log; nothing sealed.
+  At the library commit that closes v0.2 pack admission: recall by reason and cost over the loud-topic set, and one re-measurement of pollution, context size, gap recall and the graph-only probe on the canonical 15-scenario set, under the comparability conditions in the census (question 4). The canonical set reuses its existing frozen store; existing stores are never touched. Lab-notebook grade: numbers, config and input hashes, and both commits in the Decision Log; nothing sealed.
 - acceptance:
-  - Before and after numbers sit side by side with every intentional difference (library commit, ingest shape, floors) named.
+  - Before and after numbers sit side by side with every intentional difference (library commit, ingest shape, fixture file if regenerated, floors) named.
   - Deterministic: the run repeats with zero differences.
   - All run stores cleaned up.
 - validation:
   - kind: command
     required: true
     owner: worker
-    detail: "the runs and diffs named above; sha256 of the protected assets"
+    detail: "the runs, the CLI diff and the repeat comparison named above; sha256 of the protected assets"
   - kind: review
     required: true
     owner: orchestrator
@@ -239,7 +265,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 Waves 1 and 2 need nothing from the library, start on approval, stack on each other and merge on their own. Waves 3 and later branch from main when their library dependency exists, so they never hold Waves 1 and 2 open. Order for Wave 3: the library groundwork merges first and Task_4 merges immediately after; CI resolves library main, so a short red window on this repository's main is accepted rather than worked around.
 
 ## Rollback / Safety
-- Every change is additive to the fixture schema or follows a library change; reverting a PR restores the previous state. Protected bytes are verified by hash in every task that could touch their neighbourhood.
+- Every change is additive to the fixture shape or follows a library change; reverting a PR restores the previous state. Protected bytes are verified by hash in every task that works near them.
 
 ## Progress Log (append-only)
 
@@ -247,8 +273,13 @@ Waves 1 and 2 need nothing from the library, start on approval, stack on each ot
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
-- (none yet)
+- 2026-09-20 Decision: the scenario shape was redrawn before approval, after the decider asked for the dataset representation to be picked apart.
+  - Trigger / new insight: `Remember` fuses an episode, an observation and a generic reflection, which cannot state D4; pass or fail alone does not give calibration numbers; per-assertion "unsupported" was over-built; builder code is not reviewable against the catalog; the dual-version loader contradicted the compatibility policy.
+  - Plan delta: experiences, derived memories and probes as separate events; assertions kept apart from measures; support decided per scenario from a feature set; hand-authored TOML for narrative scenarios and generation only for scale; one additive shape with no version dispatch; two requirements handed to the library plan.
+  - Tradeoffs considered: a second file format beside JSON, accepted for reviewability; regenerating the checked fixtures now, declined because nothing in them changed meaning.
+  - User approval: shape approved 2026-09-20; the benchmark hybrid runs are deferred to the library's v0.2 closeout by the same ruling.
+  - Record proposed: none
 
 ## Notes
-- Risks: the library's scene shape may want something the as-perceived fixture scene cannot say; that is a finding for the library plan, and the fixture follows the catalog, not the API. The expectation list may grow; each addition names the scenario that needs it.
-- Edge cases: Task_2 and Task_4 both own `generator.rs` and Task_3, Task_4 and Task_5 own `driver.rs`; they are in different waves.
+- Risks: the library's scene shape may want something the as-perceived fixture scene cannot say; that is a finding for the library plan, and the fixture follows the catalog, not the API. The assertion list may grow; each addition names the scenario that needs it. The `section` on a `carried` assertion couples a scenario to the library's pack section names, so it is used only where the draft itself names a section.
+- Edge cases: tasks in different waves share `generator.rs`, `driver.rs` and the adapter files; tasks within Wave 2 do not overlap.
