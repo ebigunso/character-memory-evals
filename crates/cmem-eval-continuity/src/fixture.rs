@@ -4130,22 +4130,22 @@ bystanders = ["distractor"]
     }
 
     #[test]
-    fn situated_partition_inputs_are_rejected_in_both_formats() {
+    fn unknown_probe_keys_and_omission_reasons_are_rejected_in_both_formats() {
         for extension in ["json", "toml"] {
             for omission in [false, true] {
                 let mut value = situated_value();
                 let probe = &mut value["scenarios"][0]["events"][5];
                 if omission {
-                    probe["assertions"]["omitted"][0]["reason"] = Value::from("partition");
+                    probe["assertions"]["omitted"][0]["reason"] = Value::from("withheld");
                 } else {
-                    probe["partition"] = serde_json::json!({"by": "participants"});
+                    probe["withhold"] = serde_json::json!({"by": "participants"});
                 }
                 match parse_as(&value, extension).unwrap_err() {
                     FixtureError::Shape {
                         location, field, ..
                     } => {
                         assert_eq!(location, FixtureLocation::scenario("encounter"));
-                        assert_eq!(field.as_deref(), (!omission).then_some("partition"));
+                        assert_eq!(field.as_deref(), (!omission).then_some("withhold"));
                     }
                     other => panic!("expected typed shape error, got {other}"),
                 }
