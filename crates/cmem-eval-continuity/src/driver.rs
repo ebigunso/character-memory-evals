@@ -1682,9 +1682,30 @@ pub(crate) mod tests {
                     })
                 }
                 ScenarioFeature::WriteSceneWhat => {
-                    scene.what = Some(PerceivedReference::Setting {
+                    let mut activity_scene = scene.clone();
+                    activity_scene.what = Some(PerceivedReference::Key {
                         key: "gardening".into(),
-                    })
+                    });
+                    let InteractionEvent::Experience { scene, .. } = &mut scenario.events[1] else {
+                        unreachable!()
+                    };
+                    *scene = crate::SceneSelection::Inline {
+                        scene: activity_scene,
+                    };
+                    let mut activity = scenario.events[2].clone();
+                    let InteractionEvent::Derive {
+                        event_id,
+                        timestamp,
+                        memory,
+                        ..
+                    } = &mut activity
+                    else {
+                        unreachable!()
+                    };
+                    *event_id = "gardening".into();
+                    *timestamp = scenario.events[0].timestamp() + chrono::Duration::minutes(1);
+                    memory.subtype = AuthoredMemoryKind::OpenLoop;
+                    scenario.events.insert(1, activity);
                 }
                 ScenarioFeature::WriteSceneCustom => {
                     scene.custom.insert("project".into(), "garden".into());
