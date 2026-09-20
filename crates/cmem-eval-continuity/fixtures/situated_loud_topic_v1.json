@@ -1,0 +1,1227 @@
+{
+  "schema_version": 3,
+  "seed": 20260712,
+  "scenarios": [
+    {
+      "fixture_id": "loud-topic-pottery-near-misses",
+      "namespace": "situated-loud-topic-0000000001352768",
+      "pattern": "situated",
+      "catalog_situations": [
+        "D4",
+        "D6",
+        "D8"
+      ],
+      "character_entity": "mara",
+      "scenes": {
+        "kiln_workshop": {
+          "who": [
+            {
+              "reference": {
+                "by": "key",
+                "key": "mara"
+              }
+            },
+            {
+              "reference": {
+                "by": "key",
+                "key": "nia"
+              }
+            }
+          ],
+          "where": {
+            "by": "setting",
+            "key": "new-kiln-workshop"
+          },
+          "custom": {}
+        },
+        "nia_kitchen": {
+          "who": [
+            {
+              "reference": {
+                "by": "key",
+                "key": "mara"
+              }
+            },
+            {
+              "reference": {
+                "by": "key",
+                "key": "nia"
+              }
+            }
+          ],
+          "where": {
+            "by": "setting",
+            "key": "nia-kitchen"
+          },
+          "custom": {}
+        },
+        "pottery_class": {
+          "who": [
+            {
+              "reference": {
+                "by": "key",
+                "key": "mara"
+              }
+            },
+            {
+              "reference": {
+                "by": "key",
+                "key": "ellis"
+              }
+            }
+          ],
+          "where": {
+            "by": "setting",
+            "key": "pottery-class"
+          },
+          "custom": {}
+        }
+      },
+      "entities": [
+        {
+          "external_id": "mara",
+          "entity_type": "person",
+          "label": "Mara",
+          "is_hub": false
+        },
+        {
+          "external_id": "nia",
+          "entity_type": "person",
+          "label": "Nia",
+          "is_hub": false
+        },
+        {
+          "external_id": "ellis",
+          "entity_type": "person",
+          "label": "Ellis",
+          "is_hub": false
+        }
+      ],
+      "embedding": {
+        "clusters": {
+          "due": [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "kiln-near-misses": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "last-visit": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "people": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "state": [
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "concepts": {
+          "due": {
+            "cluster": "due",
+            "inputs": [
+              "I promised Nia to return her telescope on July tenth.",
+              "I owe Nia her telescope back."
+            ]
+          },
+          "kiln-near-misses": {
+            "cluster": "kiln-near-misses",
+            "inputs": [
+              "Which thermocouple fits the new electric kiln?",
+              "At pottery class 00, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 01, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 02, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 03, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 04, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 05, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 06, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 07, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 08, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 09, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 10, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 11, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 12, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 13, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 14, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 15, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 16, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 17, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 18, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 19, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 20, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 21, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 22, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 23, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 24, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 25, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 26, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 27, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 28, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 29, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 30, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 31, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 32, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 33, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 34, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 35, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 36, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 37, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 38, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 39, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 40, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 41, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 42, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 43, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 44, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 45, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 46, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 47, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 48, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 49, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 50, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 51, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 52, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 53, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 54, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 55, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 56, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 57, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 58, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 59, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 60, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 61, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 62, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+              "At pottery class 63, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts."
+            ]
+          },
+          "last-visit": {
+            "cluster": "last-visit",
+            "inputs": [
+              "Nia told me her mother had come home from hospital and thanked me for checking in."
+            ]
+          },
+          "people": {
+            "cluster": "people",
+            "inputs": [
+              "Mara",
+              "Nia",
+              "Ellis"
+            ]
+          },
+          "state": {
+            "cluster": "state",
+            "inputs": [
+              "Nia trusts me with family news and is relieved that her mother is home."
+            ]
+          }
+        },
+        "noise_magnitude": 0.0,
+        "provider": "controllable_similarity",
+        "seed": 20260712,
+        "vector_size": 8
+      },
+      "events": [
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-00",
+          "timestamp": "2024-01-01T10:00:00Z",
+          "text": "At pottery class 00, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-01",
+          "timestamp": "2024-01-02T10:00:00Z",
+          "text": "At pottery class 01, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-02",
+          "timestamp": "2024-01-03T10:00:00Z",
+          "text": "At pottery class 02, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-03",
+          "timestamp": "2024-01-04T10:00:00Z",
+          "text": "At pottery class 03, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-04",
+          "timestamp": "2024-01-05T10:00:00Z",
+          "text": "At pottery class 04, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-05",
+          "timestamp": "2024-01-06T10:00:00Z",
+          "text": "At pottery class 05, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-06",
+          "timestamp": "2024-01-07T10:00:00Z",
+          "text": "At pottery class 06, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-07",
+          "timestamp": "2024-01-08T10:00:00Z",
+          "text": "At pottery class 07, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-08",
+          "timestamp": "2024-01-09T10:00:00Z",
+          "text": "At pottery class 08, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-09",
+          "timestamp": "2024-01-10T10:00:00Z",
+          "text": "At pottery class 09, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-10",
+          "timestamp": "2024-01-11T10:00:00Z",
+          "text": "At pottery class 10, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-11",
+          "timestamp": "2024-01-12T10:00:00Z",
+          "text": "At pottery class 11, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-12",
+          "timestamp": "2024-01-13T10:00:00Z",
+          "text": "At pottery class 12, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-13",
+          "timestamp": "2024-01-14T10:00:00Z",
+          "text": "At pottery class 13, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-14",
+          "timestamp": "2024-01-15T10:00:00Z",
+          "text": "At pottery class 14, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-15",
+          "timestamp": "2024-01-16T10:00:00Z",
+          "text": "At pottery class 15, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-16",
+          "timestamp": "2024-01-17T10:00:00Z",
+          "text": "At pottery class 16, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-17",
+          "timestamp": "2024-01-18T10:00:00Z",
+          "text": "At pottery class 17, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-18",
+          "timestamp": "2024-01-19T10:00:00Z",
+          "text": "At pottery class 18, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-19",
+          "timestamp": "2024-01-20T10:00:00Z",
+          "text": "At pottery class 19, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-20",
+          "timestamp": "2024-01-21T10:00:00Z",
+          "text": "At pottery class 20, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-21",
+          "timestamp": "2024-01-22T10:00:00Z",
+          "text": "At pottery class 21, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-22",
+          "timestamp": "2024-01-23T10:00:00Z",
+          "text": "At pottery class 22, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-23",
+          "timestamp": "2024-01-24T10:00:00Z",
+          "text": "At pottery class 23, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-24",
+          "timestamp": "2024-01-25T10:00:00Z",
+          "text": "At pottery class 24, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-25",
+          "timestamp": "2024-01-26T10:00:00Z",
+          "text": "At pottery class 25, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-26",
+          "timestamp": "2024-01-27T10:00:00Z",
+          "text": "At pottery class 26, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-27",
+          "timestamp": "2024-01-28T10:00:00Z",
+          "text": "At pottery class 27, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-28",
+          "timestamp": "2024-01-29T10:00:00Z",
+          "text": "At pottery class 28, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-29",
+          "timestamp": "2024-01-30T10:00:00Z",
+          "text": "At pottery class 29, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-30",
+          "timestamp": "2024-01-31T10:00:00Z",
+          "text": "At pottery class 30, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-31",
+          "timestamp": "2024-02-01T10:00:00Z",
+          "text": "At pottery class 31, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-32",
+          "timestamp": "2024-02-02T10:00:00Z",
+          "text": "At pottery class 32, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-33",
+          "timestamp": "2024-02-03T10:00:00Z",
+          "text": "At pottery class 33, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-34",
+          "timestamp": "2024-02-04T10:00:00Z",
+          "text": "At pottery class 34, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-35",
+          "timestamp": "2024-02-05T10:00:00Z",
+          "text": "At pottery class 35, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-36",
+          "timestamp": "2024-02-06T10:00:00Z",
+          "text": "At pottery class 36, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-37",
+          "timestamp": "2024-02-07T10:00:00Z",
+          "text": "At pottery class 37, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-38",
+          "timestamp": "2024-02-08T10:00:00Z",
+          "text": "At pottery class 38, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-39",
+          "timestamp": "2024-02-09T10:00:00Z",
+          "text": "At pottery class 39, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-40",
+          "timestamp": "2024-02-10T10:00:00Z",
+          "text": "At pottery class 40, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-41",
+          "timestamp": "2024-02-11T10:00:00Z",
+          "text": "At pottery class 41, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-42",
+          "timestamp": "2024-02-12T10:00:00Z",
+          "text": "At pottery class 42, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-43",
+          "timestamp": "2024-02-13T10:00:00Z",
+          "text": "At pottery class 43, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-44",
+          "timestamp": "2024-02-14T10:00:00Z",
+          "text": "At pottery class 44, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-45",
+          "timestamp": "2024-02-15T10:00:00Z",
+          "text": "At pottery class 45, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-46",
+          "timestamp": "2024-02-16T10:00:00Z",
+          "text": "At pottery class 46, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-47",
+          "timestamp": "2024-02-17T10:00:00Z",
+          "text": "At pottery class 47, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-48",
+          "timestamp": "2024-02-18T10:00:00Z",
+          "text": "At pottery class 48, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-49",
+          "timestamp": "2024-02-19T10:00:00Z",
+          "text": "At pottery class 49, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-50",
+          "timestamp": "2024-02-20T10:00:00Z",
+          "text": "At pottery class 50, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-51",
+          "timestamp": "2024-02-21T10:00:00Z",
+          "text": "At pottery class 51, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-52",
+          "timestamp": "2024-02-22T10:00:00Z",
+          "text": "At pottery class 52, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-53",
+          "timestamp": "2024-02-23T10:00:00Z",
+          "text": "At pottery class 53, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-54",
+          "timestamp": "2024-02-24T10:00:00Z",
+          "text": "At pottery class 54, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-55",
+          "timestamp": "2024-02-25T10:00:00Z",
+          "text": "At pottery class 55, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-56",
+          "timestamp": "2024-02-26T10:00:00Z",
+          "text": "At pottery class 56, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-57",
+          "timestamp": "2024-02-27T10:00:00Z",
+          "text": "At pottery class 57, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-58",
+          "timestamp": "2024-02-28T10:00:00Z",
+          "text": "At pottery class 58, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-59",
+          "timestamp": "2024-02-29T10:00:00Z",
+          "text": "At pottery class 59, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-60",
+          "timestamp": "2024-03-01T10:00:00Z",
+          "text": "At pottery class 60, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-61",
+          "timestamp": "2024-03-02T10:00:00Z",
+          "text": "At pottery class 61, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-62",
+          "timestamp": "2024-03-03T10:00:00Z",
+          "text": "At pottery class 62, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "pottery-anecdote-63",
+          "timestamp": "2024-03-04T10:00:00Z",
+          "text": "At pottery class 63, Ellis showed me a hand-painted bowl fired in an old wood kiln; we discussed its glaze color, not electric kiln parts.",
+          "scene": {
+            "kind": "named",
+            "name": "pottery_class"
+          },
+          "speaker": "ellis"
+        },
+        {
+          "kind": "experience",
+          "event_id": "agreement",
+          "timestamp": "2025-06-01T10:00:00Z",
+          "text": "I promised Nia to return her telescope on July tenth.",
+          "scene": {
+            "kind": "named",
+            "name": "nia_kitchen"
+          },
+          "speaker": "mara"
+        },
+        {
+          "kind": "derive",
+          "event_id": "return-telescope",
+          "timestamp": "2025-06-01T10:01:00Z",
+          "memory": {
+            "subtype": "commitment",
+            "text": "I owe Nia her telescope back.",
+            "experiences": [
+              "agreement"
+            ],
+            "about": [
+              "mara",
+              "nia"
+            ],
+            "supersedes": [],
+            "actor": "mara",
+            "counterpart": "nia",
+            "due": "2025-07-10T10:00:00Z"
+          }
+        },
+        {
+          "kind": "experience",
+          "event_id": "last-visit",
+          "timestamp": "2025-07-01T10:00:00Z",
+          "text": "Nia told me her mother had come home from hospital and thanked me for checking in.",
+          "scene": {
+            "kind": "named",
+            "name": "nia_kitchen"
+          },
+          "speaker": "nia"
+        },
+        {
+          "kind": "derive",
+          "event_id": "nia-state",
+          "timestamp": "2025-07-01T10:01:00Z",
+          "memory": {
+            "subtype": "relationship_note",
+            "text": "Nia trusts me with family news and is relieved that her mother is home.",
+            "experiences": [
+              "last-visit"
+            ],
+            "about": [
+              "mara",
+              "nia"
+            ],
+            "supersedes": []
+          }
+        },
+        {
+          "kind": "probe",
+          "event_id": "quiet",
+          "query_id": "loud-topic-quiet",
+          "timestamp": "2025-07-10T10:00:00Z",
+          "scene": {
+            "kind": "named",
+            "name": "kiln_workshop"
+          },
+          "assertions": {
+            "carried": [
+              {
+                "memory": "return-telescope",
+                "reason": "due"
+              },
+              {
+                "memory": "last-visit",
+                "reason": "pair"
+              },
+              {
+                "memory": "nia-state",
+                "reason": "pair"
+              }
+            ],
+            "in_order": [],
+            "omitted": [],
+            "not_cued": [],
+            "references": [],
+            "scenes": [],
+            "elapsed_since_met": [],
+            "staleness": []
+          },
+          "measures": {
+            "bystanders": [
+              "pottery-anecdote-00",
+              "pottery-anecdote-01",
+              "pottery-anecdote-02",
+              "pottery-anecdote-03",
+              "pottery-anecdote-04",
+              "pottery-anecdote-05",
+              "pottery-anecdote-06",
+              "pottery-anecdote-07",
+              "pottery-anecdote-08",
+              "pottery-anecdote-09",
+              "pottery-anecdote-10",
+              "pottery-anecdote-11",
+              "pottery-anecdote-12",
+              "pottery-anecdote-13",
+              "pottery-anecdote-14",
+              "pottery-anecdote-15",
+              "pottery-anecdote-16",
+              "pottery-anecdote-17",
+              "pottery-anecdote-18",
+              "pottery-anecdote-19",
+              "pottery-anecdote-20",
+              "pottery-anecdote-21",
+              "pottery-anecdote-22",
+              "pottery-anecdote-23",
+              "pottery-anecdote-24",
+              "pottery-anecdote-25",
+              "pottery-anecdote-26",
+              "pottery-anecdote-27",
+              "pottery-anecdote-28",
+              "pottery-anecdote-29",
+              "pottery-anecdote-30",
+              "pottery-anecdote-31",
+              "pottery-anecdote-32",
+              "pottery-anecdote-33",
+              "pottery-anecdote-34",
+              "pottery-anecdote-35",
+              "pottery-anecdote-36",
+              "pottery-anecdote-37",
+              "pottery-anecdote-38",
+              "pottery-anecdote-39",
+              "pottery-anecdote-40",
+              "pottery-anecdote-41",
+              "pottery-anecdote-42",
+              "pottery-anecdote-43",
+              "pottery-anecdote-44",
+              "pottery-anecdote-45",
+              "pottery-anecdote-46",
+              "pottery-anecdote-47",
+              "pottery-anecdote-48",
+              "pottery-anecdote-49",
+              "pottery-anecdote-50",
+              "pottery-anecdote-51",
+              "pottery-anecdote-52",
+              "pottery-anecdote-53",
+              "pottery-anecdote-54",
+              "pottery-anecdote-55",
+              "pottery-anecdote-56",
+              "pottery-anecdote-57",
+              "pottery-anecdote-58",
+              "pottery-anecdote-59",
+              "pottery-anecdote-60",
+              "pottery-anecdote-61",
+              "pottery-anecdote-62",
+              "pottery-anecdote-63"
+            ]
+          }
+        },
+        {
+          "kind": "probe",
+          "event_id": "loud",
+          "query_id": "loud-topic-loud",
+          "timestamp": "2025-07-10T10:00:00Z",
+          "scene": {
+            "kind": "named",
+            "name": "kiln_workshop"
+          },
+          "topic": "Which thermocouple fits the new electric kiln?",
+          "assertions": {
+            "carried": [
+              {
+                "memory": "return-telescope",
+                "reason": "due"
+              },
+              {
+                "memory": "last-visit",
+                "reason": "pair"
+              },
+              {
+                "memory": "nia-state",
+                "reason": "pair"
+              }
+            ],
+            "in_order": [],
+            "omitted": [],
+            "not_cued": [],
+            "references": [],
+            "scenes": [],
+            "elapsed_since_met": [],
+            "staleness": []
+          },
+          "measures": {
+            "bystanders": [
+              "pottery-anecdote-00",
+              "pottery-anecdote-01",
+              "pottery-anecdote-02",
+              "pottery-anecdote-03",
+              "pottery-anecdote-04",
+              "pottery-anecdote-05",
+              "pottery-anecdote-06",
+              "pottery-anecdote-07",
+              "pottery-anecdote-08",
+              "pottery-anecdote-09",
+              "pottery-anecdote-10",
+              "pottery-anecdote-11",
+              "pottery-anecdote-12",
+              "pottery-anecdote-13",
+              "pottery-anecdote-14",
+              "pottery-anecdote-15",
+              "pottery-anecdote-16",
+              "pottery-anecdote-17",
+              "pottery-anecdote-18",
+              "pottery-anecdote-19",
+              "pottery-anecdote-20",
+              "pottery-anecdote-21",
+              "pottery-anecdote-22",
+              "pottery-anecdote-23",
+              "pottery-anecdote-24",
+              "pottery-anecdote-25",
+              "pottery-anecdote-26",
+              "pottery-anecdote-27",
+              "pottery-anecdote-28",
+              "pottery-anecdote-29",
+              "pottery-anecdote-30",
+              "pottery-anecdote-31",
+              "pottery-anecdote-32",
+              "pottery-anecdote-33",
+              "pottery-anecdote-34",
+              "pottery-anecdote-35",
+              "pottery-anecdote-36",
+              "pottery-anecdote-37",
+              "pottery-anecdote-38",
+              "pottery-anecdote-39",
+              "pottery-anecdote-40",
+              "pottery-anecdote-41",
+              "pottery-anecdote-42",
+              "pottery-anecdote-43",
+              "pottery-anecdote-44",
+              "pottery-anecdote-45",
+              "pottery-anecdote-46",
+              "pottery-anecdote-47",
+              "pottery-anecdote-48",
+              "pottery-anecdote-49",
+              "pottery-anecdote-50",
+              "pottery-anecdote-51",
+              "pottery-anecdote-52",
+              "pottery-anecdote-53",
+              "pottery-anecdote-54",
+              "pottery-anecdote-55",
+              "pottery-anecdote-56",
+              "pottery-anecdote-57",
+              "pottery-anecdote-58",
+              "pottery-anecdote-59",
+              "pottery-anecdote-60",
+              "pottery-anecdote-61",
+              "pottery-anecdote-62",
+              "pottery-anecdote-63"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
