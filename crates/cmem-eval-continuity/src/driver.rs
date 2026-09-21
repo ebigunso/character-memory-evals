@@ -1994,6 +1994,7 @@ pub(crate) mod tests {
             };
             value["scenes"]["pair"]["where"] = place;
             value["scenes"]["pair"]["custom"] = serde_json::json!({"weather":"blue hour"});
+            value["events"][2]["memory"]["experiences"] = serde_json::json!(["visit", "noise"]);
             value["scenes"]["pair"]["who"].as_array_mut().unwrap().extend([
                 serde_json::json!({"reference":{"by":"name", "text":"  Jo  "}, "gold_entity":"jo-a"}),
                 serde_json::json!({"reference":{"by":"description", "text":"  visitor\n in violet  "}, "gold_entity":"jo-b"}),
@@ -2089,6 +2090,35 @@ pub(crate) mod tests {
                     pack.object_refs()[&visit_id.to_string()].external_id,
                     "visit"
                 );
+                let mut wrong_time = native.clone();
+                for source in wrong_time
+                    .memory_scenes
+                    .iter_mut()
+                    .flat_map(|fact| &mut fact.sources)
+                {
+                    if let SourceScene::Recorded { scene, .. } = source {
+                        scene.time += chrono::Duration::nanoseconds(1);
+                    }
+                }
+                let wrong_time = cmem_eval::RetrievedContextPack::from_ranked_items(
+                    pack.items().to_vec(),
+                    vec![wrong_time],
+                    cmem_eval::ContextRenderer::PlainText,
+                )
+                .with_object_refs(pack.object_refs().clone());
+                let checks =
+                    crate::check_probe_assertions(scenario, &scenario.events[3], &wrong_time);
+                let scene_statuses = checks
+                    .iter()
+                    .filter(|check| {
+                        matches!(
+                            check.identity.assertion,
+                            crate::AssertionSubject::Scene { .. }
+                        )
+                    })
+                    .map(|check| check.check.status)
+                    .collect::<Vec<_>>();
+                assert_eq!(scene_statuses, vec![crate::ScenarioStatus::Failed; 2]);
                 // Missing native facts must fail, even though the authored gold is complete.
                 let mut absent = native.clone();
                 absent.scene_references.clear();

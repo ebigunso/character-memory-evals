@@ -334,9 +334,15 @@ pub fn check_probe_assertions(
                             !fact.sources.is_empty()
                                 && fact.sources.iter().all(|source| match source {
                                     cmem_eval::character_memory::SourceScene::Recorded {
+                                        episode_id,
                                         scene: actual,
-                                        ..
-                                    } => scene_matches(&scenario.scenes[scene], actual, pack),
+                                    } => scene_matches(
+                                        scenario,
+                                        *episode_id,
+                                        &scenario.scenes[scene],
+                                        actual,
+                                        pack,
+                                    ),
                                     cmem_eval::character_memory::SourceScene::Unavailable {
                                         ..
                                     } => false,
@@ -445,11 +451,26 @@ fn resolution_matches(
 }
 
 fn scene_matches(
+    scenario: &ContinuityScenario,
+    episode_id: cmem_eval::character_memory::MemoryId,
     expected: &crate::Scene,
     actual: &cmem_eval::character_memory::Scene,
     pack: &cmem_eval::RetrievedContextPack,
 ) -> bool {
     use crate::PerceivedReference;
+    let time_matches = pack
+        .object_refs()
+        .get(&episode_id.to_string())
+        .filter(|object| object.object_type == cmem_eval::ObjectType::Episode)
+        .is_some_and(|object| {
+            scenario.events.iter().any(|event| {
+                matches!(
+                    event,
+                    InteractionEvent::Experience { event_id, timestamp, .. }
+                        if event_id == &object.external_id && *timestamp == actual.time
+                )
+            })
+        });
     let expected_participants = expected
         .who
         .iter()
@@ -480,7 +501,8 @@ fn scene_matches(
         }
         None => (None, None),
     };
-    expected.what.is_none()
+    time_matches
+        && expected.what.is_none()
         && actual_participants.as_ref() == Some(&expected_participants)
         && actual.setting.key.as_deref() == key
         && actual.setting.words.as_deref() == words
