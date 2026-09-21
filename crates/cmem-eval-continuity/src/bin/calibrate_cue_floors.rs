@@ -27,6 +27,8 @@ struct Probe {
     measured_kind: String,
     pressure: String,
     target: Option<String>, // Measurement only: never copied into RetrieveInput.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tracked_targets: Vec<String>,
     input: RetrieveInput,
 }
 
@@ -191,6 +193,7 @@ fn generated(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario, Vec<Pro
             cue(&mut input, kind, "quiet");
             probes.push(Probe {
                 name: format!("{kind}-under-{pressure}"),
+                tracked_targets: vec![],
                 measured_kind: kind.into(),
                 pressure: pressure.into(),
                 target: Some(format!(
@@ -215,6 +218,7 @@ fn generated(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario, Vec<Pro
         cue(&mut input, kind, "unlived");
         probes.push(Probe {
             name: format!("unlived-{kind}"),
+            tracked_targets: vec![],
             measured_kind: kind.into(),
             pressure: "unlived words; synthetic nearest cosine about 0.01, no relevant memory"
                 .into(),
@@ -227,6 +231,7 @@ fn generated(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario, Vec<Pro
     cue(&mut input, "activity", "loud");
     probes.push(Probe {
         name: "saturated-thread-and-topic".into(),
+        tracked_targets: vec![],
         measured_kind: "topic".into(),
         pressure: "16 thread members".into(),
         target: Some("topic-00".into()),
@@ -240,6 +245,7 @@ fn generated(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario, Vec<Pro
     }];
     probes.push(Probe {
         name: "participant-key-inheritance".into(),
+        tracked_targets: vec![],
         measured_kind: "participant".into(),
         pressure: "loud topic; key only, no participant vector words".into(),
         target: Some("participant-16".into()),
@@ -256,7 +262,9 @@ fn generated_overlap(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario,
     let place = "Cedar reading room";
     let participant = "Visitor wearing a linen coat";
     let topic = "Copper bell repair";
-    let target = "strong-topic";
+    let targets = (0..8)
+        .map(|i| format!("strong-topic-{i:02}"))
+        .collect::<Vec<_>>();
     let mut embedding = ControllableSimilarityFixture {
         seed: CHECKED_FIXTURE_SEED,
         vector_size: 9,
@@ -277,11 +285,6 @@ fn generated_overlap(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario,
     assign(&mut embedding, place, vector(1.0, 0.0));
     assign(&mut embedding, participant, vector(1.0, 0.0));
     assign(&mut embedding, topic, vector(0.0, 1.0));
-    assign(
-        &mut embedding,
-        "Repairing the copper bell",
-        vector(0.0, 0.9),
-    );
     let alone = Scene {
         who: vec![SceneParticipant {
             reference: PerceivedReference::Key { key: "self".into() },
@@ -316,20 +319,29 @@ fn generated_overlap(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario,
     let start = Utc.with_ymd_and_hms(2025, 1, 1, 12, 0, 0).unwrap();
     // At least 48 actual episodes match the scene words. Their body-only
     // observations do not; the native Setting/With write surface creates overlap.
-    for index in 0..=native::RetrievalCandidateLimits::default().max_vector_candidates {
-        let strong = index == native::RetrievalCandidateLimits::default().max_vector_candidates;
+    let scene_count = native::RetrievalCandidateLimits::default().max_vector_candidates;
+    for index in 0..scene_count + targets.len() {
+        let strong = index >= scene_count;
+        let text = if strong {
+            let topic_index = index - scene_count;
+            let text = format!("Repairing the copper bell, detail {topic_index:02}");
+            assign(
+                &mut embedding,
+                &text,
+                vector(0.0, 0.9 - 0.3 * topic_index as f32 / 7.0),
+            );
+            text
+        } else {
+            format!("Ledger entry {index:02}")
+        };
         scenario.events.push(InteractionEvent::Experience {
             event_id: if strong {
-                target.into()
+                targets[index - scene_count].clone()
             } else {
                 format!("shared-{index:02}")
             },
             timestamp: start + Duration::minutes(index as i64),
-            text: if strong {
-                "Repairing the copper bell".into()
-            } else {
-                format!("Ledger entry {index:02}")
-            },
+            text,
             scene: SceneSelection::Named {
                 name: if strong { "alone" } else { "shared" }.into(),
             },
@@ -355,7 +367,7 @@ fn generated_overlap(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario,
         timestamp: AT.parse()?,
         text: topic.into(),
         expected: ExpectedRelevance {
-            relevant_external_ids: vec![target.into()],
+            relevant_external_ids: targets.clone(),
             irrelevant_external_ids: vec![],
         },
     });
@@ -394,7 +406,8 @@ fn generated_overlap(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario,
                 pressure: format!(
                     "48 scene-word episodes; weak topic overlap; {pressure}; activity absent"
                 ),
-                target: Some(target.into()),
+                target: Some(targets[0].clone()),
+                tracked_targets: targets.clone(),
                 input,
             });
         }
@@ -420,6 +433,29 @@ fn target_stages(observed: &Value, target: &str) -> Value {
             .any(|s| s["external_id"] == target)
     };
     json!({"candidate_merge":contains("candidates"),"graph_roots":contains("roots"),"pack":contains("selected")})
+}
+
+fn target_cohort(observed: &Value, targets: &[String]) -> Value {
+    if targets.is_empty() {
+        return Value::Null;
+    }
+    let mut stages = serde_json::Map::new();
+    for (field, stage) in [
+        ("candidates", "candidate_merge"),
+        ("roots", "graph_roots"),
+        ("selected", "pack"),
+    ] {
+        let occupants = observed[field].as_array().unwrap();
+        let survives = |target: &&String| occupants.iter().any(|s| s["external_id"] == **target);
+        let survived = targets.iter().filter(survives).collect::<Vec<_>>();
+        let missing = targets.iter().filter(|t| !survives(t)).collect::<Vec<_>>();
+        let other_occupants = occupants
+            .iter()
+            .filter(|s| !targets.iter().any(|t| s["external_id"] == *t))
+            .collect::<Vec<_>>();
+        stages.insert(stage.into(), json!({"survived_count":survived.len(),"survived":survived,"missing":missing,"other_occupants":other_occupants}));
+    }
+    Value::Object(stages)
 }
 
 fn snapshot(pack: &RetrievedContextPack, input: &RetrieveInput) -> Result<Value> {
@@ -658,6 +694,7 @@ async fn measure(
             rows.push(json!({"probe":probe.name,"measured_kind":probe.measured_kind,"pressure":probe.pressure,"floor":value,"effective_floors":input.cue_floors,
                 "target":probe.target,"target_admitted":probe.target.as_ref().map(|_| target.is_some()),
                 "target_stage_survival":probe.target.as_ref().map(|target|target_stages(&observed,target)),
+                "tracked_target_cohort":target_cohort(&observed,&probe.tracked_targets),
                 "starved":eligible.then_some(target.is_none()),
                 "target_native_cue_kinds":target.map(|t| &t["cue_kinds"]),
                 "target_exclusively_measured_kind":target.map(|t| t["cue_kinds"] == json!([probe.measured_kind])),
@@ -668,9 +705,16 @@ async fn measure(
         eprintln!("measured {}", probe.name);
     }
     let control = &initial.traces[0];
+    let mut control_input = probes[0].input.clone();
+    for kind in ["participant", "place", "activity"] {
+        remove_cue(&mut control_input, kind);
+    }
+    let control_observed = snapshot(&control.retrieval, &control_input)?;
     Ok(
         json!({"executed":rows.len(),"not_run":0,"control_retrievals":1+2*controls.len(),
         "summary":summarize(&rows),
+        "topic_only_control_cohort":target_cohort(&control_observed,&probes[0].tracked_targets),
+        "topic_only_control_observed":control_observed,
         "topic_only_control_targets": control.expected.relevant_external_ids.iter().map(|target| json!({
             "target":target,"admitted":control.retrieval.items().iter().any(|item| item.external_id.as_ref()==Some(target))
         })).collect::<Vec<_>>(),"reachability_controls":controls,"rows":rows}),
@@ -757,7 +801,7 @@ async fn main() -> Result<()> {
         "method":{
             "design":"One generated corpus, 17 memories (51 vector objects) per vector kind and 16 activity-thread members. Same store, same probe, one floor swept; other floors stay at native defaults. No scenario pass/fail assertions. Metadata targets are used only after native retrieval. Starvation is measured only when native isolated-cue control admits the target exclusively by that kind and removing the tested cue makes the target absent; otherwise it is null, with controls retained.",
             "geometry":"Seeded synthetic vectors: unrelated groups orthogonal; loud cue cosine about 1, quiet cue about 0.2, unlived words about 0.01 to the least-bad neighbour. Values are controlled pressure, not empirical natural-language relevance thresholds.",
-            "overlapping_pressure":"Separate generated situated corpus: 48 Experience episodes with native Setting and With words, no place key, and one strong topic-only experience. Body-only observations are background; the real normalized episode surface receives a vector with scene cosine about 0.99 and topic cosine about 0.05. The target has topic cosine 0.9. Place-only, participant-only and combined scene probes each sweep all four floors; activity is absent, its sweep is a control. Target survival reads native retained candidates, retained roots and Selected pack assignments independently. Non-topic sweeps are target-survival measurements, not exclusively-that-kind starvation claims.",
+            "overlapping_pressure":"Separate generated situated corpus: 48 Experience episodes with native Setting and With words, no place key, and eight strong topic-only experiences graded from cosine 0.9 to 0.6. Body-only scene observations are background; the real normalized episode surface receives a vector with scene cosine about 0.99 and topic cosine about 0.05. Place-only, participant-only and combined scene probes each sweep all four floors; activity is absent, its sweep is a control. Each cohort stage lists the surviving authored episode identities, missing identities and other scored occupants (including companion observations, never counted as authored episode survival). The native topic-only control has the same cohort census, exposing losses even without scene competition. Occupancy is not a uniquely paired causal eviction. Non-topic sweeps are target-survival measurements, not exclusively-that-kind starvation claims; the existing single-target starvation control tracks the strongest episode.",
             "displacements":"Set differences versus the identical probe at tested-kind floor zero. Zero also disables that kind's spare-root rounds, so differences include sharing as well as minimum reservation. Native floor credits refer to the original stage-ranked prefix, not this counterfactual. Each admission names its stage/section displacement group; multiple admissions cannot be uniquely paired to displaced objects. All available native vector and final section score components are retained; root ordering score is not exposed.",
             "origin":"Candidate-merge/root floor credits precede graph expansion and are direct. At section selection, explicit matching Participant/Activity roots are direct; activity/key-only participant descendants or objects absent from retained vector candidates are inherited. Remaining cases are unknown because vector candidates and roots omit per-kind origin; no fixture labels reconstruct it.",
             "topic_roots":"Root IDs also found in the independent topic-only native candidate control, not an exclusive attribution of a root to topic. Pack slots count native Selected assignments containing topic and may overlap other kinds.",
@@ -784,13 +828,22 @@ mod tests {
                 .count(),
             native::RetrievalCandidateLimits::default().max_vector_candidates
         );
-        assert!(inputs.contains("Repairing the copper bell"));
+        assert_eq!(
+            inputs
+                .iter()
+                .filter(|s| s.starts_with("Repairing the copper bell, detail "))
+                .count(),
+            8
+        );
         assert_eq!(probes.len(), 3 * KINDS.len());
         let observed = json!({"candidates":[{"external_id":"target"}],"roots":[],"selected":[{"external_id":"target"}]});
         assert_eq!(
             target_stages(&observed, "target"),
             json!({"candidate_merge":true,"graph_roots":false,"pack":true})
         );
+        let cohort = target_cohort(&observed, &["target".into(), "absent".into()]);
+        assert_eq!(cohort["pack"]["survived_count"], 1);
+        assert_eq!(cohort["pack"]["missing"], json!(["absent"]));
     }
     #[test]
     fn starvation_denominator_excludes_unavailable_controls() {
