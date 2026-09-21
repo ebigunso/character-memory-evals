@@ -359,6 +359,7 @@ mod tests {
     fn rewording_and_keyless_inputs_keep_labels_out_of_writes() {
         let config = config();
         let (scenario, probes) = generated_overlap(&config, true).unwrap();
+        let (identical, _) = generated_overlap(&config, false).unwrap();
         let family = generated(&config, &scenario, &probes).unwrap();
         assert_eq!(family.writes.len(), 56);
         for kind in ["place", "participant"] {
@@ -367,6 +368,19 @@ mod tests {
                 .collect::<std::collections::BTreeSet<_>>();
             assert_eq!(used.len(), 3);
             assert!(!used.contains(probe_words(kind, true)));
+            assert_eq!(
+                scenario
+                    .embedding
+                    .controllable_similarity()
+                    .unwrap()
+                    .clusters[probe_words(kind, true)],
+                identical
+                    .embedding
+                    .controllable_similarity()
+                    .unwrap()
+                    .clusters[probe_words(kind, false)],
+                "hold the query anchor fixed while varying written descriptions"
+            );
         }
         assert!(family.writes.iter().all(|w| {
             w.scene.setting.key.is_none()

@@ -293,7 +293,7 @@ fn generated_overlap(
     assign(&mut embedding, topic, vector(0.0, 1.0));
     if reworded {
         for kind in ["place", "participant"] {
-            for (index, words) in descriptions::word_pool(kind).iter().enumerate() {
+            for (index, words) in descriptions::word_pool(kind).iter().take(3).enumerate() {
                 assign(
                     &mut embedding,
                     words,
