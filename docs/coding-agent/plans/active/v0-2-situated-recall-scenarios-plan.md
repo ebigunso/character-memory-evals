@@ -306,6 +306,36 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
     owner: reviewer
     detail: "Tier D diff review with the reviewer evidence clause; Tier A check that no scenario was weakened to pass"
 
+### Task_9: The library's provisional cue floors are calibrated for its cues slice
+- type: test
+- owns:
+  - crates/cmem-eval-continuity/fixtures/** (new calibration fixture files only; no existing fixture is edited)
+  - crates/cmem-eval-continuity/src/**
+  - crates/cmem-eval/src/memory_adapter.rs
+  - crates/cmem-eval/src/adapter.rs
+  - crates/cmem-eval-continuity/README.md
+  - README.md
+- depends_on: [Task_5]
+- description: |
+  External dependency: the library's cues slice at a pinned commit (the activity beside the topic, cue kinds in the trace, floors per cue kind at `context.cue_floors`, provisional at 1 each). Task_5 step 2 forwards those; this task measures. A generated calibration fixture, separate from the situated scenarios and never asserted as pass or fail, puts pressure on each kind whose floor the library claims (participant, place, activity) under a loud topic and against each other, at the library's default expansion depth, and sweeps the floor values. It reports, per kind and per floor value: whether a memory reachable only through that kind is admitted (starvation), and what each floor admission displaced and at what score, including the case where the scene's words match nothing the character has lived (pollution: a floor admits the least-bad neighbour). It reads cue kinds and floor admissions from the library's trace, and derives whether a kind was found directly or inherited through expansion from the candidate, root and relation traces; if that cannot be derived, it says so and reports to the library plan's owner. Lab-notebook grade: numbers, config and input hashes and the library commit; nothing sealed; every store it creates is cleaned up. It does not replace Task_6.
+- acceptance:
+  - For each of the three kinds, the report gives starvation and pollution at each swept floor value, with an executed and not-run census, at the pinned library commit recorded in the header.
+  - The report states how much floor credit came from an inherited kind, or that the trace cannot tell.
+  - Deterministic: the run repeats with zero differences. No gold reaches library input.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: "the three repository validation commands; the calibration run twice and the repeat comparison; sha256 of the protected assets"
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: "Tier D diff review with the reviewer evidence clause"
+  - kind: review
+    required: true
+    owner: orchestrator
+    detail: "The numbers are handed to the library plan, whose owner sets the measured floors"
+
 ### Task_6: The continuity baselines are re-measured once
 - type: test
 - owns:
@@ -336,6 +366,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 - Wave 2c: [Task_8] (needs nothing from the library; stacks on Wave 2b)
 - Wave 3: [Task_4] (starts when the library groundwork branch exists)
 - Wave 4: [Task_5] (follows library slices; may be several steps)
+- Wave 4b: [Task_9] (after the Task_5 step that forwards the library's cues slice)
 - Wave 5: [Task_6]
 
 Every task is one pull request, and the pull requests form one linear stack for review. The stack does not land level by level: the lessons file requires every level that reaches main to pass against the library revision CI resolves, and the levels below Task_4 cannot, since they were written against the library before its schema groundwork. When the decider approves the merge, the top branch lands on main as one pull request, validated at the library main revision CI resolves and with that revision recorded, and the per-task pull requests are closed as reviewed and superseded by it. Main therefore never holds a level that fails to build. Tasks a wave runs in parallel are each developed from the wave's integrated parent and then stacked in task order (Task_2's pull request, then Task_3's on top of it), the later one merging the earlier forward. CI resolves library main, which carries the schema groundwork since 2026-09-21, so every pull request below Task_4 is red by construction and only the top of the stack is expected green. Later waves stack on top as their library dependency exists, and pin the exact library commit they validate against.
@@ -408,6 +439,12 @@ Every task is one pull request, and the pull requests form one linear stack for 
   - Closeout owner: the orchestrator closes this plan (the Task_6 numbers recorded, the plan moved to completed, the companion checkout and review worktrees removed) after the decider approves the merge.
   - User approval: inside the approved plan; no scenario is re-authored to fit the library.
   - Record proposed: none.
+- 2026-09-21 Decision: a slice-level calibration of the library's cue floors is added as Task_9.
+  - Trigger / new insight: the library's cues slice ships admission floors per cue kind with provisional values and cannot complete on them; this plan's one final re-measurement (Task_6) needs every route, which does not exist yet, so it cannot supply those values in time. The library's reviews also named two things only measurement can settle: a floor has no relevance threshold under it, and at the default expansion depth a memory from the same occasion inherits the participant kind.
+  - Plan delta (what changed): Task_5 gains a second step that forwards the activity input, the cue kinds from the trace (this repository's cue vocabulary is reconciled to the library's ruled one: topic, participant, place, activity, with the rest arriving with their routes) and the floor values; Task_9 measures starvation and pollution per kind and floor value on a generated calibration fixture. Task_6 is unchanged.
+  - Tradeoffs considered: measuring floors on the situated scenarios was rejected, because they are assertions about behavior and must not be tuned against; the calibration fixture is generated and never asserted.
+  - User approval: inside the approved plan's purpose; decided under the decider's standing instruction and logged for presentation.
+  - Record proposed: none here; the measured-floors record is the library's.
 
 ## Notes
 - Risks: the library's scene shape may want something the as-perceived fixture scene cannot say; that is a finding for the library plan, and the fixture follows the catalog, not the API. The assertion list may grow; each addition names the scenario that needs it. The `section` on a `carried` assertion couples a scenario to the library's pack section names, so it is used only where the draft itself names a section.
