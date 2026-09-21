@@ -37,6 +37,87 @@ pub(super) fn write_words(kind: &str, index: usize) -> &'static str {
     word_pool(kind)[choice]
 }
 
+pub(super) fn add_unlived_probes(scenario: &mut ContinuityScenario, probes: &mut Vec<Probe>) {
+    let mut embedding = scenario
+        .embedding
+        .controllable_similarity()
+        .unwrap()
+        .clone();
+    let template = probes[0].clone();
+    for (kind, words) in [
+        ("participant", "A stranger wearing a striped raincoat"),
+        ("place", "An unfamiliar glass-roofed conservatory"),
+    ] {
+        let mut vector = vec![0.0; 9];
+        vector[0] = 0.01;
+        vector[6] = (1.0_f32 - 0.01_f32.powi(2)).sqrt();
+        assign(&mut embedding, words, vector);
+        for with_topic in [true, false] {
+            let mut input = template.input.clone();
+            for other in ["participant", "place", "activity"] {
+                remove_cue(&mut input, other);
+            }
+            if !with_topic {
+                input.topic = None;
+            }
+            if kind == "place" {
+                input.scene.setting.words = Some(words.into());
+            } else {
+                input.scene.participants.push(SceneParticipantInput {
+                    description: Some(words.into()),
+                    ..Default::default()
+                });
+            }
+            probes.push(Probe {
+                name: format!("unlived-scene-{kind}-{}", if with_topic { "with-topic" } else { "scene-only" }),
+                measured_kind: kind.into(),
+                pressure: "Unlived description against 48 described occasions; controlled scene cosine about 0.01; no semantic similarity bound".into(),
+                target: None, tracked_targets: template.tracked_targets.clone(), input,
+            });
+        }
+    }
+    scenario.embedding = ContinuityScenarioEmbedding::controllable_similarity_provider(embedding);
+}
+
+pub(super) fn unlived_reading(observed: &Value, without_description: &Value, kind: &str) -> Value {
+    let selected = observed["selected"].as_array().unwrap();
+    let control = without_description["selected"].as_array().unwrap();
+    let cue_slots = selected
+        .iter()
+        .filter(|slot| {
+            slot["cue_kinds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|cue| cue == kind)
+        })
+        .collect::<Vec<_>>();
+    let occasions = cue_slots
+        .iter()
+        .filter(|slot| {
+            slot["object"]["object_type"] == "episode"
+                && slot["external_id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("shared-"))
+        })
+        .collect::<Vec<_>>();
+    let new = cue_slots
+        .iter()
+        .filter(|slot| {
+            !control
+                .iter()
+                .any(|old| old["object"] == slot["object"] && old["section"] == slot["section"])
+        })
+        .collect::<Vec<_>>();
+    json!({"description_kind":kind,"cue_bearing_pack_slots":cue_slots.len(),
+        "exclusive_cue_pack_slots":cue_slots.iter().filter(|slot| slot["cue_kinds"] == json!([kind])).count(),
+        "all_pack_slots":selected.len(),"native_scene_occasions":occasions.len(),"occasions":occasions,
+        "cue_bearing_slots":cue_slots,"new_cue_slots_vs_description_removed":new,
+        "displaced_vs_description_removed":displacements(without_description,observed),
+        "control_without_description":without_description,
+        "attribution":"Native cue membership can overlap topic or other routes; new and displaced identities compare the same query with only this description removed, not one-to-one causal floor credit."})
+}
+
 #[derive(Clone, Serialize)]
 pub(super) struct KeylessFamily {
     pub namespace: String,
@@ -462,6 +543,68 @@ pub(super) fn paraphrase_geometry() -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unlived_scene_counts_keep_overlapping_credit_and_displacement_distinct() {
+        let item = |id: &str, cues: &[&str]| {
+            json!({"object":{"id":id,"object_type":"episode"},
+            "external_id":id,"section":"relevant_episodes","cue_kinds":cues})
+        };
+        let before = json!({"candidates":[],"roots":[],"selected":[item("shared-kept", &["topic"]),item("strong-topic-lost", &["topic"])]});
+        let after = json!({"candidates":[],"roots":[],"selected":[item("shared-kept", &["topic","place"]),item("shared-new", &["place"])]});
+        let reading = unlived_reading(&after, &before, "place");
+        assert_eq!(reading["cue_bearing_pack_slots"], 2);
+        assert_eq!(reading["exclusive_cue_pack_slots"], 1);
+        assert_eq!(reading["native_scene_occasions"], 2);
+        assert_eq!(
+            reading["new_cue_slots_vs_description_removed"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            reading["displaced_vs_description_removed"]["section:relevant_episodes"][0]["external_id"],
+            "strong-topic-lost"
+        );
+        let (scenario, probes) = generated_overlap(&config(), true).unwrap();
+        let unlived = probes
+            .iter()
+            .filter(|p| p.name.starts_with("unlived-scene-"))
+            .collect::<Vec<_>>();
+        assert_eq!(unlived.len(), 4);
+        assert_eq!(
+            unlived.iter().filter(|p| p.input.topic.is_some()).count(),
+            2
+        );
+        let stored = scenario.runtime_embedding_inputs();
+        for probe in unlived {
+            let words = probe
+                .input
+                .scene
+                .setting
+                .words
+                .as_deref()
+                .or_else(|| {
+                    probe
+                        .input
+                        .scene
+                        .participants
+                        .first()
+                        .and_then(|p| p.description.as_deref())
+                })
+                .unwrap();
+            assert!(!stored.iter().any(|text| text.contains(words)));
+            assert!(
+                scenario
+                    .embedding
+                    .controllable_similarity()
+                    .unwrap()
+                    .concepts
+                    .contains_key(words)
+            );
+        }
+    }
+
     #[tokio::test]
     async fn opposed_native_ids_preserve_every_nonidentity_input() {
         let config = config();

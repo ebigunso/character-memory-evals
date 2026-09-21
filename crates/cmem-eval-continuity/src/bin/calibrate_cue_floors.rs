@@ -445,6 +445,7 @@ fn generated_overlap(
             });
         }
     }
+    descriptions::add_unlived_probes(&mut scenario, &mut probes);
     Ok((scenario, probes))
 }
 
@@ -731,7 +732,7 @@ async fn measure(
                         .or_default() += 1;
                     counts
                 });
-            rows.push(json!({"probe":probe.name,"measured_kind":probe.measured_kind,"pressure":probe.pressure,"floor":value,"effective_floors":input.cue_floors,
+            let mut row = json!({"probe":probe.name,"measured_kind":probe.measured_kind,"pressure":probe.pressure,"floor":value,"effective_floors":input.cue_floors,
                 "target":probe.target,"target_admitted":probe.target.as_ref().map(|_| target.is_some()),
                 "target_stage_survival":probe.target.as_ref().map(|target|target_stages(&observed,target)),
                 "tracked_target_cohort":target_cohort(&observed,&probe.tracked_targets),
@@ -740,7 +741,16 @@ async fn measure(
                 "target_exclusively_measured_kind":target.map(|t| t["cue_kinds"] == json!([probe.measured_kind])),
                 "pack_slots":selected.len(), "topic_pack_slots":selected.iter().filter(|s| s["cue_kinds"].as_array().unwrap().contains(&json!("topic"))).count(),
                 "roots_in_topic_only_candidate_control":observed["roots"].as_array().unwrap().iter().filter(|r| topic_candidates.contains(&id(&r["object"]))).count(),
-                "credit_origin_counts":credit,"displaced_vs_same_probe_floor_zero":displacements(&zero,&observed), "observed":observed}));
+                "credit_origin_counts":credit,"displaced_vs_same_probe_floor_zero":displacements(&zero,&observed), "observed":observed});
+            if probe.name.starts_with("unlived-scene-") {
+                let mut removed = input.clone();
+                remove_cue(&mut removed, &probe.measured_kind);
+                let pack = runtime.adapter().retrieve(removed.clone()).await?;
+                let control = snapshot(&pack, &removed)?;
+                row["unlived_scene"] =
+                    descriptions::unlived_reading(&observed, &control, &probe.measured_kind);
+            }
+            rows.push(row);
         }
         eprintln!("measured {}", probe.name);
     }
@@ -943,7 +953,7 @@ mod tests {
                 .count(),
             8
         );
-        assert_eq!(probes.len(), 3 * KINDS.len());
+        assert_eq!(probes.len(), 3 * KINDS.len() + 4);
         let observed = json!({"candidates":[{"external_id":"target"}],"roots":[],"selected":[{"external_id":"target"}]});
         assert_eq!(
             target_stages(&observed, "target"),
