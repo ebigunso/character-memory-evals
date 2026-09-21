@@ -1121,6 +1121,12 @@ fn checked_write_outcome(
             scenario.fixture_id
         );
     }
+    if let Some(failure) = &outcome.stats_update_status.failure {
+        bail!(
+            "scenario {:?} event {event_id:?} committed with stats-update failure: {failure:?}",
+            scenario.fixture_id
+        );
+    }
     if outcome.vector_indexed_object_ids.is_empty() {
         bail!(
             "scenario {:?} event {event_id:?} committed without vector-indexed objects",
@@ -1528,6 +1534,35 @@ pub(crate) mod tests {
                 MappedSituatedInput::Probe(_) => unreachable!(),
             }
         }
+    }
+
+    #[test]
+    fn situated_write_rejects_failed_stats_even_after_vector_success() {
+        let scenario = situated_scenario();
+        let mut outcome = cmem_eval::RememberOutcome {
+            persisted_object_ids: vec![uuid::Uuid::nil()],
+            persisted_link_ids: Vec::new(),
+            vector_indexed_object_ids: vec![uuid::Uuid::nil()],
+            vector_indexing_failure: None,
+            stats_update_status: Default::default(),
+            repair_needed: Vec::new(),
+            diagnostics: Default::default(),
+        };
+        assert!(checked_write_outcome(&scenario, "visit", outcome.clone()).is_ok());
+        outcome.stats_update_status = cmem_eval::character_memory::StatsUpdateStatus::failed(
+            [],
+            [uuid::Uuid::nil()],
+            vec![
+                cmem_eval::character_memory::StatsUpdateCause::StoreUnhealthy {
+                    health_cause: None,
+                },
+            ],
+        );
+        let error = checked_write_outcome(&scenario, "visit", outcome)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("stats-update failure"));
+        assert!(error.contains("situated-control") && error.contains("visit"));
     }
 
     #[tokio::test]
