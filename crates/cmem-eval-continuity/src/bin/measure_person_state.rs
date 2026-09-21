@@ -315,16 +315,20 @@ async fn measure_settlement(
             .iter()
             .any(|i| i.external_id.as_deref() == Some(id))
     };
-    let resolution = |pack: &RetrievedContextPack| -> Result<Vec<Option<String>>> {
-        let old = pack.outcomes()[0]
-            .pack
-            .open_loops
+    let resolution = |pack: &RetrievedContextPack| -> Result<_> {
+        let shape = serde_json::to_value(&pack.outcomes()[0].pack)?;
+        let old = shape
+            .as_object()
+            .unwrap()
             .iter()
-            .find(|m| m.memory.text == OPEN);
-        let old = old.map(serde_json::to_value).transpose()?;
-        Ok(old
-            .as_ref()
-            .and_then(|m| m.get("resolved_by"))
+            .find_map(|(section, items)| {
+                items.as_array()?.iter().find_map(|memory| {
+                    (memory.pointer("/memory/text").and_then(Value::as_str) == Some(OPEN))
+                        .then_some((section, memory))
+                })
+            });
+        let resolvers = old
+            .and_then(|(_, memory)| memory.get("resolved_by"))
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
@@ -333,10 +337,11 @@ async fn measure_settlement(
                     .get(id.as_str().unwrap())
                     .map(|r| r.external_id.clone())
             })
-            .collect())
+            .collect::<Vec<_>>();
+        Ok((old.map(|(section, _)| section.clone()), resolvers))
     };
-    let meeting_resolvers = resolution(&after)?;
-    let topic_resolvers = resolution(&by_topic)?;
+    let (meeting_section, meeting_resolvers) = resolution(&after)?;
+    let (topic_section, topic_resolvers) = resolution(&by_topic)?;
     Ok(json!({"checks":{
         "open_loop_present_before_resolution":contains(&before,"notebook-open"),
         "resolver_present_on_meeting":contains(&after,"notebook-returned"),
@@ -344,6 +349,8 @@ async fn measure_settlement(
         "meeting_open_loop_marked_resolved_by_resolver":meeting_resolvers.contains(&Some("notebook-returned".into())),
         "topic_recalls_open_loop":contains(&by_topic,"notebook-open"),
         "topic_open_loop_marked_resolved_by_resolver":topic_resolvers.contains(&Some("notebook-returned".into()))},
+        "meeting_old_loop_section":meeting_section,
+        "topic_old_loop_section":topic_section,
         "meeting_resolved_by_external_ids":meeting_resolvers,
         "topic_resolved_by_external_ids":topic_resolvers,
         "before":{"input":meeting,"observed":score(&before,&[])?},
