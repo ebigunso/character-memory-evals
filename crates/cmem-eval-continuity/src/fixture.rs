@@ -2403,6 +2403,9 @@ impl ProbeAdmission<'_> {
         features: &mut BTreeSet<ScenarioFeature>,
     ) -> Result<ComputedProbeGold, FixtureError> {
         let location = self.location;
+        if *assertions == ProbeAssertions::default() && measures.bystanders.is_empty() {
+            return Err(location.error("probe.assertions", FixtureAdmissionKind::Empty));
+        }
         let memory = |field, id: &str| {
             require_admitted_kind(
                 location,
@@ -5867,6 +5870,25 @@ bystanders = ["distractor"]
             matches!(kind, FixtureAdmissionKind::OutOfUnitInterval(value) if value.is_nan()),
             "{kind:?}"
         );
+    }
+
+    #[test]
+    fn situated_probe_requires_an_assertion_or_an_authored_measure() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            value["scenarios"][0]["events"][5]["assertions"] = serde_json::json!({});
+            // A bystander-only probe still has a measurement purpose.
+            parse_as(&value, extension).unwrap();
+            value["scenarios"][0]["events"][5]["measures"] = serde_json::json!({});
+            assert_eq!(
+                admission_of(parse_as(&value, extension).unwrap_err()).2,
+                FixtureAdmissionKind::Empty
+            );
+            value["scenarios"][0]["events"][5]["assertions"] = serde_json::json!({
+                "carried": [{"memory": "promise", "reason": "due"}]
+            });
+            parse_as(&value, extension).unwrap();
+        }
     }
 
     #[test]
