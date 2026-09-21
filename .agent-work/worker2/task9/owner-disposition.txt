@@ -1,0 +1,8 @@
+2026-09-21T12:00:44Z orchestrator:
+Known and expected, same two as evals-worker found: both driver tests pinned the OLD composite episode embedding text; the library now embeds scene words on separate surfaces. That migration is the scenario-driver step for the scene-words slice, which I will dispatch later, NOT today (the decider asked me to stop after the measurement and report). Do not touch them. Record both as pin-induced with their cause, separate from the measured results, and finish the single after-the-fix reading; that is the last deliverable.
+
+2026-09-21T12:09:17Z orchestrator:
+Final reading received; thank you, that was careful work. The decider has asked me to STOP after this measurement and report. Commit your artifacts and the final reading on your branch (local; do not push), leave the library sibling where it is, remove any stores you created, and stand by. No new work until I send a go-ahead.
+
+Disposition:
+Final reading and evidence archived locally by explicit owner request. Exact JSON remains locally; committed .json.gz archives are lossless and verified against original SHA-256. Byte-identical repeats are recorded as aliases rather than redundant archives. Both final native pairs and smoke runs completed; no cargo process remains. Library had already been restored to clean 63f176f before the stop message and was left there. Own temporary/cache directories removed; no calibration stores remain. Existing role build cache is retained. No push, no further implementation, no new experiments.
