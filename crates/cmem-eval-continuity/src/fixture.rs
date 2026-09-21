@@ -190,6 +190,7 @@ pub type RecallReason = CueKind;
 #[serde(rename_all = "snake_case")]
 pub enum CueKind {
     Pair,
+    Place,
     Due,
     Date,
     Trigger,
@@ -200,8 +201,9 @@ pub enum CueKind {
 }
 
 impl CueKind {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Pair,
+        Self::Place,
         Self::Due,
         Self::Date,
         Self::Trigger,
@@ -210,6 +212,17 @@ impl CueKind {
         Self::RecentAndSalient,
         Self::Topic,
     ];
+
+    pub(crate) fn native(self) -> Option<cmem_eval::character_memory::CueKind> {
+        use cmem_eval::character_memory::CueKind as Native;
+        match self {
+            Self::Topic => Some(Native::Topic),
+            Self::Pair => Some(Native::Participant),
+            Self::Place => Some(Native::Place),
+            Self::Activity => Some(Native::Activity),
+            Self::Due | Self::Date | Self::Trigger | Self::OwnDay | Self::RecentAndSalient => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -332,6 +345,7 @@ pub enum ScenarioFeature {
     WriteSceneWhat,
     WriteSceneCustom,
     ProbeScene,
+    ProbeActivity,
     NoTopic,
     ReferenceTime,
     ParticipantName,
@@ -348,6 +362,12 @@ pub enum ScenarioFeature {
     PreferenceMemory,
     ThreadProvenance,
     CueTrace,
+    PairCounterpartCue,
+    DueCue,
+    DateCue,
+    TriggerCue,
+    OwnDayCue,
+    RecentAndSalientCue,
     ReferenceTrace,
     MemorySceneTrace,
     ElapsedSinceMet,
@@ -1664,6 +1684,9 @@ impl ContinuityScenario {
                         )?;
                         requirements.features.insert(feature);
                     }
+                    if matches!(scene.what, Some(PerceivedReference::Key { .. })) {
+                        requirements.features.insert(ScenarioFeature::ProbeActivity);
+                    }
                     if let Some(topic) = topic {
                         require_non_empty(&location, "probe.topic", topic)?;
                         require_embedding_input(
@@ -2475,6 +2498,16 @@ impl ProbeAdmission<'_> {
                     ));
                 }
                 features.insert(ScenarioFeature::CueTrace);
+                let missing = match assertion.cue {
+                    CueKind::Pair if !expected => Some(ScenarioFeature::PairCounterpartCue),
+                    CueKind::Due => Some(ScenarioFeature::DueCue),
+                    CueKind::Date => Some(ScenarioFeature::DateCue),
+                    CueKind::Trigger => Some(ScenarioFeature::TriggerCue),
+                    CueKind::OwnDay => Some(ScenarioFeature::OwnDayCue),
+                    CueKind::RecentAndSalient => Some(ScenarioFeature::RecentAndSalientCue),
+                    _ => None,
+                };
+                features.extend(missing);
             }
         }
         let mut references = BTreeSet::new();
@@ -3912,6 +3945,7 @@ bystanders = ["distractor"]
                 ScenarioFeature::Trigger,
                 ScenarioFeature::AuthoredDerivedMemory,
                 ScenarioFeature::CueTrace,
+                ScenarioFeature::DateCue,
                 ScenarioFeature::ReferenceTrace,
                 ScenarioFeature::MemorySceneTrace,
                 ScenarioFeature::ElapsedSinceMet,

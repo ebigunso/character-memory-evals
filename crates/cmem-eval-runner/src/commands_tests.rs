@@ -73,7 +73,7 @@ async fn situated_toml_cli_keeps_mixed_and_all_not_run_scenarios() {
         assert!(
             gated
                 .missing_features
-                .contains(&cmem_eval_continuity::ScenarioFeature::CueTrace)
+                .contains(&cmem_eval_continuity::ScenarioFeature::OwnDayCue)
         );
         assert_eq!(gated.probes["probe"].context_tokens, None);
         assert_eq!(gated.probes["probe"].bystander_context_share, None);
