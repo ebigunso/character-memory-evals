@@ -11,8 +11,8 @@ use cmem_eval::{
 };
 use cmem_eval_continuity::{
     CHECKED_FIXTURE_SEED, ContinuityRuntime, ContinuityScenario, ContinuityScenarioEmbedding,
-    EntityDeclaration, ExpectedRelevance, InteractionEvent, ScenarioPattern, ThreadMembership,
-    run_continuity_scenario,
+    EntityDeclaration, ExpectedRelevance, InteractionEvent, PerceivedReference, ScenarioPattern,
+    Scene, SceneParticipant, SceneSelection, ThreadMembership, run_continuity_scenario,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -252,6 +252,156 @@ fn id(value: &Value) -> String {
     value["id"].as_str().unwrap().into()
 }
 
+fn generated_overlap(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario, Vec<Probe>)> {
+    let place = "Cedar reading room";
+    let participant = "Visitor wearing a linen coat";
+    let topic = "Copper bell repair";
+    let target = "strong-topic";
+    let mut embedding = ControllableSimilarityFixture {
+        seed: CHECKED_FIXTURE_SEED,
+        vector_size: 9,
+        noise_magnitude: 0.000001,
+        clusters: BTreeMap::new(),
+        concepts: BTreeMap::new(),
+    };
+    let vector = |x: f32, y: f32| {
+        let mut v = vec![0.0; 9];
+        v[0] = x;
+        v[1] = y;
+        v[8] = (1.0 - x * x - y * y).max(0.0).sqrt();
+        v
+    };
+    let mut background = vec![0.0; 9];
+    background[8] = -1.0;
+    assign(&mut embedding, "Character", background.clone());
+    assign(&mut embedding, place, vector(1.0, 0.0));
+    assign(&mut embedding, participant, vector(1.0, 0.0));
+    assign(&mut embedding, topic, vector(0.0, 1.0));
+    assign(
+        &mut embedding,
+        "Repairing the copper bell",
+        vector(0.0, 0.9),
+    );
+    let alone = Scene {
+        who: vec![SceneParticipant {
+            reference: PerceivedReference::Key { key: "self".into() },
+            gold_entity: None,
+        }],
+        ..Default::default()
+    };
+    let mut shared = alone.clone();
+    shared.place = Some(PerceivedReference::Description { text: place.into() });
+    shared.who.push(SceneParticipant {
+        reference: PerceivedReference::Description {
+            text: participant.into(),
+        },
+        gold_entity: None,
+    });
+    let mut scenario = ContinuityScenario {
+        fixture_id: "cue-floor-overlapping-pressure".into(),
+        namespace: format!("cue-floor-overlap-{:016x}", CHECKED_FIXTURE_SEED),
+        pattern: ScenarioPattern::Situated,
+        catalog_situations: vec!["generated-overlapping-pressure".into()],
+        character_entity: Some("self".into()),
+        scenes: BTreeMap::from([("shared".into(), shared), ("alone".into(), alone)]),
+        entities: vec![EntityDeclaration {
+            external_id: "self".into(),
+            label: "Character".into(),
+            is_hub: false,
+        }],
+        embedding: ContinuityScenarioEmbedding::controllable_similarity_provider(embedding.clone()),
+        events: Vec::new(),
+        requirements: Default::default(),
+    };
+    let start = Utc.with_ymd_and_hms(2025, 1, 1, 12, 0, 0).unwrap();
+    // At least 48 actual episodes match the scene words. Their body-only
+    // observations do not; the native Setting/With write surface creates overlap.
+    for index in 0..=native::RetrievalCandidateLimits::default().max_vector_candidates {
+        let strong = index == native::RetrievalCandidateLimits::default().max_vector_candidates;
+        scenario.events.push(InteractionEvent::Experience {
+            event_id: if strong {
+                target.into()
+            } else {
+                format!("shared-{index:02}")
+            },
+            timestamp: start + Duration::minutes(index as i64),
+            text: if strong {
+                "Repairing the copper bell".into()
+            } else {
+                format!("Ledger entry {index:02}")
+            },
+            scene: SceneSelection::Named {
+                name: if strong { "alone" } else { "shared" }.into(),
+            },
+            speaker: None,
+            salience: Some(0.5),
+        });
+    }
+    // Use the driver's existing normalized-input inventory, including scene lines.
+    for input in scenario.runtime_embedding_inputs() {
+        if input.starts_with("Ledger entry ") {
+            let index: usize = input.lines().next().unwrap()[13..].parse()?;
+            let v = if input.contains("\nSetting:") {
+                vector(0.994 - index as f32 * 0.0001, 0.05 - index as f32 * 0.0002)
+            } else {
+                background.clone()
+            };
+            assign(&mut embedding, &input, v);
+        }
+    }
+    scenario.events.push(InteractionEvent::Query {
+        event_id: "topic-control".into(),
+        query_id: "topic-control".into(),
+        timestamp: AT.parse()?,
+        text: topic.into(),
+        expected: ExpectedRelevance {
+            relevant_external_ids: vec![target.into()],
+            irrelevant_external_ids: vec![],
+        },
+    });
+    scenario.embedding = ContinuityScenarioEmbedding::controllable_similarity_provider(embedding);
+    ensure!(
+        cmem_eval_continuity::scenario_missing_features(&scenario)?.is_empty(),
+        "overlapping calibration requires unsupported features"
+    );
+    let mut probes = Vec::new();
+    for pressure in ["place", "participant", "both"] {
+        for kind in KINDS {
+            let mut input = RetrieveInput {
+                mode: config.retrieval.mode,
+                namespace: scenario.namespace.clone(),
+                topic: Some(topic.into()),
+                scene: MemorySceneInput {
+                    time: Some(AT.into()),
+                    ..Default::default()
+                },
+                activity: None,
+                cue_floors: None,
+                surface_policy: config.retrieval.surface_policy.clone(),
+            };
+            if pressure != "participant" {
+                input.scene.setting.words = Some(place.into());
+            }
+            if pressure != "place" {
+                input.scene.participants.push(SceneParticipantInput {
+                    description: Some(participant.into()),
+                    ..Default::default()
+                });
+            }
+            probes.push(Probe {
+                name: format!("overlap-{pressure}-sweep-{kind}"),
+                measured_kind: kind.into(),
+                pressure: format!(
+                    "48 scene-word episodes; weak topic overlap; {pressure}; activity absent"
+                ),
+                target: Some(target.into()),
+                input,
+            });
+        }
+    }
+    Ok((scenario, probes))
+}
+
 fn retained_roots(trace: &Value) -> Vec<&Value> {
     trace["graph_expansions"]
         .as_array()
@@ -259,6 +409,17 @@ fn retained_roots(trace: &Value) -> Vec<&Value> {
         .iter()
         .filter(|root| root["outcome"] != "root_limit")
         .collect()
+}
+
+fn target_stages(observed: &Value, target: &str) -> Value {
+    let contains = |field: &str| {
+        observed[field]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["external_id"] == target)
+    };
+    json!({"candidate_merge":contains("candidates"),"graph_roots":contains("roots"),"pack":contains("selected")})
 }
 
 fn snapshot(pack: &RetrievedContextPack, input: &RetrieveInput) -> Result<Value> {
@@ -418,7 +579,7 @@ async fn reachability_control(
     let observed = snapshot(&pack, &input)?;
     let selected = observed["selected"].as_array().unwrap();
     Ok(
-        json!({"input":input,"target_selected":selected.iter().find(|s| s["external_id"] == target),
+        json!({"input":input,"target_selected":selected.iter().find(|s| s["external_id"] == target),"target_stage_survival":target_stages(&observed, target),
         "selected":selected,"telemetry":observed["telemetry"]}),
     )
 }
@@ -496,6 +657,7 @@ async fn measure(
                 });
             rows.push(json!({"probe":probe.name,"measured_kind":probe.measured_kind,"pressure":probe.pressure,"floor":value,"effective_floors":input.cue_floors,
                 "target":probe.target,"target_admitted":probe.target.as_ref().map(|_| target.is_some()),
+                "target_stage_survival":probe.target.as_ref().map(|target|target_stages(&observed,target)),
                 "starved":eligible.then_some(target.is_none()),
                 "target_native_cue_kinds":target.map(|t| &t["cue_kinds"]),
                 "target_exclusively_measured_kind":target.map(|t| t["cue_kinds"] == json!([probe.measured_kind])),
@@ -538,6 +700,7 @@ async fn main() -> Result<()> {
     let config = config();
     config.validate()?;
     let (scenario, probes) = generated(&config)?;
+    let (overlap_scenario, overlap_probes) = generated_overlap(&config)?;
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -551,22 +714,29 @@ async fn main() -> Result<()> {
     let stores = output.with_extension("stores");
     fs::create_dir(&stores).context("calibration store directory must be new")?;
     let input = json!({"scenario":scenario,"probes":probes});
-    let fixture = scenario
-        .embedding
-        .controllable_similarity()
-        .unwrap()
-        .clone();
-    let binding = EmbeddingRuntimeBinding::Controllable {
-        fixture,
-        dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
-    };
+    let overlap_input = json!({"scenario":overlap_scenario,"probes":overlap_probes});
     let result = async {
-        let mut runtime = ContinuityRuntime::new(&stores, &config, binding).await?;
-        let result = Box::pin(measure(&mut runtime, &scenario, &probes, &config)).await;
-        let cleanup = runtime.cleanup(&scenario.namespace).await;
-        drop(runtime);
-        cleanup?;
-        result
+        let mut results = Vec::new();
+        for (name, scenario, probes) in [
+            ("orthogonal", &scenario, &probes),
+            ("overlapping", &overlap_scenario, &overlap_probes),
+        ] {
+            let binding = EmbeddingRuntimeBinding::Controllable {
+                fixture: scenario
+                    .embedding
+                    .controllable_similarity()
+                    .unwrap()
+                    .clone(),
+                dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
+            };
+            let mut runtime = ContinuityRuntime::new(&stores.join(name), &config, binding).await?;
+            let result = Box::pin(measure(&mut runtime, scenario, probes, &config)).await;
+            let cleanup = runtime.cleanup(&scenario.namespace).await;
+            drop(runtime);
+            cleanup?;
+            results.push(result?);
+        }
+        Ok::<_, anyhow::Error>(results)
     }
     .await;
     fs::remove_dir_all(&stores).context("remove owned calibration stores")?;
@@ -578,17 +748,19 @@ async fn main() -> Result<()> {
     let report = json!({"header":{
         "harness_commit":harness_commit,"library_commit":library_commit,"profile":if cfg!(debug_assertions){"debug"}else{"release"},
         "seed":CHECKED_FIXTURE_SEED,"input_sha256":text_sha256(&serde_json::to_string(&input)?),"config_sha256":text_sha256(&serde_json::to_string(&config)?),
+        "overlapping_input_sha256":text_sha256(&serde_json::to_string(&overlap_input)?),
         "generator_source_sha256":text_sha256(include_str!("calibrate_cue_floors.rs")),
         "config":config,"native_candidate_limits":native::RetrievalCandidateLimits::default(),"native_graph_limits":native::RetrievalGraphLimits::default(),
         "native_section_limits":native::ContinuitySectionLimits::default(),"native_default_floors":native::RetrievalCueFloors::default(),"sweep":FLOORS,"stores_cleaned":true},
         "method":{
             "design":"One generated corpus, 17 memories (51 vector objects) per vector kind and 16 activity-thread members. Same store, same probe, one floor swept; other floors stay at native defaults. No scenario pass/fail assertions. Metadata targets are used only after native retrieval. Starvation is measured only when native isolated-cue control admits the target exclusively by that kind and removing the tested cue makes the target absent; otherwise it is null, with controls retained.",
             "geometry":"Seeded synthetic vectors: unrelated groups orthogonal; loud cue cosine about 1, quiet cue about 0.2, unlived words about 0.01 to the least-bad neighbour. Values are controlled pressure, not empirical natural-language relevance thresholds.",
+            "overlapping_pressure":"Separate generated situated corpus: 48 Experience episodes with native Setting and With words, no place key, and one strong topic-only experience. Body-only observations are background; the real normalized episode surface receives a vector with scene cosine about 0.99 and topic cosine about 0.05. The target has topic cosine 0.9. Place-only, participant-only and combined scene probes each sweep all four floors; activity is absent, its sweep is a control. Target survival reads native retained candidates, retained roots and Selected pack assignments independently. Non-topic sweeps are target-survival measurements, not exclusively-that-kind starvation claims.",
             "displacements":"Set differences versus the identical probe at tested-kind floor zero. Zero also disables that kind's spare-root rounds, so differences include sharing as well as minimum reservation. Native floor credits refer to the original stage-ranked prefix, not this counterfactual. Each admission names its stage/section displacement group; multiple admissions cannot be uniquely paired to displaced objects. All available native vector and final section score components are retained; root ordering score is not exposed.",
             "origin":"Candidate-merge/root floor credits precede graph expansion and are direct. At section selection, explicit matching Participant/Activity roots are direct; activity/key-only participant descendants or objects absent from retained vector candidates are inherited. Remaining cases are unknown because vector candidates and roots omit per-kind origin; no fixture labels reconstruct it.",
             "topic_roots":"Root IDs also found in the independent topic-only native candidate control, not an exclusive attribution of a root to topic. Pack slots count native Selected assignments containing topic and may overlap other kinds.",
             "limits":"Native default caps and depth. PLACE currently uses words/vector roots; saturated explicit PLACE roots promised by the future state slice are not simulated. Native write construction timestamps are omitted from observations; generated inputs and query times use no clock."},
-        "generated_input":input,"measurements":measurements});
+        "generated_input":input,"measurements":measurements[0],"overlapping_input":overlap_input,"overlapping_measurements":measurements[1]});
     serde_json::to_writer_pretty(&mut file, &report)?;
     file.write_all(b"\n")?;
     eprintln!("wrote {}", output.display());
@@ -598,6 +770,26 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn overlap_generation_uses_actual_scene_write_surfaces() {
+        let (scenario, probes) = generated_overlap(&config()).unwrap();
+        let inputs = scenario.runtime_embedding_inputs();
+        assert_eq!(
+            inputs
+                .iter()
+                .filter(|s| s
+                    .contains("\nSetting: Cedar reading room\nWith: Visitor wearing a linen coat"))
+                .count(),
+            native::RetrievalCandidateLimits::default().max_vector_candidates
+        );
+        assert!(inputs.contains("Repairing the copper bell"));
+        assert_eq!(probes.len(), 3 * KINDS.len());
+        let observed = json!({"candidates":[{"external_id":"target"}],"roots":[],"selected":[{"external_id":"target"}]});
+        assert_eq!(
+            target_stages(&observed, "target"),
+            json!({"candidate_merge":true,"graph_roots":false,"pack":true})
+        );
+    }
     #[test]
     fn starvation_denominator_excludes_unavailable_controls() {
         let row = |starved| {
