@@ -804,6 +804,7 @@ async fn main() -> Result<()> {
     let input = json!({"scenario":scenario,"probes":probes});
     let overlap_input = json!({"scenario":overlap_scenario,"probes":overlap_probes});
     let reworded_input = json!({"scenario":reworded_scenario,"probes":reworded_probes});
+    let mut opposed_inputs = Vec::new();
     let result = async {
         let mut results = Vec::new();
         for (name, scenario, probes) in [
@@ -840,6 +841,44 @@ async fn main() -> Result<()> {
         drop(runtime);
         cleanup?;
         results.push(result?);
+        for (name, scenario, probes) in [
+            ("identical", &overlap_scenario, &overlap_probes),
+            ("reworded", &reworded_scenario, &reworded_probes),
+        ] {
+            let run_root = stores.join(format!("{name}-ids-opposed"));
+            fs::create_dir(&run_root)?;
+            let binding = EmbeddingRuntimeBinding::Controllable {
+                fixture: scenario
+                    .embedding
+                    .controllable_similarity()
+                    .unwrap()
+                    .clone(),
+                dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
+            };
+            let mut runtime = ContinuityRuntime::new(&run_root, &config, binding).await?;
+            let (opposed, ids) = descriptions::opposed_scenario(&runtime, scenario).await?;
+            opposed_inputs
+                .push(json!({"family":name,"scenario":opposed,"probes":probes,"id_order":ids}));
+            let result = Box::pin(measure(&mut runtime, &opposed, probes, &config)).await;
+            let cleanup = runtime.cleanup(&opposed.namespace).await;
+            drop(runtime);
+            cleanup?;
+            results.push(result?);
+        }
+        let run_root = stores.join("keyless-ids-opposed");
+        fs::create_dir(&run_root)?;
+        let binding = EmbeddingRuntimeBinding::Controllable {
+            fixture: keyless.embedding.clone(),
+            dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
+        };
+        let runtime = ContinuityRuntime::new(&run_root, &config, binding).await?;
+        let (opposed, ids) = descriptions::opposed_keyless(&runtime, &keyless).await?;
+        opposed_inputs.push(json!({"family":"keyless","input":opposed,"id_order":ids}));
+        let result = Box::pin(descriptions::measure(&runtime, &opposed)).await;
+        let cleanup = runtime.cleanup(&opposed.namespace).await;
+        drop(runtime);
+        cleanup?;
+        results.push(result?);
         Ok::<_, anyhow::Error>(results)
     }
     .await;
@@ -855,6 +894,7 @@ async fn main() -> Result<()> {
         "overlapping_input_sha256":text_sha256(&serde_json::to_string(&overlap_input)?),
         "reworded_input_sha256":text_sha256(&serde_json::to_string(&reworded_input)?),
         "keyless_input_sha256":text_sha256(&serde_json::to_string(&keyless)?),
+        "opposed_input_sha256":text_sha256(&serde_json::to_string(&opposed_inputs)?),
         "generator_source_sha256":text_sha256(concat!(include_str!("calibrate_cue_floors.rs"), include_str!("calibrate_cue_floors/descriptions.rs"))),
         "config":config,"native_candidate_limits":native::RetrievalCandidateLimits::default(),"native_graph_limits":native::RetrievalGraphLimits::default(),
         "native_section_limits":native::ContinuitySectionLimits::default(),"native_default_floors":native::RetrievalCueFloors::default(),"sweep":FLOORS,"stores_cleaned":true},
@@ -869,6 +909,10 @@ async fn main() -> Result<()> {
         "generated_input":input,"measurements":measurements[0],"overlapping_input":overlap_input,"overlapping_measurements":measurements[1],
         "reworded_input":reworded_input,"reworded_measurements":measurements[2],
         "keyless_input":keyless,"keyless_measurements":measurements[3],
+        "opposed_input":opposed_inputs,
+        "opposed_identical_measurements":measurements[4],
+        "opposed_reworded_measurements":measurements[5],
+        "opposed_keyless_measurements":measurements[6],
         "paraphrase_geometry":descriptions::paraphrase_geometry()?});
     serde_json::to_writer_pretty(&mut file, &report)?;
     file.write_all(b"\n")?;

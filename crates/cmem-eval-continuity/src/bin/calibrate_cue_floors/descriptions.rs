@@ -37,7 +37,7 @@ pub(super) fn write_words(kind: &str, index: usize) -> &'static str {
     word_pool(kind)[choice]
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub(super) struct KeylessFamily {
     pub namespace: String,
     pub embedding: ControllableSimilarityFixture,
@@ -45,6 +45,113 @@ pub(super) struct KeylessFamily {
     probes: Vec<Probe>,
     topic_alone: RetrieveInput,
     targets: Vec<String>,
+}
+
+// Discover identities through the public adapter; do not duplicate its private UUID recipe.
+async fn opposed_ids(
+    runtime: &ContinuityRuntime,
+    namespace: &str,
+) -> Result<Vec<(String, String)>> {
+    runtime.adapter().open_namespace(namespace).await?;
+    let result = async {
+        let mut ids = Vec::new();
+        for index in 0..48 {
+            let external_id = format!("shared-{index:02}");
+            let plan = runtime
+                .adapter()
+                .prepare(PrepareWriteInput {
+                    namespace: namespace.into(),
+                    content: "Identity planning only".into(),
+                    episode_external_id: external_id.clone(),
+                    observation_external_id: format!("{external_id}:observation"),
+                    scene: MemorySceneInput {
+                        time: Some(AT.into()),
+                        ..Default::default()
+                    },
+                    speaker_entity_external_id: None,
+                    salience: None,
+                    observation_observed_at: Some(AT.into()),
+                    raw_refs: vec![],
+                    include_vector_index_candidates: false,
+                    include_stats_update_candidates: false,
+                })
+                .await?;
+            let id = plan
+                .plan
+                .candidates
+                .iter()
+                .find_map(|candidate| {
+                    if let native::MemoryCandidate::Episode(episode) = candidate {
+                        episode.draft.id.map(|id| id.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .context("prepared episode ID missing")?;
+            ids.push((external_id, id));
+        }
+        ids.sort_by(|left, right| right.1.cmp(&left.1));
+        ensure!(
+            ids.windows(2).all(|pair| pair[0].1 > pair[1].1),
+            "episode IDs are not strictly opposed"
+        );
+        Ok(ids)
+    }
+    .await;
+    // These identity-only plans are never committed; the measurement starts with an empty namespace.
+    runtime.cleanup(namespace).await?;
+    result
+}
+
+pub(super) async fn opposed_scenario(
+    runtime: &ContinuityRuntime,
+    original: &ContinuityScenario,
+) -> Result<(ContinuityScenario, Value)> {
+    let ids = opposed_ids(runtime, &original.namespace).await?;
+    let mut scenario = original.clone();
+    let mut index = 0;
+    let mut evidence = Vec::new();
+    for event in &mut scenario.events {
+        if let InteractionEvent::Experience {
+            event_id,
+            timestamp,
+            ..
+        } = event
+            && event_id.starts_with("shared-")
+        {
+            evidence.push(
+                json!({"original_external_id":event_id,"external_id":ids[index].0,
+                "prepared_native_episode_id":ids[index].1,"authored_scene_time":timestamp}),
+            );
+            *event_id = ids[index].0.clone();
+            index += 1;
+        }
+    }
+    ensure!(index == ids.len(), "unexpected shared occasion count");
+    Ok((scenario, json!(evidence)))
+}
+
+pub(super) async fn opposed_keyless(
+    runtime: &ContinuityRuntime,
+    original: &KeylessFamily,
+) -> Result<(KeylessFamily, Value)> {
+    let ids = opposed_ids(runtime, &original.namespace).await?;
+    let mut family = original.clone();
+    let mut index = 0;
+    let mut evidence = Vec::new();
+    for write in &mut family.writes {
+        if write.episode_external_id.starts_with("shared-") {
+            evidence.push(
+                json!({"original_external_id":write.episode_external_id,"external_id":ids[index].0,
+                "prepared_native_episode_id":ids[index].1,"authored_scene_time":write.scene.time}),
+            );
+            write.episode_external_id = ids[index].0.clone();
+            write.observation_external_id = format!("{}:observation", write.episode_external_id);
+            index += 1;
+        }
+    }
+    ensure!(index == ids.len(), "unexpected shared occasion count");
+    Ok((family, json!(evidence)))
 }
 
 pub(super) fn generated(
@@ -355,6 +462,72 @@ pub(super) fn paraphrase_geometry() -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn opposed_native_ids_preserve_every_nonidentity_input() {
+        let config = config();
+        for reworded in [false, true] {
+            let (scenario, probes) = generated_overlap(&config, reworded).unwrap();
+            let root = tempfile::tempdir().unwrap();
+            let binding = EmbeddingRuntimeBinding::Controllable {
+                fixture: scenario
+                    .embedding
+                    .controllable_similarity()
+                    .unwrap()
+                    .clone(),
+                dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
+            };
+            let runtime = ContinuityRuntime::new(root.path(), &config, binding)
+                .await
+                .unwrap();
+            let (opposed, order) = opposed_scenario(&runtime, &scenario).await.unwrap();
+            let mut normalized = serde_json::to_value(&opposed).unwrap();
+            let original = serde_json::to_value(&scenario).unwrap();
+            for (changed, original) in normalized["events"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .zip(original["events"].as_array().unwrap())
+            {
+                changed["event_id"] = original["event_id"].clone();
+            }
+            assert_eq!(normalized, original);
+            assert_ne!(serde_json::to_value(&opposed).unwrap(), original);
+            let order = order.as_array().unwrap();
+            assert_eq!(order.len(), 48);
+            assert!(
+                order
+                    .windows(2)
+                    .all(|pair| pair[0]["prepared_native_episode_id"].as_str()
+                        > pair[1]["prepared_native_episode_id"].as_str()
+                        && pair[0]["authored_scene_time"].as_str()
+                            < pair[1]["authored_scene_time"].as_str())
+            );
+            if reworded {
+                let family = generated(&config, &scenario, &probes).unwrap();
+                let (opposed, order) = opposed_keyless(&runtime, &family).await.unwrap();
+                let mut normalized = serde_json::to_value(&opposed).unwrap();
+                let original = serde_json::to_value(&family).unwrap();
+                for (changed, original) in normalized["writes"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .zip(original["writes"].as_array().unwrap())
+                {
+                    changed["episode_external_id"] = original["episode_external_id"].clone();
+                    changed["observation_external_id"] =
+                        original["observation_external_id"].clone();
+                }
+                assert_eq!(normalized, original);
+                assert!(order.as_array().unwrap().windows(2).all(|pair| {
+                    pair[0]["prepared_native_episode_id"].as_str()
+                        > pair[1]["prepared_native_episode_id"].as_str()
+                        && pair[0]["authored_scene_time"].as_str()
+                            < pair[1]["authored_scene_time"].as_str()
+                }));
+            }
+        }
+    }
+
     #[test]
     fn rewording_and_keyless_inputs_keep_labels_out_of_writes() {
         let config = config();
