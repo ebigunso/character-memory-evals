@@ -286,6 +286,8 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval/src/adapter.rs
   - crates/cmem-eval-continuity/src/driver.rs
   - crates/cmem-eval-continuity/src/report.rs
+  - crates/cmem-eval-continuity/src/fixture.rs (only where the library ruled differently from this plan's assumptions: participants in words on a write)
+  - crates/cmem-eval-continuity/README.md (the scenario contract, reconciled to the same rulings)
 - depends_on: [Task_4, Task_7, Task_8]
 - description: |
   External dependency: the library slices that add the scene, the reference time, the routes and the trace facts. Each step records the exact library commit it validates against in the Decision Log and the run headers, with the sibling checkout pinned to it. Extend together, as each slice lands, the core adapter contract and its forwarding, the driver's one mapping function, and the supported feature set beside it; the reference time is forwarded (today `query_date` stops at the adapter). May land in steps; each step reduces the "not run" count and never re-authors a scenario to fit the library.
