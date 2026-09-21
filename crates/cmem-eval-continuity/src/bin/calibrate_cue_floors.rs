@@ -1,0 +1,634 @@
+//! A generated, unasserted experiment for the library owner's floor decision.
+use std::{collections::BTreeMap, env, fs, io::Write, path::Path, process::Command};
+
+use anyhow::{Context, Result, ensure};
+use chrono::{Duration, TimeZone, Utc};
+use cmem_eval::{
+    ActivityInput, BenchmarkRunConfig, ControllableDimensionPolicy, ControllableSimilarityFixture,
+    DatasetId, EmbeddingProviderConfig, EmbeddingRuntimeBinding, MemorySceneInput, RetrieveInput,
+    RetrievedContextPack, SceneParticipantInput, SimilarityConceptFixture,
+    character_memory::api::types as native, text_sha256,
+};
+use cmem_eval_continuity::{
+    CHECKED_FIXTURE_SEED, ContinuityRuntime, ContinuityScenario, ContinuityScenarioEmbedding,
+    EntityDeclaration, ExpectedRelevance, InteractionEvent, ScenarioPattern, ThreadMembership,
+    run_continuity_scenario,
+};
+use serde::Serialize;
+use serde_json::{Value, json};
+
+const KINDS: [&str; 4] = ["participant", "place", "activity", "topic"];
+const FLOORS: [usize; 5] = [0, 1, 2, 3, 5];
+const AT: &str = "2025-09-01T12:00:00Z";
+
+#[derive(Clone, Serialize)]
+struct Probe {
+    name: String,
+    measured_kind: String,
+    pressure: String,
+    target: Option<String>, // Measurement only: never copied into RetrieveInput.
+    input: RetrieveInput,
+}
+
+fn config() -> BenchmarkRunConfig {
+    let mut config = BenchmarkRunConfig {
+        run_id: "cue-floor-calibration".into(),
+        dataset: DatasetId::new("continuity").unwrap(),
+        backend: Default::default(),
+        retrieval: Default::default(),
+        ingest: Default::default(),
+        metrics: Default::default(),
+    };
+    config.backend.embedding.provider = EmbeddingProviderConfig::ControllableSimilarity;
+    config.backend.embedding.vector_size = Some(9);
+    config.retrieval.surface_policy.include_debug_rationale = true;
+    config.retrieval.surface_policy.object_types = native::default_retrieval_object_types();
+    config
+}
+
+fn assign(fixture: &mut ControllableSimilarityFixture, text: &str, vector: Vec<f32>) {
+    fixture.clusters.insert(text.into(), vector);
+    fixture.concepts.insert(
+        text.into(),
+        SimilarityConceptFixture {
+            cluster: text.into(),
+            inputs: vec![text.into()],
+        },
+    );
+}
+
+fn cue(input: &mut RetrieveInput, kind: &str, strength: &str) {
+    let text = format!("{strength} {kind} words");
+    match kind {
+        "participant" => {
+            input.scene.participants = vec![SceneParticipantInput {
+                description: Some(text),
+                ..Default::default()
+            }]
+        }
+        "place" => input.scene.setting.words = Some(text),
+        "activity" => input.activity = Some(ActivityInput::Thread("orchid-project".into())),
+        "topic" => input.topic = Some(text),
+        _ => unreachable!(),
+    }
+}
+
+fn generated(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario, Vec<Probe>)> {
+    let mut embedding = ControllableSimilarityFixture {
+        seed: CHECKED_FIXTURE_SEED,
+        vector_size: 9,
+        noise_magnitude: 0.000001,
+        clusters: BTreeMap::new(),
+        concepts: BTreeMap::new(),
+    };
+    let mut background = vec![0.0; 9];
+    background[8] = -1.0;
+    assign(&mut embedding, "Iris", background);
+    let mut events = Vec::new();
+    let start = Utc.with_ymd_and_hms(2025, 1, 1, 12, 0, 0).unwrap();
+    for (axis, kind) in KINDS.iter().enumerate() {
+        for (strength, cosine) in [("loud", 1.0_f32), ("quiet", 0.2), ("unlived", 0.01)] {
+            let mut vector = vec![0.0; 9];
+            vector[axis] = cosine;
+            vector[8] = (1.0 - cosine * cosine).sqrt();
+            assign(&mut embedding, &format!("{strength} {kind} words"), vector);
+        }
+        // Remember writes three vector objects: 17 memories exceed the default
+        // 48-candidate cap without introducing a separate 64-edge hub bottleneck.
+        let count = if *kind == "activity" { 16 } else { 17 };
+        for index in 0..count {
+            let id = format!("{kind}-{index:02}");
+            let text = format!(
+                "{} entry {index:02}",
+                [
+                    "Linen parcel",
+                    "Cedar terrace",
+                    "Orchid ledger",
+                    "Copper bell"
+                ][axis]
+            );
+            let mut vector = vec![0.0; 9];
+            vector[axis] = 0.99 - index as f32 * 0.004;
+            vector[axis + 4] = (1.0 - vector[axis] * vector[axis]).sqrt();
+            assign(&mut embedding, &text, vector);
+            events.push(InteractionEvent::Remember {
+                event_id: format!("write-{id}"),
+                external_id: id,
+                timestamp: start + Duration::minutes(events.len() as i64),
+                text,
+                surface_texts: None,
+                entity_external_ids: if *kind == "participant" {
+                    vec!["iris".into()]
+                } else {
+                    vec![]
+                },
+                thread: (*kind == "activity").then(|| ThreadMembership {
+                    thread_external_id: "orchid-project".into(),
+                }),
+                salience: 0.5,
+            });
+        }
+    }
+    // The required scripted Query is also the topic-only control; there are no assertions.
+    events.push(InteractionEvent::Query {
+        event_id: "topic-control".into(),
+        query_id: "topic-control".into(),
+        timestamp: AT.parse()?,
+        text: "loud topic words".into(),
+        expected: ExpectedRelevance {
+            relevant_external_ids: vec!["topic-00".into()],
+            irrelevant_external_ids: vec![],
+        },
+    });
+    let scenario = ContinuityScenario {
+        fixture_id: "cue-floor-calibration".into(),
+        namespace: format!("cue-floor-calibration-{:016x}", CHECKED_FIXTURE_SEED),
+        pattern: ScenarioPattern::GradedSimilarity,
+        catalog_situations: vec![],
+        character_entity: None,
+        scenes: BTreeMap::new(),
+        entities: vec![EntityDeclaration {
+            external_id: "iris".into(),
+            label: "Iris".into(),
+            is_hub: false,
+        }],
+        embedding: ContinuityScenarioEmbedding::controllable_similarity_provider(embedding),
+        events,
+        requirements: Default::default(),
+    };
+    ensure!(
+        cmem_eval_continuity::scenario_missing_features(&scenario)?.is_empty(),
+        "calibration ingest requires an unsupported feature"
+    );
+    let empty = || RetrieveInput {
+        mode: config.retrieval.mode,
+        namespace: scenario.namespace.clone(),
+        topic: None,
+        scene: MemorySceneInput {
+            time: Some(AT.into()),
+            ..Default::default()
+        },
+        activity: None,
+        cue_floors: None,
+        surface_policy: config.retrieval.surface_policy.clone(),
+    };
+    let mut probes = Vec::new();
+    for kind in KINDS {
+        for pressure in KINDS
+            .into_iter()
+            .filter(|other| *other != kind)
+            .chain(["all"])
+        {
+            let mut input = empty();
+            if kind != "topic" {
+                cue(&mut input, "topic", "loud");
+            }
+            for other in KINDS {
+                if other != kind && (pressure == "all" || pressure == other) {
+                    cue(&mut input, other, "loud");
+                }
+            }
+            cue(&mut input, kind, "quiet");
+            probes.push(Probe {
+                name: format!("{kind}-under-{pressure}"),
+                measured_kind: kind.into(),
+                pressure: pressure.into(),
+                target: Some(format!(
+                    "{kind}-{}",
+                    if kind == "activity" {
+                        "15:derived"
+                    } else {
+                        "00"
+                    }
+                )),
+                input,
+            });
+        }
+    }
+    for kind in ["participant", "place", "topic"] {
+        let mut input = empty();
+        cue(
+            &mut input,
+            if kind == "topic" { "activity" } else { "topic" },
+            "loud",
+        );
+        cue(&mut input, kind, "unlived");
+        probes.push(Probe {
+            name: format!("unlived-{kind}"),
+            measured_kind: kind.into(),
+            pressure: "unlived words; synthetic nearest cosine about 0.01, no relevant memory"
+                .into(),
+            target: None,
+            input,
+        });
+    }
+    let mut input = empty();
+    cue(&mut input, "topic", "loud");
+    cue(&mut input, "activity", "loud");
+    probes.push(Probe {
+        name: "saturated-thread-and-topic".into(),
+        measured_kind: "topic".into(),
+        pressure: "16 thread members".into(),
+        target: Some("topic-00".into()),
+        input,
+    });
+    let mut input = empty();
+    cue(&mut input, "topic", "loud");
+    input.scene.participants = vec![SceneParticipantInput {
+        key: Some("iris".into()),
+        ..Default::default()
+    }];
+    probes.push(Probe {
+        name: "participant-key-inheritance".into(),
+        measured_kind: "participant".into(),
+        pressure: "loud topic; key only, no participant vector words".into(),
+        target: Some("participant-16".into()),
+        input,
+    });
+    Ok((scenario, probes))
+}
+
+fn id(value: &Value) -> String {
+    value["id"].as_str().unwrap().into()
+}
+
+fn retained_roots(trace: &Value) -> Vec<&Value> {
+    trace["graph_expansions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|root| root["outcome"] != "root_limit")
+        .collect()
+}
+
+fn snapshot(pack: &RetrievedContextPack, input: &RetrieveInput) -> Result<Value> {
+    ensure!(pack.outcomes().len() == 1, "expected one native outcome");
+    let outcome = &pack.outcomes()[0];
+    let trace = serde_json::to_value(outcome.trace.as_ref().context("native trace absent")?)?;
+    let assignments = trace["section_assignments"].as_array().unwrap();
+    let candidates = trace["vector_candidates"].as_array().unwrap();
+    let roots = retained_roots(&trace);
+    let describe = |object: &Value| {
+        let key = id(object);
+        let assignment = assignments.iter().find(|a| id(&a["object"]) == key);
+        let candidate = candidates.iter().find(|c| id(&c["object"]) == key);
+        json!({"object":object, "external_id":pack.object_refs().get(&key).map(|r| &r.external_id),
+            "section":assignment.map(|a| &a["section"]), "section_score_components":assignment.map(|a| &a["reason"]["scores"]),
+            "vector_score":candidate.map(|c| &c["score"]), "cue_kinds":assignment.map(|a| &a["cue_kinds"])})
+    };
+    let selected = assignments
+        .iter()
+        .filter(|a| a["reason"]["kind"] == "selected")
+        .map(|a| {
+            let mut row = describe(&a["object"]);
+            row["rank"] = a["rank"].clone();
+            row
+        })
+        .collect::<Vec<_>>();
+    let mut admissions = Vec::new();
+    for a in trace["floor_admissions"].as_array().unwrap() {
+        let object_id = id(&a["object"]);
+        let kind = a["cue_kind"].as_str().unwrap();
+        let explicit = roots
+            .iter()
+            .any(|r| id(&r["root"]) == object_id && r["source"] == kind);
+        let in_candidates = candidates.iter().any(|c| id(&c["object"]) == object_id);
+        let key_only = kind == "participant"
+            && input
+                .scene
+                .participants
+                .iter()
+                .all(|p| p.description.is_none() && p.name.is_none());
+        let origin = if a["stage"]["kind"] != "section" {
+            "direct before graph expansion"
+        } else if explicit {
+            "direct explicit root"
+        } else if kind == "activity" || key_only || !in_candidates {
+            "inherited through expansion"
+        } else {
+            "unknown: candidate/root trace lacks per-kind vector origin"
+        };
+        admissions.push(
+            json!({"native":a, "memory":describe(&a["object"]), "credit_origin":origin,
+            "selected_in_pack":selected.iter().any(|s| id(&s["object"]) == object_id),
+            "displacement_group":stage_key(&a["stage"])}),
+        );
+    }
+    Ok(json!({"selected":selected, "floor_admissions":admissions,
+        "roots":roots.iter().map(|r| { let mut v=describe(&r["root"]); v["source"]=r["source"].clone(); v["outcome"]=r["outcome"].clone(); v }).collect::<Vec<_>>(),
+        "candidates":candidates.iter().map(|c| describe(&c["object"])).collect::<Vec<_>>(),
+        "activity":outcome.activity, "scene_references":outcome.scene_references,"telemetry":outcome.rationale.telemetry,"trace":trace}))
+}
+
+fn stage_key(stage: &Value) -> String {
+    if stage["kind"] == "section" {
+        format!("section:{}", stage["section"].as_str().unwrap())
+    } else {
+        stage["kind"].as_str().unwrap().into()
+    }
+}
+
+fn displacements(zero: &Value, current: &Value) -> Value {
+    let mut result = serde_json::Map::new();
+    for (field, stage) in [
+        ("candidates", "candidate_merge"),
+        ("roots", "graph_roots"),
+        ("selected", "section"),
+    ] {
+        for object in zero[field].as_array().unwrap() {
+            if current[field]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|c| id(&c["object"]) == id(&object["object"]))
+            {
+                continue;
+            }
+            let key = if stage == "section" {
+                format!("section:{}", object["section"].as_str().unwrap())
+            } else {
+                stage.into()
+            };
+            result
+                .entry(key)
+                .or_insert_with(|| json!([]))
+                .as_array_mut()
+                .unwrap()
+                .push(object.clone());
+        }
+    }
+    Value::Object(result)
+}
+
+fn floors(kind: &str, value: usize) -> native::RetrievalCueFloors {
+    let mut floors = native::RetrievalCueFloors::default();
+    match kind {
+        "participant" => floors.participant = value,
+        "place" => floors.place = value,
+        "activity" => floors.activity = value,
+        "topic" => floors.topic = value,
+        _ => unreachable!(),
+    }
+    floors
+}
+
+fn summarize(rows: &[Value]) -> Vec<Value> {
+    KINDS.into_iter().flat_map(|kind| FLOORS.into_iter().map(move |floor| (kind,floor))).map(|(kind,floor)| {
+        let group=rows.iter().filter(|r| r["measured_kind"]==kind && r["floor"]==floor).collect::<Vec<_>>();
+        let mut credits=BTreeMap::<String,usize>::new();
+        let mut origins=BTreeMap::<String,usize>::new();
+        let mut displaced=0;
+        for row in &group {
+            for admission in row["observed"]["floor_admissions"].as_array().unwrap() {
+                if admission["native"]["cue_kind"]==kind {
+                    *credits.entry(stage_key(&admission["native"]["stage"])).or_default()+=1;
+                    *origins.entry(admission["credit_origin"].as_str().unwrap().into()).or_default()+=1;
+                }
+            }
+            displaced+=row["displaced_vs_same_probe_floor_zero"].as_object().unwrap().iter()
+                .filter(|(stage,_)| stage.starts_with("section:")).map(|(_,items)|items.as_array().unwrap().len()).sum::<usize>();
+        }
+        json!({"kind":kind,"floor":floor,"sweep_rows":group.len(),
+            "starvation_measurable":group.iter().filter(|r| r["starved"].is_boolean()).count(),
+            "starved":group.iter().filter(|r| r["starved"]==true).count(),
+            "native_floor_credits_for_this_kind":credits,"credit_origins_for_this_kind":origins,"displaced_pack_items_across_probes":displaced,
+            "unlived_words":group.iter().filter(|r|r["probe"].as_str().unwrap().starts_with("unlived-")).map(|r|json!({
+                "probe":r["probe"],"displaced":r["displaced_vs_same_probe_floor_zero"],
+                "floor_admissions":r["observed"]["floor_admissions"]
+            })).collect::<Vec<_>>()})
+    }).collect()
+}
+
+fn remove_cue(input: &mut RetrieveInput, kind: &str) {
+    match kind {
+        "participant" => input.scene.participants.clear(),
+        "place" => input.scene.setting = Default::default(),
+        "activity" => input.activity = None,
+        "topic" => input.topic = None,
+        _ => unreachable!(),
+    }
+}
+
+async fn reachability_control(
+    runtime: &ContinuityRuntime,
+    input: RetrieveInput,
+    target: &str,
+) -> Result<Value> {
+    let pack = runtime.adapter().retrieve(input.clone()).await?;
+    let observed = snapshot(&pack, &input)?;
+    let selected = observed["selected"].as_array().unwrap();
+    Ok(
+        json!({"input":input,"target_selected":selected.iter().find(|s| s["external_id"] == target),
+        "selected":selected,"telemetry":observed["telemetry"]}),
+    )
+}
+
+async fn measure(
+    runtime: &mut ContinuityRuntime,
+    scenario: &ContinuityScenario,
+    probes: &[Probe],
+    config: &BenchmarkRunConfig,
+) -> Result<Value> {
+    let initial = Box::pin(run_continuity_scenario(
+        runtime,
+        scenario,
+        &config.retrieval,
+    ))
+    .await?;
+    ensure!(
+        initial.traces.len() == 1,
+        "calibration fixture did not execute its topic-only control"
+    );
+    let topic_candidates = initial.traces[0].retrieval.outcomes()[0]
+        .trace
+        .as_ref()
+        .context("control trace missing")?
+        .vector_candidates
+        .iter()
+        .map(|c| c.object.id.to_string())
+        .collect::<Vec<_>>();
+    let mut rows = Vec::new();
+    let mut controls = BTreeMap::new();
+    for probe in probes {
+        let mut eligible = false;
+        if let Some(target) = &probe.target {
+            let mut isolated = probe.input.clone();
+            for kind in KINDS {
+                if kind != probe.measured_kind {
+                    remove_cue(&mut isolated, kind);
+                }
+            }
+            let mut removed = probe.input.clone();
+            remove_cue(&mut removed, &probe.measured_kind);
+            let isolated = reachability_control(runtime, isolated, target).await?;
+            let removed = reachability_control(runtime, removed, target).await?;
+            eligible = isolated["target_selected"]["cue_kinds"] == json!([probe.measured_kind])
+                && removed["target_selected"].is_null();
+            controls.insert(probe.name.clone(), json!({"isolated":isolated,"removed":removed,"eligible_for_starvation_measure":eligible}));
+        }
+        let mut zero = Value::Null;
+        for value in FLOORS {
+            let mut input = probe.input.clone();
+            input.cue_floors = Some(floors(&probe.measured_kind, value));
+            let pack = runtime
+                .adapter()
+                .retrieve(input.clone())
+                .await
+                .with_context(|| format!("{} floor {value}", probe.name))?;
+            let observed = snapshot(&pack, &input)?;
+            if value == 0 {
+                zero = observed.clone();
+            }
+            let selected = observed["selected"].as_array().unwrap();
+            let target = probe
+                .target
+                .as_ref()
+                .and_then(|target| selected.iter().find(|s| s["external_id"] == *target));
+            let credit = observed["floor_admissions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .fold(BTreeMap::<String, usize>::new(), |mut counts, admission| {
+                    *counts
+                        .entry(admission["credit_origin"].as_str().unwrap().into())
+                        .or_default() += 1;
+                    counts
+                });
+            rows.push(json!({"probe":probe.name,"measured_kind":probe.measured_kind,"pressure":probe.pressure,"floor":value,"effective_floors":input.cue_floors,
+                "target":probe.target,"target_admitted":probe.target.as_ref().map(|_| target.is_some()),
+                "starved":eligible.then_some(target.is_none()),
+                "target_native_cue_kinds":target.map(|t| &t["cue_kinds"]),
+                "target_exclusively_measured_kind":target.map(|t| t["cue_kinds"] == json!([probe.measured_kind])),
+                "pack_slots":selected.len(), "topic_pack_slots":selected.iter().filter(|s| s["cue_kinds"].as_array().unwrap().contains(&json!("topic"))).count(),
+                "roots_in_topic_only_candidate_control":observed["roots"].as_array().unwrap().iter().filter(|r| topic_candidates.contains(&id(&r["object"]))).count(),
+                "credit_origin_counts":credit,"displaced_vs_same_probe_floor_zero":displacements(&zero,&observed), "observed":observed}));
+        }
+        eprintln!("measured {}", probe.name);
+    }
+    let control = &initial.traces[0];
+    Ok(
+        json!({"executed":rows.len(),"not_run":0,"control_retrievals":1+2*controls.len(),
+        "summary":summarize(&rows),
+        "topic_only_control_targets": control.expected.relevant_external_ids.iter().map(|target| json!({
+            "target":target,"admitted":control.retrieval.items().iter().any(|item| item.external_id.as_ref()==Some(target))
+        })).collect::<Vec<_>>(),"reachability_controls":controls,"rows":rows}),
+    )
+}
+
+fn revision(path: &Path) -> Result<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["rev-parse", "HEAD"])
+        .output()?;
+    ensure!(
+        output.status.success(),
+        "git revision failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(String::from_utf8(output.stdout)?.trim().into())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let mut args = env::args_os().skip(1);
+    let output = args.next().context("usage: calibrate_cue_floors <new-report.json>; run via cargo after pinning the sibling library")?;
+    ensure!(args.next().is_none(), "expected one new report path");
+    let output = Path::new(&output);
+    let config = config();
+    config.validate()?;
+    let (scenario, probes) = generated(&config)?;
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let library = workspace.join("../CharacterMemory");
+    let library_commit = revision(&library)?;
+    let harness_commit = revision(workspace)?;
+    let mut file = fs::File::create_new(output)
+        .context("refusing to replace an existing calibration report")?;
+    let stores = output.with_extension("stores");
+    fs::create_dir(&stores).context("calibration store directory must be new")?;
+    let input = json!({"scenario":scenario,"probes":probes});
+    let fixture = scenario
+        .embedding
+        .controllable_similarity()
+        .unwrap()
+        .clone();
+    let binding = EmbeddingRuntimeBinding::Controllable {
+        fixture,
+        dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
+    };
+    let result = async {
+        let mut runtime = ContinuityRuntime::new(&stores, &config, binding).await?;
+        let result = Box::pin(measure(&mut runtime, &scenario, &probes, &config)).await;
+        let cleanup = runtime.cleanup(&scenario.namespace).await;
+        drop(runtime);
+        cleanup?;
+        result
+    }
+    .await;
+    fs::remove_dir_all(&stores).context("remove owned calibration stores")?;
+    let measurements = result?;
+    ensure!(
+        revision(&library)? == library_commit && revision(workspace)? == harness_commit,
+        "checkout revision changed during calibration"
+    );
+    let report = json!({"header":{
+        "harness_commit":harness_commit,"library_commit":library_commit,"profile":if cfg!(debug_assertions){"debug"}else{"release"},
+        "seed":CHECKED_FIXTURE_SEED,"input_sha256":text_sha256(&serde_json::to_string(&input)?),"config_sha256":text_sha256(&serde_json::to_string(&config)?),
+        "generator_source_sha256":text_sha256(include_str!("calibrate_cue_floors.rs")),
+        "config":config,"native_candidate_limits":native::RetrievalCandidateLimits::default(),"native_graph_limits":native::RetrievalGraphLimits::default(),
+        "native_section_limits":native::ContinuitySectionLimits::default(),"native_default_floors":native::RetrievalCueFloors::default(),"sweep":FLOORS,"stores_cleaned":true},
+        "method":{
+            "design":"One generated corpus, 17 memories (51 vector objects) per vector kind and 16 activity-thread members. Same store, same probe, one floor swept; other floors stay at native defaults. No scenario pass/fail assertions. Metadata targets are used only after native retrieval. Starvation is measured only when native isolated-cue control admits the target exclusively by that kind and removing the tested cue makes the target absent; otherwise it is null, with controls retained.",
+            "geometry":"Seeded synthetic vectors: unrelated groups orthogonal; loud cue cosine about 1, quiet cue about 0.2, unlived words about 0.01 to the least-bad neighbour. Values are controlled pressure, not empirical natural-language relevance thresholds.",
+            "displacements":"Set differences versus the identical probe at tested-kind floor zero. Zero also disables that kind's spare-root rounds, so differences include sharing as well as minimum reservation. Native floor credits refer to the original stage-ranked prefix, not this counterfactual. Each admission names its stage/section displacement group; multiple admissions cannot be uniquely paired to displaced objects. All available native vector and final section score components are retained; root ordering score is not exposed.",
+            "origin":"Candidate-merge/root floor credits precede graph expansion and are direct. At section selection, explicit matching Participant/Activity roots are direct; activity/key-only participant descendants or objects absent from retained vector candidates are inherited. Remaining cases are unknown because vector candidates and roots omit per-kind origin; no fixture labels reconstruct it.",
+            "topic_roots":"Root IDs also found in the independent topic-only native candidate control, not an exclusive attribution of a root to topic. Pack slots count native Selected assignments containing topic and may overlap other kinds.",
+            "limits":"Native default caps and depth. PLACE currently uses words/vector roots; saturated explicit PLACE roots promised by the future state slice are not simulated. Native write construction timestamps are omitted from observations; generated inputs and query times use no clock."},
+        "generated_input":input,"measurements":measurements});
+    serde_json::to_writer_pretty(&mut file, &report)?;
+    file.write_all(b"\n")?;
+    eprintln!("wrote {}", output.display());
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn starvation_denominator_excludes_unavailable_controls() {
+        let row = |starved| {
+            json!({"measured_kind":"topic","floor":1,"starved":starved,"probe":"control",
+            "observed":{"floor_admissions":[]},"displaced_vs_same_probe_floor_zero":{}})
+        };
+        let summary = summarize(&[row(json!(true)), row(json!(false)), row(Value::Null)]);
+        let group = summary
+            .iter()
+            .find(|s| s["kind"] == "topic" && s["floor"] == 1)
+            .unwrap();
+        assert_eq!(group["starvation_measurable"], 2);
+        assert_eq!(group["starved"], 1);
+    }
+    #[test]
+    fn root_allocation_excludes_rejected_roots_but_keeps_bounded_attempts() {
+        let trace = json!({"graph_expansions":[{"outcome":"root_limit"},{"outcome":"expanded"},{"outcome":"bounded"},{"outcome":"missing_root"}]});
+        let roots = retained_roots(&trace);
+        assert_eq!(roots.len(), 3);
+        assert!(roots.iter().all(|r| r["outcome"] != "root_limit"));
+    }
+    #[test]
+    fn displacement_keeps_native_scores_and_matches_identity_not_rank() {
+        let item = |id: &str, score: f64| json!({"object":{"id":id},"section":"relevant_episodes","section_score_components":{"final_score":score}});
+        let old =
+            json!({"candidates":[],"roots":[],"selected":[item("kept",0.9),item("lost",0.8)]});
+        let new =
+            json!({"candidates":[],"roots":[],"selected":[item("added",0.2),item("kept",0.9)]});
+        assert_eq!(
+            displacements(&old, &new),
+            json!({"section:relevant_episodes":[item("lost",0.8)]})
+        );
+    }
+}

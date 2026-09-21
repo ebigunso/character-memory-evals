@@ -179,3 +179,19 @@ cargo run -p cmem-eval-runner -- compare-continuity .agent-work/situated/narrati
 The run writes `header.json`, `traces.jsonl` and `report.json`; only executed scenarios get embedding bindings. An all-not-run command succeeds with an empty trace file. Stores are cleaned up by default. The comparison prints a JSON list of changed statuses, missing features, assertion identities/results/reasons, per-probe and pooled recall, and omission invariants. An empty list means those compared fields agree; it does not establish that a scenario ran. Use `diff` on trace files for retrieved identities and numeric metrics.
 
 Regenerate the loud-topic fixture to a new path with `cargo run -p cmem-eval-continuity --bin generate_situated_loud_topic -- .agent-work/situated/generated.json`; it never overwrites an existing destination. Compare those bytes with the checked fixture. `cargo test -p cmem-eval-continuity` checks admission, generator reproducibility, mapping, assertions and reports. The [service-free smoke recipe](../../README.md#run-a-service-free-continuity-smoke) exercises an executed legacy scenario when the situated catalog is gated.
+
+## Cue floor calibration
+
+After pinning the sibling CharacterMemory checkout, run the generated calibration with one new report path. Create the output parent directory first. Use `cargo run` after each pin change so the linked library is rebuilt; the report records that checkout's commit. An existing report or store directory is refused.
+
+```sh
+cargo run --offline --release -p cmem-eval-continuity --bin calibrate_cue_floors -- .agent-work/worker/floors-a.json
+cargo run --offline --release -p cmem-eval-continuity --bin calibrate_cue_floors -- .agent-work/worker/floors-b.json
+git diff --no-index -- .agent-work/worker/floors-a.json .agent-work/worker/floors-b.json
+```
+
+This experiment is separate from the situated scenarios and has no behavioral pass/fail assertions. It generates a seeded corpus, ingests it with the continuity driver, and retrieves through the existing adapter with the core floor override. It sweeps participant, place, activity and topic floors through 0, 1, 2, 3 and 5; the other floors, graph depth and caps retain native defaults. Cases include a loud topic, each competing kind, all kinds together, unrelated scene words and a thread with 16 members. Isolated-cue and removed-cue controls establish whether each target can measure starvation; otherwise the starvation value is null. Metadata targets never enter retrieval inputs.
+
+The single JSON report contains the generated input, configuration and hashes, both commits, executed/not-run census, native traces, pack membership, stage/section displacement sets against the same probe at floor zero, and available native scores. Multiple floor admissions cannot be uniquely paired to displaced objects from this trace; admissions refer to their shared displacement group. Root ordering scores and some direct-versus-inherited cue origins are unavailable and are not reconstructed from fixture labels. Topic root counts mean membership in the independent topic-only candidate control, while topic pack counts read native cue sets and can overlap other kinds. Native telemetry records incomplete or bounded retrieval. Saturated explicit place roots remain a later library state-slice experiment.
+
+The vectors create controlled score pressure, including a deliberately weak nearest neighbour for unrelated words; they do not estimate natural-language relevance thresholds. Generated inputs use fixed times, and reports exclude native write-construction timestamps and runtime timing. Every created store is removed on completion or a runtime error. Compare the whole reports for a deterministic repeat; these are working measurements for the library owner's floor decision, not sealed benchmark claims.
