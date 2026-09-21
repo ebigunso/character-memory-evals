@@ -1242,6 +1242,19 @@ impl ContinuityScenario {
 
     pub(crate) fn analyze(&self) -> Result<ScenarioRequirements, FixtureError> {
         let scenario = FixtureLocation::scenario(&self.fixture_id);
+        let has_situated_events = self.events.iter().any(|event| {
+            matches!(
+                event,
+                InteractionEvent::Experience { .. }
+                    | InteractionEvent::Derive { .. }
+                    | InteractionEvent::Probe { .. }
+            )
+        });
+        if (self.pattern == ScenarioPattern::Situated) != has_situated_events {
+            return Err(
+                scenario.error("pattern", FixtureAdmissionKind::DiffersFrom("event family"))
+            );
+        }
         let controllable_embedding = self.embedding.controllable_similarity();
         if let Some(embedding) = controllable_embedding {
             cmem_eval::ControllableSimilarityEmbeddingProvider::new(embedding.clone()).map_err(
@@ -4056,6 +4069,34 @@ bystanders = ["distractor"]
     }
 
     #[test]
+    fn pattern_matches_event_family_in_both_formats() {
+        let mut legacy = situated_value();
+        legacy["scenarios"][0]["pattern"] = Value::from("long_gap_recall");
+        legacy["scenarios"][0]["events"] = serde_json::json!([
+            {"kind":"remember", "event_id":"visit", "external_id":"visit", "timestamp":"2024-01-01T09:00:00Z", "text":"Garden", "entity_external_ids":[], "salience":0.5},
+            {"kind":"query", "event_id":"ask", "query_id":"ask", "timestamp":"2024-01-02T09:00:00Z", "text":"Garden", "expected":{"relevant_external_ids":["visit"], "irrelevant_external_ids":[]}}
+        ]);
+        for extension in ["json", "toml"] {
+            for (mut value, wrong_pattern, fixture_id) in [
+                (situated_value(), "long_gap_recall", "encounter"),
+                (legacy.clone(), "situated", "encounter"),
+            ] {
+                assert!(parse_as(&value, extension).is_ok());
+                value["scenarios"][0]["pattern"] = Value::from(wrong_pattern);
+                assert_eq!(
+                    admission_of(parse_as(&value, extension).unwrap_err()),
+                    expected_admission(
+                        fixture_id,
+                        None,
+                        "pattern",
+                        FixtureAdmissionKind::DiffersFrom("event family")
+                    )
+                );
+            }
+        }
+    }
+
+    #[test]
     fn situated_rejections_are_typed_in_both_formats() {
         for extension in ["toml", "json"] {
             let mut value = situated_value();
@@ -4616,6 +4657,7 @@ bystanders = ["distractor"]
                 if probe {
                     scenario["events"][5]["topic"] = Value::from(RAW);
                 } else {
+                    scenario["pattern"] = Value::from("long_gap_recall");
                     scenario["events"] = serde_json::json!([
                         {"kind": "remember", "event_id": "visit", "external_id": "visit",
                          "timestamp": "2024-01-01T09:00:00Z", "text": "We planned the garden.",
