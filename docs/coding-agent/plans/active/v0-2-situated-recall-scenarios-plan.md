@@ -449,3 +449,8 @@ Every task is one pull request, and the pull requests form one linear stack for 
 ## Notes
 - Risks: the library's scene shape may want something the as-perceived fixture scene cannot say; that is a finding for the library plan, and the fixture follows the catalog, not the API. The assertion list may grow; each addition names the scenario that needs it. The `section` on a `carried` assertion couples a scenario to the library's pack section names, so it is used only where the draft itself names a section.
 - Edge cases: tasks in different waves share `generator.rs`, `driver.rs` and the adapter files; tasks within Wave 2 do not overlap.
+- 2026-09-21 Milestone: Task_5 step 2 (the library's cues slice) is reviewed and approved at `e15500e`, validated at library commit `9ff86d6`.
+  - Evidence: independent review reproduced the census (3 passed, D13 failed, 12 not run under named features), the smoke twice with zero difference, and the six protected hashes. D13 my-day fails honestly: it is a time-route situation whose earlier pass came from the self bringing every episode, which the library removed; it is not gated or re-authored.
+  - Carried to Task_6: eighteen rationale-category metric keys and `hub_expansion_relevant_hit_rate` are retired; sealed outputs keep their old names.
+  - Carried to Task_9: calibrate at a library commit that honors numeric floors at root selection and shares only the room beyond them.
+  - User approval: inside the approved plan. Record proposed: none.
