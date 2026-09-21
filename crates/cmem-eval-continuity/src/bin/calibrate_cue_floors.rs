@@ -795,8 +795,10 @@ async fn main() -> Result<()> {
     let library = workspace.join("../CharacterMemory");
     let library_commit = revision(&library)?;
     let harness_commit = revision(workspace)?;
-    let mut file = fs::File::create_new(output)
-        .context("refusing to replace an existing calibration report")?;
+    let mut file = std::io::BufWriter::new(
+        fs::File::create_new(output)
+            .context("refusing to replace an existing calibration report")?,
+    );
     let stores = output.with_extension("stores");
     fs::create_dir(&stores).context("calibration store directory must be new")?;
     let input = json!({"scenario":scenario,"probes":probes});
@@ -870,6 +872,7 @@ async fn main() -> Result<()> {
         "paraphrase_geometry":descriptions::paraphrase_geometry()?});
     serde_json::to_writer_pretty(&mut file, &report)?;
     file.write_all(b"\n")?;
+    file.flush()?;
     eprintln!("wrote {}", output.display());
     Ok(())
 }
