@@ -2044,6 +2044,43 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn admitted_supported_scenarios_map_before_any_adapter_call() {
+        let mut scenarios = Vec::new();
+        for filename in ["situated_v1.toml", "situated_loud_topic_v1.json"] {
+            scenarios.extend(
+                crate::read_fixture(
+                    &Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("fixtures")
+                        .join(filename),
+                )
+                .unwrap()
+                .scenarios,
+            );
+        }
+        for subtype in ["open_loop", "thread"] {
+            let mut value = serde_json::to_value(situated_scenario()).unwrap();
+            value["events"][2]["memory"]["subtype"] = subtype.into();
+            value["events"][3] = serde_json::json!({
+                "kind": "probe", "event_id": "resume", "query_id": "resume",
+                "timestamp": "2024-01-04T09:00:00Z",
+                "scene": {"kind": "inline", "scene": {"who": [{"reference": {"by": "key", "key": "self"}}], "what": {"by": "key", "key": "promise"}}},
+                "assertions": {"cued": [{"memory": "promise", "cue": "activity"}]}
+            });
+            scenarios.push(serde_json::from_value(value).unwrap());
+        }
+        for scenario in scenarios {
+            if !scenario_missing_features(&scenario).unwrap().is_empty() {
+                continue;
+            }
+            for event in &scenario.events {
+                if let Some(input) = scenario.situated_input(event).unwrap() {
+                    map_situated_input(&scenario, event.timestamp(), input).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
     fn cue_support_is_derived_from_assertions_not_carried_labels() {
         for (cue, feature) in [
             ("topic", None),
