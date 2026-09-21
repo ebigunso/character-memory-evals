@@ -17,6 +17,9 @@ use cmem_eval_continuity::{
 use serde::Serialize;
 use serde_json::{Value, json};
 
+#[path = "calibrate_cue_floors/descriptions.rs"]
+mod descriptions;
+
 const KINDS: [&str; 4] = ["participant", "place", "activity", "topic"];
 const FLOORS: [usize; 5] = [0, 1, 2, 3, 5];
 const AT: &str = "2025-09-01T12:00:00Z";
@@ -258,9 +261,12 @@ fn id(value: &Value) -> String {
     value["id"].as_str().unwrap().into()
 }
 
-fn generated_overlap(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario, Vec<Probe>)> {
-    let place = "Cedar reading room";
-    let participant = "Visitor wearing a linen coat";
+fn generated_overlap(
+    config: &BenchmarkRunConfig,
+    reworded: bool,
+) -> Result<(ContinuityScenario, Vec<Probe>)> {
+    let place = descriptions::probe_words("place", reworded);
+    let participant = descriptions::probe_words("participant", reworded);
     let topic = "Copper bell repair";
     let targets = (0..8)
         .map(|i| format!("strong-topic-{i:02}"))
@@ -285,6 +291,17 @@ fn generated_overlap(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario,
     assign(&mut embedding, place, vector(1.0, 0.0));
     assign(&mut embedding, participant, vector(1.0, 0.0));
     assign(&mut embedding, topic, vector(0.0, 1.0));
+    if reworded {
+        for kind in ["place", "participant"] {
+            for (index, words) in descriptions::word_pool(kind).iter().enumerate() {
+                assign(
+                    &mut embedding,
+                    words,
+                    vector(1.0 - index as f32 * 0.012, 0.0),
+                );
+            }
+        }
+    }
     let alone = Scene {
         who: vec![SceneParticipant {
             reference: PerceivedReference::Key { key: "self".into() },
@@ -316,6 +333,10 @@ fn generated_overlap(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario,
         events: Vec::new(),
         requirements: Default::default(),
     };
+    if reworded {
+        scenario.fixture_id.push_str("-reworded");
+        scenario.namespace.push_str("-reworded");
+    }
     let start = Utc.with_ymd_and_hms(2025, 1, 1, 12, 0, 0).unwrap();
     // At least 48 actual episodes match the scene words. Their body-only
     // observations do not; the native Setting/With write surface creates overlap.
@@ -334,6 +355,20 @@ fn generated_overlap(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario,
         } else {
             format!("Ledger entry {index:02}")
         };
+        let scene = if reworded && !strong {
+            let mut scene = scenario.scenes["shared"].clone();
+            scene.place = Some(PerceivedReference::Description {
+                text: descriptions::write_words("place", index).into(),
+            });
+            scene.who[1].reference = PerceivedReference::Description {
+                text: descriptions::write_words("participant", index).into(),
+            };
+            SceneSelection::Inline { scene }
+        } else {
+            SceneSelection::Named {
+                name: if strong { "alone" } else { "shared" }.into(),
+            }
+        };
         scenario.events.push(InteractionEvent::Experience {
             event_id: if strong {
                 targets[index - scene_count].clone()
@@ -342,9 +377,7 @@ fn generated_overlap(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario,
             },
             timestamp: start + Duration::minutes(index as i64),
             text,
-            scene: SceneSelection::Named {
-                name: if strong { "alone" } else { "shared" }.into(),
-            },
+            scene,
             speaker: None,
             salience: Some(0.5),
         });
@@ -469,9 +502,16 @@ fn snapshot(pack: &RetrievedContextPack, input: &RetrieveInput) -> Result<Value>
         let key = id(object);
         let assignment = assignments.iter().find(|a| id(&a["object"]) == key);
         let candidate = candidates.iter().find(|c| id(&c["object"]) == key);
+        let scene = outcome
+            .pack
+            .relevant_episodes
+            .iter()
+            .find(|episode| episode.id.to_string() == key)
+            .map(|episode| &episode.scene);
         json!({"object":object, "external_id":pack.object_refs().get(&key).map(|r| &r.external_id),
             "section":assignment.map(|a| &a["section"]), "section_score_components":assignment.map(|a| &a["reason"]["scores"]),
-            "vector_score":candidate.map(|c| &c["score"]), "cue_kinds":assignment.map(|a| &a["cue_kinds"])})
+            "vector_score":candidate.map(|c| &c["score"]), "cue_kinds":assignment.map(|a| &a["cue_kinds"]),
+            "recorded_scene":scene})
     };
     let selected = assignments
         .iter()
@@ -744,7 +784,9 @@ async fn main() -> Result<()> {
     let config = config();
     config.validate()?;
     let (scenario, probes) = generated(&config)?;
-    let (overlap_scenario, overlap_probes) = generated_overlap(&config)?;
+    let (overlap_scenario, overlap_probes) = generated_overlap(&config, false)?;
+    let (reworded_scenario, reworded_probes) = generated_overlap(&config, true)?;
+    let keyless = descriptions::generated(&config, &reworded_scenario, &reworded_probes)?;
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -759,11 +801,13 @@ async fn main() -> Result<()> {
     fs::create_dir(&stores).context("calibration store directory must be new")?;
     let input = json!({"scenario":scenario,"probes":probes});
     let overlap_input = json!({"scenario":overlap_scenario,"probes":overlap_probes});
+    let reworded_input = json!({"scenario":reworded_scenario,"probes":reworded_probes});
     let result = async {
         let mut results = Vec::new();
         for (name, scenario, probes) in [
             ("orthogonal", &scenario, &probes),
             ("overlapping", &overlap_scenario, &overlap_probes),
+            ("reworded", &reworded_scenario, &reworded_probes),
         ] {
             let binding = EmbeddingRuntimeBinding::Controllable {
                 fixture: scenario
@@ -782,6 +826,18 @@ async fn main() -> Result<()> {
             cleanup?;
             results.push(result?);
         }
+        let run_root = stores.join("keyless");
+        fs::create_dir(&run_root)?;
+        let binding = EmbeddingRuntimeBinding::Controllable {
+            fixture: keyless.embedding.clone(),
+            dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
+        };
+        let runtime = ContinuityRuntime::new(&run_root, &config, binding).await?;
+        let result = Box::pin(descriptions::measure(&runtime, &keyless)).await;
+        let cleanup = runtime.cleanup(&keyless.namespace).await;
+        drop(runtime);
+        cleanup?;
+        results.push(result?);
         Ok::<_, anyhow::Error>(results)
     }
     .await;
@@ -795,18 +851,23 @@ async fn main() -> Result<()> {
         "harness_commit":harness_commit,"library_commit":library_commit,"profile":if cfg!(debug_assertions){"debug"}else{"release"},
         "seed":CHECKED_FIXTURE_SEED,"input_sha256":text_sha256(&serde_json::to_string(&input)?),"config_sha256":text_sha256(&serde_json::to_string(&config)?),
         "overlapping_input_sha256":text_sha256(&serde_json::to_string(&overlap_input)?),
-        "generator_source_sha256":text_sha256(include_str!("calibrate_cue_floors.rs")),
+        "reworded_input_sha256":text_sha256(&serde_json::to_string(&reworded_input)?),
+        "keyless_input_sha256":text_sha256(&serde_json::to_string(&keyless)?),
+        "generator_source_sha256":text_sha256(concat!(include_str!("calibrate_cue_floors.rs"), include_str!("calibrate_cue_floors/descriptions.rs"))),
         "config":config,"native_candidate_limits":native::RetrievalCandidateLimits::default(),"native_graph_limits":native::RetrievalGraphLimits::default(),
         "native_section_limits":native::ContinuitySectionLimits::default(),"native_default_floors":native::RetrievalCueFloors::default(),"sweep":FLOORS,"stores_cleaned":true},
         "method":{
             "design":"One generated corpus, 17 memories (51 vector objects) per vector kind and 16 activity-thread members. Same store, same probe, one floor swept; other floors stay at native defaults. No scenario pass/fail assertions. Metadata targets are used only after native retrieval. Starvation is measured only when native isolated-cue control admits the target exclusively by that kind and removing the tested cue makes the target absent; otherwise it is null, with controls retained.",
             "geometry":"Seeded synthetic vectors: unrelated groups orthogonal; loud cue cosine about 1, quiet cue about 0.2, unlived words about 0.01 to the least-bad neighbour. Values are controlled pressure, not empirical natural-language relevance thresholds.",
             "overlapping_pressure":"Separate generated situated corpus: 48 Experience episodes with native Setting and With words, no place key, and eight strong topic-only experiences graded from cosine 0.9 to 0.6. Body-only scene observations are background; the real normalized episode surface receives a vector with scene cosine about 0.99 and topic cosine about 0.05. Place-only, participant-only and combined scene probes each sweep all four floors; activity is absent, its sweep is a control. Each cohort stage lists the surviving authored episode identities, missing identities and other scored occupants (including companion observations, never counted as authored episode survival). The native topic-only control has the same cohort census, exposing losses even without scene competition. Occupancy is not a uniquely paired causal eviction. Non-topic sweeps are target-survival measurements, not exclusively-that-kind starvation claims; the existing single-target starvation control tracks the strongest episode.",
-            "displacements":"Set differences versus the identical probe at tested-kind floor zero. Zero also disables that kind's spare-root rounds, so differences include sharing as well as minimum reservation. Native floor credits refer to the original stage-ranked prefix, not this counterfactual. Each admission names its stage/section displacement group; multiple admissions cannot be uniquely paired to displaced objects. All available native vector and final section score components are retained; root ordering score is not exposed.",
+            "displacements":"Set differences versus the identical probe at tested-kind floor zero. Floor zero does not disable a cue: spare-room policy depends on the pinned library (979643f shares turns even at zero). Native floor credits are stage events, not causal admissions. Each admission names its stage/section displacement group; multiple admissions cannot be uniquely paired to displaced objects. All available native vector and final section score components are retained; root ordering score is not exposed.",
             "origin":"Candidate-merge/root floor credits precede graph expansion and are direct. At section selection, explicit matching Participant/Activity roots are direct; activity/key-only participant descendants or objects absent from retained vector candidates are inherited. Remaining cases are unknown because vector candidates and roots omit per-kind origin; no fixture labels reconstruct it.",
             "topic_roots":"Root IDs also found in the independent topic-only native candidate control, not an exclusive attribution of a root to topic. Pack slots count native Selected assignments containing topic and may overlap other kinds.",
             "limits":"Native default caps and depth. PLACE currently uses words/vector roots; saturated explicit PLACE roots promised by the future state slice are not simulated. Native write construction timestamps are omitted from observations; generated inputs and query times use no clock."},
-        "generated_input":input,"measurements":measurements[0],"overlapping_input":overlap_input,"overlapping_measurements":measurements[1]});
+        "generated_input":input,"measurements":measurements[0],"overlapping_input":overlap_input,"overlapping_measurements":measurements[1],
+        "reworded_input":reworded_input,"reworded_measurements":measurements[2],
+        "keyless_input":keyless,"keyless_measurements":measurements[3],
+        "paraphrase_geometry":descriptions::paraphrase_geometry()?});
     serde_json::to_writer_pretty(&mut file, &report)?;
     file.write_all(b"\n")?;
     eprintln!("wrote {}", output.display());
@@ -818,7 +879,7 @@ mod tests {
     use super::*;
     #[test]
     fn overlap_generation_uses_actual_scene_write_surfaces() {
-        let (scenario, probes) = generated_overlap(&config()).unwrap();
+        let (scenario, probes) = generated_overlap(&config(), false).unwrap();
         let inputs = scenario.runtime_embedding_inputs();
         assert_eq!(
             inputs
