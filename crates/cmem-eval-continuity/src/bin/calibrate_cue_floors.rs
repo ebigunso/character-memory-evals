@@ -729,7 +729,9 @@ async fn main() -> Result<()> {
                     .clone(),
                 dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
             };
-            let mut runtime = ContinuityRuntime::new(&stores.join(name), &config, binding).await?;
+            let run_root = stores.join(name);
+            fs::create_dir(&run_root)?;
+            let mut runtime = ContinuityRuntime::new(&run_root, &config, binding).await?;
             let result = Box::pin(measure(&mut runtime, scenario, probes, &config)).await;
             let cleanup = runtime.cleanup(&scenario.namespace).await;
             drop(runtime);
