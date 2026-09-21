@@ -1,0 +1,41 @@
+   Compiling cmem-eval-continuity v0.1.0 (C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\crates\cmem-eval-continuity)
+warning: linker stdout: ライブラリ C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\target\debug\deps\calibrate_cue_floors-02d1c77f86e43157.lib とオブジェクト C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\target\debug\deps\calibrate_cue_floors-02d1c77f86e43157.exp を作成中
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `cmem-eval-continuity` (bin "calibrate_cue_floors" test) generated 1 warning
+warning: linker stdout: ライブラリ C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\target\debug\deps\measure_person_state-167de71ed7c47725.lib とオブジェクト C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\target\debug\deps\measure_person_state-167de71ed7c47725.exp を作成中
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `cmem-eval-continuity` (bin "measure_person_state" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.72s
+     Running unittests src\bin\calibrate_cue_floors.rs (target\debug\deps\calibrate_cue_floors-02d1c77f86e43157.exe)
+
+running 4 tests
+test tests::root_allocation_excludes_rejected_roots_but_keeps_bounded_attempts ... ok
+test tests::displacement_keeps_native_scores_and_matches_identity_not_rank ... ok
+test tests::starvation_denominator_excludes_unavailable_controls ... ok
+test tests::overlap_generation_uses_actual_scene_write_surfaces ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\bin\generate_continuity_fixtures.rs (target\debug\deps\generate_continuity_fixtures-b233cb0c4cd43038.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\bin\generate_situated_loud_topic.rs (target\debug\deps\generate_situated_loud_topic-a6b44a380b7b8297.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\bin\measure_person_state.rs (target\debug\deps\measure_person_state-167de71ed7c47725.exe)
+
+running 1 test
+test tests::generated_store_matches_the_measurement_denominators ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
