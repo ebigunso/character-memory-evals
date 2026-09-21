@@ -2044,6 +2044,35 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn description_resolution_expectations_are_gated_without_gating_description_input() {
+        let mut value = serde_json::to_value(situated_scenario()).unwrap();
+        value["events"][3] = serde_json::json!({
+            "kind": "probe", "event_id": "probe", "query_id": "probe", "timestamp": "2024-01-04T09:00:00Z",
+            "scene": {"kind": "inline", "scene": {"who": [
+                {"reference": {"by": "key", "key": "self"}},
+                {"reference": {"by": "description", "text": "Garden"}}
+            ]}},
+            "assertions": {"carried": [{"memory": "visit", "reason": "pair"}]}
+        });
+        let scenario: ContinuityScenario = serde_json::from_value(value.clone()).unwrap();
+        assert!(scenario_missing_features(&scenario).unwrap().is_empty());
+        for resolution in [
+            serde_json::json!({"status": "unknown"}),
+            serde_json::json!({"status": "resolved", "entity": "ada"}),
+            serde_json::json!({"status": "ambiguous", "candidates": ["ada", "self"]}),
+        ] {
+            value["events"][3]["assertions"]["references"] = serde_json::json!([
+                {"participant": {"by": "description", "text": "Garden"}, "resolution": resolution}
+            ]);
+            let scenario: ContinuityScenario = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(
+                scenario_missing_features(&scenario).unwrap(),
+                [ScenarioFeature::DescriptionReferenceResolution]
+            );
+        }
+    }
+
+    #[test]
     fn admitted_supported_scenarios_map_before_any_adapter_call() {
         let mut scenarios = Vec::new();
         for filename in ["situated_v1.toml", "situated_loud_topic_v1.json"] {

@@ -369,6 +369,7 @@ pub enum ScenarioFeature {
     OwnDayCue,
     RecentAndSalientCue,
     ReferenceTrace,
+    DescriptionReferenceResolution,
     MemorySceneTrace,
     ElapsedSinceMet,
     Staleness,
@@ -2510,6 +2511,12 @@ impl ProbeAdmission<'_> {
         }
         let mut references = BTreeSet::new();
         for assertion in &assertions.references {
+            if matches!(
+                assertion.participant,
+                PerceivedReference::Description { .. }
+            ) {
+                features.insert(ScenarioFeature::DescriptionReferenceResolution);
+            }
             let person = scene
                 .who
                 .iter()

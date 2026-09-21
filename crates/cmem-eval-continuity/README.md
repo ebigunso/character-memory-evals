@@ -161,6 +161,7 @@ The loader derives needed features from actual fields and assertions; authors ca
 | Direction, due, trigger | `direction`, `due_date`, `trigger` respectively |
 | `cued` or `not_cued` | `cue_trace`; due/date/trigger/own-day/recent-and-salient add `due_cue`/`date_cue`/`trigger_cue`/`own_day_cue`/`recent_and_salient_cue`; `not_cued pair` adds `pair_counterpart_cue` until the library distinguishes the self |
 | Reference, scene, elapsed, staleness assertions | `reference_trace`, `memory_scene_trace`, `elapsed_since_met`, `staleness` respectively |
+| Resolution assertion on a participant description | `description_reference_resolution`: the library reports only a content cue for descriptions, not resolved, ambiguous or unknown |
 | Omission by resolution | `resolution_omission` (unsupported until the library reports end of currency) |
 | Omission, warning, section, order expectations | `omission_reasons`, `write_warnings`, `pack_sections`, `pack_order` respectively |
 
