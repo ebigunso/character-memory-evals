@@ -141,47 +141,29 @@ fn map_situated_input(
                 namespace: namespace.into(),
                 ..Default::default()
             };
-            if memory.subtype == AuthoredMemoryKind::Thread {
-                anyhow::ensure!(
-                    memory.experiences.is_empty()
-                        && memory.about.is_empty()
-                        && memory.supersedes.is_empty(),
-                    "unsupported thread provenance passed the feature gate"
-                );
-                input.threads.push(MemoryThreadInput {
-                    external_id,
-                    title: memory.text.clone(),
-                    summary: memory.text,
-                    status: ThreadStatus::Active,
-                    last_touched_at: Some(timestamp),
-                    salience_score: 0.5,
-                    canonical_key: None,
-                });
-            } else {
-                let derived_type = match memory.subtype {
-                    AuthoredMemoryKind::Reflection => DerivedType::Reflection,
-                    AuthoredMemoryKind::RelationshipNote => DerivedType::RelationshipNote,
-                    AuthoredMemoryKind::OpenLoop => DerivedType::OpenLoop,
-                    AuthoredMemoryKind::Commitment => DerivedType::Commitment,
-                    AuthoredMemoryKind::CharacterSignal => DerivedType::CharacterSignal,
-                    _ => bail!("unsupported derived subtype passed the feature gate"),
-                };
-                input.derived_memories.push(DerivedMemoryInput {
-                    external_id,
-                    created_at: Some(timestamp),
-                    derived_type,
-                    text: memory.text,
-                    source_episode_external_ids: memory.experiences,
-                    source_observation_external_ids: Vec::new(),
-                    thread_external_ids: Vec::new(),
-                    entity_external_ids: memory.about,
-                    salience_score: 0.5,
-                    assertions: Vec::new(),
-                    given_by_application: false,
-                    supersedes_external_ids: memory.supersedes,
-                    metadata: serde_json::Value::Null,
-                });
-            }
+            let derived_type = match memory.subtype {
+                AuthoredMemoryKind::Reflection => DerivedType::Reflection,
+                AuthoredMemoryKind::RelationshipNote => DerivedType::RelationshipNote,
+                AuthoredMemoryKind::OpenLoop => DerivedType::OpenLoop,
+                AuthoredMemoryKind::Commitment => DerivedType::Commitment,
+                AuthoredMemoryKind::CharacterSignal => DerivedType::CharacterSignal,
+                _ => bail!("unsupported derived subtype passed the feature gate"),
+            };
+            input.derived_memories.push(DerivedMemoryInput {
+                external_id,
+                created_at: Some(timestamp),
+                derived_type,
+                text: memory.text,
+                source_episode_external_ids: memory.experiences,
+                source_observation_external_ids: Vec::new(),
+                thread_external_ids: Vec::new(),
+                entity_external_ids: memory.about,
+                salience_score: 0.5,
+                assertions: Vec::new(),
+                given_by_application: false,
+                supersedes_external_ids: memory.supersedes,
+                metadata: serde_json::Value::Null,
+            });
             MappedSituatedInput::Derive(input)
         }
         SituatedInput::Probe {
@@ -583,23 +565,6 @@ pub async fn run_continuity_scenario(
                                 memory.text
                             ));
                         }
-                        for thread in &input.threads {
-                            admitted.insert(
-                                thread.external_id.clone(),
-                                AdmittedObject {
-                                    object_type: ObjectType::MemoryThread,
-                                    source_episode_external_id: None,
-                                    original_raw_ref: None,
-                                    original_setting_key: None,
-                                },
-                            );
-                            history.push(format!(
-                                "{}|derive|{}|{}",
-                                event.timestamp(),
-                                thread.external_id,
-                                thread.summary
-                            ));
-                        }
                         write_outcomes.extend(
                             runtime
                                 .adapter()
@@ -699,10 +664,7 @@ pub async fn run_continuity_scenario(
                                 ..Default::default()
                             },
                             ended_at: None,
-                            metadata: serde_json::json!({
-                                "continuity_event_id": event_id,
-                                "timestamp": timestamp,
-                            }),
+                            metadata: serde_json::Value::Null,
                         })
                         .await?;
                     write_outcomes.push(checked_write_outcome(scenario, event_id, result.outcome)?);
@@ -716,10 +678,7 @@ pub async fn run_continuity_scenario(
                             speaker: None,
                             text: observation_text.to_string(),
                             observed_at: Some(scripted_timestamp.clone()),
-                            metadata: serde_json::json!({
-                                "continuity_event_id": event_id,
-                                "timestamp": timestamp,
-                            }),
+                            metadata: serde_json::Value::Null,
                         })
                         .await?;
                     write_outcomes.push(checked_write_outcome(scenario, event_id, result.outcome)?);
@@ -883,10 +842,7 @@ pub async fn run_continuity_scenario(
                                 assertions: Vec::new(),
                                 given_by_application: false,
                                 supersedes_external_ids: Vec::new(),
-                                metadata: serde_json::json!({
-                                    "continuity_event_id": event_id,
-                                    "timestamp": timestamp,
-                                }),
+                                metadata: serde_json::Value::Null,
                             }],
                             links: association_links,
                             ..GraphEnrichmentInput::default()
@@ -963,10 +919,7 @@ pub async fn run_continuity_scenario(
                                 assertions: Vec::new(),
                                 given_by_application: false,
                                 supersedes_external_ids: supersedes_external_ids.clone(),
-                                metadata: serde_json::json!({
-                                    "continuity_event_id": event_id,
-                                    "timestamp": timestamp,
-                                }),
+                                metadata: serde_json::Value::Null,
                             },
                             original_source_provenance: provenance.clone(),
                             correction_origin_provenance: provenance.clone(),
