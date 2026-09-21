@@ -1947,12 +1947,10 @@ impl ContinuityScenario {
                             );
                         }
                     }
-                    if !self.events[event_index + 1..].iter().any(|event| {
-                        matches!(
-                            event,
-                            InteractionEvent::Query { .. } | InteractionEvent::Probe { .. }
-                        )
-                    }) {
+                    if !self.events[event_index + 1..]
+                        .iter()
+                        .any(|event| matches!(event, InteractionEvent::Query { .. }))
+                    {
                         return Err(location.error(
                             "restart",
                             FixtureAdmissionKind::RestartWithoutFollowingQuery,
@@ -5862,6 +5860,22 @@ bystanders = ["distractor"]
             matches!(kind, FixtureAdmissionKind::OutOfUnitInterval(value) if value.is_nan()),
             "{kind:?}"
         );
+    }
+
+    #[test]
+    fn situated_restart_requires_a_following_query_not_only_a_probe() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            value["scenarios"][0]["events"].as_array_mut().unwrap().insert(5, serde_json::json!({
+                "kind": "restart", "event_id": "restart", "timestamp": "2024-01-07T09:00:00Z",
+                "reopen_graph": true, "reopen_stats": true
+            }));
+            let error = parse_as(&value, extension).unwrap_err();
+            assert_eq!(
+                admission_of(error).2,
+                FixtureAdmissionKind::RestartWithoutFollowingQuery
+            );
+        }
     }
 
     #[test]
