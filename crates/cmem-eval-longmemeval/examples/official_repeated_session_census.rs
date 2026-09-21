@@ -23,7 +23,7 @@ fn main() -> Result<()> {
                 "episode",
                 episode.external_id.clone()
             )));
-            assert_eq!(episode.started_at, session.date);
+            assert_eq!(episode.scene.time, session.date);
             if let Some(previous) = raw_seen.insert(&session.session_id, session) {
                 assert_eq!(
                     serde_json::to_value(&previous.turns).unwrap(),
@@ -38,7 +38,7 @@ fn main() -> Result<()> {
             }
             dump.push(
                 json!({"item": item.question_id, "before": session.session_id,
-                "after": episode.external_id, "date": episode.started_at}),
+                "after": episode.external_id, "date": episode.scene.time}),
             );
         }
         for observation in &mapped.observations {

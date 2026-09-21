@@ -783,7 +783,11 @@ impl CharacterMemoryAdapter {
                 "observation" => ObjectType::Observation,
                 _ => unreachable!("validated vector-only object kind"),
             };
-            let mut context = RetrievalContext::new(input.query.clone());
+            let mut context = RetrievalContext {
+                topic: input.topic.clone(),
+                scene: resolve_scene(&input.scene, state)?,
+                ..Default::default()
+            };
             context.include_trace = true;
             context.object_type_defaults = vec![object_type];
             context.candidate_limits.max_vector_candidates = budget
@@ -1020,12 +1024,11 @@ impl CharacterMemoryAdapter {
             let id = deterministic_id(&input.namespace, "episode", &input.external_id);
             let mut draft = EpisodeDraft::new(input.summary.clone());
             draft.id = Some(id);
-            draft.source_conversation_id = Some(input.external_id.clone());
+            draft.scene = Some(resolve_scene(&input.scene, state)?);
             draft.raw_ref = Some(format!(
                 "eval://{}/episode/{}",
                 input.namespace, input.external_id
             ));
-            draft.started_at = parse_timestamp(input.started_at.as_deref())?;
             draft.ended_at = parse_timestamp(input.ended_at.as_deref())?;
             objects.push(MemoryObjectDraft::Episode(draft));
             ids.push((input.external_id, id, input.summary));
@@ -1407,14 +1410,8 @@ impl CharacterMemoryAdapter {
             "observation",
             &input.observation_external_id,
         );
-        let (mut episode, mut observation) =
-            staged_source_drafts(&input, episode_id, observation_id)?;
-        episode.participant_entity_ids = resolve_ids(
-            "entity",
-            &input.participant_entity_external_ids,
-            &state.entity_ids,
-            &BTreeMap::new(),
-        )?;
+        let (episode, mut observation) =
+            staged_source_drafts(&input, episode_id, observation_id, state)?;
         observation.speaker_entity_id = input
             .speaker_entity_external_id
             .as_ref()
@@ -1434,7 +1431,7 @@ impl CharacterMemoryAdapter {
             ))?,
             observation
                 .observed_at
-                .or(episode.started_at)
+                .or_else(|| episode.scene.as_ref().map(|scene| scene.time))
                 .unwrap_or(DateTime::<Utc>::UNIX_EPOCH),
         );
         let mut remember_input = RememberInput::new(input.content.clone());
@@ -1555,7 +1552,11 @@ impl CharacterMemoryAdapter {
             .get_mut(&input.namespace)
             .ok_or_else(|| explicit_lifecycle_error(&input.namespace))?;
 
-        let mut context = RetrievalContext::new(input.query);
+        let mut context = RetrievalContext {
+            topic: input.topic,
+            scene: resolve_scene(&input.scene, state)?,
+            ..Default::default()
+        };
         context.include_trace = input.surface_policy.include_debug_rationale;
         if let Some(max_vector_candidates) = input.surface_policy.max_vector_candidates {
             context.candidate_limits.max_vector_candidates = max_vector_candidates;
@@ -1614,11 +1615,7 @@ fn flatten_outcome(
     }
 
     for episode in &outcome.pack.relevant_episodes {
-        let external_id = state
-            .reverse_episode_ids
-            .get(&episode.id)
-            .cloned()
-            .or(episode.source_conversation_id.clone());
+        let external_id = state.reverse_episode_ids.get(&episode.id).cloned();
         items.push(RetrievedItem {
             kind: ObjectType::Episode,
             internal_id: episode.id.to_string(),
@@ -2105,15 +2102,47 @@ fn parse_timestamp(value: Option<&str>) -> Result<Option<DateTime<Utc>>> {
         .transpose()
 }
 
+fn resolve_scene(
+    input: &crate::MemorySceneInput,
+    state: &ExternalIdRegistry,
+) -> Result<character_memory::Scene> {
+    Ok(character_memory::Scene {
+        time: parse_timestamp(input.time.as_deref())?.unwrap_or(DateTime::<Utc>::UNIX_EPOCH),
+        participants: input
+            .participants
+            .iter()
+            .map(|participant| {
+                Ok(character_memory::SceneParticipant {
+                    key: participant
+                        .key
+                        .as_ref()
+                        .map(|key| {
+                            state
+                                .entity_ids
+                                .get(key)
+                                .copied()
+                                .with_context(|| format!("unknown scene participant {key}"))
+                        })
+                        .transpose()?,
+                    name: participant.name.clone(),
+                    description: participant.description.clone(),
+                })
+            })
+            .collect::<Result<_>>()?,
+        setting: input.setting.clone(),
+        custom_values: input.custom_values.clone(),
+    })
+}
+
 fn staged_source_drafts(
     input: &PrepareWriteInput,
     episode_id: MemoryId,
     observation_id: MemoryId,
+    state: &ExternalIdRegistry,
 ) -> Result<(EpisodeDraft, ObservationDraft)> {
     let mut episode = EpisodeDraft::new(input.content.clone());
     episode.id = Some(episode_id);
-    episode.source_conversation_id = Some(input.episode_external_id.clone());
-    episode.started_at = parse_timestamp(input.episode_started_at.as_deref())?;
+    episode.scene = Some(resolve_scene(&input.scene, state)?);
     episode.raw_ref = input.raw_refs.first().cloned().or_else(|| {
         Some(format!(
             "eval://{}/episode/{}",
@@ -2212,7 +2241,7 @@ fn correction_target_to_live(
             object_type,
             external_id,
             original_raw_ref,
-            original_source_ref,
+            original_setting_key,
         } => {
             let target = match object_type {
                 ObjectType::Episode => SourceObjectCorrectionTarget::Episode {
@@ -2221,7 +2250,7 @@ fn correction_target_to_live(
                         .get(external_id)
                         .ok_or_else(|| anyhow!("unknown episode external_id {external_id}"))?,
                     original_raw_ref: original_raw_ref.clone(),
-                    original_source_ref: original_source_ref.clone(),
+                    original_setting_key: original_setting_key.clone(),
                 },
                 ObjectType::Observation => SourceObjectCorrectionTarget::Observation {
                     id: *state
@@ -2229,7 +2258,7 @@ fn correction_target_to_live(
                         .get(external_id)
                         .ok_or_else(|| anyhow!("unknown observation external_id {external_id}"))?,
                     original_raw_ref: original_raw_ref.clone(),
-                    original_source_ref: original_source_ref.clone(),
+                    original_setting_key: original_setting_key.clone(),
                 },
                 unsupported => {
                     bail!("unsupported correction source object type: {unsupported}")
@@ -2751,9 +2780,11 @@ mod tests {
                     external_id: id.into(),
                     namespace: "n".into(),
                     summary: "same text".into(),
-                    started_at: None,
+                    scene: crate::MemorySceneInput {
+                        time: None,
+                        ..Default::default()
+                    },
                     ended_at: None,
-                    participants: Vec::new(),
                     metadata: serde_json::json!({}),
                 })
                 .await
@@ -2776,8 +2807,11 @@ mod tests {
         let mut query = RetrieveInput {
             mode: RetrievalMode::VectorOnly,
             namespace: "n".into(),
-            query: "same text".into(),
-            query_date: None,
+            topic: Some("same text".into()),
+            scene: crate::MemorySceneInput {
+                time: None,
+                ..Default::default()
+            },
             surface_policy: retrieval_surface_policy(1, 2, false, false, false, false),
         };
         let result = adapter.retrieve(query.clone()).await.unwrap();
@@ -2848,9 +2882,11 @@ mod tests {
                     external_id: "episode".into(),
                     namespace: namespace.into(),
                     summary: "The notebook is blue.".into(),
-                    started_at: Some("2025-01-01T00:00:00Z".into()),
+                    scene: crate::MemorySceneInput {
+                        time: Some("2025-01-01T00:00:00Z".into()),
+                        ..Default::default()
+                    },
                     ended_at: None,
-                    participants: Vec::new(),
                     metadata: serde_json::json!({}),
                 })
                 .await
@@ -2864,8 +2900,11 @@ mod tests {
         let query = RetrieveInput {
             mode: RetrievalMode::Hybrid,
             namespace: "b".into(),
-            query: "The notebook is blue.".into(),
-            query_date: Some("2025-01-02T00:00:00Z".into()),
+            topic: Some("The notebook is blue.".into()),
+            scene: crate::MemorySceneInput {
+                time: Some("2025-01-02T00:00:00Z".into()),
+                ..Default::default()
+            },
             surface_policy: retrieval_surface_policy(8, 0, false, false, false, true),
         };
         let before = adapter.retrieve(query.clone()).await.unwrap();
@@ -3106,8 +3145,11 @@ mod tests {
             .retrieve(RetrieveInput {
                 mode: RetrievalMode::Hybrid,
                 namespace: "names".into(),
-                query: "Ada".into(),
-                query_date: None,
+                topic: Some("Ada".into()),
+                scene: crate::MemorySceneInput {
+                    time: None,
+                    ..Default::default()
+                },
                 surface_policy: RetrievalSurfacePolicy::default(),
             })
             .await
@@ -3155,9 +3197,11 @@ mod tests {
                 external_id: "episode".into(),
                 namespace: namespace.into(),
                 summary: text.into(),
-                started_at: Some("2025-01-01T00:00:00Z".into()),
+                scene: crate::MemorySceneInput {
+                    time: Some("2025-01-01T00:00:00Z".into()),
+                    ..Default::default()
+                },
                 ended_at: None,
-                participants: Vec::new(),
                 metadata: serde_json::json!({"gold_label": sentinels[0]}),
             })
             .await
@@ -3201,8 +3245,11 @@ mod tests {
             .retrieve(RetrieveInput {
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.into(),
-                query: text.into(),
-                query_date: Some("2025-01-02T00:00:00Z".into()),
+                topic: Some(text.into()),
+                scene: crate::MemorySceneInput {
+                    time: Some("2025-01-02T00:00:00Z".into()),
+                    ..Default::default()
+                },
                 surface_policy: retrieval_surface_policy(8, 8, true, false, false, true),
             })
             .await
@@ -3309,8 +3356,10 @@ mod tests {
         let link_id = deterministic_id(namespace, "memory_link", "link");
 
         let mut episode_a = EpisodeDraft::new("Episode   one");
+        episode_a.scene = Some(character_memory::Scene::at(DateTime::<Utc>::UNIX_EPOCH));
         episode_a.id = Some(episode_a_id);
         let mut episode_b = EpisodeDraft::new("Episode two");
+        episode_b.scene = Some(character_memory::Scene::at(DateTime::<Utc>::UNIX_EPOCH));
         episode_b.id = Some(episode_b_id);
         let mut observation_a = ObservationDraft::new(episode_a_id, "Observation   one");
         observation_a.id = Some(observation_a_id);
@@ -3774,9 +3823,11 @@ mod tests {
                     external_id: "new-episode".to_string(),
                     namespace: namespace.to_string(),
                     summary: "must not attach implicitly".to_string(),
-                    started_at: None,
+                    scene: crate::MemorySceneInput {
+                        time: None,
+                        ..Default::default()
+                    },
                     ended_at: None,
-                    participants: Vec::new(),
                     metadata: serde_json::Value::Null,
                 })
                 .await
@@ -3789,10 +3840,13 @@ mod tests {
                     content: "must not attach implicitly".to_string(),
                     episode_external_id: "new-episode".to_string(),
                     observation_external_id: "new-observation".to_string(),
-                    participant_entity_external_ids: Vec::new(),
+
                     speaker_entity_external_id: None,
                     salience: None,
-                    episode_started_at: None,
+                    scene: crate::MemorySceneInput {
+                        time: None,
+                        ..Default::default()
+                    },
                     observation_observed_at: None,
                     raw_refs: Vec::new(),
                     include_vector_index_candidates: true,
@@ -3807,8 +3861,11 @@ mod tests {
                     .retrieve(RetrieveInput {
                         mode,
                         namespace: namespace.to_string(),
-                        query: "must not attach implicitly".to_string(),
-                        query_date: None,
+                        topic: Some("must not attach implicitly".to_string()),
+                        scene: crate::MemorySceneInput {
+                            time: None,
+                            ..Default::default()
+                        },
                         surface_policy: retrieval_surface_policy(4, 4, false, false, false, false),
                     })
                     .await
@@ -3935,10 +3992,13 @@ mod tests {
                 content: "The restart-safe drink is jasmine tea.".to_string(),
                 episode_external_id: "episode-external".to_string(),
                 observation_external_id: "observation-external".to_string(),
-                participant_entity_external_ids: Vec::new(),
+
                 speaker_entity_external_id: None,
                 salience: None,
-                episode_started_at: Some("2025-01-01T00:00:00Z".to_string()),
+                scene: crate::MemorySceneInput {
+                    time: Some("2025-01-01T00:00:00Z".to_string()),
+                    ..Default::default()
+                },
                 observation_observed_at: Some("2025-01-01T00:00:00Z".to_string()),
                 raw_refs: vec!["fixture://continuity/restart".to_string()],
                 include_vector_index_candidates: true,
@@ -4168,8 +4228,11 @@ mod tests {
             .retrieve(RetrieveInput {
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.to_string(),
-                query: "What is the restart-safe drink?".to_string(),
-                query_date: None,
+                topic: Some("What is the restart-safe drink?".to_string()),
+                scene: crate::MemorySceneInput {
+                    time: None,
+                    ..Default::default()
+                },
                 surface_policy: retrieval_surface_policy(8, 8, false, false, false, true),
             })
             .await)
@@ -4353,8 +4416,11 @@ mod tests {
             .retrieve(RetrieveInput {
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.to_string(),
-                query: "What is the restart-safe drink?".to_string(),
-                query_date: None,
+                topic: Some("What is the restart-safe drink?".to_string()),
+                scene: crate::MemorySceneInput {
+                    time: None,
+                    ..Default::default()
+                },
                 surface_policy: retrieval_surface_policy(8, 8, true, true, true, true),
             })
             .await)
@@ -4389,9 +4455,11 @@ mod tests {
                 external_id: format!("episode-{label}"),
                 namespace: namespace.to_string(),
                 summary: format!("Sibling namespace {label} must survive independently."),
-                started_at: None,
+                scene: crate::MemorySceneInput {
+                    time: None,
+                    ..Default::default()
+                },
                 ended_at: None,
-                participants: Vec::new(),
                 metadata: serde_json::Value::Null,
             })
             .await)
@@ -4522,8 +4590,11 @@ mod tests {
             .retrieve(RetrieveInput {
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace_b.to_string(),
-                query: "Which sibling namespace must survive?".to_string(),
-                query_date: None,
+                topic: Some("Which sibling namespace must survive?".to_string()),
+                scene: crate::MemorySceneInput {
+                    time: None,
+                    ..Default::default()
+                },
                 surface_policy: retrieval_surface_policy(8, 8, false, false, true, true),
             })
             .await)
@@ -4553,9 +4624,11 @@ mod tests {
                     external_id: "episode".into(),
                     namespace: namespace.into(),
                     summary: "The notebook is blue.".into(),
-                    started_at: None,
+                    scene: crate::MemorySceneInput {
+                        time: None,
+                        ..Default::default()
+                    },
                     ended_at: None,
-                    participants: Vec::new(),
                     metadata: serde_json::json!({}),
                 })
                 .await
@@ -4570,8 +4643,11 @@ mod tests {
         let pack = adapter
             .retrieve(RetrieveInput {
                 namespace: "b".into(),
-                query: "The notebook is blue.".into(),
-                query_date: None,
+                topic: Some("The notebook is blue.".into()),
+                scene: crate::MemorySceneInput {
+                    time: None,
+                    ..Default::default()
+                },
                 mode: RetrievalMode::Hybrid,
                 surface_policy: retrieval_surface_policy(8, 0, false, false, false, true),
             })
@@ -4715,6 +4791,9 @@ mod tests {
                 },
             ],
             vec![RetrieveOutcome {
+                scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+                scene_references: Vec::new(),
+                memory_scenes: Vec::new(),
                 pack: ContinuityContextPack {
                     relevant_episodes: vec![episode(episode_id)],
                     salient_observations: vec![{
@@ -4823,6 +4902,9 @@ mod tests {
         let traced = flatten_outcome(
             &registry,
             RetrieveOutcome {
+                scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+                scene_references: Vec::new(),
+                memory_scenes: Vec::new(),
                 pack: pack.clone(),
                 rationale: RetrievalRationale::new("test"),
                 trace: Some(trace),
@@ -4831,6 +4913,9 @@ mod tests {
         let untraced = flatten_outcome(
             &registry,
             RetrieveOutcome {
+                scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+                scene_references: Vec::new(),
+                memory_scenes: Vec::new(),
                 pack,
                 rationale: RetrievalRationale::new("test"),
                 trace: None,
@@ -4838,6 +4923,8 @@ mod tests {
         );
 
         let expected_ids = vec![first_id.to_string(), second_id.to_string()];
+        // A setting key describes a context; it cannot substitute for an episode identity.
+        assert!(traced.items().iter().all(|item| item.external_id.is_none()));
         assert_eq!(
             traced
                 .items()
@@ -4879,10 +4966,13 @@ mod tests {
             content: "scripted memory".to_string(),
             episode_external_id: "episode".to_string(),
             observation_external_id: "observation".to_string(),
-            participant_entity_external_ids: Vec::new(),
+
             speaker_entity_external_id: None,
             salience: None,
-            episode_started_at: Some("2025-02-03T04:05:06Z".to_string()),
+            scene: crate::MemorySceneInput {
+                time: Some("2025-02-03T04:05:06Z".to_string()),
+                ..Default::default()
+            },
             observation_observed_at: Some("2025-02-03T04:05:06Z".to_string()),
             raw_refs: Vec::new(),
             include_vector_index_candidates: true,
@@ -4896,11 +4986,12 @@ mod tests {
                 "observation",
                 &input.observation_external_id,
             ),
+            &ExternalIdRegistry::default(),
         )
         .unwrap();
 
         assert_eq!(
-            episode.started_at.unwrap().to_rfc3339(),
+            episode.scene.unwrap().time.to_rfc3339(),
             "2025-02-03T04:05:06+00:00"
         );
         assert_eq!(
@@ -4928,6 +5019,7 @@ mod tests {
                     "observation",
                     &input.observation_external_id,
                 ),
+                &ExternalIdRegistry::default(),
             )
             .unwrap();
             assert_eq!(episode.salience_score, salience);
@@ -4986,10 +5078,14 @@ mod tests {
             id,
             object_type: ObjectType::Episode,
             modality: Modality::Chat,
-            source_conversation_id: Some("external".to_string()),
-            started_at: None,
+            scene: character_memory::Scene {
+                setting: character_memory::SceneSetting {
+                    key: Some("external".into()),
+                    words: None,
+                },
+                ..character_memory::Scene::at(now)
+            },
             ended_at: None,
-            participant_entity_ids: Vec::new(),
             summary: "summary".to_string(),
             raw_ref: Some("external".to_string()),
             salience_score: 0.5,

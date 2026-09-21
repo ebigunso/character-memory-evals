@@ -65,7 +65,7 @@ impl Bm25Baseline {
         let mut counts = [0, 0];
         let items = self
             .index
-            .rank(&input.query)
+            .rank(input.topic.as_deref().unwrap_or_default())
             .into_iter()
             .filter_map(|score| {
                 let mut item = self.items[&score.id].clone();
@@ -252,9 +252,11 @@ mod tests {
             external_id: "session".into(),
             namespace: "lexical".into(),
             summary: "green tea".into(),
-            started_at: None,
+            scene: crate::MemorySceneInput {
+                time: None,
+                ..Default::default()
+            },
             ended_at: None,
-            participants: Vec::new(),
             metadata: serde_json::Value::Null,
         };
         let observations = ["tea tea", "train ticket"].map(|text| ObservationInput {
@@ -270,8 +272,11 @@ mod tests {
         let mut input = RetrieveInput {
             mode: crate::RetrievalMode::Bm25Only,
             namespace: "lexical".into(),
-            query: "tea".into(),
-            query_date: None,
+            topic: Some("tea".into()),
+            scene: crate::MemorySceneInput {
+                time: None,
+                ..Default::default()
+            },
             surface_policy: crate::RetrievalSurfacePolicy {
                 object_types: vec![ObjectType::Episode, ObjectType::Observation],
                 sections: crate::RetrievalSectionBudgets {

@@ -353,6 +353,7 @@ pub enum ScenarioFeature {
     ElapsedSinceMet,
     Staleness,
     OmissionReasons,
+    ResolutionOmission,
     WriteWarnings,
     PackSections,
     PackOrder,
@@ -756,7 +757,6 @@ pub enum FixtureAdmissionKind {
     InvalidSceneReference,
     MissingSceneCharacter,
     NotAdmittedActivity(String),
-    WriteSceneMustUseKeys,
     RequiredWith(&'static str),
     InvalidAssertion(&'static str),
 }
@@ -910,9 +910,6 @@ impl fmt::Display for FixtureAdmissionKind {
                 f,
                 "activity key {id:?} must reference an earlier authored thread or open loop"
             ),
-            Self::WriteSceneMustUseKeys => {
-                write!(f, "write-side scenes require identity or setting keys")
-            }
             Self::RequiredWith(field) => write!(f, "required with {field}"),
             Self::InvalidAssertion(reason) => write!(f, "invalid assertion: {reason}"),
         }
@@ -1161,8 +1158,15 @@ impl ContinuityScenario {
             .collect::<BTreeSet<_>>();
         for event in &self.events {
             match event {
-                InteractionEvent::Experience { text, .. } => {
+                InteractionEvent::Experience { text, scene, .. } => {
                     inputs.insert(runtime_memory_embedding_text(text));
+                    let scene = match scene {
+                        SceneSelection::Named { name } => self.scenes.get(name),
+                        SceneSelection::Inline { scene } => Some(scene),
+                    };
+                    if let Some(scene) = scene {
+                        inputs.insert(runtime_episode_embedding_text(text, scene));
+                    }
                 }
                 InteractionEvent::Derive { memory, .. } => {
                     inputs.insert(runtime_memory_embedding_text(&memory.text));
@@ -1201,7 +1205,11 @@ impl ContinuityScenario {
                 | InteractionEvent::Restart { .. } => {}
             }
         }
-        inputs.extend(self.scene_texts().into_iter().map(str::to_string));
+        inputs.extend(
+            self.scene_texts()
+                .into_iter()
+                .map(|text| text.trim().to_string()),
+        );
         inputs
     }
 
@@ -1303,7 +1311,6 @@ impl ContinuityScenario {
             require_non_empty(&scenario, "scenes", name)?;
             validate_scene(
                 scene,
-                false,
                 &scenario,
                 &declared_entities,
                 None,
@@ -1372,7 +1379,6 @@ impl ContinuityScenario {
                     let scene = self.scene(scene, &location)?;
                     validate_scene(
                         scene,
-                        true,
                         &location,
                         &declared_entities,
                         Some(&activities),
@@ -1392,6 +1398,12 @@ impl ContinuityScenario {
                         "experience.text",
                         assigned_inputs.as_ref(),
                         &runtime_memory_embedding_text(text),
+                    )?;
+                    require_embedding_input(
+                        &location,
+                        "experience.scene",
+                        assigned_inputs.as_ref(),
+                        &runtime_episode_embedding_text(text, scene),
                     )?;
                     admit_external_id(
                         &location,
@@ -1609,7 +1621,6 @@ impl ContinuityScenario {
                     let scene = self.scene(scene, &location)?;
                     validate_scene(
                         scene,
-                        false,
                         &location,
                         &declared_entities,
                         Some(&activities),
@@ -1649,7 +1660,7 @@ impl ContinuityScenario {
                             &location,
                             "scene.reference.text",
                             assigned_inputs.as_ref(),
-                            text,
+                            text.trim(),
                         )?;
                         requirements.features.insert(feature);
                     }
@@ -1951,6 +1962,34 @@ pub fn runtime_memory_embedding_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+// Follows CharacterMemory src/policy/embedding_surface.rs; the strict provider
+// lookup fails if the native embedding input diverges from this inventory.
+fn runtime_episode_embedding_text(text: &str, scene: &Scene) -> String {
+    let mut text = runtime_memory_embedding_text(text);
+    let words = |reference: &PerceivedReference| match reference {
+        PerceivedReference::Name { text } | PerceivedReference::Description { text } => {
+            Some(runtime_memory_embedding_text(text))
+        }
+        _ => None,
+    };
+    let setting = scene
+        .place
+        .as_ref()
+        .and_then(words)
+        .map(|words| ("Setting", words));
+    let participants = scene
+        .who
+        .iter()
+        .filter_map(|person| words(&person.reference))
+        .map(|words| ("With", words));
+    for (label, words) in setting.into_iter().chain(participants) {
+        if !words.is_empty() {
+            text.push_str(&format!("\n{label}: {words}"));
+        }
+    }
+    text
+}
+
 impl InteractionEvent {
     /// Identities use the authored subject, so list and participant order are immaterial.
     pub fn assertion_identities(&self) -> BTreeSet<AssertionIdentity> {
@@ -2242,7 +2281,6 @@ fn require_entity(
 
 fn validate_scene(
     scene: &Scene,
-    write: bool,
     location: &FixtureLocation,
     entities: &BTreeSet<&str>,
     activities: Option<&BTreeSet<&str>>,
@@ -2302,12 +2340,6 @@ fn validate_scene(
                 require_non_empty(location, "scene.reference.key", key)?
             }
             (PerceivedReference::Name { text } | PerceivedReference::Description { text }, _) => {
-                if write {
-                    return Err(location.error(
-                        "scene.reference",
-                        FixtureAdmissionKind::WriteSceneMustUseKeys,
-                    ));
-                }
                 require_non_empty(location, "scene.reference.text", text)?;
             }
         }
@@ -2391,6 +2423,9 @@ impl ProbeAdmission<'_> {
                 ));
             }
             features.insert(ScenarioFeature::OmissionReasons);
+            if assertion.reason == OmissionReason::Resolution {
+                features.insert(ScenarioFeature::ResolutionOmission);
+            }
         }
         let mut orders = BTreeSet::new();
         for order in &assertions.in_order {
@@ -2545,7 +2580,6 @@ impl ProbeAdmission<'_> {
             })?;
             validate_scene(
                 asserted_scene,
-                false,
                 location,
                 self.entities,
                 Some(self.activities),
@@ -4112,19 +4146,6 @@ bystanders = ["distractor"]
                 )
             );
 
-            let mut value = situated_value();
-            value["scenarios"][0]["events"][0]["scene"] =
-                serde_json::json!({"kind": "named", "name": "encounter"});
-            assert_eq!(
-                admission_of(parse_as(&value, extension).unwrap_err()),
-                expected_admission(
-                    "encounter",
-                    Some("early-meeting"),
-                    "scene.reference",
-                    FixtureAdmissionKind::WriteSceneMustUseKeys
-                )
-            );
-
             for (field, change) in [
                 ("reason", false),
                 ("carrried", true),
@@ -4596,10 +4617,13 @@ bystanders = ["distractor"]
                 content: content.to_string(),
                 episode_external_id: "whitespace-episode".to_string(),
                 observation_external_id: "whitespace-observation".to_string(),
-                participant_entity_external_ids: Vec::new(),
+
                 speaker_entity_external_id: None,
                 salience: None,
-                episode_started_at: None,
+                scene: cmem_eval::MemorySceneInput {
+                    time: None,
+                    ..Default::default()
+                },
                 observation_observed_at: None,
                 raw_refs: Vec::new(),
                 include_vector_index_candidates: true,
@@ -4697,7 +4721,7 @@ bystanders = ["distractor"]
                         matches!(scenario.situated_input(scenario.events.last().unwrap()).unwrap(),
                         Some(SituatedInput::Probe { topic: Some(topic), .. }) if topic == RAW)
                     );
-                    continue; // This library pin cannot forward a situated probe yet.
+                    continue; // The driver drift test covers the complete probe scene mapping.
                 }
 
                 // Exercise the real library lookup: only the trim-only key is assigned.

@@ -28,6 +28,18 @@ use crate::{
 // Only whole features forwarded by the pinned library belong here.
 pub const SUPPORTED_SCENARIO_FEATURES: &[ScenarioFeature] = &[
     ScenarioFeature::WriteScene,
+    ScenarioFeature::WriteSceneWhere,
+    ScenarioFeature::WriteSceneCustom,
+    ScenarioFeature::ProbeScene,
+    ScenarioFeature::NoTopic,
+    ScenarioFeature::ReferenceTime,
+    ScenarioFeature::ParticipantName,
+    ScenarioFeature::ParticipantDescription,
+    ScenarioFeature::PlaceName,
+    ScenarioFeature::PlaceDescription,
+    ScenarioFeature::ReferenceTrace,
+    ScenarioFeature::MemorySceneTrace,
+    ScenarioFeature::OmissionReasons,
     ScenarioFeature::AuthoredDerivedMemory,
     ScenarioFeature::PackSections,
     ScenarioFeature::PackOrder,
@@ -45,11 +57,44 @@ pub fn scenario_missing_features(scenario: &ContinuityScenario) -> Result<Vec<Sc
 enum MappedSituatedInput {
     Experience(PrepareWriteInput),
     Derive(GraphEnrichmentInput),
-    #[expect(
-        dead_code,
-        reason = "remove when the core contract can carry probe scene and reference time"
-    )]
     Probe(RetrieveInput),
+}
+
+fn map_scene(timestamp: &str, scene: crate::SceneInput) -> Result<cmem_eval::MemorySceneInput> {
+    anyhow::ensure!(
+        scene.what.is_none(),
+        "unsupported activity passed the feature gate"
+    );
+    let participants = scene
+        .who
+        .into_iter()
+        .map(|reference| {
+            let mut participant = cmem_eval::SceneParticipantInput::default();
+            match reference {
+                PerceivedReference::Key { key } => participant.key = Some(key),
+                PerceivedReference::Name { text } => participant.name = Some(text),
+                PerceivedReference::Description { text } => participant.description = Some(text),
+                PerceivedReference::Setting { .. } => bail!("setting cannot be a participant"),
+            }
+            Ok(participant)
+        })
+        .collect::<Result<_>>()?;
+    let mut setting = cmem_eval::character_memory::SceneSetting::default();
+    match scene.place {
+        Some(PerceivedReference::Key { key } | PerceivedReference::Setting { key }) => {
+            setting.key = Some(key)
+        }
+        Some(PerceivedReference::Name { text } | PerceivedReference::Description { text }) => {
+            setting.words = Some(text)
+        }
+        None => {}
+    }
+    Ok(cmem_eval::MemorySceneInput {
+        time: Some(timestamp.into()),
+        participants,
+        setting,
+        custom_values: scene.custom,
+    })
 }
 
 fn map_situated_input(
@@ -65,34 +110,19 @@ fn map_situated_input(
             scene,
             speaker,
             salience,
-        } => {
-            anyhow::ensure!(
-                scene.place.is_none() && scene.what.is_none() && scene.custom.is_empty(),
-                "unsupported write scene passed the feature gate"
-            );
-            let participants = scene
-                .who
-                .into_iter()
-                .map(|reference| match reference {
-                    PerceivedReference::Key { key } => Ok(key),
-                    _ => bail!("unsupported write participant passed the feature gate"),
-                })
-                .collect::<Result<Vec<_>>>()?;
-            MappedSituatedInput::Experience(PrepareWriteInput {
-                namespace: namespace.into(),
-                content: text,
-                observation_external_id: observation_external_id(&external_id),
-                episode_external_id: external_id,
-                participant_entity_external_ids: participants,
-                speaker_entity_external_id: speaker,
-                salience,
-                episode_started_at: Some(timestamp.clone()),
-                observation_observed_at: Some(timestamp),
-                raw_refs: Vec::new(),
-                include_vector_index_candidates: true,
-                include_stats_update_candidates: true,
-            })
-        }
+        } => MappedSituatedInput::Experience(PrepareWriteInput {
+            namespace: namespace.into(),
+            content: text,
+            observation_external_id: observation_external_id(&external_id),
+            episode_external_id: external_id,
+            scene: map_scene(&timestamp, scene)?,
+            speaker_entity_external_id: speaker,
+            salience,
+            observation_observed_at: Some(timestamp),
+            raw_refs: Vec::new(),
+            include_vector_index_candidates: true,
+            include_stats_update_candidates: true,
+        }),
         SituatedInput::Derive {
             external_id,
             memory,
@@ -151,9 +181,13 @@ fn map_situated_input(
             }
             MappedSituatedInput::Derive(input)
         }
-        SituatedInput::Probe { .. } => {
-            bail!("the pinned library cannot receive a probe scene and reference time")
-        }
+        SituatedInput::Probe { scene, topic, .. } => MappedSituatedInput::Probe(RetrieveInput {
+            mode: cmem_eval::RetrievalMode::Hybrid,
+            namespace: namespace.into(),
+            topic,
+            scene: map_scene(&timestamp, scene)?,
+            surface_policy: Default::default(),
+        }),
     })
 }
 
@@ -361,7 +395,7 @@ struct AdmittedObject {
     object_type: ObjectType,
     source_episode_external_id: Option<String>,
     original_raw_ref: Option<String>,
-    original_source_ref: Option<String>,
+    original_setting_key: Option<String>,
 }
 
 pub async fn run_continuity_scenario(
@@ -395,7 +429,7 @@ pub async fn run_continuity_scenario(
                     object_type: ObjectType::Entity,
                     source_episode_external_id: None,
                     original_raw_ref: None,
-                    original_source_ref: None,
+                    original_setting_key: None,
                 },
             )
         })
@@ -458,6 +492,7 @@ pub async fn run_continuity_scenario(
                     MappedSituatedInput::Experience(input) => {
                         let external_id = input.episode_external_id.clone();
                         let observation_id = input.observation_external_id.clone();
+                        let original_setting_key = input.scene.setting.key.clone();
                         history.push(format!(
                             "{}|experience|{}|{}",
                             event.timestamp(),
@@ -489,8 +524,7 @@ pub async fn run_continuity_scenario(
                                     object_type,
                                     source_episode_external_id: Some(external_id.clone()),
                                     original_raw_ref: Some(raw_ref),
-                                    original_source_ref: (object_type == ObjectType::Episode)
-                                        .then_some(external_id.clone()),
+                                    original_setting_key: original_setting_key.clone(),
                                 },
                             );
                         }
@@ -506,7 +540,7 @@ pub async fn run_continuity_scenario(
                                         .first()
                                         .cloned(),
                                     original_raw_ref: None,
-                                    original_source_ref: None,
+                                    original_setting_key: None,
                                 },
                             );
                             history.push(format!(
@@ -523,7 +557,7 @@ pub async fn run_continuity_scenario(
                                     object_type: ObjectType::MemoryThread,
                                     source_episode_external_id: None,
                                     original_raw_ref: None,
-                                    original_source_ref: None,
+                                    original_setting_key: None,
                                 },
                             );
                             history.push(format!(
@@ -545,10 +579,48 @@ pub async fn run_continuity_scenario(
                         );
                         increment(&mut run.operation_counts, "derive");
                     }
-                    MappedSituatedInput::Probe(input) => {
+                    MappedSituatedInput::Probe(mut input) => {
+                        let InteractionEvent::Probe {
+                            query_id,
+                            topic,
+                            assertions,
+                            measures,
+                            ..
+                        } = event
+                        else {
+                            unreachable!("mapped probe event")
+                        };
+                        input.mode = retrieval.mode;
+                        input.surface_policy = retrieval.surface_policy.clone();
+                        input.surface_policy.include_debug_rationale = true;
+                        let started = Instant::now();
                         let pack = runtime.adapter().retrieve(input).await?;
+                        run.query_latencies_ms
+                            .insert(query_id.clone(), started.elapsed().as_millis());
                         increment(&mut run.operation_counts, "retrieve");
                         run.outcome.record_probe(scenario, event, &pack);
+                        run.traces.push(ContinuityQueryObservation {
+                            fixture_id: scenario.fixture_id.clone(),
+                            namespace: scenario.namespace.clone(),
+                            pattern: scenario.pattern,
+                            event_id: event.event_id().into(),
+                            query_id: query_id.clone(),
+                            timestamp: event.timestamp(),
+                            query: topic.clone().unwrap_or_default(),
+                            expected: ExpectedRelevanceRecord {
+                                relevant_external_ids: assertions
+                                    .carried
+                                    .iter()
+                                    .map(|assertion| assertion.memory.clone())
+                                    .collect(),
+                                irrelevant_external_ids: measures.bystanders.clone(),
+                            },
+                            history_text: history.join("\n"),
+                            retrieval: pack,
+                            write_outcomes: write_outcomes.clone(),
+                            link_outcomes: link_outcomes.clone(),
+                            lifecycle_outcomes: lifecycle_outcomes.clone(),
+                        });
                     }
                 }
             }
@@ -585,9 +657,15 @@ pub async fn run_continuity_scenario(
                             external_id: external_id.clone(),
                             namespace: scenario.namespace.clone(),
                             summary: episode_text.to_string(),
-                            started_at: Some(scripted_timestamp.clone()),
+                            scene: cmem_eval::MemorySceneInput {
+                                time: Some(scripted_timestamp.clone()),
+                                setting: cmem_eval::character_memory::SceneSetting {
+                                    key: Some(external_id.clone()),
+                                    words: None,
+                                },
+                                ..Default::default()
+                            },
                             ended_at: None,
-                            participants: Vec::new(),
                             metadata: serde_json::json!({
                                 "continuity_event_id": event_id,
                                 "timestamp": timestamp,
@@ -621,10 +699,17 @@ pub async fn run_continuity_scenario(
                             content: text.clone(),
                             episode_external_id: external_id.clone(),
                             observation_external_id: observation_external_id.clone(),
-                            participant_entity_external_ids: Vec::new(),
+
                             speaker_entity_external_id: None,
                             salience: None,
-                            episode_started_at: Some(scripted_timestamp.clone()),
+                            scene: cmem_eval::MemorySceneInput {
+                                time: Some(scripted_timestamp.clone()),
+                                setting: cmem_eval::character_memory::SceneSetting {
+                                    key: Some(external_id.clone()),
+                                    words: None,
+                                },
+                                ..Default::default()
+                            },
                             observation_observed_at: Some(scripted_timestamp.clone()),
                             raw_refs: vec![original_raw_ref.clone()],
                             include_vector_index_candidates: true,
@@ -649,7 +734,7 @@ pub async fn run_continuity_scenario(
                         object_type: ObjectType::Episode,
                         source_episode_external_id: Some(external_id.clone()),
                         original_raw_ref: surface_texts.is_none().then(|| original_raw_ref.clone()),
-                        original_source_ref: Some(external_id.clone()),
+                        original_setting_key: Some(external_id.clone()),
                     },
                 );
                 admitted.insert(
@@ -658,7 +743,7 @@ pub async fn run_continuity_scenario(
                         object_type: ObjectType::Observation,
                         source_episode_external_id: Some(external_id.clone()),
                         original_raw_ref: surface_texts.is_none().then_some(original_raw_ref),
-                        original_source_ref: Some(external_id.clone()),
+                        original_setting_key: Some(external_id.clone()),
                     },
                 );
                 let derived_external_id = derived_external_id(external_id);
@@ -719,7 +804,7 @@ pub async fn run_continuity_scenario(
                                 object_type: ObjectType::MemoryThread,
                                 source_episode_external_id: None,
                                 original_raw_ref: None,
-                                original_source_ref: None,
+                                original_setting_key: None,
                             },
                         );
                     }
@@ -786,7 +871,7 @@ pub async fn run_continuity_scenario(
                         object_type: ObjectType::DerivedMemory,
                         source_episode_external_id: Some(external_id.clone()),
                         original_raw_ref: None,
-                        original_source_ref: None,
+                        original_setting_key: None,
                     },
                 );
                 let history_text = if surface_texts.is_some() {
@@ -868,7 +953,7 @@ pub async fn run_continuity_scenario(
                         object_type: ObjectType::DerivedMemory,
                         source_episode_external_id: Some(source_episode_external_id),
                         original_raw_ref: None,
-                        original_source_ref: None,
+                        original_setting_key: None,
                     },
                 );
                 history.push(format!(
@@ -970,7 +1055,7 @@ pub async fn run_continuity_scenario(
                         object_type: ObjectType::MemoryLink,
                         source_episode_external_id: None,
                         original_raw_ref: None,
-                        original_source_ref: None,
+                        original_setting_key: None,
                     },
                 );
                 history.push(format!(
@@ -1108,17 +1193,17 @@ fn checked_write_outcome(
     recorded: cmem_eval::RememberOutcome,
 ) -> Result<cmem_eval::RememberOutcome> {
     let outcome = &recorded;
+    if let Some(failure) = &outcome.vector_indexing_failure {
+        bail!(
+            "scenario {:?} event {event_id:?} committed with vector-indexing failure: {failure:?}",
+            scenario.fixture_id
+        );
+    }
     if !outcome.repair_needed.is_empty() {
         bail!(
             "scenario {:?} event {event_id:?} committed with repair-needed markers: {:?}",
             scenario.fixture_id,
             outcome.repair_needed
-        );
-    }
-    if let Some(failure) = &outcome.vector_indexing_failure {
-        bail!(
-            "scenario {:?} event {event_id:?} committed with vector-indexing failure: {failure:?}",
-            scenario.fixture_id
         );
     }
     if let Some(failure) = &outcome.stats_update_status.failure {
@@ -1147,8 +1232,11 @@ async fn retrieve_query(
         .retrieve(RetrieveInput {
             mode: retrieval.mode,
             namespace: scenario.namespace.clone(),
-            query: text.to_string(),
-            query_date: Some(timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)),
+            topic: Some(text.to_string()),
+            scene: cmem_eval::MemorySceneInput {
+                time: Some(timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)),
+                ..Default::default()
+            },
             surface_policy: {
                 let mut policy = retrieval.surface_policy.clone();
                 policy.include_debug_rationale = true;
@@ -1315,7 +1403,7 @@ fn correction_target_input(
 ) -> Result<(CorrectionTargetInput, Vec<String>)> {
     match target.object_type {
         ObjectType::Episode | ObjectType::Observation => {
-            if target.original_raw_ref.is_none() && target.original_source_ref.is_none() {
+            if target.original_raw_ref.is_none() && target.original_setting_key.is_none() {
                 bail!(
                     "scenario {fixture_id:?} source correction target {target_external_id:?} has no authoritative original reference"
                 );
@@ -1325,7 +1413,7 @@ fn correction_target_input(
                     object_type: target.object_type,
                     external_id: target_external_id.to_string(),
                     original_raw_ref: target.original_raw_ref.clone(),
-                    original_source_ref: target.original_source_ref.clone(),
+                    original_setting_key: target.original_setting_key.clone(),
                 },
                 Vec::new(),
             ))
@@ -1388,6 +1476,11 @@ pub(crate) mod tests {
                 context_word_count: 0,
                 context: Default::default(),
                 retrieval_outcomes: vec![cmem_eval::RetrieveOutcome {
+                    scene: cmem_eval::character_memory::Scene::at(
+                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                    ),
+                    scene_references: Vec::new(),
+                    memory_scenes: Vec::new(),
                     pack: cmem_eval::character_memory::ContinuityContextPack::empty(),
                     rationale: cmem_eval::character_memory::RetrievalRationale::new("trace-test"),
                     trace: Some(cmem_eval::RetrievalTrace::empty()),
@@ -1511,19 +1604,18 @@ pub(crate) mod tests {
         }
         let assert_no_gold = |encoded: String| {
             for sentinel in sentinels {
-                assert!(!encoded.contains(sentinel), "gold leaked: {sentinel}");
+                let needle = if sentinel == "character_signals" {
+                    format!(":\"{sentinel}\"")
+                } else {
+                    sentinel.into()
+                };
+                assert!(!encoded.contains(&needle), "gold leaked: {sentinel}");
             }
         };
         for event in &scenario.events {
             let input = scenario.situated_input(event).unwrap().unwrap();
             assert_no_gold(serde_json::to_string(&input).unwrap());
             let mapped = map_situated_input(&scenario.namespace, event.timestamp(), input);
-            if matches!(event, InteractionEvent::Probe { .. }) {
-                // No mapped retrieval input exists at this library pin. The gold-free
-                // projection is checked above; unsupported probes must still reject.
-                assert!(mapped.is_err());
-                continue;
-            }
             match mapped.unwrap() {
                 MappedSituatedInput::Experience(input) => {
                     assert_no_gold(serde_json::to_string(&input).unwrap())
@@ -1531,7 +1623,9 @@ pub(crate) mod tests {
                 MappedSituatedInput::Derive(input) => {
                     assert_no_gold(serde_json::to_string(&input).unwrap())
                 }
-                MappedSituatedInput::Probe(_) => unreachable!(),
+                MappedSituatedInput::Probe(input) => {
+                    assert_no_gold(serde_json::to_string(&input).unwrap())
+                }
             }
         }
     }
@@ -1567,8 +1661,30 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn situated_writes_reject_degraded_native_outcomes() {
-        for missing_input in ["Garden", "Garden commitment"] {
+        for missing_input in [
+            "Garden",
+            "Garden commitment",
+            "Garden\nSetting: Glass room\nWith: Guest",
+        ] {
             let mut scenario = situated_scenario();
+            if missing_input.contains("Setting:") {
+                let mut value = serde_json::to_value(&scenario).unwrap();
+                value["scenes"]["pair"]["where"] =
+                    serde_json::json!({"by":"description", "text":"Glass room"});
+                value["scenes"]["pair"]["who"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"reference":{"by":"name", "text":"Guest"}}));
+                scenario = crate::parse_fixture_bytes(
+                    &serde_json::to_vec(
+                        &serde_json::json!({"schema_version":3, "seed":7, "scenarios":[value]}),
+                    )
+                    .unwrap(),
+                )
+                .unwrap()
+                .scenarios
+                .remove(0);
+            }
             let mut query = scenario.events.pop().unwrap();
             let InteractionEvent::Query { text, expected, .. } = &mut query else {
                 unreachable!()
@@ -1609,9 +1725,11 @@ pub(crate) mod tests {
             .unwrap();
             let result = run_continuity_scenario(&mut runtime, &scenario, &config.retrieval).await;
             runtime.cleanup(&scenario.namespace).await.unwrap();
+            let error = result.unwrap_err().to_string();
+            assert!(error.contains("vector-indexing failure"), "{error}");
             assert!(
-                result.is_err(),
-                "a write with an unavailable embedding for {missing_input:?} must not pass"
+                error.contains(missing_input.lines().last().unwrap()),
+                "unexpected input must be reported: {error}"
             );
         }
     }
@@ -1635,17 +1753,18 @@ pub(crate) mod tests {
         let visit = native
             .relevant_episodes
             .iter()
-            .find(|episode| episode.source_conversation_id.as_deref() == Some("visit"))
+            .find(|episode| external(episode.id) == "visit")
             .unwrap();
         assert_eq!(
             visit
-                .participant_entity_ids
+                .scene
+                .participants
                 .iter()
-                .map(|id| external(*id))
+                .map(|participant| external(participant.key.unwrap()))
                 .collect::<std::collections::BTreeSet<_>>(),
             std::collections::BTreeSet::from(["self".to_string(), "ada".to_string()])
         );
-        assert_eq!(visit.started_at, Some(scenario.events[0].timestamp()));
+        assert_eq!(visit.scene.time, scenario.events[0].timestamp());
         assert_eq!(visit.created_at, scenario.events[0].timestamp());
         assert_eq!(visit.salience_score, 0.83);
         let observation = native
@@ -1678,17 +1797,6 @@ pub(crate) mod tests {
         assert_eq!(promise.memory.created_at, scenario.events[2].timestamp());
         assert_eq!(run.operation_counts["experience"], 2);
         assert_eq!(run.operation_counts["derive"], 1);
-        // Each supported write feature has a faithful core-contract mapping;
-        // section and ordering features are exercised against native packs in metrics tests.
-        assert_eq!(
-            SUPPORTED_SCENARIO_FEATURES,
-            [
-                ScenarioFeature::WriteScene,
-                ScenarioFeature::AuthoredDerivedMemory,
-                ScenarioFeature::PackSections,
-                ScenarioFeature::PackOrder
-            ]
-        );
         for (subtype, expected) in [
             (AuthoredMemoryKind::Reflection, DerivedType::Reflection),
             (
@@ -1862,7 +1970,147 @@ pub(crate) mod tests {
                 }
                 _ => unreachable!(),
             }
-            assert_eq!(scenario_missing_features(&scenario).unwrap(), [feature]);
+            let missing = scenario_missing_features(&scenario).unwrap();
+            assert_eq!(
+                missing.contains(&feature),
+                feature == ScenarioFeature::WriteSceneWhat
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn scene_slice_preserves_authored_input_and_checks_native_results() {
+        use cmem_eval::character_memory::{SceneReference, SceneReferenceResolution, SourceScene};
+        for place_by in ["name", "description", "setting", "key"] {
+            let mut value = serde_json::to_value(situated_scenario()).unwrap();
+            value["entities"].as_array_mut().unwrap().extend([
+                serde_json::json!({"external_id":"jo-a", "label":"Jo", "is_hub":false}),
+                serde_json::json!({"external_id":"jo-b", "label":"Jo", "is_hub":false}),
+            ]);
+            let place = match place_by {
+                "setting" => serde_json::json!({"by":"setting", "key":"room:17"}),
+                "key" => serde_json::json!({"by":"key", "key":"ada"}),
+                _ => serde_json::json!({"by":place_by, "text":"  Quiet\n observatory  "}),
+            };
+            value["scenes"]["pair"]["where"] = place;
+            value["scenes"]["pair"]["custom"] = serde_json::json!({"weather":"blue hour"});
+            value["scenes"]["pair"]["who"].as_array_mut().unwrap().extend([
+                serde_json::json!({"reference":{"by":"name", "text":"  Jo  "}, "gold_entity":"jo-a"}),
+                serde_json::json!({"reference":{"by":"description", "text":"  visitor\n in violet  "}, "gold_entity":"jo-b"}),
+            ]);
+            let mut probe_scene = value["scenes"]["pair"].clone();
+            probe_scene["custom"] = serde_json::json!({"weather":"silver dusk"});
+            probe_scene["who"].as_array_mut().unwrap().extend([
+                serde_json::json!({"reference":{"by":"name", "text":"Ada"}}),
+                serde_json::json!({"reference":{"by":"name", "text":"Unknown visitor"}}),
+            ]);
+            value["events"][3] = serde_json::json!({
+                "kind":"probe", "event_id":"probe", "query_id":"probe",
+                "timestamp":"2024-01-04T09:00:00.456789123Z",
+                "scene":{"kind":"inline", "scene":probe_scene},
+                "assertions":{
+                    "carried":[{"memory":"visit", "reason":"pair"}, {"memory":"promise", "reason":"pair"}],
+                    "scenes":[{"memory":"visit", "scene":"pair"}, {"memory":"promise", "scene":"pair"}],
+                    "references":[
+                        {"participant":{"by":"key", "key":"self"}, "resolution":{"status":"resolved", "entity":"self"}},
+                        {"participant":{"by":"name", "text":"  Jo  "}, "resolution":{"status":"ambiguous", "candidates":["jo-a", "jo-b"]}},
+                        {"participant":{"by":"name", "text":"Ada"}, "resolution":{"status":"resolved", "entity":"ada"}},
+                        {"participant":{"by":"name", "text":"Unknown visitor"}, "resolution":{"status":"unknown"}}
+                    ]
+                }
+            });
+            if place_by == "key" {
+                value["events"][3]["topic"] = serde_json::json!("  a topic  with spacing\n  ");
+            }
+            for extension in ["toml", "json"] {
+                let root = serde_json::json!({"schema_version":3, "seed":7, "scenarios":[value]});
+                let bytes = if extension == "toml" {
+                    toml::to_string(&root).unwrap().into_bytes()
+                } else {
+                    serde_json::to_vec(&root).unwrap()
+                };
+                let fixture =
+                    crate::parse_fixture_source(Path::new(&format!("scene.{extension}")), &bytes)
+                        .unwrap();
+                let scenario = &fixture.scenarios[0];
+                assert!(scenario_missing_features(scenario).unwrap().is_empty());
+                let run = run_embedded(scenario).await;
+                assert_eq!(
+                    run.outcome.status,
+                    crate::ScenarioStatus::Passed,
+                    "{:?}",
+                    run.outcome.assertions
+                );
+                let pack = &run.traces[0].retrieval;
+                let native = &pack.outcomes()[0];
+                assert_eq!(native.scene.time, scenario.events[3].timestamp());
+                assert_eq!(native.scene.custom_values["weather"], "silver dusk");
+                assert_eq!(native.scene.participants[2].name.as_deref(), Some("  Jo  "));
+                assert_eq!(
+                    native.scene.participants[3].description.as_deref(),
+                    Some("  visitor\n in violet  ")
+                );
+                assert_eq!(
+                    native.scene.setting.words.as_deref(),
+                    matches!(place_by, "name" | "description").then_some("  Quiet\n observatory  ")
+                );
+                assert_eq!(
+                    native.scene.setting.key.as_deref(),
+                    match place_by {
+                        "setting" => Some("room:17"),
+                        "key" => Some("ada"),
+                        _ => None,
+                    }
+                );
+                assert!(native.scene_references.iter().any(|fact| fact.reference
+                    == SceneReference::ParticipantDescription { index: 3 }
+                    && fact.resolution == SceneReferenceResolution::ContentCue));
+                let (visit_id, visit_scene) = native
+                    .memory_scenes
+                    .iter()
+                    .flat_map(|fact| &fact.sources)
+                    .find_map(|source| match source {
+                        SourceScene::Recorded { episode_id, scene }
+                            if pack.object_refs()[&episode_id.to_string()].external_id
+                                == "visit" =>
+                        {
+                            Some((*episode_id, scene))
+                        }
+                        _ => None,
+                    })
+                    .expect(
+                        "recorded experience scene, whether admitted as episode or observation",
+                    );
+                assert_eq!(visit_scene.time, scenario.events[0].timestamp());
+                assert_eq!(visit_scene.custom_values["weather"], "blue hour");
+                assert_eq!(visit_scene.participants, native.scene.participants[..4]);
+                assert_eq!(visit_scene.setting, native.scene.setting);
+                assert_eq!(
+                    pack.object_refs()[&visit_id.to_string()].external_id,
+                    "visit"
+                );
+                // Missing native facts must fail, even though the authored gold is complete.
+                let mut absent = native.clone();
+                absent.scene_references.clear();
+                absent.memory_scenes.clear();
+                let absent = cmem_eval::RetrievedContextPack::from_ranked_items(
+                    pack.items().to_vec(),
+                    vec![absent],
+                    cmem_eval::ContextRenderer::PlainText,
+                )
+                .with_object_refs(pack.object_refs().clone());
+                let checks = crate::check_probe_assertions(scenario, &scenario.events[3], &absent);
+                assert!(
+                    checks
+                        .iter()
+                        .filter(|check| matches!(
+                            check.identity.assertion,
+                            crate::AssertionSubject::References(_)
+                                | crate::AssertionSubject::Scene { .. }
+                        ))
+                        .all(|check| check.check.status == crate::ScenarioStatus::Failed)
+                );
+            }
         }
     }
 
@@ -2015,6 +2263,26 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn parser_admitted_implicit_objects_are_available_to_driver_operations() {
+        for target in ["visit", "visit:observation"] {
+            let mut scenario = situated_scenario();
+            scenario.scenes.get_mut("pair").unwrap().place = Some(PerceivedReference::Setting {
+                key: "garden-room-27".into(),
+            });
+            scenario.events.insert(
+                3,
+                InteractionEvent::Correct {
+                    event_id: "correct-visit".into(),
+                    target_external_id: target.into(),
+                    replacement_external_id: "corrected-visit".into(),
+                    timestamp: scenario.events[2].timestamp() + chrono::Duration::minutes(1),
+                    replacement_text: "Garden commitment".into(),
+                },
+            );
+            scenario.validate().unwrap();
+            let run = run_embedded(&scenario).await;
+            assert_eq!(run.operation_counts["correct"], 1);
+            assert!(!run.traces[0].lifecycle_outcomes.is_empty());
+        }
         let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
 
         let mut correction = fixtures
@@ -2113,6 +2381,11 @@ pub(crate) mod tests {
         assert_eq!(snapshot.fanout_decision_count, None);
         for native_trace in [None, Some(cmem_eval::RetrievalTrace::empty())] {
             let outcome = cmem_eval::RetrieveOutcome {
+                scene: cmem_eval::character_memory::Scene::at(
+                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                ),
+                scene_references: Vec::new(),
+                memory_scenes: Vec::new(),
                 pack: cmem_eval::character_memory::ContinuityContextPack::empty(),
                 rationale: cmem_eval::character_memory::RetrievalRationale::new("test"),
                 trace: None,
@@ -2159,7 +2432,7 @@ pub(crate) mod tests {
             assert!(packs.iter().any(|pack| !pack.relevant_episodes.is_empty()));
             for pack in packs {
                 for episode in &pack.relevant_episodes {
-                    let external = episode.source_conversation_id.as_deref().unwrap();
+                    let external = episode.scene.setting.key.as_deref().unwrap();
                     let (timestamp, text) = scenario
                         .events
                         .iter()
@@ -2179,7 +2452,7 @@ pub(crate) mod tests {
                             _ => None,
                         })
                         .unwrap();
-                    assert_eq!(episode.started_at.as_ref(), Some(timestamp));
+                    assert_eq!(Some(&episode.scene.time), Some(timestamp));
                     assert_eq!(&episode.summary, text);
                 }
                 for derived in pack
@@ -2244,7 +2517,7 @@ pub(crate) mod tests {
             original_raw_ref: Some(
                 "continuity://correction-chains/event-001?at=2025-01-01T08:00:00Z".to_string(),
             ),
-            original_source_ref: Some("delivery-v1".to_string()),
+            original_setting_key: Some("delivery-v1".to_string()),
         };
 
         let (target, supersedes) =
@@ -2259,7 +2532,7 @@ pub(crate) mod tests {
                 original_raw_ref: Some(
                     "continuity://correction-chains/event-001?at=2025-01-01T08:00:00Z".to_string()
                 ),
-                original_source_ref: Some("delivery-v1".to_string()),
+                original_setting_key: Some("delivery-v1".to_string()),
             }
         );
     }
