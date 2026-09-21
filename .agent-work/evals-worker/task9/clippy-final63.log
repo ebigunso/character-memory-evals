@@ -1,0 +1,8 @@
+    Checking character_memory v0.1.6 (C:\w\cm-poster)
+    Checking cmem-eval v0.1.0 (C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\crates\cmem-eval)
+    Checking cmem-eval-continuity v0.1.0 (C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\crates\cmem-eval-continuity)
+    Checking cmem-eval-longmemeval v0.1.0 (C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\crates\cmem-eval-longmemeval)
+    Checking cmem-eval-locomo v0.1.0 (C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\crates\cmem-eval-locomo)
+    Checking cmem-eval-benchmark-convert v0.1.0 (C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\crates\cmem-eval-benchmark-convert)
+    Checking cmem-eval-runner v0.1.0 (C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\crates\cmem-eval-runner)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 21.56s

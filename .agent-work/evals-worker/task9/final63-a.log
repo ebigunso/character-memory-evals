@@ -1,0 +1,11 @@
+   Compiling character_memory v0.1.6 (C:\w\cm-poster)
+   Compiling cmem-eval v0.1.0 (C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\crates\cmem-eval)
+   Compiling cmem-eval-continuity v0.1.0 (C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\crates\cmem-eval-continuity)
+warning: linker stdout: ライブラリ C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\target\debug\deps\measure_person_state.lib とオブジェクト C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\poster-state\target\debug\deps\measure_person_state.exp を作成中
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `cmem-eval-continuity` (bin "measure_person_state") generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.22s
+     Running `target\debug\measure_person_state.exe .agent-work/evals-worker/task9/poster-m3-final63-a.json C:/w/cm-poster --settled`
+wrote .agent-work/evals-worker/task9/poster-m3-final63-a.json

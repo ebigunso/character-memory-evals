@@ -1,5 +1,7 @@
 # M3: meeting someone known through 300 beliefs
 
+FINAL library `63f176fa6801a8268bb00e337267a0f8c334a681`, exact committed harness `0c7f57ed13bbda12fd3ab8382ea8d2b91d2dd453`: every a/b/control probe and the complete settled-matter payload are byte-identical to b470b10, including native traces. The only changed field in the complete raw JSON is `header.library_commit`. The AFTER column below therefore also gives the FINAL numbers: no-topic 12/12 fitting and 12/20 recall; with-topic 7/8 topic episodes, 12 person beliefs, 11/12 fitting; all four settled checks pass.
+
 AFTER THE FIX: library `b470b102765f6a6c8900b692d192663ede1d697b`, committed harness `0c7f57ed13bbda12fd3ab8382ea8d2b91d2dd453`, generator SHA-256 `821c12602b2db3157770a6dfd41585bd60a1f7b7351b13ee38c61145c1fc0044`. No API adjustment was needed. Unsealed synthetic measurement, 2026-09-21.
 
 Historical comparison: before `db40e11b1d87654ad6254e93253a0035ff2768f9`; intermediate `b1eaaf89aa3c0a2ca41e30fd9e7220147c7550f3`. Those a/b runs use harness `db19c58327725f3ccf6a36a154a73b6a5e242796`, generator SHA-256 `6641bd2850033c332e7bec01f0e961aaf8da6b2959fb42fa83e5373aa03e170d`. Every raw run retains its own provenance.
@@ -42,7 +44,7 @@ Reproducibility: final whole-input SHA-256 `51e8547982f3c4aff468e96ab306467f2704
 
 Each pin repeats byte for byte. Raw SHA-256: db40e11 `da5a1daf49c6848681f2058b1b5c2eb5e27ea52f1b6b5b1b5bbde3deab4b6bd8`; b1eaaf8 `21cb5fdd2e9a0d85a75fbc3d9eeaac518385b289e24566e706b2fec8fc40ad86`; final b470b10 `021eeb28f71e162d870c6f5e8fa2aa827d0701c96615e38fdf9deaafff025b54`. Final full a/b/c evidence is under `after_fix` in `poster-m3.json`; prior raw runs and section comparisons remain preserved. The complete notebook and its independent repeat are byte-identical. All measurement stores are removed.
 
-Final validation: fmt, workspace clippy, six protected hashes and both complete M3 repetitions pass. Across completed validation, 386 tests pass and two fail (plus the scoped OS 1314 exclusion). The continuity library contributes 123 passes and two failures; its five binary tests and all 258 remaining workspace tests pass. All doc-test targets pass with zero examples. These are pin-induced harness migration failures, separate from the measured results:
+Validation at b470b10: fmt, workspace clippy, six protected hashes and both complete M3 repetitions pass. Across completed validation, 386 tests pass and two fail (plus the scoped OS 1314 exclusion). The continuity library contributes 123 passes and two failures; its five binary tests and all 258 remaining workspace tests pass. All doc-test targets pass with zero examples. These are pin-induced harness migration failures, separate from the measured results:
 
 - `driver::tests::scene_slice_preserves_authored_input_and_checks_native_results`: the native write now embeds standalone scene words; the old test fixture has no assignment for `Quiet observatory`.
 - `driver::tests::situated_writes_reject_degraded_native_outcomes`: removing the old composite `Garden` / `Setting: Glass room` / `With: Guest` input no longer degrades a write, because the library now embeds separate content and scene surfaces; the test therefore receives success where it expects an error.
@@ -54,3 +56,5 @@ Reproduce: temporarily bind the workspace character-memory dependency to the iso
 Historical db40e11-to-b1eaaf8 slot attribution remains in `poster-m3-attribution.md`; the final fix restores the baseline selected identities in all three a/b/control probes.
 
 Supplemental validation logs: `remaining-workspace-b470b10.log`, `bins-b470b10.log`, `doc-b470b10.log`. The local manifest is restored after verification.
+
+Final 63f176f verification: both complete runs are byte-identical, raw SHA-256 `f73cf9f34f814fd722900e43bf3aee39b957f291fb46b57e43f37f50adbb6a24`. Source, input and config hashes match b470b10. fmt, workspace clippy and all six protected hashes pass; stores are removed. Full final evidence is under `final` in `poster-m3.json`. Logs: `clippy-final63.log`, `final63-a.log`, `final63-b.log`. The workspace suite was not rerun for this final measurement-only request; the previously documented two pin-induced harness migration failures remain deferred to Task_5.
