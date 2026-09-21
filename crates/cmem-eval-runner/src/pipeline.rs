@@ -750,7 +750,13 @@ async fn run_continuity_pipeline(
             let runtime = ContinuityRuntime::new(&run_root, &config, embedding_binding).await?;
             runtimes.push((scenario.namespace.clone(), runtime));
             let runtime = &mut runtimes.last_mut().expect("just stored runtime").1;
-            let run = run_continuity_scenario(runtime, scenario, &config.retrieval).await?;
+            // Keep the large scenario future out of the enclosing CLI futures.
+            let run = Box::pin(run_continuity_scenario(
+                runtime,
+                scenario,
+                &config.retrieval,
+            ))
+            .await?;
             outcomes.insert(scenario.fixture_id.clone(), run.outcome);
             for (operation, count) in run.operation_counts {
                 *operation_counts.entry(operation).or_default() += count;
