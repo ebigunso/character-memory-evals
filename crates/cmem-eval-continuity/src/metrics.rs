@@ -1107,6 +1107,7 @@ mod tests {
         native.derived_memories = vec![promise.into()];
         native.active_threads = vec![thread];
         let mut outcome = RetrieveOutcome {
+            time_range: None,
             activity: None,
             scene: cmem_eval::character_memory::Scene::at(
                 chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
@@ -1119,6 +1120,7 @@ mod tests {
         };
         let make_pack = |mut outcome: RetrieveOutcome| {
             let observation_outcome = RetrieveOutcome {
+                time_range: None,
                 activity: None,
                 scene: cmem_eval::character_memory::Scene::at(
                     chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
@@ -1365,6 +1367,7 @@ mod tests {
             retrieval: RetrievedContextPack::from_ranked_items(
                 items,
                 vec![RetrieveOutcome {
+                    time_range: None,
                     activity: None,
                     scene: cmem_eval::character_memory::Scene::at(
                         chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,

@@ -843,6 +843,7 @@ mod tests {
     #[test]
     fn grounding_uses_native_sources_or_application_given_subjects() {
         let mut outcome = RetrieveOutcome {
+            time_range: None,
             activity: None,
             scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
             scene_references: Vec::new(),
@@ -1011,6 +1012,7 @@ mod tests {
             },
         ];
         let outcome = RetrieveOutcome {
+            time_range: None,
             activity: None,
             scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
             scene_references: Vec::new(),
@@ -1062,6 +1064,7 @@ mod tests {
             },
         ];
         let mut outcome = crate::RetrieveOutcome {
+            time_range: None,
             activity: None,
             scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
             scene_references: Vec::new(),
@@ -1110,6 +1113,7 @@ mod tests {
             },
         ];
         let mut outcome = crate::RetrieveOutcome {
+            time_range: None,
             activity: None,
             scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
             scene_references: Vec::new(),

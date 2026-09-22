@@ -177,6 +177,7 @@ fn generated(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario, Vec<Pro
         },
         activity: None,
         cue_floors: None,
+        time_range: None,
         surface_policy: config.retrieval.surface_policy.clone(),
     };
     let mut probes = Vec::new();
@@ -426,6 +427,7 @@ fn generated_overlap(
                 },
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 surface_policy: config.retrieval.surface_policy.clone(),
             };
             if pressure != "participant" {

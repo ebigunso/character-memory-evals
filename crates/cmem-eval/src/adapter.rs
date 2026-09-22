@@ -783,13 +783,7 @@ impl CharacterMemoryAdapter {
                 "observation" => ObjectType::Observation,
                 _ => unreachable!("validated vector-only object kind"),
             };
-            let mut context = RetrievalContext {
-                topic: input.topic.clone(),
-                scene: resolve_scene(&input.scene, state)?,
-                activity: resolve_activity(input.activity.as_ref(), state)?,
-                cue_floors: input.cue_floors.unwrap_or_default(),
-                ..Default::default()
-            };
+            let mut context = resolve_retrieval_context(&input, state)?;
             context.include_trace = true;
             context.object_type_defaults = vec![object_type];
             context.candidate_limits.max_vector_candidates = budget
@@ -1554,13 +1548,7 @@ impl CharacterMemoryAdapter {
             .get_mut(&input.namespace)
             .ok_or_else(|| explicit_lifecycle_error(&input.namespace))?;
 
-        let mut context = RetrievalContext {
-            topic: input.topic,
-            scene: resolve_scene(&input.scene, state)?,
-            activity: resolve_activity(input.activity.as_ref(), state)?,
-            cue_floors: input.cue_floors.unwrap_or_default(),
-            ..Default::default()
-        };
+        let mut context = resolve_retrieval_context(&input, state)?;
         context.include_trace = input.surface_policy.include_debug_rationale;
         if let Some(max_vector_candidates) = input.surface_policy.max_vector_candidates {
             context.candidate_limits.max_vector_candidates = max_vector_candidates;
@@ -2104,6 +2092,38 @@ fn parse_timestamp(value: Option<&str>) -> Result<Option<DateTime<Utc>>> {
                 })
         })
         .transpose()
+}
+
+fn resolve_retrieval_context(
+    input: &RetrieveInput,
+    state: &ExternalIdRegistry,
+) -> Result<RetrievalContext> {
+    let context = RetrievalContext {
+        topic: input.topic.clone(),
+        scene: resolve_scene(&input.scene, state)?,
+        activity: resolve_activity(input.activity.as_ref(), state)?,
+        cue_floors: input.cue_floors.unwrap_or_default(),
+        ..Default::default()
+    };
+    let Some(range) = &input.time_range else {
+        return Ok(context);
+    };
+    if input.mode != RetrievalMode::Hybrid {
+        return Err(crate::TimeRangeInputError::UnsupportedRetrievalMode.into());
+    }
+    // Matched calibration runs build against both pins; absent fields must fail
+    // closed instead of being silently discarded by the older serde type.
+    let mut shape = serde_json::to_value(context)?;
+    let field = shape
+        .get_mut("time_range")
+        .ok_or(crate::TimeRangeInputError::UnsupportedNativeField)?;
+    let expected = serde_json::to_value(range)?;
+    *field = expected.clone();
+    let context: RetrievalContext = serde_json::from_value(shape)?;
+    if serde_json::to_value(&context)?["time_range"] != expected {
+        return Err(crate::TimeRangeInputError::NativeRoundTripMismatch.into());
+    }
+    Ok(context)
 }
 
 fn resolve_activity(
@@ -2841,6 +2861,7 @@ mod tests {
         let mut query = RetrieveInput {
             activity: None,
             cue_floors: None,
+            time_range: None,
             mode: RetrievalMode::VectorOnly,
             namespace: "n".into(),
             topic: Some("same text".into()),
@@ -2936,6 +2957,7 @@ mod tests {
         let query = RetrieveInput {
             activity: None,
             cue_floors: None,
+            time_range: None,
             mode: RetrievalMode::Hybrid,
             namespace: "b".into(),
             topic: Some("The notebook is blue.".into()),
@@ -3183,6 +3205,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: "names".into(),
                 topic: Some("Ada".into()),
@@ -3285,6 +3308,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.into(),
                 topic: Some(text.into()),
@@ -3431,6 +3455,89 @@ mod tests {
             );
         }
         assert_eq!(resolve_activity(None, &state).unwrap(), None);
+    }
+
+    #[test]
+    fn time_range_mapping_matches_the_built_native_context() {
+        let state = ExternalIdRegistry::new("range-drift");
+        let mut input = RetrieveInput {
+            mode: RetrievalMode::Hybrid,
+            namespace: state.namespace.clone(),
+            topic: Some("Repairing a copper bell".into()),
+            scene: crate::MemorySceneInput {
+                time: Some("2025-09-09T20:00:00+09:00".into()),
+                ..Default::default()
+            },
+            activity: Some(crate::ActivityInput::Thread("work".into())),
+            time_range: None,
+            cue_floors: None,
+            surface_policy: RetrievalSurfacePolicy::default(),
+        };
+        let baseline = resolve_retrieval_context(&input, &state).unwrap();
+        let baseline_shape = serde_json::to_value(&baseline).unwrap();
+        assert!(baseline_shape["time_range"].is_null());
+        assert_eq!(baseline_shape["scene"]["time"], "2025-09-09T11:00:00Z");
+        assert_eq!(baseline.topic.as_deref(), Some("Repairing a copper bell"));
+        assert_eq!(
+            baseline.activity,
+            resolve_activity(input.activity.as_ref(), &state).unwrap()
+        );
+        assert!(
+            serde_json::to_value(&input)
+                .unwrap()
+                .get("time_range")
+                .is_none()
+        );
+        for (start, end, expected_start, expected_end) in [
+            (
+                "2025-09-02T00:00:00.123456789+09:00",
+                "2025-09-02T23:59:59.987654321+09:00",
+                "2025-09-01T15:00:00.123456789Z",
+                "2025-09-02T14:59:59.987654321Z",
+            ),
+            (
+                "2025-09-02T23:59:59.987654321+09:00",
+                "2025-09-02T00:00:00.123456789+09:00",
+                "2025-09-02T14:59:59.987654321Z",
+                "2025-09-01T15:00:00.123456789Z",
+            ),
+        ] {
+            input.time_range = Some(crate::TimeRangeInput {
+                start: DateTime::parse_from_rfc3339(start)
+                    .unwrap()
+                    .with_timezone(&Utc),
+                end: DateTime::parse_from_rfc3339(end)
+                    .unwrap()
+                    .with_timezone(&Utc),
+            });
+            let result = resolve_retrieval_context(&input, &state);
+            if baseline_shape.get("time_range").is_some() {
+                let actual = serde_json::to_value(result.unwrap()).unwrap();
+                let mut expected = baseline_shape.clone();
+                expected["time_range"] = serde_json::json!({
+                    "start":expected_start,
+                    "end":expected_end,
+                });
+                assert_eq!(
+                    actual, expected,
+                    "native context drifted beyond the supplied range"
+                );
+            } else {
+                assert_eq!(
+                    result
+                        .unwrap_err()
+                        .downcast_ref::<crate::TimeRangeInputError>(),
+                    Some(&crate::TimeRangeInputError::UnsupportedNativeField)
+                );
+            }
+        }
+        input.mode = RetrievalMode::VectorOnly;
+        assert_eq!(
+            resolve_retrieval_context(&input, &state)
+                .unwrap_err()
+                .downcast_ref::<crate::TimeRangeInputError>(),
+            Some(&crate::TimeRangeInputError::UnsupportedRetrievalMode)
+        );
     }
 
     #[test]
@@ -3954,6 +4061,7 @@ mod tests {
                     .retrieve(RetrieveInput {
                         activity: None,
                         cue_floors: None,
+                        time_range: None,
                         mode,
                         namespace: namespace.to_string(),
                         topic: Some("must not attach implicitly".to_string()),
@@ -4323,6 +4431,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.to_string(),
                 topic: Some("What is the restart-safe drink?".to_string()),
@@ -4513,6 +4622,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.to_string(),
                 topic: Some("What is the restart-safe drink?".to_string()),
@@ -4689,6 +4799,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace_b.to_string(),
                 topic: Some("Which sibling namespace must survive?".to_string()),
@@ -4745,6 +4856,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 namespace: "b".into(),
                 topic: Some("The notebook is blue.".into()),
                 scene: crate::MemorySceneInput {
@@ -4894,6 +5006,7 @@ mod tests {
                 },
             ],
             vec![RetrieveOutcome {
+                time_range: None,
                 activity: None,
                 scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
                 scene_references: Vec::new(),
@@ -5006,6 +5119,7 @@ mod tests {
         let traced = flatten_outcome(
             &registry,
             RetrieveOutcome {
+                time_range: None,
                 activity: None,
                 scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
                 scene_references: Vec::new(),
@@ -5018,6 +5132,7 @@ mod tests {
         let untraced = flatten_outcome(
             &registry,
             RetrieveOutcome {
+                time_range: None,
                 activity: None,
                 scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
                 scene_references: Vec::new(),

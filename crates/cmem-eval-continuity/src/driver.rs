@@ -196,6 +196,7 @@ fn map_situated_input(
             MappedSituatedInput::Probe(RetrieveInput {
                 activity,
                 cue_floors: None,
+                time_range: None,
                 mode: cmem_eval::RetrievalMode::Hybrid,
                 namespace: namespace.into(),
                 topic,
@@ -1218,6 +1219,7 @@ async fn retrieve_query(
         .retrieve(RetrieveInput {
             activity: None,
             cue_floors: None,
+            time_range: None,
             mode: retrieval.mode,
             namespace: scenario.namespace.clone(),
             topic: Some(text.to_string()),
@@ -1464,6 +1466,7 @@ pub(crate) mod tests {
                 context_word_count: 0,
                 context: Default::default(),
                 retrieval_outcomes: vec![cmem_eval::RetrieveOutcome {
+                    time_range: None,
                     activity: None,
                     scene: cmem_eval::character_memory::Scene::at(
                         chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
@@ -2538,6 +2541,7 @@ pub(crate) mod tests {
         assert_eq!(snapshot.fanout_decision_count, None);
         for native_trace in [None, Some(cmem_eval::RetrievalTrace::empty())] {
             let outcome = cmem_eval::RetrieveOutcome {
+                time_range: None,
                 activity: None,
                 scene: cmem_eval::character_memory::Scene::at(
                     chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,

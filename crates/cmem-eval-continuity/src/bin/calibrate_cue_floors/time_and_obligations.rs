@@ -85,6 +85,7 @@ fn input(
         },
         activity: None,
         cue_floors: None,
+        time_range: None,
         surface_policy: config.retrieval.surface_policy.clone(),
     }
 }
@@ -980,8 +981,23 @@ fn time_reading(
         .experiences
         .iter()
         .find(|e| e.unlinked_observation.is_some());
+    let native_outcome = serde_json::to_value(&pack.outcomes()[0])?;
+    let range_members = probe.time_range.as_ref().map(|range| {
+        family
+            .experiences
+            .iter()
+            .filter(|e| {
+                let at = timestamp(e.write.scene.time.as_deref().unwrap()).unwrap();
+                timestamp(&range.start).unwrap() <= at && at <= timestamp(&range.end).unwrap()
+            })
+            .map(|e| &e.write.episode_external_id)
+            .collect::<Vec<_>>()
+    });
     Ok(
         json!({"native_time_root_attempts":attempts,"recency_root_ids":recency_ids,
+        "native_time_range":native_outcome.get("time_range"),
+        "native_time_range_has_more":observed["trace"].get("time_range_has_more"),
+        "authored_range_member_ids":range_members,
         "recency_roots_are_latest_by_authored_time":(!recency_ids.is_empty()).then_some(recency_ids == expected),
         "authored_latest_eligible_ids":eligible.iter().map(|e| &e.write.episode_external_id).collect::<Vec<_>>(),
         "returned_native_times_match_authored_instants":native_times_match,
@@ -1037,24 +1053,33 @@ fn obligation_reading(
     Ok(json!(rows))
 }
 
-fn recency_input(probe: &PlannedProbe) -> Result<Option<RetrieveInput>> {
-    let Some(floor) = probe.recency_floor else {
-        return Ok(None);
-    };
+fn supported_probe_input(probe: &PlannedProbe) -> Result<(RetrieveInput, Vec<String>)> {
     let mut input = probe.supported_input.clone();
-    let mut floors = serde_json::to_value(input.cue_floors.unwrap_or_default())?;
-    // Only modify a field advertised by this pin's native type. Older pins must
-    // remain not_run, never accept an ignored unknown serde field as execution.
-    let Some(recency) = floors.get_mut("recency") else {
-        return Ok(None);
-    };
-    *recency = json!(floor);
-    input.cue_floors = Some(serde_json::from_value(floors)?);
-    ensure!(
-        serde_json::to_value(input.cue_floors)?["recency"] == floor,
-        "native recency floor did not survive round-trip"
-    );
-    Ok(Some(input))
+    let mut missing = probe.required_routes.clone();
+    if let Some(floor) = probe.recency_floor {
+        let mut floors = serde_json::to_value(input.cue_floors.unwrap_or_default())?;
+        // Older pins must remain not_run, never silently ignore an unknown key.
+        if let Some(recency) = floors.get_mut("recency") {
+            *recency = json!(floor);
+            input.cue_floors = Some(serde_json::from_value(floors)?);
+            ensure!(
+                serde_json::to_value(input.cue_floors)?["recency"] == floor,
+                "native recency floor did not survive round-trip"
+            );
+            missing.retain(|route| route != "recency_floor");
+        }
+    }
+    if let Some(range) = &probe.time_range {
+        let native = serde_json::to_value(native::RetrievalContext::default())?;
+        if native.get("time_range").is_some() && native["cue_floors"].get("date_match").is_some() {
+            input.time_range = Some(cmem_eval::TimeRangeInput {
+                start: timestamp(&range.start)?.with_timezone(&chrono::Utc),
+                end: timestamp(&range.end)?.with_timezone(&chrono::Utc),
+            });
+            missing.retain(|route| route != "time_range" && route != "date_match");
+        }
+    }
+    Ok((input, missing))
 }
 
 async fn retrieve_reading(
@@ -1200,16 +1225,11 @@ async fn measure(
             &control,
         ))
         .await?;
-        let mut missing = probe.required_routes.clone();
-        let executed = if let Some(input) = recency_input(probe)? {
-            missing.retain(|route| route != "recency_floor");
-            if missing.is_empty() {
-                Box::pin(retrieve_reading(runtime, family, probe, &input, &control)).await?
-            } else {
-                Value::Null
-            }
-        } else if missing.is_empty() {
+        let (input, missing) = supported_probe_input(probe)?;
+        let executed = if probe.required_routes.is_empty() {
             projection.clone()
+        } else if missing.is_empty() {
+            Box::pin(retrieve_reading(runtime, family, probe, &input, &control)).await?
         } else {
             Value::Null
         };
@@ -1330,7 +1350,7 @@ pub(super) async fn run(stores: &Path, config: &BenchmarkRunConfig) -> Result<Va
     Ok(json!({"inputs":inputs,"measurements":measurements,
         "full_cases_executed":executed,"full_cases_not_run":not_run,"supported_parent_controls_executed":executed+not_run,
         "same_day_description_continuity":["/keyless_measurements","/opposed_keyless_measurements"],
-        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Each row separately executes a supported parent control with roles, due instant, range and explicit recency floor absent. executed_case records the full supported case; recency overrides run only when the serialized native floor type advertises the field and its value survives a typed round-trip. Missing fields remain not_run; no unavailable predicate is silently forwarded. Native resolution is reported; authored due classification is labelled hypothetical. Topic counts use eight graded episodes in each original family; added falsifiers use separate composition and spillover readings. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
+        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Each row separately executes a supported parent control with roles, due instant, range and explicit recency floor absent. executed_case records the full supported case; recency overrides and caller-given ranges run only when serialized native types advertise their fields; the adapter checks typed native range admission. Native range echo and has-more are separate from authored range membership. Missing fields remain not_run; no unavailable predicate is silently forwarded. Native resolution is reported; authored due classification is labelled hypothetical. Topic counts use eight graded episodes in each original family; added falsifiers use separate composition and spillover readings. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
 }
 
 #[cfg(test)]
@@ -1479,9 +1499,9 @@ mod tests {
         let family = time_family(&config());
         let defaults = serde_json::to_value(native::RetrievalCueFloors::default()).unwrap();
         for probe in family.probes.iter().filter(|p| p.recency_floor.is_some()) {
-            let mapped = recency_input(probe).unwrap();
+            let (mapped, missing) = supported_probe_input(probe).unwrap();
             if defaults.get("recency").is_some() {
-                let mapped = mapped.expect("advertised recency must execute");
+                assert!(missing.is_empty(), "advertised recency must execute");
                 let mut actual = serde_json::to_value(&mapped).unwrap();
                 assert_eq!(actual["cue_floors"]["recency"], json!(probe.recency_floor));
                 actual["cue_floors"] = Value::Null;
@@ -1491,7 +1511,7 @@ mod tests {
                 );
             } else {
                 assert!(
-                    mapped.is_none(),
+                    missing.iter().any(|route| route == "recency_floor"),
                     "an absent native field must remain not_run"
                 );
             }
