@@ -284,4 +284,4 @@ Evidence: `after-the-fix-audit.json`, both `*-native-audit.json` files, `final-f
 
 ## Retained evidence
 
-The [comparison JSON](after-the-fix.json.gz) and native report pairs are stored losslessly as `.json.gz`. The [manifest](artifact-manifest.json) records their original and archive SHA-256 values; the [README](README.md) explains restoration. Focused readings cover [native-ID ordering](id-order.md) and [unlived descriptions in populated stores](overlap-unlived.md).
+The [comparison JSON](https://github.com/ebigunso/character-memory-evals/blob/784c2784260196352d7cc5184e0992260f0b1b0b/docs/evidence/calibration/scene-reminders-2026-09-21/after-the-fix.json.gz) and native report pairs are stored losslessly as `.json.gz`. The [manifest](https://github.com/ebigunso/character-memory-evals/blob/784c2784260196352d7cc5184e0992260f0b1b0b/docs/evidence/calibration/scene-reminders-2026-09-21/artifact-manifest.json) records their original and archive SHA-256 values; the [README](README.md) explains restoration. Focused readings cover [native-ID ordering](id-order.md) and [unlived descriptions in populated stores](overlap-unlived.md).

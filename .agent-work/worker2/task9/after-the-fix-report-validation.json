@@ -1,6 +1,0 @@
-{
-  "report": "../Task_9-after-the-fix-report.yaml",
-  "validator": "subagent-report-contract/scripts/validate_worker_report.py",
-  "exit_code": 0,
-  "status": "pass"
-}
