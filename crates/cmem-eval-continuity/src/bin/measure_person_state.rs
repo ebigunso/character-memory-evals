@@ -241,6 +241,46 @@ fn revision(path: &Path) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().into())
 }
 
+fn checked_ingest(
+    event: &str,
+    outcome: &cmem_eval::RememberOutcome,
+    expected: usize,
+) -> Result<Value> {
+    ensure!(
+        outcome.vector_indexing_failure.is_none(),
+        "{event}: vector-indexing failure: {:?}",
+        outcome.vector_indexing_failure
+    );
+    ensure!(
+        outcome.repair_needed.is_empty(),
+        "{event}: repair-needed markers: {:?}",
+        outcome.repair_needed
+    );
+    ensure!(
+        outcome.stats_update_status.failure.is_none(),
+        "{event}: stats-update failure: {:?}",
+        outcome.stats_update_status.failure
+    );
+    let indexed = outcome
+        .vector_indexed_object_ids
+        .iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    ensure!(
+        indexed.len() == expected,
+        "{event}: expected {expected} vector-indexed objects, found {}",
+        indexed.len()
+    );
+    ensure!(
+        indexed
+            .iter()
+            .all(|id| outcome.persisted_object_ids.contains(id)),
+        "{event}: indexed object was not persisted"
+    );
+    Ok(
+        json!({"event":event,"expected_vector_objects":expected,"indexed_vector_objects":indexed.len(),"persisted_objects":outcome.persisted_object_ids.len()}),
+    )
+}
+
 fn settlement_graph(resolved: bool) -> GraphEnrichmentInput {
     let (_, _, graph, _) = generated();
     let mut memory = graph.derived_memories[299].clone();
@@ -292,12 +332,21 @@ fn settlement_graph(resolved: bool) -> GraphEnrichmentInput {
 async fn measure_settlement(
     runtime: &ContinuityRuntime,
     config: &BenchmarkRunConfig,
+    ingest_checks: &mut Vec<Value>,
 ) -> Result<Value> {
     let adapter = runtime.adapter();
     let meeting = probe(config, true, None);
-    adapter.remember_enrichment(settlement_graph(false)).await?;
+    let outcome = adapter
+        .remember_enrichment(settlement_graph(false))
+        .await?
+        .context("notebook-open: missing write outcome")?;
+    ingest_checks.push(checked_ingest("notebook-open", &outcome, 1)?);
     let before = adapter.retrieve(meeting.clone()).await?;
-    adapter.remember_enrichment(settlement_graph(true)).await?;
+    let outcome = adapter
+        .remember_enrichment(settlement_graph(true))
+        .await?
+        .context("notebook-returned: missing write outcome")?;
+    ingest_checks.push(checked_ingest("notebook-returned", &outcome, 1)?);
     let after = adapter.retrieve(meeting.clone()).await?;
     let topic_input = probe(config, false, Some(OPEN));
     let by_topic = adapter.retrieve(topic_input.clone()).await?;
@@ -415,9 +464,16 @@ async fn main() -> Result<()> {
         let measured = async {
             let adapter = runtime.adapter();
             adapter.open_namespace(NS).await?;
-            adapter.remember_enrichment(graph).await?;
+            let expected = graph.derived_memories.len();
+            let outcome = adapter
+                .remember_enrichment(graph)
+                .await?
+                .context("initial-graph: missing write outcome")?;
+            let mut ingest_checks = vec![checked_ingest("initial-graph", &outcome, expected)?];
             for episode in episodes {
-                adapter.remember_episode(episode).await?;
+                let event = episode.external_id.clone();
+                let result = adapter.remember_episode(episode).await?;
+                ingest_checks.push(checked_ingest(&event, &result.outcome, 1)?);
             }
             let mut rows = Vec::new();
             for (name, input) in &probes {
@@ -425,11 +481,11 @@ async fn main() -> Result<()> {
                 rows.push(json!({"probe":name,"input":input,"observed":score(&pack,&gold)?}));
             }
             let settlement = if settled {
-                Some(measure_settlement(&runtime, &config).await?)
+                Some(measure_settlement(&runtime, &config, &mut ingest_checks).await?)
             } else {
                 None
             };
-            Ok::<_, anyhow::Error>((rows, settlement))
+            Ok::<_, anyhow::Error>((rows, settlement, ingest_checks))
         }
         .await;
         let cleanup = runtime.cleanup(NS).await;
@@ -439,7 +495,7 @@ async fn main() -> Result<()> {
     }
     .await;
     fs::remove_dir_all(&stores).context("remove owned measurement stores")?;
-    let (measurements, settlement) = result?;
+    let (measurements, settlement, ingest_checks) = result?;
     ensure!(
         revision(library)? == library_commit && revision(workspace)? == harness_commit,
         "pin changed during measurement"
@@ -451,7 +507,7 @@ async fn main() -> Result<()> {
         "native_graph_limits":native::RetrievalGraphLimits::default(),"native_section_limits":native::ContinuitySectionLimits::default(),
         "native_default_floors":native::RetrievalCueFloors::default(),"stores_cleaned":true},
         "method":"Small synthetic store: 300 application-given current Reflection beliefs about one person; 20 high-salience meeting-fitting beliefs (10 recent), 40 experiences over a year, 8 graded topic episodes unrelated to the person, 16 background episodes about another person. Public adapter writes; keyed meeting; deterministic 4-D embeddings. Gold is scoring-only. Belief precision uses returned person beliefs; person-memory precision additionally includes returned experiences in its denominator. Topic score counts authored episodes once.",
-        "generated_input":input,"measurements":measurements,"settled_matter":settlement});
+        "generated_input":input,"ingest_checks":ingest_checks,"measurements":measurements,"settled_matter":settlement});
     serde_json::to_writer_pretty(&mut file, &report)?;
     file.write_all(b"\n")?;
     eprintln!("wrote {}", output.display());
@@ -461,6 +517,79 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn ingest_check_rejects_native_degraded_success_and_incomplete_indexing() {
+        let (mut fixture, episodes, _, _) = generated();
+        fixture.concepts.remove(&episodes[40].summary);
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = ContinuityRuntime::new(
+            directory.path(),
+            &config(),
+            EmbeddingRuntimeBinding::Controllable {
+                fixture,
+                dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 4 },
+            },
+        )
+        .await
+        .unwrap();
+        runtime.adapter().open_namespace(NS).await.unwrap();
+        let healthy = runtime
+            .adapter()
+            .remember_episode(episodes[41].clone())
+            .await
+            .unwrap()
+            .outcome;
+        assert!(checked_ingest("healthy", &healthy, 1).is_ok());
+        let mut incomplete = healthy.clone();
+        incomplete.vector_indexed_object_ids.clear();
+        assert!(
+            checked_ingest("incomplete", &incomplete, 1)
+                .unwrap_err()
+                .to_string()
+                .contains("incomplete: expected 1")
+        );
+        let mut failed_stats = healthy;
+        failed_stats.stats_update_status = native::StatsUpdateStatus::failed(
+            [],
+            failed_stats.persisted_object_ids.clone(),
+            vec![
+                cmem_eval::character_memory::StatsUpdateCause::StoreUnhealthy {
+                    health_cause: None,
+                },
+            ],
+        );
+        assert!(
+            checked_ingest("stats", &failed_stats, 1)
+                .unwrap_err()
+                .to_string()
+                .contains("stats: stats-update failure")
+        );
+        // The adapter deliberately returns Ok after graph persistence even when embedding fails.
+        let mut degraded = runtime
+            .adapter()
+            .remember_episode(episodes[40].clone())
+            .await
+            .unwrap()
+            .outcome;
+        let error = checked_ingest("topic-00", &degraded, 1)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("topic-00: vector-indexing failure")
+                && error.contains(&episodes[40].summary),
+            "{error}"
+        );
+        degraded.vector_indexing_failure = None;
+        assert!(
+            checked_ingest("repair", &degraded, 1)
+                .unwrap_err()
+                .to_string()
+                .contains("repair: repair-needed markers")
+        );
+        runtime.cleanup(NS).await.unwrap();
+    }
+
     #[test]
     fn generated_store_matches_the_measurement_denominators() {
         let (_, episodes, graph, gold) = generated();
