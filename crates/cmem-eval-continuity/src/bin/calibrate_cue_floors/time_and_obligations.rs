@@ -1,5 +1,6 @@
 //! Fixed inputs for before/after time and prospective-memory measurements.
 use super::*;
+use chrono::Datelike;
 use cmem_eval::{
     CandidateValidationStatus, CommitWriteOptions, ControllableSimilarityEmbeddingProvider,
     DerivedMemoryInput, DerivedType, EntityInput, EpisodeInput, GraphEnrichmentInput,
@@ -286,6 +287,44 @@ fn time_family(config: &BenchmarkRunConfig) -> Family {
             &["date_match"],
         ));
     }
+    family.graph.entities.push(EntityInput {
+        external_id: "other-iris".into(),
+    });
+    let mut name_vector = vec![0.0; 9];
+    name_vector[7] = 1.0;
+    assign(&mut family.embedding, "Iris", name_vector);
+    for (n, subject) in ["iris", "other-iris"].into_iter().enumerate() {
+        let mut name = derived(
+            &format!("name-{subject}"),
+            &format!("2025-08-01T12:0{n}:00+09:00"),
+            "Iris".into(),
+            DerivedType::Claim,
+            vec![subject.into()],
+            0.3 + n as f32 * 0.1,
+        );
+        name.assertions.push(cmem_eval::BeliefAssertionInput {
+            subject_external_id: subject.into(),
+            predicate: cmem_eval::BeliefPredicate::KnownAs {
+                name: "Iris".into(),
+            },
+        });
+        family.graph.derived_memories.push(name);
+    }
+    let mut ambiguous = input(config, &family.namespace, false, Some(TOPIC));
+    ambiguous.scene.participants.push(SceneParticipantInput {
+        name: Some("Iris".into()),
+        ..Default::default()
+    });
+    family.probes.push(probe(
+        "anniversary-ambiguous-name",
+        ambiguous,
+        &["date_match"],
+    ));
+    let mut morning = input(config, &family.namespace, true, None);
+    morning.scene.time = Some("2025-09-09T08:00:00+09:00".into());
+    family
+        .probes
+        .push(probe("anniversary-local-morning", morning, &["date_match"]));
     let sources = [
         "last-tuesday-morning",
         "last-tuesday-noon",
@@ -320,6 +359,35 @@ fn time_family(config: &BenchmarkRunConfig) -> Family {
     family
         .probes
         .push(probe("activity-source-order", activity_input, &[]));
+    family
+}
+
+fn daily_anniversary_family(config: &BenchmarkRunConfig, salient: bool) -> Family {
+    // The pair has identical namespaces, native IDs, vectors and dates. Only the
+    // old anniversary's salience changes; the reported family name identifies it.
+    let mut family = empty("daily-anniversary");
+    for day in 0..367 {
+        let at = timestamp("2024-09-08T13:00:00+09:00").unwrap() + Duration::days(day);
+        experience(
+            &mut family,
+            &format!("daily-{day:03}"),
+            &at.to_rfc3339(),
+            false,
+            if salient && day == 1 { 1.0 } else { 0.5 },
+            -0.1,
+        );
+    }
+    family.probes.push(probe(
+        "ordinary-day-no-person-no-topic",
+        input(config, &family.namespace, false, None),
+        &["date_match"],
+    ));
+    family.name = if salient {
+        "daily-salient-anniversary"
+    } else {
+        "daily-equal-anniversary"
+    }
+    .into();
     family
 }
 
@@ -993,10 +1061,27 @@ fn time_reading(
             .map(|e| &e.write.episode_external_id)
             .collect::<Vec<_>>()
     });
+    let anniversaries = family
+        .experiences
+        .iter()
+        .filter(|e| {
+            let at = timestamp(e.write.scene.time.as_deref().unwrap()).unwrap();
+            at.year() < reference.year()
+                && at.month() == reference.month()
+                && at.day() == reference.day()
+        })
+        .map(|e| &e.write.episode_external_id)
+        .collect::<Vec<_>>();
     Ok(
         json!({"native_time_root_attempts":attempts,"recency_root_ids":recency_ids,
+        "authored_reference_local_date":reference.date_naive(),
+        "authored_reference_utc_date":reference.with_timezone(&Utc).date_naive(),
+        "native_reference_scene":native_outcome.get("scene"),
         "native_time_range":native_outcome.get("time_range"),
         "native_time_range_has_more":observed["trace"].get("time_range_has_more"),
+        "native_anniversary_has_more":observed["trace"].get("anniversary_has_more"),
+        "authored_anniversary_ids":anniversaries,
+        "native_date_match_floor_admissions":observed["floor_admissions"].as_array().unwrap().iter().filter(|a| a["native"]["cue_kind"] == "date_match").collect::<Vec<_>>(),
         "authored_range_member_ids":range_members,
         "recency_roots_are_latest_by_authored_time":(!recency_ids.is_empty()).then_some(recency_ids == expected),
         "authored_latest_eligible_ids":eligible.iter().map(|e| &e.write.episode_external_id).collect::<Vec<_>>(),
@@ -1078,6 +1163,13 @@ fn supported_probe_input(probe: &PlannedProbe) -> Result<(RetrieveInput, Vec<Str
             });
             missing.retain(|route| route != "time_range" && route != "date_match");
         }
+    } else if serde_json::to_value(native::RetrievalTrace::empty())?
+        .get("anniversary_has_more")
+        .is_some()
+    {
+        // date_match alone also exists at the range-only pin. The anniversary
+        // trace field identifies the later capability without guessing a result.
+        missing.retain(|route| route != "date_match");
     }
     Ok((input, missing))
 }
@@ -1277,12 +1369,15 @@ fn activity_reading(
 pub(super) async fn run(stores: &Path, config: &BenchmarkRunConfig) -> Result<Value> {
     let mut inputs = Vec::new();
     let mut measurements = Vec::new();
-    for build in [
+    let builders: [fn(&BenchmarkRunConfig) -> Family; 6] = [
         time_family,
         obligations_family,
         familiar_person_family,
         shared_interpretation_family,
-    ] {
+        |config| daily_anniversary_family(config, false),
+        |config| daily_anniversary_family(config, true),
+    ];
+    for build in builders {
         let original = build(config);
         let mut next = original.clone();
         let mut order = Value::Null;
@@ -1350,12 +1445,81 @@ pub(super) async fn run(stores: &Path, config: &BenchmarkRunConfig) -> Result<Va
     Ok(json!({"inputs":inputs,"measurements":measurements,
         "full_cases_executed":executed,"full_cases_not_run":not_run,"supported_parent_controls_executed":executed+not_run,
         "same_day_description_continuity":["/keyless_measurements","/opposed_keyless_measurements"],
-        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Each row separately executes a supported parent control with roles, due instant, range and explicit recency floor absent. executed_case records the full supported case; recency overrides and caller-given ranges run only when serialized native types advertise their fields; the adapter checks typed native range admission. Native range echo and has-more are separate from authored range membership. Missing fields remain not_run; no unavailable predicate is silently forwarded. Native resolution is reported; authored due classification is labelled hypothetical. Topic counts use eight graded episodes in each original family; added falsifiers use separate composition and spillover readings. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
+        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Each row separately executes a supported parent control with roles, due instant, range and explicit recency floor absent. executed_case records the full supported case; recency overrides and caller-given ranges run only when serialized native types advertise their fields; the adapter checks typed native range admission. Native range echo and has-more are separate from authored range membership. Anniversary support requires the native anniversary_has_more trace field; reference scene and date-match admissions are native, while local dates and anniversary identities are authored expectations. Missing fields remain not_run; no unavailable predicate is silently forwarded. Native resolution is reported; authored due classification is labelled hypothetical. Topic counts use eight graded episodes in each original family; added falsifiers use separate composition and spillover readings. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn anniversary_falsifiers_have_a_single_salience_delta_and_distinct_local_day() {
+        let config = config();
+        let equal = daily_anniversary_family(&config, false);
+        let mut salient = daily_anniversary_family(&config, true);
+        assert_eq!(equal.experiences.len(), 367);
+        assert!(
+            equal
+                .experiences
+                .iter()
+                .all(|e| e.write.scene.participants.is_empty())
+        );
+        assert!(
+            equal
+                .probes
+                .iter()
+                .all(|p| p.supported_input.topic.is_none())
+        );
+        let first = timestamp(equal.experiences[0].write.scene.time.as_deref().unwrap()).unwrap();
+        let last = timestamp(
+            equal
+                .experiences
+                .last()
+                .unwrap()
+                .write
+                .scene
+                .time
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!((last - first).num_days(), 366);
+        assert_eq!(salient.experiences[1].write.salience, Some(1.0));
+        salient.experiences[1].write.salience = Some(0.5);
+        salient.name.clone_from(&equal.name);
+        assert_eq!(
+            serde_json::to_value(equal).unwrap(),
+            serde_json::to_value(salient).unwrap()
+        );
+        let time = time_family(&config);
+        let morning = time
+            .probes
+            .iter()
+            .find(|p| p.name == "anniversary-local-morning")
+            .unwrap();
+        let reference = timestamp(morning.supported_input.scene.time.as_deref().unwrap()).unwrap();
+        assert_ne!(
+            reference.date_naive(),
+            reference.with_timezone(&Utc).date_naive()
+        );
+        let native_anniversary = serde_json::to_value(native::RetrievalTrace::empty())
+            .unwrap()
+            .get("anniversary_has_more")
+            .is_some();
+        assert_eq!(
+            supported_probe_input(morning).unwrap().1.is_empty(),
+            native_anniversary
+        );
+        let names = time
+            .graph
+            .derived_memories
+            .iter()
+            .flat_map(|m| &m.assertions)
+            .collect::<Vec<_>>();
+        assert_eq!(names.len(), 2);
+        assert_ne!(names[0].subject_external_id, names[1].subject_external_id);
+        assert_eq!(names[0].predicate, names[1].predicate);
+    }
 
     #[test]
     fn added_falsifiers_separate_person_knowledge_and_shared_old_sources() {
@@ -1628,10 +1792,31 @@ mod tests {
                 serde_json::to_value(&original.embedding).unwrap(),
                 serde_json::to_value(&permuted.embedding).unwrap()
             );
-            assert_eq!(
-                serde_json::to_value(&original.probes).unwrap(),
-                serde_json::to_value(&permuted.probes).unwrap()
-            );
+            for (old, new) in original.probes.iter().zip(&permuted.probes) {
+                let mut restored = new.clone();
+                if let (
+                    Some(ActivityInput::OpenLoop(old_id)),
+                    Some(ActivityInput::OpenLoop(new_id)),
+                ) = (&old.supported_input.activity, &new.supported_input.activity)
+                {
+                    let content = |family: &Family, id: &str| {
+                        family
+                            .graph
+                            .derived_memories
+                            .iter()
+                            .find(|m| m.external_id == id)
+                            .unwrap()
+                            .text
+                            .clone()
+                    };
+                    assert_eq!(content(&original, old_id), content(&permuted, new_id));
+                    restored.supported_input.activity = old.supported_input.activity.clone();
+                }
+                assert_eq!(
+                    serde_json::to_value(old).unwrap(),
+                    serde_json::to_value(restored).unwrap()
+                );
+            }
             for kind in ["episode", "derived_memory"] {
                 let rows = order
                     .as_array()

@@ -1469,7 +1469,7 @@ pub(crate) mod tests {
                     time_range: None,
                     activity: None,
                     scene: cmem_eval::character_memory::Scene::at(
-                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
                     ),
                     scene_references: Vec::new(),
                     memory_scenes: Vec::new(),
@@ -2544,7 +2544,7 @@ pub(crate) mod tests {
                 time_range: None,
                 activity: None,
                 scene: cmem_eval::character_memory::Scene::at(
-                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
                 ),
                 scene_references: Vec::new(),
                 memory_scenes: Vec::new(),
@@ -2614,7 +2614,7 @@ pub(crate) mod tests {
                             _ => None,
                         })
                         .unwrap();
-                    assert_eq!(Some(&episode.scene.time), Some(timestamp));
+                    assert_eq!(&episode.scene.time, timestamp);
                     assert_eq!(&episode.summary, text);
                 }
                 for derived in pack
