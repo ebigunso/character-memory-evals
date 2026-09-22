@@ -1230,3 +1230,29 @@ Prevention:
 
 Evidence:
 - `crates/cmem-eval-continuity/src/driver.rs`; `crates/cmem-eval/src/results.rs`.
+
+## 2026-09-22 - A measurement runner aborts on a degraded write  [tags: measurement, runner, validation, evidence]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/v0-2-situated-recall-scenarios-plan.md`
+- Task/Wave: the poster measurement of the library state slice (a generated runner over a keyed person with 300 beliefs), reviewed the day after its numbers were reported
+- Roles involved: Reviewer | Orchestrator | Worker
+
+Symptom:
+- The runner discarded every write outcome. The typed adapter can return Ok with a vector-indexing failure inside, so nothing in the reported numbers could show whether the store they came from was intact.
+
+Root cause:
+- Write outcomes were treated as fire-and-forget: the row was counted and the run moved on; an instrument defect and a design effect were indistinguishable in the evidence.
+
+Fix applied:
+- The runner checks every write outcome and aborts on the first degraded one; the final numbers were re-produced on a checked run (67 writes, 366 vectors, none degraded) and were unchanged.
+
+Prevention:
+- A measurement runner checks every write outcome and aborts on a degraded one; numbers from a run with an unchecked or degraded write are discarded, not annotated.
+- Before a family's numbers count, review the instrument for the known traps (identical description strings, identifiers correlated with time, structural zeros from a store that cannot exhibit the effect, an unmeasured deployment shape such as no keys at all); run before and after on the same family and inputs, identifiers ordered against time, twice.
+- Repo rule candidate: applied in worker.md (runner rule), reviewer.md (`instrument_validity` hotspot and evidence row), common.md (scenarios are the specification), orchestrator.md (measurement ownership), all dated 2026-09-22.
+- Harness migration candidate: the plan validator has no measurement validation kind; items are carried as `kind: command`, `owner: orchestrator` with the evaluation worker named in `detail`.
+- Residual risk / waiver: none.
+
+Evidence:
+- `.agent-work/reviewer/v0-2-measurement-extension-review.md`; the M3 ingest report under the poster-state worktree; decider ruling 2026-09-22 in the orchestration session.

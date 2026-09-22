@@ -445,6 +445,12 @@ Every task is one pull request, and the pull requests form one linear stack for 
   - Tradeoffs considered: measuring floors on the situated scenarios was rejected, because they are assertions about behavior and must not be tuned against; the calibration fixture is generated and never asserted.
   - User approval: inside the approved plan's purpose; decided under the decider's standing instruction and logged for presentation.
   - Record proposed: none here; the measured-floors record is the library's.
+- 2026-09-22 Decision: this repository owns the measurement of every library behavior change, and the instruments for the coming slices are built before the slices land.
+  - Trigger / new insight: the decider's standing instruction after the scene-words measurement forced a large library design change (the first report measured 0 of 8 on-topic memories under same-scene pressure; the after-the-fix reading measured 6 of 8, the topic-alone level, with a stranger's description costing one slot instead of half to three quarters of the memo).
+  - Plan delta (what changed): Task_9 gains three more generated families: identifiers opposed to time, unlived descriptions against a populated scene store, and a paraphrase family that reads the library's trace best score per description search; and two families built ahead of their library slices, the time route (recency, a range, an anniversary) and prospective memory (obligations in both directions, due instants), each capturing before-numbers at the current library pin and re-running when the slice lands. Task_5 step 3 forwards the scene-surfaces contract, last interactions and resolution. The rule and the runner lesson (a measurement runner aborts on a degraded write) are recorded in this repository's rules.
+  - Tradeoffs considered: measuring only at plan completion was rejected; every behavior-changing task is measured at its tip before its pull request opens.
+  - User approval: the decider's instruction, 2026-09-22.
+  - Record proposed: none here.
 
 ## Notes
 - Risks: the library's scene shape may want something the as-perceived fixture scene cannot say; that is a finding for the library plan, and the fixture follows the catalog, not the API. The assertion list may grow; each addition names the scenario that needs it. The `section` on a `carried` assertion couples a scenario to the library's pack section names, so it is used only where the draft itself names a section.

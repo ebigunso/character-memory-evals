@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "common"
-last_updated: "2026-09-13"
+last_updated: "2026-09-22"
 ---
 
 # Common Repository Rules
@@ -27,6 +27,7 @@ last_updated: "2026-09-13"
 - Default validation must remain deterministic and service-free unless the user explicitly asks for real backend integration.
 - Benchmark runs use the embedded Character Memory adapter by default; BM25 ranks ingested text as a separate retrieval baseline.
 - Run the service-free continuity smoke (the README recipe on `configs/continuity_smoke.toml`) before reporting continuity CLI changes done.
+- Scenarios are the specification and are never tuned against; generated families are the instruments, and a design is measured on a family, not on the scenarios that define what it must do (decider ruling 2026-09-22).
 
 ## Workaround Tripwire (design-debt escalation)
 
