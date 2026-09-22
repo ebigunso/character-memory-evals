@@ -162,6 +162,32 @@ pub enum ActivityInput {
     OpenLoop(String),
 }
 
+/// Caller-given inclusive endpoints; a retrieval cue, not a filter on other cues.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TimeRangeInput {
+    pub start: chrono::DateTime<chrono::Utc>,
+    pub end: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeRangeInputError {
+    UnsupportedNativeField,
+    UnsupportedRetrievalMode,
+    NativeRoundTripMismatch,
+}
+
+impl std::fmt::Display for TimeRangeInputError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedNativeField => "the pinned native context has no time_range field",
+            Self::UnsupportedRetrievalMode => "time_range requires hybrid retrieval",
+            Self::NativeRoundTripMismatch => "native time_range changed during typed admission",
+        })
+    }
+}
+
+impl std::error::Error for TimeRangeInputError {}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetrieveInput {
     pub mode: RetrievalMode,
@@ -169,6 +195,8 @@ pub struct RetrieveInput {
     pub topic: Option<String>,
     pub scene: MemorySceneInput,
     pub activity: Option<ActivityInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_range: Option<TimeRangeInput>,
     pub cue_floors: Option<character_memory::api::types::RetrievalCueFloors>,
     pub surface_policy: RetrievalSurfacePolicy,
 }

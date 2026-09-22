@@ -198,6 +198,7 @@ fn map_situated_input(
             MappedSituatedInput::Probe(RetrieveInput {
                 activity,
                 cue_floors: None,
+                time_range: None,
                 mode: cmem_eval::RetrievalMode::Hybrid,
                 namespace: namespace.into(),
                 topic,
@@ -1220,6 +1221,7 @@ async fn retrieve_query(
         .retrieve(RetrieveInput {
             activity: None,
             cue_floors: None,
+            time_range: None,
             mode: retrieval.mode,
             namespace: scenario.namespace.clone(),
             topic: Some(text.to_string()),
@@ -1466,9 +1468,10 @@ pub(crate) mod tests {
                 context_word_count: 0,
                 context: Default::default(),
                 retrieval_outcomes: vec![cmem_eval::RetrieveOutcome {
+                    time_range: None,
                     activity: None,
                     scene: cmem_eval::character_memory::Scene::at(
-                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
                     ),
                     scene_references: Vec::new(),
                     memory_scenes: Vec::new(),
@@ -2673,9 +2676,10 @@ pub(crate) mod tests {
         assert_eq!(snapshot.fanout_decision_count, None);
         for native_trace in [None, Some(cmem_eval::RetrievalTrace::empty())] {
             let outcome = cmem_eval::RetrieveOutcome {
+                time_range: None,
                 activity: None,
                 scene: cmem_eval::character_memory::Scene::at(
-                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
                 ),
                 scene_references: Vec::new(),
                 memory_scenes: Vec::new(),
@@ -2745,7 +2749,7 @@ pub(crate) mod tests {
                             _ => None,
                         })
                         .unwrap();
-                    assert_eq!(Some(&episode.scene.time), Some(timestamp));
+                    assert_eq!(&episode.scene.time, timestamp);
                     assert_eq!(&episode.summary, text);
                 }
                 for derived in pack

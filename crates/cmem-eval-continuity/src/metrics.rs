@@ -1088,7 +1088,7 @@ mod tests {
         scenario.validate().unwrap();
         let visit = EpisodeDraft {
             scene: Some(cmem_eval::character_memory::Scene::at(
-                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
             )),
             ..EpisodeDraft::new("visit")
         }
@@ -1096,7 +1096,7 @@ mod tests {
         .unwrap();
         let noise = EpisodeDraft {
             scene: Some(cmem_eval::character_memory::Scene::at(
-                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
             )),
             ..EpisodeDraft::new("noise")
         }
@@ -1144,9 +1144,10 @@ mod tests {
         native.derived_memories = vec![promise.into()];
         native.active_threads = vec![thread];
         let mut outcome = RetrieveOutcome {
+            time_range: None,
             activity: None,
             scene: cmem_eval::character_memory::Scene::at(
-                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
             ),
             scene_references: Vec::new(),
             memory_scenes: Vec::new(),
@@ -1156,9 +1157,10 @@ mod tests {
         };
         let make_pack = |mut outcome: RetrieveOutcome| {
             let observation_outcome = RetrieveOutcome {
+                time_range: None,
                 activity: None,
                 scene: cmem_eval::character_memory::Scene::at(
-                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
                 ),
                 scene_references: Vec::new(),
                 memory_scenes: Vec::new(),
@@ -1444,9 +1446,10 @@ mod tests {
             retrieval: RetrievedContextPack::from_ranked_items(
                 items,
                 vec![RetrieveOutcome {
+                    time_range: None,
                     activity: None,
                     scene: cmem_eval::character_memory::Scene::at(
-                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
                     ),
                     scene_references: Vec::new(),
                     memory_scenes: Vec::new(),

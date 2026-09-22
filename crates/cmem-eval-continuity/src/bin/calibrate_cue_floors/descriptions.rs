@@ -37,7 +37,88 @@ pub(super) fn write_words(kind: &str, index: usize) -> &'static str {
     word_pool(kind)[choice]
 }
 
-#[derive(Serialize)]
+pub(super) fn add_unlived_probes(scenario: &mut ContinuityScenario, probes: &mut Vec<Probe>) {
+    let mut embedding = scenario
+        .embedding
+        .controllable_similarity()
+        .unwrap()
+        .clone();
+    let template = probes[0].clone();
+    for (kind, words) in [
+        ("participant", "A stranger wearing a striped raincoat"),
+        ("place", "An unfamiliar glass-roofed conservatory"),
+    ] {
+        let mut vector = vec![0.0; 9];
+        vector[0] = 0.01;
+        vector[6] = (1.0_f32 - 0.01_f32.powi(2)).sqrt();
+        assign(&mut embedding, words, vector);
+        for with_topic in [true, false] {
+            let mut input = template.input.clone();
+            for other in ["participant", "place", "activity"] {
+                remove_cue(&mut input, other);
+            }
+            if !with_topic {
+                input.topic = None;
+            }
+            if kind == "place" {
+                input.scene.setting.words = Some(words.into());
+            } else {
+                input.scene.participants.push(SceneParticipantInput {
+                    description: Some(words.into()),
+                    ..Default::default()
+                });
+            }
+            probes.push(Probe {
+                name: format!("unlived-scene-{kind}-{}", if with_topic { "with-topic" } else { "scene-only" }),
+                measured_kind: kind.into(),
+                pressure: "Unlived description against 48 described occasions; controlled scene cosine about 0.01; no semantic similarity bound".into(),
+                target: None, tracked_targets: template.tracked_targets.clone(), input,
+            });
+        }
+    }
+    scenario.embedding = ContinuityScenarioEmbedding::controllable_similarity_provider(embedding);
+}
+
+pub(super) fn unlived_reading(observed: &Value, without_description: &Value, kind: &str) -> Value {
+    let selected = observed["selected"].as_array().unwrap();
+    let control = without_description["selected"].as_array().unwrap();
+    let cue_slots = selected
+        .iter()
+        .filter(|slot| {
+            slot["cue_kinds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|cue| cue == kind)
+        })
+        .collect::<Vec<_>>();
+    let occasions = cue_slots
+        .iter()
+        .filter(|slot| {
+            slot["object"]["object_type"] == "episode"
+                && slot["external_id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("shared-"))
+        })
+        .collect::<Vec<_>>();
+    let new = cue_slots
+        .iter()
+        .filter(|slot| {
+            !control
+                .iter()
+                .any(|old| old["object"] == slot["object"] && old["section"] == slot["section"])
+        })
+        .collect::<Vec<_>>();
+    json!({"description_kind":kind,"cue_bearing_pack_slots":cue_slots.len(),
+        "exclusive_cue_pack_slots":cue_slots.iter().filter(|slot| slot["cue_kinds"] == json!([kind])).count(),
+        "all_pack_slots":selected.len(),"native_scene_occasions":occasions.len(),"occasions":occasions,
+        "cue_bearing_slots":cue_slots,"new_cue_slots_vs_description_removed":new,
+        "displaced_vs_description_removed":displacements(without_description,observed),
+        "control_without_description":without_description,
+        "attribution":"Native cue membership can overlap topic or other routes; new and displaced identities compare the same query with only this description removed, not one-to-one causal floor credit."})
+}
+
+#[derive(Clone, Serialize)]
 pub(super) struct KeylessFamily {
     pub namespace: String,
     pub embedding: ControllableSimilarityFixture,
@@ -45,6 +126,113 @@ pub(super) struct KeylessFamily {
     probes: Vec<Probe>,
     topic_alone: RetrieveInput,
     targets: Vec<String>,
+}
+
+// Discover identities through the public adapter; do not duplicate its private UUID recipe.
+async fn opposed_ids(
+    runtime: &ContinuityRuntime,
+    namespace: &str,
+) -> Result<Vec<(String, String)>> {
+    runtime.adapter().open_namespace(namespace).await?;
+    let result = async {
+        let mut ids = Vec::new();
+        for index in 0..48 {
+            let external_id = format!("shared-{index:02}");
+            let plan = runtime
+                .adapter()
+                .prepare(PrepareWriteInput {
+                    namespace: namespace.into(),
+                    content: "Identity planning only".into(),
+                    episode_external_id: external_id.clone(),
+                    observation_external_id: format!("{external_id}:observation"),
+                    scene: MemorySceneInput {
+                        time: Some(AT.into()),
+                        ..Default::default()
+                    },
+                    speaker_entity_external_id: None,
+                    salience: None,
+                    observation_observed_at: Some(AT.into()),
+                    raw_refs: vec![],
+                    include_vector_index_candidates: false,
+                    include_stats_update_candidates: false,
+                })
+                .await?;
+            let id = plan
+                .plan
+                .candidates
+                .iter()
+                .find_map(|candidate| {
+                    if let native::MemoryCandidate::Episode(episode) = candidate {
+                        episode.draft.id.map(|id| id.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .context("prepared episode ID missing")?;
+            ids.push((external_id, id));
+        }
+        ids.sort_by(|left, right| right.1.cmp(&left.1));
+        ensure!(
+            ids.windows(2).all(|pair| pair[0].1 > pair[1].1),
+            "episode IDs are not strictly opposed"
+        );
+        Ok(ids)
+    }
+    .await;
+    // These identity-only plans are never committed; the measurement starts with an empty namespace.
+    runtime.cleanup(namespace).await?;
+    result
+}
+
+pub(super) async fn opposed_scenario(
+    runtime: &ContinuityRuntime,
+    original: &ContinuityScenario,
+) -> Result<(ContinuityScenario, Value)> {
+    let ids = opposed_ids(runtime, &original.namespace).await?;
+    let mut scenario = original.clone();
+    let mut index = 0;
+    let mut evidence = Vec::new();
+    for event in &mut scenario.events {
+        if let InteractionEvent::Experience {
+            event_id,
+            timestamp,
+            ..
+        } = event
+            && event_id.starts_with("shared-")
+        {
+            evidence.push(
+                json!({"original_external_id":event_id,"external_id":ids[index].0,
+                "prepared_native_episode_id":ids[index].1,"authored_scene_time":timestamp}),
+            );
+            *event_id = ids[index].0.clone();
+            index += 1;
+        }
+    }
+    ensure!(index == ids.len(), "unexpected shared occasion count");
+    Ok((scenario, json!(evidence)))
+}
+
+pub(super) async fn opposed_keyless(
+    runtime: &ContinuityRuntime,
+    original: &KeylessFamily,
+) -> Result<(KeylessFamily, Value)> {
+    let ids = opposed_ids(runtime, &original.namespace).await?;
+    let mut family = original.clone();
+    let mut index = 0;
+    let mut evidence = Vec::new();
+    for write in &mut family.writes {
+        if write.episode_external_id.starts_with("shared-") {
+            evidence.push(
+                json!({"original_external_id":write.episode_external_id,"external_id":ids[index].0,
+                "prepared_native_episode_id":ids[index].1,"authored_scene_time":write.scene.time}),
+            );
+            write.episode_external_id = ids[index].0.clone();
+            write.observation_external_id = format!("{}:observation", write.episode_external_id);
+            index += 1;
+        }
+    }
+    ensure!(index == ids.len(), "unexpected shared occasion count");
+    Ok((family, json!(evidence)))
 }
 
 pub(super) fn generated(
@@ -261,10 +449,94 @@ pub(super) async fn measure(runtime: &ContinuityRuntime, family: &KeylessFamily)
     Ok(
         json!({"executed":rows.len(),"not_run":0,"entity_registration_calls":0,
         "topic_only_control_cohort":target_cohort(&control,&family.targets),"topic_only_control_observed":control,
-        "best_scene_surface_score_per_description":{"status":"not_available","reason":"The pinned trace has no best scene-surface score per description cue; raw native traces are retained."},
+        "best_scene_surface_score_per_description":{
+            "status":if rows.iter().any(|r| r["observed"]["trace"].get("scene_cue_searches").is_some()) { "available" } else { "not_available" },
+            "scope":"One setting or joined-participants search, shared by its native references; read observed.trace.scene_cue_searches on each row. An absent field is unavailable, and a null best_score is no fetched scene match."},
         "method":"No person/entity keys, setting keys, names, activities or speaker keys on any write or probe; internal namespace and memory external IDs are storage bookkeeping, not perceived identities. Shared occasions span 12 days (4/day); topic targets follow the last day's occasions. Same-day probe uses that day's evening and descriptions only. Latest-N membership and the available same-day denominator are expectations from AUTHORED scene times. Returned same-day counts use native recorded scenes, and each returned occasion's native time is checked against its authored value. No native census of all stored scenes is obtained from the public adapter, so persisted times for unreturned occasions are not independently verified. No consolidation or temporal-filter success is claimed.",
         "rows":rows}),
     )
+}
+
+pub(super) fn native_paraphrase_scores(measurements: &Value) -> Value {
+    let Some(rows) = measurements["rows"].as_array() else {
+        return json!({"status":"not_run","reason":"reworded family excluded from this run"});
+    };
+    let mut samples = Vec::new();
+    let mut unavailable = Vec::new();
+    for row in rows.iter().filter(|r| r["floor"] == 1) {
+        let probe = row["probe"].as_str().unwrap();
+        let class = match probe {
+            "overlap-place-sweep-place" | "overlap-participant-sweep-participant" => {
+                "same_referent_reworded"
+            }
+            "unlived-scene-place-with-topic" | "unlived-scene-participant-with-topic" => {
+                "different_referents"
+            }
+            _ => continue,
+        };
+        match row["observed"]["trace"]["scene_cue_searches"].as_array() {
+            Some(searches) => samples.extend(
+                searches
+                    .iter()
+                    .map(|search| json!({"class":class,"probe":probe,"native":search})),
+            ),
+            None => unavailable.push(probe),
+        }
+    }
+    let distribution = |class| {
+        samples
+            .iter()
+            .filter(|s| s["class"] == class)
+            .map(|s| s["native"]["best_score"].clone())
+            .collect::<Vec<_>>()
+    };
+    json!({"status":if unavailable.is_empty() { "executed" } else { "not_available" },
+        "same_referent_reworded":distribution("same_referent_reworded"),"different_referents":distribution("different_referents"),
+        "samples":samples,"unavailable_probes":unavailable,
+        "method":"One native best fetched scene-surface score per single-kind search at floor 1, before occasion selection or graph eligibility. Joined participant references share one score. Null is no match, not zero. Authored classes label results only; duplicate floor sweeps and ID orders are not independent samples. Controlled synthetic geometry, not a production threshold estimate."})
+}
+
+pub(super) fn cosine(a: &[f32], b: &[f32]) -> f64 {
+    let dot = a
+        .iter()
+        .zip(b)
+        .map(|(x, y)| f64::from(*x) * f64::from(*y))
+        .sum::<f64>();
+    let norm = |v: &[f32]| v.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>().sqrt();
+    dot / (norm(a) * norm(b))
+}
+
+pub(super) fn overlap_geometry(scenario: &ContinuityScenario) -> Result<Value> {
+    let provider = ControllableSimilarityEmbeddingProvider::new(
+        scenario
+            .embedding
+            .controllable_similarity()
+            .unwrap()
+            .clone(),
+    )?;
+    let inputs = scenario.runtime_embedding_inputs();
+    let mut pairs = Vec::new();
+    for kind in ["place", "participant"] {
+        let query = probe_words(kind, true);
+        let query_vector = provider.vector_for_text(query)?;
+        for (surface, stored) in word_pool(kind)[..3]
+            .iter()
+            .map(|text| ("description", *text))
+            .chain(
+                inputs
+                    .iter()
+                    .filter(|text| text.starts_with("Ledger entry ") && text.contains("\nSetting:"))
+                    .map(|text| ("normalized_episode", text.as_str())),
+            )
+        {
+            let stored_vector = provider.vector_for_text(stored)?;
+            pairs.push(json!({"kind":kind,"query":query,"stored":stored,"surface":surface,
+                "query_vector":query_vector,"stored_vector":stored_vector,
+                "vectors_equal":query_vector == stored_vector,"cosine":cosine(&query_vector,&stored_vector)}));
+        }
+    }
+    Ok(json!({"pairs":pairs,
+        "method":"Actual provider-emitted vectors used by the reworded overlap and keyless stores. The held-out query has a distinct authored base: description similarities are about 0.90, 0.957 and 0.973. Normalized episode bases remain controlled by episode index, independent of wording, to hold topic pressure fixed. The identical family is the exact-match control. This audit is separate from the 56-pair authored diagnostic and does not measure a language model."}))
 }
 
 pub(super) fn paraphrase_geometry() -> Result<Value> {
@@ -314,13 +586,7 @@ pub(super) fn paraphrase_geometry() -> Result<Value> {
             }
             let a = provider.vector_for_text(left)?;
             let b = provider.vector_for_text(right)?;
-            let dot = a
-                .iter()
-                .zip(&b)
-                .map(|(x, y)| f64::from(*x) * f64::from(*y))
-                .sum::<f64>();
-            let norm = |v: &[f32]| v.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>().sqrt();
-            pairs.push(json!({"kind":kind,"same_referent":referent==other_referent,"left":left,"right":right,"cosine":dot/(norm(&a)*norm(&b))}));
+            pairs.push(json!({"kind":kind,"same_referent":referent==other_referent,"left":left,"right":right,"cosine":cosine(&a,&b)}));
         }
     }
     let mut distributions = Vec::new();
@@ -356,6 +622,173 @@ pub(super) fn paraphrase_geometry() -> Result<Value> {
 mod tests {
     use super::*;
     #[test]
+    fn held_out_wording_has_graded_geometry_against_every_stored_surface() {
+        let (scenario, probes) = generated_overlap(&config(), true).unwrap();
+        let audit = overlap_geometry(&scenario).unwrap();
+        let pairs = audit["pairs"].as_array().unwrap();
+        assert_eq!(pairs.len(), 2 * (3 + 48));
+        for pair in pairs {
+            assert_eq!(pair["vectors_equal"], false, "{pair}");
+            let score = pair["cosine"].as_f64().unwrap();
+            assert!((0.89..0.99).contains(&score), "{pair}");
+        }
+        let keyless = generated(&config(), &scenario, &probes).unwrap();
+        assert_eq!(
+            keyless.embedding,
+            *scenario.embedding.controllable_similarity().unwrap()
+        );
+        for probe in &keyless.probes {
+            assert_eq!(
+                probe.input.scene.setting.words.as_deref(),
+                Some(probe_words("place", true))
+            );
+            assert_eq!(
+                probe.input.scene.participants[0].description.as_deref(),
+                Some(probe_words("participant", true))
+            );
+        }
+        let (control, _) = generated_overlap(&config(), false).unwrap();
+        let provider = ControllableSimilarityEmbeddingProvider::new(
+            control.embedding.controllable_similarity().unwrap().clone(),
+        )
+        .unwrap();
+        for kind in ["place", "participant"] {
+            assert_eq!(probe_words(kind, false), word_pool(kind)[0]);
+            assert_eq!(
+                provider.vector_for_text(probe_words(kind, false)).unwrap(),
+                provider.vector_for_text(word_pool(kind)[0]).unwrap()
+            );
+        }
+    }
+    #[test]
+    fn unlived_scene_counts_keep_overlapping_credit_and_displacement_distinct() {
+        let item = |id: &str, cues: &[&str]| {
+            json!({"object":{"id":id,"object_type":"episode"},
+            "external_id":id,"section":"relevant_episodes","cue_kinds":cues})
+        };
+        let before = json!({"candidates":[],"roots":[],"selected":[item("shared-kept", &["topic"]),item("strong-topic-lost", &["topic"])]});
+        let after = json!({"candidates":[],"roots":[],"selected":[item("shared-kept", &["topic","place"]),item("shared-new", &["place"])]});
+        let reading = unlived_reading(&after, &before, "place");
+        assert_eq!(reading["cue_bearing_pack_slots"], 2);
+        assert_eq!(reading["exclusive_cue_pack_slots"], 1);
+        assert_eq!(reading["native_scene_occasions"], 2);
+        assert_eq!(
+            reading["new_cue_slots_vs_description_removed"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            reading["displaced_vs_description_removed"]["section:relevant_episodes"][0]["external_id"],
+            "strong-topic-lost"
+        );
+        let (scenario, probes) = generated_overlap(&config(), true).unwrap();
+        let unlived = probes
+            .iter()
+            .filter(|p| p.name.starts_with("unlived-scene-"))
+            .collect::<Vec<_>>();
+        assert_eq!(unlived.len(), 4);
+        assert_eq!(
+            unlived.iter().filter(|p| p.input.topic.is_some()).count(),
+            2
+        );
+        let stored = scenario.runtime_embedding_inputs();
+        for probe in unlived {
+            let words = probe
+                .input
+                .scene
+                .setting
+                .words
+                .as_deref()
+                .or_else(|| {
+                    probe
+                        .input
+                        .scene
+                        .participants
+                        .first()
+                        .and_then(|p| p.description.as_deref())
+                })
+                .unwrap();
+            assert!(!stored.iter().any(|text| text.contains(words)));
+            assert!(
+                scenario
+                    .embedding
+                    .controllable_similarity()
+                    .unwrap()
+                    .concepts
+                    .contains_key(words)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn opposed_native_ids_preserve_every_nonidentity_input() {
+        let config = config();
+        for reworded in [false, true] {
+            let (scenario, probes) = generated_overlap(&config, reworded).unwrap();
+            let root = tempfile::tempdir().unwrap();
+            let binding = EmbeddingRuntimeBinding::Controllable {
+                fixture: scenario
+                    .embedding
+                    .controllable_similarity()
+                    .unwrap()
+                    .clone(),
+                dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
+            };
+            let runtime = ContinuityRuntime::new(root.path(), &config, binding)
+                .await
+                .unwrap();
+            let (opposed, order) = opposed_scenario(&runtime, &scenario).await.unwrap();
+            let mut normalized = serde_json::to_value(&opposed).unwrap();
+            let original = serde_json::to_value(&scenario).unwrap();
+            for (changed, original) in normalized["events"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .zip(original["events"].as_array().unwrap())
+            {
+                changed["event_id"] = original["event_id"].clone();
+            }
+            assert_eq!(normalized, original);
+            assert_ne!(serde_json::to_value(&opposed).unwrap(), original);
+            let order = order.as_array().unwrap();
+            assert_eq!(order.len(), 48);
+            assert!(
+                order
+                    .windows(2)
+                    .all(|pair| pair[0]["prepared_native_episode_id"].as_str()
+                        > pair[1]["prepared_native_episode_id"].as_str()
+                        && pair[0]["authored_scene_time"].as_str()
+                            < pair[1]["authored_scene_time"].as_str())
+            );
+            if reworded {
+                let family = generated(&config, &scenario, &probes).unwrap();
+                let (opposed, order) = opposed_keyless(&runtime, &family).await.unwrap();
+                let mut normalized = serde_json::to_value(&opposed).unwrap();
+                let original = serde_json::to_value(&family).unwrap();
+                for (changed, original) in normalized["writes"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .zip(original["writes"].as_array().unwrap())
+                {
+                    changed["episode_external_id"] = original["episode_external_id"].clone();
+                    changed["observation_external_id"] =
+                        original["observation_external_id"].clone();
+                }
+                assert_eq!(normalized, original);
+                assert!(order.as_array().unwrap().windows(2).all(|pair| {
+                    pair[0]["prepared_native_episode_id"].as_str()
+                        > pair[1]["prepared_native_episode_id"].as_str()
+                        && pair[0]["authored_scene_time"].as_str()
+                            < pair[1]["authored_scene_time"].as_str()
+                }));
+            }
+        }
+    }
+
+    #[test]
     fn rewording_and_keyless_inputs_keep_labels_out_of_writes() {
         let config = config();
         let (scenario, probes) = generated_overlap(&config, true).unwrap();
@@ -368,7 +801,7 @@ mod tests {
                 .collect::<std::collections::BTreeSet<_>>();
             assert_eq!(used.len(), 3);
             assert!(!used.contains(probe_words(kind, true)));
-            assert_eq!(
+            assert_ne!(
                 scenario
                     .embedding
                     .controllable_similarity()
@@ -379,7 +812,7 @@ mod tests {
                     .controllable_similarity()
                     .unwrap()
                     .clusters[probe_words(kind, false)],
-                "hold the query anchor fixed while varying written descriptions"
+                "held-out wording must differ from the exact-match query anchor"
             );
         }
         assert!(family.writes.iter().all(|w| {
