@@ -1,0 +1,1756 @@
+{
+  "report": ".agent-work\\worker2\\task9-time-prospective\\rebuilt-trace-a.json",
+  "historical_report": ".agent-work\\worker2\\task9-time-prospective\\native-trace-a.json",
+  "sha256": "b09ed8b25f5a49a99ca2bd447b0f8ab365cc74155a3cf5d30f679fe5cf81492b",
+  "library_commit": "4cf97631c5f0f8268a26f66b7fc0c819ae7e783e",
+  "unchanged_families": [
+    "measurements",
+    "overlapping_measurements",
+    "opposed_identical_measurements"
+  ],
+  "unchanged_stranger_rows": 40,
+  "changed_rows": [
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-participant",
+      "participant",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-participant",
+      "participant",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-participant",
+      "participant",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-participant",
+      "participant",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-participant",
+      "participant",
+      5
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-place",
+      "place",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-place",
+      "place",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-place",
+      "place",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-place",
+      "place",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-place",
+      "place",
+      5
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-activity",
+      "activity",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-activity",
+      "activity",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-activity",
+      "activity",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-activity",
+      "activity",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-activity",
+      "activity",
+      5
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-topic",
+      "topic",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-topic",
+      "topic",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-topic",
+      "topic",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-topic",
+      "topic",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-place-sweep-topic",
+      "topic",
+      5
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-participant",
+      "participant",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-participant",
+      "participant",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-participant",
+      "participant",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-participant",
+      "participant",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-participant",
+      "participant",
+      5
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-place",
+      "place",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-place",
+      "place",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-place",
+      "place",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-place",
+      "place",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-place",
+      "place",
+      5
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-activity",
+      "activity",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-activity",
+      "activity",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-activity",
+      "activity",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-activity",
+      "activity",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-activity",
+      "activity",
+      5
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-topic",
+      "topic",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-topic",
+      "topic",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-topic",
+      "topic",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-topic",
+      "topic",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-participant-sweep-topic",
+      "topic",
+      5
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-participant",
+      "participant",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-participant",
+      "participant",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-participant",
+      "participant",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-participant",
+      "participant",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-participant",
+      "participant",
+      5
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-place",
+      "place",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-place",
+      "place",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-place",
+      "place",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-place",
+      "place",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-place",
+      "place",
+      5
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-activity",
+      "activity",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-activity",
+      "activity",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-activity",
+      "activity",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-activity",
+      "activity",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-activity",
+      "activity",
+      5
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-topic",
+      "topic",
+      0
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-topic",
+      "topic",
+      1
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-topic",
+      "topic",
+      2
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-topic",
+      "topic",
+      3
+    ],
+    [
+      "reworded_measurements",
+      "overlap-both-sweep-topic",
+      "topic",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-participant",
+      "participant",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-participant",
+      "participant",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-participant",
+      "participant",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-participant",
+      "participant",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-participant",
+      "participant",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-place",
+      "place",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-place",
+      "place",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-place",
+      "place",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-place",
+      "place",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-place",
+      "place",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-activity",
+      "activity",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-activity",
+      "activity",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-activity",
+      "activity",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-activity",
+      "activity",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-activity",
+      "activity",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-topic",
+      "topic",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-topic",
+      "topic",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-topic",
+      "topic",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-topic",
+      "topic",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-place-sweep-topic",
+      "topic",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-participant",
+      "participant",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-participant",
+      "participant",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-participant",
+      "participant",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-participant",
+      "participant",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-participant",
+      "participant",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-place",
+      "place",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-place",
+      "place",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-place",
+      "place",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-place",
+      "place",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-place",
+      "place",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-activity",
+      "activity",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-activity",
+      "activity",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-activity",
+      "activity",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-activity",
+      "activity",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-activity",
+      "activity",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-topic",
+      "topic",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-topic",
+      "topic",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-topic",
+      "topic",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-topic",
+      "topic",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-participant-sweep-topic",
+      "topic",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-participant",
+      "participant",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-participant",
+      "participant",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-participant",
+      "participant",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-participant",
+      "participant",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-participant",
+      "participant",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-place",
+      "place",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-place",
+      "place",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-place",
+      "place",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-place",
+      "place",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-place",
+      "place",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-activity",
+      "activity",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-activity",
+      "activity",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-activity",
+      "activity",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-activity",
+      "activity",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-activity",
+      "activity",
+      5
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-topic",
+      "topic",
+      0
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-topic",
+      "topic",
+      1
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-topic",
+      "topic",
+      2
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-topic",
+      "topic",
+      3
+    ],
+    [
+      "opposed_reworded_measurements",
+      "overlap-both-sweep-topic",
+      "topic",
+      5
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "topic",
+      0
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "topic",
+      1
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "topic",
+      2
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "topic",
+      3
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "topic",
+      5
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "place",
+      0
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "place",
+      1
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "place",
+      2
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "place",
+      3
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "place",
+      5
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "participant",
+      0
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "participant",
+      1
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "participant",
+      2
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "participant",
+      3
+    ],
+    [
+      "keyless_measurements",
+      "topic-and-scene",
+      "participant",
+      5
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "topic",
+      0
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "topic",
+      1
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "topic",
+      2
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "topic",
+      3
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "topic",
+      5
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "place",
+      0
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "place",
+      1
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "place",
+      2
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "place",
+      3
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "place",
+      5
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "participant",
+      0
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "participant",
+      1
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "participant",
+      2
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "participant",
+      3
+    ],
+    [
+      "keyless_measurements",
+      "scene-only",
+      "participant",
+      5
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "topic",
+      0
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "topic",
+      1
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "topic",
+      2
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "topic",
+      3
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "topic",
+      5
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "place",
+      0
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "place",
+      1
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "place",
+      2
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "place",
+      3
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "place",
+      5
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "participant",
+      0
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "participant",
+      1
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "participant",
+      2
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "participant",
+      3
+    ],
+    [
+      "keyless_measurements",
+      "same-day-by-descriptions",
+      "participant",
+      5
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "topic",
+      0
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "topic",
+      1
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "topic",
+      2
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "topic",
+      3
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "topic",
+      5
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "place",
+      0
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "place",
+      1
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "place",
+      2
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "place",
+      3
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "place",
+      5
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "participant",
+      0
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "participant",
+      1
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "participant",
+      2
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "participant",
+      3
+    ],
+    [
+      "opposed_keyless_measurements",
+      "topic-and-scene",
+      "participant",
+      5
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "topic",
+      0
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "topic",
+      1
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "topic",
+      2
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "topic",
+      3
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "topic",
+      5
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "place",
+      0
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "place",
+      1
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "place",
+      2
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "place",
+      3
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "place",
+      5
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "participant",
+      0
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "participant",
+      1
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "participant",
+      2
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "participant",
+      3
+    ],
+    [
+      "opposed_keyless_measurements",
+      "scene-only",
+      "participant",
+      5
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "topic",
+      0
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "topic",
+      1
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "topic",
+      2
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "topic",
+      3
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "topic",
+      5
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "place",
+      0
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "place",
+      1
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "place",
+      2
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "place",
+      3
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "place",
+      5
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "participant",
+      0
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "participant",
+      1
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "participant",
+      2
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "participant",
+      3
+    ],
+    [
+      "opposed_keyless_measurements",
+      "same-day-by-descriptions",
+      "participant",
+      5
+    ]
+  ],
+  "changed_numeric_rows": [],
+  "default_rows": [
+    {
+      "family": "reworded_measurements",
+      "row": [
+        "overlap-place-sweep-topic",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      },
+      "corrected": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      }
+    },
+    {
+      "family": "reworded_measurements",
+      "row": [
+        "overlap-participant-sweep-topic",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      },
+      "corrected": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      }
+    },
+    {
+      "family": "reworded_measurements",
+      "row": [
+        "overlap-both-sweep-topic",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      },
+      "corrected": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      }
+    },
+    {
+      "family": "opposed_reworded_measurements",
+      "row": [
+        "overlap-place-sweep-topic",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      },
+      "corrected": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      }
+    },
+    {
+      "family": "opposed_reworded_measurements",
+      "row": [
+        "overlap-participant-sweep-topic",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      },
+      "corrected": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      }
+    },
+    {
+      "family": "opposed_reworded_measurements",
+      "row": [
+        "overlap-both-sweep-topic",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      },
+      "corrected": {
+        "topic_targets": 6,
+        "pack_slots": 23,
+        "occasion_count": null,
+        "most_recent_n_occasions": null,
+        "same_day_occasions": null,
+        "available_same_day_occasions": null,
+        "other_day_occasions": null
+      }
+    },
+    {
+      "family": "keyless_measurements",
+      "row": [
+        "topic-and-scene",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 6,
+        "pack_slots": 12,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 0,
+        "available_same_day_occasions": 0,
+        "other_day_occasions": 1
+      },
+      "corrected": {
+        "topic_targets": 6,
+        "pack_slots": 12,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 0,
+        "available_same_day_occasions": 0,
+        "other_day_occasions": 1
+      }
+    },
+    {
+      "family": "keyless_measurements",
+      "row": [
+        "scene-only",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 0,
+        "pack_slots": 1,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 0,
+        "available_same_day_occasions": 0,
+        "other_day_occasions": 1
+      },
+      "corrected": {
+        "topic_targets": 0,
+        "pack_slots": 1,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 0,
+        "available_same_day_occasions": 0,
+        "other_day_occasions": 1
+      }
+    },
+    {
+      "family": "keyless_measurements",
+      "row": [
+        "same-day-by-descriptions",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 0,
+        "pack_slots": 1,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 1,
+        "available_same_day_occasions": 4,
+        "other_day_occasions": 0
+      },
+      "corrected": {
+        "topic_targets": 0,
+        "pack_slots": 1,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 1,
+        "available_same_day_occasions": 4,
+        "other_day_occasions": 0
+      }
+    },
+    {
+      "family": "opposed_keyless_measurements",
+      "row": [
+        "topic-and-scene",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 6,
+        "pack_slots": 12,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 0,
+        "available_same_day_occasions": 0,
+        "other_day_occasions": 1
+      },
+      "corrected": {
+        "topic_targets": 6,
+        "pack_slots": 12,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 0,
+        "available_same_day_occasions": 0,
+        "other_day_occasions": 1
+      }
+    },
+    {
+      "family": "opposed_keyless_measurements",
+      "row": [
+        "scene-only",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 0,
+        "pack_slots": 1,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 0,
+        "available_same_day_occasions": 0,
+        "other_day_occasions": 1
+      },
+      "corrected": {
+        "topic_targets": 0,
+        "pack_slots": 1,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 0,
+        "available_same_day_occasions": 0,
+        "other_day_occasions": 1
+      }
+    },
+    {
+      "family": "opposed_keyless_measurements",
+      "row": [
+        "same-day-by-descriptions",
+        "topic",
+        1
+      ],
+      "old": {
+        "topic_targets": 0,
+        "pack_slots": 1,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 1,
+        "available_same_day_occasions": 4,
+        "other_day_occasions": 0
+      },
+      "corrected": {
+        "topic_targets": 0,
+        "pack_slots": 1,
+        "occasion_count": 1,
+        "most_recent_n_occasions": true,
+        "same_day_occasions": 1,
+        "available_same_day_occasions": 4,
+        "other_day_occasions": 0
+      }
+    }
+  ],
+  "geometry_bands": {
+    "place:description": {
+      "count": 3,
+      "min": 0.8999997390741217,
+      "max": 0.9733242636432281,
+      "scores": [
+        0.8999997390741217,
+        0.9565253318810562,
+        0.9733242636432281
+      ]
+    },
+    "place:normalized_episode": {
+      "count": 48,
+      "min": 0.937005165145811,
+      "max": 0.9514524353771671,
+      "scores": null
+    },
+    "participant:description": {
+      "count": 3,
+      "min": 0.9000005600049361,
+      "max": 0.9733245169402833,
+      "scores": [
+        0.9000005600049361,
+        0.956524968501841,
+        0.9733245169402833
+      ]
+    },
+    "participant:normalized_episode": {
+      "count": 48,
+      "min": 0.9370054705377061,
+      "max": 0.9514527048929629,
+      "scores": null
+    }
+  },
+  "time_and_prospective_unchanged": true,
+  "native_paraphrase_scores": {
+    "original_ids": {
+      "status": "executed",
+      "same_referent_reworded": [
+        0.9733244776725769,
+        0.9733250141143799
+      ],
+      "different_referents": [
+        0.009999990463256836,
+        0.009999999776482582
+      ],
+      "samples": [
+        {
+          "class": "same_referent_reworded",
+          "probe": "overlap-place-sweep-place",
+          "native": {
+            "references": [
+              {
+                "kind": "setting_words"
+              }
+            ],
+            "best_score": 0.9733244776725769
+          }
+        },
+        {
+          "class": "same_referent_reworded",
+          "probe": "overlap-participant-sweep-participant",
+          "native": {
+            "references": [
+              {
+                "kind": "participant_description",
+                "index": 0
+              }
+            ],
+            "best_score": 0.9733250141143799
+          }
+        },
+        {
+          "class": "different_referents",
+          "probe": "unlived-scene-participant-with-topic",
+          "native": {
+            "references": [
+              {
+                "kind": "participant_description",
+                "index": 0
+              }
+            ],
+            "best_score": 0.009999990463256836
+          }
+        },
+        {
+          "class": "different_referents",
+          "probe": "unlived-scene-place-with-topic",
+          "native": {
+            "references": [
+              {
+                "kind": "setting_words"
+              }
+            ],
+            "best_score": 0.009999999776482582
+          }
+        }
+      ],
+      "unavailable_probes": [],
+      "method": "One native best fetched scene-surface score per single-kind search at floor 1, before occasion selection or graph eligibility. Joined participant references share one score. Null is no match, not zero. Authored classes label results only; duplicate floor sweeps and ID orders are not independent samples. Controlled synthetic geometry, not a production threshold estimate."
+    },
+    "opposed_ids": {
+      "status": "executed",
+      "same_referent_reworded": [
+        0.9733244776725769,
+        0.9733250141143799
+      ],
+      "different_referents": [
+        0.009999990463256836,
+        0.009999999776482582
+      ],
+      "samples": [
+        {
+          "class": "same_referent_reworded",
+          "probe": "overlap-place-sweep-place",
+          "native": {
+            "references": [
+              {
+                "kind": "setting_words"
+              }
+            ],
+            "best_score": 0.9733244776725769
+          }
+        },
+        {
+          "class": "same_referent_reworded",
+          "probe": "overlap-participant-sweep-participant",
+          "native": {
+            "references": [
+              {
+                "kind": "participant_description",
+                "index": 0
+              }
+            ],
+            "best_score": 0.9733250141143799
+          }
+        },
+        {
+          "class": "different_referents",
+          "probe": "unlived-scene-participant-with-topic",
+          "native": {
+            "references": [
+              {
+                "kind": "participant_description",
+                "index": 0
+              }
+            ],
+            "best_score": 0.009999990463256836
+          }
+        },
+        {
+          "class": "different_referents",
+          "probe": "unlived-scene-place-with-topic",
+          "native": {
+            "references": [
+              {
+                "kind": "setting_words"
+              }
+            ],
+            "best_score": 0.009999999776482582
+          }
+        }
+      ],
+      "unavailable_probes": [],
+      "method": "One native best fetched scene-surface score per single-kind search at floor 1, before occasion selection or graph eligibility. Joined participant references share one score. Null is no match, not zero. Authored classes label results only; duplicate floor sweeps and ID orders are not independent samples. Controlled synthetic geometry, not a production threshold estimate."
+    }
+  }
+}

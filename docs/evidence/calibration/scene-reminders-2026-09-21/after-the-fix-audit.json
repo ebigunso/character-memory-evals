@@ -1,0 +1,39 @@
+{
+  "common_original_rows": 270,
+  "intermediate_numeric_changes": [],
+  "protected_files": [
+    {
+      "path": "crates\\cmem-eval-continuity\\fixtures\\continuity_v3.json",
+      "sha256": "bf5e392eb3f0eb79f2f48fca6ead38a2e69109a7bebd257a47aea62f091f8eb3",
+      "unchanged": true
+    },
+    {
+      "path": "crates\\cmem-eval-continuity\\fixtures\\continuity_benchmarks_v1.json",
+      "sha256": "16c0eef36fa0bcde05a70b3a18b5c02d39d8169076bd3e60cf6dc4d47f7d9b49",
+      "unchanged": true
+    },
+    {
+      "path": "crates\\cmem-eval-continuity\\fixtures\\embeddings\\task22_real_manifest.json",
+      "sha256": "dda314592900088234132503404ed6c4d3885f7e1c36edf4396473cb608cc38c",
+      "unchanged": true
+    },
+    {
+      "path": "crates\\cmem-eval-continuity\\fixtures\\embeddings\\task22_real_store.json",
+      "sha256": "a2c5afaa96ce5e02d28058bd4c0951356d06695a975f4183de65281807a35130",
+      "unchanged": true
+    },
+    {
+      "path": "crates\\cmem-eval-continuity\\fixtures\\embeddings\\continuity_benchmarks_v1_manifest.json",
+      "sha256": "a63b35f0ba2ef4deac06dcf8805822765a0bb5fdced8f43f91d0570a6d151714",
+      "unchanged": true
+    },
+    {
+      "path": "crates\\cmem-eval-continuity\\fixtures\\embeddings\\continuity_benchmarks_v1_store.json",
+      "sha256": "c1f1eeaa45c1872e2284ec069fbd205ed3c1b1656ee89007accb3dd44657352b",
+      "unchanged": true
+    }
+  ],
+  "before_unlived_counterfactual_checks": 80,
+  "after_unlived_counterfactual_checks": 80,
+  "original_inputs_preserved_except_added_probes_and_unused_bindings": true
+}
