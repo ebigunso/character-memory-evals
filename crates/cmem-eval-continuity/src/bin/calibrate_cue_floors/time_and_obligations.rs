@@ -874,6 +874,43 @@ fn obligation_reading(
     Ok(json!(rows))
 }
 
+fn recency_input(probe: &PlannedProbe) -> Result<Option<RetrieveInput>> {
+    let Some(floor) = probe.recency_floor else {
+        return Ok(None);
+    };
+    let mut input = probe.supported_input.clone();
+    let mut floors = serde_json::to_value(input.cue_floors.unwrap_or_default())?;
+    // Only modify a field advertised by this pin's native type. Older pins must
+    // remain not_run, never accept an ignored unknown serde field as execution.
+    let Some(recency) = floors.get_mut("recency") else {
+        return Ok(None);
+    };
+    *recency = json!(floor);
+    input.cue_floors = Some(serde_json::from_value(floors)?);
+    ensure!(
+        serde_json::to_value(input.cue_floors)?["recency"] == floor,
+        "native recency floor did not survive round-trip"
+    );
+    Ok(Some(input))
+}
+
+async fn retrieve_reading(
+    runtime: &ContinuityRuntime,
+    family: &Family,
+    probe: &PlannedProbe,
+    input: &RetrieveInput,
+    control: &Value,
+) -> Result<Value> {
+    let pack = runtime.adapter().retrieve(input.clone()).await?;
+    let observed = snapshot(&pack, input)?;
+    Ok(json!({"status":"executed","input":input,
+        "topic_targets":target_cohort(&observed,&family.topic_targets),
+        "delta_vs_topic_alone":pack_delta(control,&observed),
+        "time":time_reading(&pack,&observed,family,probe)?,
+        "obligations":obligation_reading(&pack,family,input)?,
+        "activity_sources":activity_reading(&pack,&observed,family,input),"observed":observed}))
+}
+
 async fn measure(
     runtime: &ContinuityRuntime,
     family: &Family,
@@ -884,23 +921,31 @@ async fn measure(
     let control = snapshot(&pack, &topic)?;
     let mut rows = Vec::new();
     for probe in &family.probes {
-        // Explicit boundary: only supported input is sent. The planned case remains not_run
-        // until its typed public fields/routes are wired; unknown serde fields are never sent.
-        let pack = runtime
-            .adapter()
-            .retrieve(probe.supported_input.clone())
-            .await?;
-        let observed = snapshot(&pack, &probe.supported_input)?;
-        let projection = json!({"status":"executed","input":probe.supported_input,
-            "topic_targets":target_cohort(&observed,&family.topic_targets),
-            "delta_vs_topic_alone":pack_delta(&control,&observed),
-            "time":time_reading(&pack,&observed,family,probe)?,
-            "obligations":obligation_reading(&pack,family,&probe.supported_input)?,
-            "activity_sources":activity_reading(&pack,&observed,family,&probe.supported_input),"observed":observed});
+        let projection = Box::pin(retrieve_reading(
+            runtime,
+            family,
+            probe,
+            &probe.supported_input,
+            &control,
+        ))
+        .await?;
+        let mut missing = probe.required_routes.clone();
+        let executed = if let Some(input) = recency_input(probe)? {
+            missing.retain(|route| route != "recency_floor");
+            if missing.is_empty() {
+                Box::pin(retrieve_reading(runtime, family, probe, &input, &control)).await?
+            } else {
+                Value::Null
+            }
+        } else if missing.is_empty() {
+            projection.clone()
+        } else {
+            Value::Null
+        };
         rows.push(json!({"probe":probe.name,"planned_input":probe,
-            "status":if probe.required_routes.is_empty() { "executed" } else { "not_run" },
-            "missing_capabilities":probe.required_routes,
-            "parent_control":projection}));
+            "status":if missing.is_empty() { "executed" } else { "not_run" },
+            "missing_capabilities":missing,
+            "executed_case":executed,"parent_control":projection}));
     }
     Ok(
         json!({"topic_alone_input":topic,"topic_alone_observed":control,
@@ -1008,12 +1053,36 @@ pub(super) async fn run(stores: &Path, config: &BenchmarkRunConfig) -> Result<Va
     Ok(json!({"inputs":inputs,"measurements":measurements,
         "full_cases_executed":executed,"full_cases_not_run":not_run,"supported_parent_controls_executed":executed+not_run,
         "same_day_description_continuity":["/keyless_measurements","/opposed_keyless_measurements"],
-        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Each row separately executes a supported parent control with roles, due instant, range and recency floor absent; no unavailable predicate is silently forwarded. Native resolution is reported; authored due classification is labelled hypothetical. Topic counts refer only to eight authored episodes. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
+        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Each row separately executes a supported parent control with roles, due instant, range and explicit recency floor absent. executed_case records the full supported case; recency overrides run only when the serialized native floor type advertises the field and its value survives a typed round-trip. Missing fields remain not_run; no unavailable predicate is silently forwarded. Native resolution is reported; authored due classification is labelled hypothetical. Topic counts refer only to eight authored episodes. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recency_override_requires_an_advertised_native_field() {
+        let family = time_family(&config());
+        let defaults = serde_json::to_value(native::RetrievalCueFloors::default()).unwrap();
+        for probe in family.probes.iter().filter(|p| p.recency_floor.is_some()) {
+            let mapped = recency_input(probe).unwrap();
+            if defaults.get("recency").is_some() {
+                let mapped = mapped.expect("advertised recency must execute");
+                let mut actual = serde_json::to_value(&mapped).unwrap();
+                assert_eq!(actual["cue_floors"]["recency"], json!(probe.recency_floor));
+                actual["cue_floors"] = Value::Null;
+                assert_eq!(
+                    actual,
+                    serde_json::to_value(&probe.supported_input).unwrap()
+                );
+            } else {
+                assert!(
+                    mapped.is_none(),
+                    "an absent native field must remain not_run"
+                );
+            }
+        }
+    }
 
     #[test]
     fn generated_cases_preserve_intent_when_native_ids_oppose_time() {
