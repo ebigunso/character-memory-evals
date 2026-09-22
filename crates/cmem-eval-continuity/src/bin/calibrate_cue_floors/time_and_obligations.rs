@@ -1,9 +1,10 @@
 //! Fixed inputs for before/after time and prospective-memory measurements.
 use super::*;
 use cmem_eval::{
-    CandidateValidationStatus, CommitWriteOptions, DerivedMemoryInput, DerivedType, EntityInput,
-    EpisodeInput, GraphEnrichmentInput, MemoryEndpointInput, MemoryLinkInput, ObjectType,
-    ObservationInput, PrepareWriteInput, RelationType,
+    CandidateValidationStatus, CommitWriteOptions, ControllableSimilarityEmbeddingProvider,
+    DerivedMemoryInput, DerivedType, EntityInput, EpisodeInput, GraphEnrichmentInput,
+    MemoryEndpointInput, MemoryLinkInput, ObjectType, ObservationInput, PrepareWriteInput,
+    RelationType,
 };
 
 const EVENING: &str = "2025-09-09T20:00:00+09:00";
@@ -523,6 +524,150 @@ fn obligations_family(config: &BenchmarkRunConfig) -> Family {
     family
 }
 
+fn familiar_person_family(config: &BenchmarkRunConfig) -> Family {
+    let mut family = empty("familiar-person");
+    let start = timestamp("2025-08-15T18:00:00+09:00").unwrap();
+    for n in 0..25 {
+        experience(
+            &mut family,
+            &format!("shared-day-{n:02}"),
+            &(start + Duration::days(n)).to_rfc3339(),
+            true,
+            0.5,
+            -0.1,
+        );
+    }
+    experience(
+        &mut family,
+        "latest-alone",
+        "2025-09-09T19:00:00+09:00",
+        false,
+        0.5,
+        -0.1,
+    );
+    for (n, text) in [
+        "Iris likes her tea without sugar.",
+        "Iris prefers to read beside a window.",
+        "Iris finds crowded markets tiring.",
+        "Iris repairs the loose bindings of her books.",
+        "Iris tends the herbs before breakfast.",
+        "Iris walks by the river when she needs quiet.",
+        "Iris saves postcards from friends.",
+        "Iris asks for time to think before making plans.",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut memory = derived(
+            &format!("known-about-iris-{n:02}"),
+            &format!("2025-09-01T10:{n:02}:00+09:00"),
+            text.into(),
+            DerivedType::Reflection,
+            vec!["iris".into()],
+            0.5,
+        );
+        memory.given_by_application = false;
+        memory.source_episode_external_ids = vec![format!("shared-day-{n:02}")];
+        let mut vector = vec![0.0; 9];
+        vector[8] = -1.0;
+        assign(&mut family.embedding, text, vector);
+        family.graph.derived_memories.push(memory);
+    }
+    for person in [false, true] {
+        family.probes.push(probe(
+            if person {
+                "familiar-person-no-topic"
+            } else {
+                "familiar-person-time-only-control"
+            },
+            input(config, &family.namespace, person, None),
+            &[],
+        ));
+    }
+    family
+}
+
+fn shared_interpretation_family(config: &BenchmarkRunConfig) -> Family {
+    let mut family = empty("shared-interpretation");
+    // Enough newer occasions exclude the old source from the bounded recency pool.
+    for n in 0..20 {
+        experience(
+            &mut family,
+            &format!("unrelated-recent-{n:02}"),
+            &format!("2025-09-09T16:{n:02}:00+09:00"),
+            false,
+            0.5,
+            -0.1,
+        );
+    }
+    for (id, at, words) in [
+        (
+            "much-older-source",
+            "2025-08-01T12:00:00+09:00",
+            "Open steps beside the harbor",
+        ),
+        (
+            "description-occasion",
+            "2025-09-09T18:00:00+09:00",
+            "A quiet book room with cedar shelving",
+        ),
+    ] {
+        experience(&mut family, id, at, false, 0.5, -0.1);
+        family
+            .experiences
+            .last_mut()
+            .unwrap()
+            .write
+            .scene
+            .setting
+            .words = Some(words.into());
+        let mut vector = vec![0.0; 9];
+        if id == "description-occasion" {
+            vector[1] = 1.0;
+        } else {
+            vector[8] = -1.0;
+        }
+        assign(&mut family.embedding, words, vector);
+    }
+    let query = "The quiet reading space surrounded by cedar bookcases";
+    let mut vector = vec![0.0; 9];
+    vector[1] = 0.9;
+    vector[8] = (1.0_f32 - 0.9 * 0.9).sqrt();
+    assign(&mut family.embedding, query, vector);
+    let text = "Rain interrupted two visits in different places.";
+    let mut memory = derived(
+        "shared-interpretation",
+        "2025-09-09T18:30:00+09:00",
+        text.into(),
+        DerivedType::Reflection,
+        vec![],
+        0.5,
+    );
+    memory.given_by_application = false;
+    memory.source_episode_external_ids =
+        vec!["much-older-source".into(), "description-occasion".into()];
+    family.graph.derived_memories.push(memory);
+    let mut vector = vec![0.0; 9];
+    vector[6] = 1.0;
+    assign(&mut family.embedding, text, vector);
+    family.probes.push(probe(
+        "shared-interpretation-time-only-control",
+        input(config, &family.namespace, false, None),
+        &[],
+    ));
+    let mut description = input(config, &family.namespace, false, None);
+    description.scene.setting.words = Some(query.into());
+    family
+        .probes
+        .push(probe("description-shared-interpretation", description, &[]));
+    family.probes.push(probe(
+        "shared-interpretation-topic-control",
+        input(config, &family.namespace, false, Some(text)),
+        &[],
+    ));
+    family
+}
+
 fn healthy(outcome: &cmem_eval::RememberOutcome, expected_vectors: usize) -> Result<()> {
     ensure!(
         outcome.vector_indexing_failure.is_none()
@@ -903,12 +1048,120 @@ async fn retrieve_reading(
 ) -> Result<Value> {
     let pack = runtime.adapter().retrieve(input.clone()).await?;
     let observed = snapshot(&pack, input)?;
-    Ok(json!({"status":"executed","input":input,
+    let mut reading = json!({"status":"executed","input":input,
         "topic_targets":target_cohort(&observed,&family.topic_targets),
         "delta_vs_topic_alone":pack_delta(control,&observed),
         "time":time_reading(&pack,&observed,family,probe)?,
         "obligations":obligation_reading(&pack,family,input)?,
-        "activity_sources":activity_reading(&pack,&observed,family,input),"observed":observed}))
+        "activity_sources":activity_reading(&pack,&observed,family,input),"observed":observed});
+    if let Some(composition) = falsifier_reading(family, input, &observed)? {
+        reading["falsifier"] = composition;
+    }
+    Ok(reading)
+}
+
+fn falsifier_reading(
+    family: &Family,
+    input: &RetrieveInput,
+    observed: &Value,
+) -> Result<Option<Value>> {
+    if !matches!(
+        family.name.as_str(),
+        "familiar-person" | "shared-interpretation"
+    ) {
+        return Ok(None);
+    }
+    let selected = observed["selected"].as_array().unwrap();
+    let selected_record =
+        |external_id: &str| selected.iter().find(|s| s["external_id"] == external_id);
+    let mut experiences = family.experiences.iter().collect::<Vec<_>>();
+    experiences.sort_by_key(|e| {
+        std::cmp::Reverse(timestamp(e.write.scene.time.as_deref().unwrap()).unwrap())
+    });
+    if family.name == "familiar-person" {
+        let latest_interaction = experiences
+            .iter()
+            .find(|e| {
+                e.write
+                    .scene
+                    .participants
+                    .iter()
+                    .any(|p| p.key.as_deref() == Some("iris"))
+            })
+            .unwrap();
+        let recent = experiences
+            .iter()
+            .take(12)
+            .map(|e| e.write.episode_external_id.as_str())
+            .collect::<Vec<_>>();
+        let episodes = selected
+            .iter()
+            .filter(|s| s["object"]["object_type"] == "episode")
+            .collect::<Vec<_>>();
+        let knowledge = family
+            .graph
+            .derived_memories
+            .iter()
+            .filter(|m| m.entity_external_ids.iter().any(|id| id == "iris"))
+            .filter_map(|m| selected_record(&m.external_id))
+            .collect::<Vec<_>>();
+        let recent_selected = episodes
+            .iter()
+            .filter(|s| {
+                s["external_id"]
+                    .as_str()
+                    .is_some_and(|id| recent.contains(&id))
+            })
+            .copied()
+            .collect::<Vec<_>>();
+        let last = selected_record(&latest_interaction.write.episode_external_id);
+        return Ok(Some(json!({"selected_total":selected.len(),
+            "recent_episode_slots":recent_selected.len(),"recent_episodes":recent_selected,
+            "older_episode_slots":episodes.len()-recent_selected.len(),
+            "person_knowledge_slots":knowledge.len(),"person_knowledge":knowledge,
+            "other_slots":selected.len()-episodes.len()-knowledge.len(),
+            "latest_interaction":last,"latest_interaction_selected":last.is_some(),
+            "authored_latest_interaction_id":latest_interaction.write.episode_external_id,
+            "authored_recent_episode_ids":recent,
+            "native_recency_episode_slots":episodes.iter().filter(|s| s["cue_kinds"].as_array().unwrap().iter().any(|k| k=="recency")).count(),
+            "basis":"Exclusive slot census: latest 12 authored occasions, older episodes, authored person knowledge returned natively, and other objects. Last interaction overlaps the recent-episode group and is not an extra slot. Record native cue kinds separately from authored semantic categories."})));
+    }
+    let old = experiences.last().unwrap();
+    let shared = &family.graph.derived_memories[0];
+    let old_selected = selected_record(&old.write.episode_external_id);
+    let old_cues = old_selected.map(|s| &s["cue_kinds"]);
+    let provider = ControllableSimilarityEmbeddingProvider::new(family.embedding.clone())?;
+    let description = family
+        .probes
+        .iter()
+        .find_map(|p| p.supported_input.scene.setting.words.as_deref())
+        .unwrap();
+    let query_vector = provider.vector_for_text(description)?;
+    let mut geometry = Vec::new();
+    for text in family
+        .embedding
+        .concepts
+        .values()
+        .flat_map(|c| &c.inputs)
+        .filter(|text| text.as_str() != description)
+    {
+        let vector = provider.vector_for_text(text)?;
+        geometry.push(
+            json!({"query":description,"stored":text,"query_vector":query_vector,
+            "stored_vector":vector,"cosine":super::descriptions::cosine(&query_vector,&vector),
+            "vectors_equal":query_vector==vector}),
+        );
+    }
+    Ok(Some(
+        json!({"old_episode_selected":old_selected.is_some(),"old_episode":old_selected,
+        "old_episode_native_place_credit":old_cues.is_some_and(|k| k.as_array().unwrap().iter().any(|kind| kind=="place")),
+        "old_episode_native_recency_credit":old_cues.is_some_and(|k| k.as_array().unwrap().iter().any(|kind| kind=="recency")),
+        "authored_old_episode_id":old.write.episode_external_id,
+        "shared_interpretation_selected":selected_record(&shared.external_id),
+        "authored_shared_source_episode_ids":shared.source_episode_external_ids,
+        "description_present":input.scene.setting.words.is_some(),"geometry":geometry,
+        "basis":"Old-source identity and shared sources are authored; membership and place/recency credit come only from native selected records. Time-only controls background recency; topic control checks an intentional route through the shared interpretation. The query is distinct from every emitted stored vector."}),
+    ))
 }
 
 async fn measure(
@@ -986,7 +1239,13 @@ fn activity_reading(
 pub(super) async fn run(stores: &Path, config: &BenchmarkRunConfig) -> Result<Value> {
     let mut inputs = Vec::new();
     let mut measurements = Vec::new();
-    for original in [time_family(config), obligations_family(config)] {
+    for build in [
+        time_family,
+        obligations_family,
+        familiar_person_family,
+        shared_interpretation_family,
+    ] {
+        let original = build(config);
         let mut next = original.clone();
         let mut order = Value::Null;
         for opposed_order in [false, true] {
@@ -1053,12 +1312,138 @@ pub(super) async fn run(stores: &Path, config: &BenchmarkRunConfig) -> Result<Va
     Ok(json!({"inputs":inputs,"measurements":measurements,
         "full_cases_executed":executed,"full_cases_not_run":not_run,"supported_parent_controls_executed":executed+not_run,
         "same_day_description_continuity":["/keyless_measurements","/opposed_keyless_measurements"],
-        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Each row separately executes a supported parent control with roles, due instant, range and explicit recency floor absent. executed_case records the full supported case; recency overrides run only when the serialized native floor type advertises the field and its value survives a typed round-trip. Missing fields remain not_run; no unavailable predicate is silently forwarded. Native resolution is reported; authored due classification is labelled hypothetical. Topic counts refer only to eight authored episodes. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
+        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Each row separately executes a supported parent control with roles, due instant, range and explicit recency floor absent. executed_case records the full supported case; recency overrides run only when the serialized native floor type advertises the field and its value survives a typed round-trip. Missing fields remain not_run; no unavailable predicate is silently forwarded. Native resolution is reported; authored due classification is labelled hypothetical. Topic counts use eight graded episodes in each original family; added falsifiers use separate composition and spillover readings. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn added_falsifiers_separate_person_knowledge_and_shared_old_sources() {
+        let config = config();
+        let person = familiar_person_family(&config);
+        let meetings = person
+            .experiences
+            .iter()
+            .filter(|e| !e.write.scene.participants.is_empty())
+            .count();
+        assert!(meetings * 10 > person.experiences.len() * 9);
+        assert!(
+            person
+                .probes
+                .iter()
+                .all(|p| p.supported_input.topic.is_none())
+        );
+        assert!(!person.graph.derived_memories.is_empty());
+        assert!(
+            person
+                .graph
+                .derived_memories
+                .iter()
+                .all(|m| !m.given_by_application
+                    && m.entity_external_ids == ["iris"]
+                    && !m.source_episode_external_ids.is_empty())
+        );
+        let last = person
+            .experiences
+            .iter()
+            .filter(|e| !e.write.scene.participants.is_empty())
+            .max_by_key(|e| timestamp(e.write.scene.time.as_deref().unwrap()).unwrap())
+            .unwrap();
+        let census = falsifier_reading(&person, &person.probes[1].supported_input, &json!({"selected":[
+            {"external_id":last.write.episode_external_id,"object":{"object_type":"episode"},"cue_kinds":["participant"]},
+            {"external_id":person.graph.derived_memories[0].external_id,"object":{"object_type":"derived_memory"}},
+            {"external_id":"observation","object":{"object_type":"observation"}}
+        ]})).unwrap().unwrap();
+        assert_eq!(census["recent_episode_slots"], 1);
+        assert_eq!(census["person_knowledge_slots"], 1);
+        assert_eq!(census["other_slots"], 1);
+        assert_eq!(census["selected_total"], 3);
+        assert_eq!(census["latest_interaction_selected"], true);
+        assert_eq!(census["native_recency_episode_slots"], 0);
+        let shared = shared_interpretation_family(&config);
+        let description = shared
+            .probes
+            .iter()
+            .find(|p| p.supported_input.scene.setting.words.is_some())
+            .unwrap();
+        let result = falsifier_reading(
+            &shared,
+            &description.supported_input,
+            &json!({"selected":[]}),
+        )
+        .unwrap()
+        .unwrap();
+        let pairs = result["geometry"].as_array().unwrap();
+        assert!(
+            pairs
+                .iter()
+                .all(|p| p["vectors_equal"] == false && p["cosine"].as_f64().unwrap() < 0.95)
+        );
+        let best = pairs
+            .iter()
+            .map(|p| p["cosine"].as_f64().unwrap())
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!((0.89..0.91).contains(&best));
+        let sources = &shared.graph.derived_memories[0].source_episode_external_ids;
+        assert_eq!(sources.len(), 2);
+        let old = shared
+            .experiences
+            .iter()
+            .min_by_key(|e| timestamp(e.write.scene.time.as_deref().unwrap()).unwrap())
+            .unwrap();
+        assert!(sources.contains(&old.write.episode_external_id));
+        assert!(shared.experiences.len() > 16);
+        assert!(description.supported_input.topic.is_none());
+        assert!(
+            shared
+                .probes
+                .iter()
+                .any(|p| p.supported_input.topic.is_some())
+        );
+        for original in [person, shared] {
+            let ids = original
+                .experiences
+                .iter()
+                .map(|e| e.write.episode_external_id.clone())
+                .chain(
+                    original
+                        .graph
+                        .derived_memories
+                        .iter()
+                        .map(|m| m.external_id.clone()),
+                )
+                .enumerate()
+                .map(|(n, id)| (id, format!("native-{n:03}")))
+                .collect();
+            let (permuted, _) = opposed(&original, &ids).unwrap();
+            for (old, new) in original
+                .graph
+                .derived_memories
+                .iter()
+                .zip(&permuted.graph.derived_memories)
+            {
+                for (old_id, new_id) in old
+                    .source_episode_external_ids
+                    .iter()
+                    .zip(&new.source_episode_external_ids)
+                {
+                    let source = |family: &Family, id: &str| {
+                        family
+                            .experiences
+                            .iter()
+                            .find(|e| e.write.episode_external_id == id)
+                            .unwrap()
+                            .write
+                            .content
+                            .clone()
+                    };
+                    assert_eq!(source(&original, old_id), source(&permuted, new_id));
+                }
+            }
+        }
+    }
 
     #[test]
     fn recency_override_requires_an_advertised_native_field() {

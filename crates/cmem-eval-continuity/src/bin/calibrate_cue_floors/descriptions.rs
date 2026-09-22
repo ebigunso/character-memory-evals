@@ -496,7 +496,7 @@ pub(super) fn native_paraphrase_scores(measurements: &Value) -> Value {
         "method":"One native best fetched scene-surface score per single-kind search at floor 1, before occasion selection or graph eligibility. Joined participant references share one score. Null is no match, not zero. Authored classes label results only; duplicate floor sweeps and ID orders are not independent samples. Controlled synthetic geometry, not a production threshold estimate."})
 }
 
-fn cosine(a: &[f32], b: &[f32]) -> f64 {
+pub(super) fn cosine(a: &[f32], b: &[f32]) -> f64 {
     let dot = a
         .iter()
         .zip(b)
