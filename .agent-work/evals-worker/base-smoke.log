@@ -1,6 +1,0 @@
-[cmem-eval][continuity][start] items=1 qa=1 elapsed_ms=0
-[cmem-eval][continuity][item 1/1][start] id=graded-similarity elapsed_ms=251
-[cmem-eval][continuity][item 1/1][done] id=graded-similarity item_latency_ms=0 elapsed_ms=1713
-[cmem-eval][continuity][write_outputs] rows=1 elapsed_ms=1733
-[cmem-eval][continuity][operations] {"commit":4,"link":19,"prepare":4,"remember":1,"retrieve":1,"validate_plan":4}
-[cmem-eval][continuity][cleanup] namespaces=1 elapsed_ms=1795
