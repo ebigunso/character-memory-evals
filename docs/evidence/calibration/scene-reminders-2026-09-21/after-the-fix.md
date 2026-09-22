@@ -1,5 +1,7 @@
 # Scene reminder calibration — before / after
 
+> **Superseded, 2026-09-22 UTC:** this reading rests on a degenerate reworded probe with an effectively exact stored-vector anchor. Use the [corrected description reading](corrected-description-reading.md). Its corrected BEFORE already satisfies latest-N and returns 4/4 same-day occasions; the prior failure/fix interpretation and agreement-based paraphrase claim are withdrawn. This historical reading and its original archives are preserved for citation history.
+
 Captured 2026-09-21; promoted 2026-09-22. Unsealed calibration snapshot. See [README](README.md) for archives, original hashes, reproduction, and the scope of the evidence.
 
 Default-floor topic targets improve **3/8 → 6/8** for identical and reworded scene descriptions in both native-ID orders (topic alone: 6/8). Keyless reminders return one latest occasion by authored chronology. Unknown descriptions still recall an occasion: the orthogonal zero is STRUCTURAL, not a similarity threshold.

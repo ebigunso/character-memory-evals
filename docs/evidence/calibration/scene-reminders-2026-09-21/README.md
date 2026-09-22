@@ -1,5 +1,7 @@
 # Scene reminder calibration, 2026-09-21
 
+For corrected citations, use the [corrected description reading](corrected-description-reading.md), [complete 515-row table](corrected-description-table.json), and [six-archive manifest](corrected-description-manifest.json), promoted 2026-09-22 UTC. They supersede the degenerate-probe interpretation in the historical reading below; all earlier artifacts remain preserved.
+
 This directory retains the unsealed scene-reminder calibration captured on 2026-09-21 and promoted on 2026-09-22 for library-record citations. The measurements compare library `979643f` with `63f176f` using harness `97f63266b37722627f06a6a8c9ceecbfb3be7d81`. Each pin ran 515 conditions twice with byte-identical reports. The controlled vectors test retrieval behavior; they do not establish a production similarity threshold.
 
 ## Readings
