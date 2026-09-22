@@ -19,6 +19,8 @@ use serde_json::{Value, json};
 
 #[path = "calibrate_cue_floors/descriptions.rs"]
 mod descriptions;
+#[path = "calibrate_cue_floors/time_and_obligations.rs"]
+mod time_and_obligations;
 
 const KINDS: [&str; 4] = ["participant", "place", "activity", "topic"];
 const FLOORS: [usize; 5] = [0, 1, 2, 3, 5];
@@ -789,7 +791,12 @@ fn revision(path: &Path) -> Result<String> {
 async fn main() -> Result<()> {
     let mut args = env::args_os().skip(1);
     let output = args.next().context("usage: calibrate_cue_floors <new-report.json>; run via cargo after pinning the sibling library")?;
-    ensure!(args.next().is_none(), "expected one new report path");
+    let slices_only = match args.next() {
+        None => false,
+        Some(flag) if flag == "--slices-only" => true,
+        Some(_) => anyhow::bail!("expected optional --slices-only"),
+    };
+    ensure!(args.next().is_none(), "unexpected extra arguments");
     let output = Path::new(&output);
     let config = config();
     config.validate()?;
@@ -816,12 +823,17 @@ async fn main() -> Result<()> {
     let reworded_input = json!({"scenario":reworded_scenario,"probes":reworded_probes});
     let mut opposed_inputs = Vec::new();
     let result = async {
+        let time_and_prospective = Box::pin(time_and_obligations::run(&stores, &config)).await?;
         let mut results = Vec::new();
         for (name, scenario, probes) in [
             ("orthogonal", &scenario, &probes),
             ("overlapping", &overlap_scenario, &overlap_probes),
             ("reworded", &reworded_scenario, &reworded_probes),
         ] {
+            if slices_only {
+                results.push(Value::Null);
+                continue;
+            }
             let binding = EmbeddingRuntimeBinding::Controllable {
                 fixture: scenario
                     .embedding
@@ -855,6 +867,10 @@ async fn main() -> Result<()> {
             ("identical", &overlap_scenario, &overlap_probes),
             ("reworded", &reworded_scenario, &reworded_probes),
         ] {
+            if slices_only {
+                results.push(Value::Null);
+                continue;
+            }
             let run_root = stores.join(format!("{name}-ids-opposed"));
             fs::create_dir(&run_root)?;
             let binding = EmbeddingRuntimeBinding::Controllable {
@@ -889,6 +905,7 @@ async fn main() -> Result<()> {
         drop(runtime);
         cleanup?;
         results.push(result?);
+        results.push(time_and_prospective);
         Ok::<_, anyhow::Error>(results)
     }
     .await;
@@ -899,13 +916,14 @@ async fn main() -> Result<()> {
         "checkout revision changed during calibration"
     );
     let report = json!({"header":{
-        "harness_commit":harness_commit,"library_commit":library_commit,"profile":if cfg!(debug_assertions){"debug"}else{"release"},
+        "harness_commit":harness_commit,"library_commit":library_commit,"slices_only":slices_only,"profile":if cfg!(debug_assertions){"debug"}else{"release"},
         "seed":CHECKED_FIXTURE_SEED,"input_sha256":text_sha256(&serde_json::to_string(&input)?),"config_sha256":text_sha256(&serde_json::to_string(&config)?),
         "overlapping_input_sha256":text_sha256(&serde_json::to_string(&overlap_input)?),
         "reworded_input_sha256":text_sha256(&serde_json::to_string(&reworded_input)?),
         "keyless_input_sha256":text_sha256(&serde_json::to_string(&keyless)?),
         "opposed_input_sha256":text_sha256(&serde_json::to_string(&opposed_inputs)?),
-        "generator_source_sha256":text_sha256(concat!(include_str!("calibrate_cue_floors.rs"), include_str!("calibrate_cue_floors/descriptions.rs"))),
+        "time_prospective_input_sha256":text_sha256(&serde_json::to_string(&measurements[7]["inputs"])?),
+        "generator_source_sha256":text_sha256(concat!(include_str!("calibrate_cue_floors.rs"), include_str!("calibrate_cue_floors/descriptions.rs"), include_str!("calibrate_cue_floors/time_and_obligations.rs"))),
         "config":config,"native_candidate_limits":native::RetrievalCandidateLimits::default(),"native_graph_limits":native::RetrievalGraphLimits::default(),
         "native_section_limits":native::ContinuitySectionLimits::default(),"native_default_floors":native::RetrievalCueFloors::default(),"sweep":FLOORS,"stores_cleaned":true},
         "method":{
@@ -923,6 +941,10 @@ async fn main() -> Result<()> {
         "opposed_identical_measurements":measurements[4],
         "opposed_reworded_measurements":measurements[5],
         "opposed_keyless_measurements":measurements[6],
+        "time_and_prospective":measurements[7],
+        "native_paraphrase_scores":{
+            "original_ids":descriptions::native_paraphrase_scores(&measurements[2]),
+            "opposed_ids":descriptions::native_paraphrase_scores(&measurements[5])},
         "paraphrase_geometry":descriptions::paraphrase_geometry()?});
     serde_json::to_writer_pretty(&mut file, &report)?;
     file.write_all(b"\n")?;
@@ -934,6 +956,28 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_scene_score_reader_distinguishes_missing_and_no_match() {
+        let row = |probe: &str, floor, trace| json!({"probe":probe,"floor":floor,"observed":{"trace":trace}});
+        let report = json!({"rows":[
+            row("overlap-place-sweep-place",1,json!({"scene_cue_searches":[{"references":[],"best_score":0.9}]})),
+            row("unlived-scene-place-with-topic",1,json!({"scene_cue_searches":[{"references":[],"best_score":null}]})),
+            row("overlap-place-sweep-place",5,json!({"scene_cue_searches":[{"best_score":0.1}]}))]});
+        let read = descriptions::native_paraphrase_scores(&report);
+        assert_eq!(read["same_referent_reworded"], json!([0.9]));
+        assert_eq!(read["different_referents"], json!([null]));
+        assert_eq!(read["status"], "executed");
+        assert_eq!(
+            descriptions::native_paraphrase_scores(
+                &json!({"rows":[row("overlap-place-sweep-place",1,json!({}))]})
+            )["status"],
+            "not_available"
+        );
+        assert_eq!(
+            descriptions::native_paraphrase_scores(&Value::Null)["status"],
+            "not_run"
+        );
+    }
     #[test]
     fn overlap_generation_uses_actual_scene_write_surfaces() {
         let (scenario, probes) = generated_overlap(&config(), false).unwrap();

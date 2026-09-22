@@ -449,10 +449,51 @@ pub(super) async fn measure(runtime: &ContinuityRuntime, family: &KeylessFamily)
     Ok(
         json!({"executed":rows.len(),"not_run":0,"entity_registration_calls":0,
         "topic_only_control_cohort":target_cohort(&control,&family.targets),"topic_only_control_observed":control,
-        "best_scene_surface_score_per_description":{"status":"not_available","reason":"The pinned trace has no best scene-surface score per description cue; raw native traces are retained."},
+        "best_scene_surface_score_per_description":{
+            "status":if rows.iter().any(|r| r["observed"]["trace"].get("scene_cue_searches").is_some()) { "available" } else { "not_available" },
+            "scope":"One setting or joined-participants search, shared by its native references; read observed.trace.scene_cue_searches on each row. An absent field is unavailable, and a null best_score is no fetched scene match."},
         "method":"No person/entity keys, setting keys, names, activities or speaker keys on any write or probe; internal namespace and memory external IDs are storage bookkeeping, not perceived identities. Shared occasions span 12 days (4/day); topic targets follow the last day's occasions. Same-day probe uses that day's evening and descriptions only. Latest-N membership and the available same-day denominator are expectations from AUTHORED scene times. Returned same-day counts use native recorded scenes, and each returned occasion's native time is checked against its authored value. No native census of all stored scenes is obtained from the public adapter, so persisted times for unreturned occasions are not independently verified. No consolidation or temporal-filter success is claimed.",
         "rows":rows}),
     )
+}
+
+pub(super) fn native_paraphrase_scores(measurements: &Value) -> Value {
+    let Some(rows) = measurements["rows"].as_array() else {
+        return json!({"status":"not_run","reason":"reworded family excluded from this run"});
+    };
+    let mut samples = Vec::new();
+    let mut unavailable = Vec::new();
+    for row in rows.iter().filter(|r| r["floor"] == 1) {
+        let probe = row["probe"].as_str().unwrap();
+        let class = match probe {
+            "overlap-place-sweep-place" | "overlap-participant-sweep-participant" => {
+                "same_referent_reworded"
+            }
+            "unlived-scene-place-with-topic" | "unlived-scene-participant-with-topic" => {
+                "different_referents"
+            }
+            _ => continue,
+        };
+        match row["observed"]["trace"]["scene_cue_searches"].as_array() {
+            Some(searches) => samples.extend(
+                searches
+                    .iter()
+                    .map(|search| json!({"class":class,"probe":probe,"native":search})),
+            ),
+            None => unavailable.push(probe),
+        }
+    }
+    let distribution = |class| {
+        samples
+            .iter()
+            .filter(|s| s["class"] == class)
+            .map(|s| s["native"]["best_score"].clone())
+            .collect::<Vec<_>>()
+    };
+    json!({"status":if unavailable.is_empty() { "executed" } else { "not_available" },
+        "same_referent_reworded":distribution("same_referent_reworded"),"different_referents":distribution("different_referents"),
+        "samples":samples,"unavailable_probes":unavailable,
+        "method":"One native best fetched scene-surface score per single-kind search at floor 1, before occasion selection or graph eligibility. Joined participant references share one score. Null is no match, not zero. Authored classes label results only; duplicate floor sweeps and ID orders are not independent samples. Controlled synthetic geometry, not a production threshold estimate."})
 }
 
 pub(super) fn paraphrase_geometry() -> Result<Value> {
