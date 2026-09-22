@@ -1256,3 +1256,5 @@ Prevention:
 
 Evidence:
 - `.agent-work/reviewer/v0-2-measurement-extension-review.md`; the M3 ingest report under the poster-state worktree; decider ruling 2026-09-22 in the orchestration session.
+
+- 2026-09-22 — M3 discarded write outcomes, so an Ok containing vector-indexing failure could silently invalidate the measurement; measure_person_state now checks every write outcome and aborts on vector, repair, statistics or indexing completeness failures, with a real missing-embedding regression. Measurement runners must enforce the same undegraded-write rule as the scenario driver before measuring.
