@@ -646,6 +646,22 @@ fn shared_interpretation_family(config: &BenchmarkRunConfig) -> Family {
     memory.given_by_application = false;
     memory.source_episode_external_ids =
         vec!["much-older-source".into(), "description-occasion".into()];
+    // Provenance fields are not traversable MemoryLinks on the public typed-write path.
+    for source in &memory.source_episode_external_ids {
+        family.graph.links.push(MemoryLinkInput {
+            external_id: format!("shared-source-{source}"),
+            from: MemoryEndpointInput {
+                object_type: ObjectType::DerivedMemory,
+                external_id: memory.external_id.clone(),
+            },
+            relation: RelationType::DerivedFrom,
+            to: MemoryEndpointInput {
+                object_type: ObjectType::Episode,
+                external_id: source.clone(),
+            },
+            rationale: None,
+        });
+    }
     family.graph.derived_memories.push(memory);
     let mut vector = vec![0.0; 9];
     vector[6] = 1.0;
@@ -809,13 +825,15 @@ async fn ingest(runtime: &ContinuityRuntime, family: &Family) -> Result<BTreeMap
             links: family.graph.links.clone(),
             ..Default::default()
         };
-        healthy(
-            &adapter
-                .remember_enrichment(graph)
-                .await?
-                .context("missing resolution write")?,
-            0,
-        )?;
+        let outcome = adapter
+            .remember_enrichment(graph)
+            .await?
+            .context("missing graph-link write")?;
+        healthy(&outcome, 0)?;
+        ensure!(
+            outcome.persisted_link_ids.len() == family.graph.links.len(),
+            "explicit graph links were not all persisted"
+        );
     }
     Ok(ids)
 }
@@ -1388,6 +1406,17 @@ mod tests {
         assert!((0.89..0.91).contains(&best));
         let sources = &shared.graph.derived_memories[0].source_episode_external_ids;
         assert_eq!(sources.len(), 2);
+        assert_eq!(shared.graph.links.len(), sources.len());
+        assert!(
+            sources
+                .iter()
+                .all(|source| shared.graph.links.iter().any(|link| link.relation
+                    == RelationType::DerivedFrom
+                    && link.from.object_type == ObjectType::DerivedMemory
+                    && link.from.external_id == shared.graph.derived_memories[0].external_id
+                    && link.to.object_type == ObjectType::Episode
+                    && &link.to.external_id == source))
+        );
         let old = shared
             .experiences
             .iter()
