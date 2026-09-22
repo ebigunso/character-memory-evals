@@ -783,13 +783,7 @@ impl CharacterMemoryAdapter {
                 "observation" => ObjectType::Observation,
                 _ => unreachable!("validated vector-only object kind"),
             };
-            let mut context = RetrievalContext {
-                topic: input.topic.clone(),
-                scene: resolve_scene(&input.scene, state)?,
-                activity: resolve_activity(input.activity.as_ref(), state)?,
-                cue_floors: input.cue_floors.unwrap_or_default(),
-                ..Default::default()
-            };
+            let mut context = resolve_retrieval_context(&input, state)?;
             context.include_trace = true;
             context.object_type_defaults = vec![object_type];
             context.candidate_limits.max_vector_candidates = budget
@@ -1433,7 +1427,12 @@ impl CharacterMemoryAdapter {
             ))?,
             observation
                 .observed_at
-                .or_else(|| episode.scene.as_ref().map(|scene| scene.time))
+                .or_else(|| {
+                    episode
+                        .scene
+                        .as_ref()
+                        .map(|scene| scene.time.with_timezone(&Utc))
+                })
                 .unwrap_or(DateTime::<Utc>::UNIX_EPOCH),
         );
         let mut remember_input = RememberInput::new(input.content.clone());
@@ -1554,13 +1553,7 @@ impl CharacterMemoryAdapter {
             .get_mut(&input.namespace)
             .ok_or_else(|| explicit_lifecycle_error(&input.namespace))?;
 
-        let mut context = RetrievalContext {
-            topic: input.topic,
-            scene: resolve_scene(&input.scene, state)?,
-            activity: resolve_activity(input.activity.as_ref(), state)?,
-            cue_floors: input.cue_floors.unwrap_or_default(),
-            ..Default::default()
-        };
+        let mut context = resolve_retrieval_context(&input, state)?;
         context.include_trace = input.surface_policy.include_debug_rationale;
         if let Some(max_vector_candidates) = input.surface_policy.max_vector_candidates {
             context.candidate_limits.max_vector_candidates = max_vector_candidates;
@@ -2106,6 +2099,38 @@ fn parse_timestamp(value: Option<&str>) -> Result<Option<DateTime<Utc>>> {
         .transpose()
 }
 
+fn resolve_retrieval_context(
+    input: &RetrieveInput,
+    state: &ExternalIdRegistry,
+) -> Result<RetrievalContext> {
+    let context = RetrievalContext {
+        topic: input.topic.clone(),
+        scene: resolve_scene(&input.scene, state)?,
+        activity: resolve_activity(input.activity.as_ref(), state)?,
+        cue_floors: input.cue_floors.unwrap_or_default(),
+        ..Default::default()
+    };
+    let Some(range) = &input.time_range else {
+        return Ok(context);
+    };
+    if input.mode != RetrievalMode::Hybrid {
+        return Err(crate::TimeRangeInputError::UnsupportedRetrievalMode.into());
+    }
+    // Matched calibration runs build against both pins; absent fields must fail
+    // closed instead of being silently discarded by the older serde type.
+    let mut shape = serde_json::to_value(context)?;
+    let field = shape
+        .get_mut("time_range")
+        .ok_or(crate::TimeRangeInputError::UnsupportedNativeField)?;
+    let expected = serde_json::to_value(range)?;
+    *field = expected.clone();
+    let context: RetrievalContext = serde_json::from_value(shape)?;
+    if serde_json::to_value(&context)?["time_range"] != expected {
+        return Err(crate::TimeRangeInputError::NativeRoundTripMismatch.into());
+    }
+    Ok(context)
+}
+
 fn resolve_activity(
     input: Option<&crate::ActivityInput>,
     state: &ExternalIdRegistry,
@@ -2140,8 +2165,17 @@ fn resolve_scene(
     input: &crate::MemorySceneInput,
     state: &ExternalIdRegistry,
 ) -> Result<character_memory::Scene> {
+    let time = input
+        .time
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("1970-01-01T00:00:00Z");
+    // Validate the public format strictly, then let the native Scene time type
+    // parse it. FixedOffset pins must retain the caller's local calendar date;
+    // matched older UTC pins still consume the same instant.
+    DateTime::parse_from_rfc3339(time).context("parse RFC3339 scene timestamp")?;
     Ok(character_memory::Scene {
-        time: parse_timestamp(input.time.as_deref())?.unwrap_or(DateTime::<Utc>::UNIX_EPOCH),
+        time: time.parse()?,
         participants: input
             .participants
             .iter()
@@ -2841,6 +2875,7 @@ mod tests {
         let mut query = RetrieveInput {
             activity: None,
             cue_floors: None,
+            time_range: None,
             mode: RetrievalMode::VectorOnly,
             namespace: "n".into(),
             topic: Some("same text".into()),
@@ -2936,6 +2971,7 @@ mod tests {
         let query = RetrieveInput {
             activity: None,
             cue_floors: None,
+            time_range: None,
             mode: RetrievalMode::Hybrid,
             namespace: "b".into(),
             topic: Some("The notebook is blue.".into()),
@@ -3183,6 +3219,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: "names".into(),
                 topic: Some("Ada".into()),
@@ -3285,6 +3322,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.into(),
                 topic: Some(text.into()),
@@ -3434,6 +3472,105 @@ mod tests {
     }
 
     #[test]
+    fn time_range_mapping_matches_the_built_native_context() {
+        let state = ExternalIdRegistry::new("range-drift");
+        let mut input = RetrieveInput {
+            mode: RetrievalMode::Hybrid,
+            namespace: state.namespace.clone(),
+            topic: Some("Repairing a copper bell".into()),
+            scene: crate::MemorySceneInput {
+                time: Some("2025-09-09T08:00:00.123456789+09:00".into()),
+                ..Default::default()
+            },
+            activity: Some(crate::ActivityInput::Thread("work".into())),
+            time_range: None,
+            cue_floors: None,
+            surface_policy: RetrievalSurfacePolicy::default(),
+        };
+        let baseline = resolve_retrieval_context(&input, &state).unwrap();
+        let baseline_shape = serde_json::to_value(&baseline).unwrap();
+        assert!(baseline_shape["time_range"].is_null());
+        assert_eq!(
+            baseline_shape["scene"]["time"],
+            "2025-09-09T08:00:00.123456789+09:00"
+        );
+        assert_eq!(baseline.scene.time.date_naive().to_string(), "2025-09-09");
+        assert_eq!(
+            baseline
+                .scene
+                .time
+                .with_timezone(&Utc)
+                .date_naive()
+                .to_string(),
+            "2025-09-08"
+        );
+        assert_eq!(baseline.topic.as_deref(), Some("Repairing a copper bell"));
+        assert_eq!(
+            baseline.activity,
+            resolve_activity(input.activity.as_ref(), &state).unwrap()
+        );
+        assert!(
+            serde_json::to_value(&input)
+                .unwrap()
+                .get("time_range")
+                .is_none()
+        );
+        for (start, end, expected_start, expected_end) in [
+            (
+                "2025-09-02T00:00:00.123456789+09:00",
+                "2025-09-02T23:59:59.987654321+09:00",
+                "2025-09-01T15:00:00.123456789Z",
+                "2025-09-02T14:59:59.987654321Z",
+            ),
+            (
+                "2025-09-02T23:59:59.987654321+09:00",
+                "2025-09-02T00:00:00.123456789+09:00",
+                "2025-09-02T14:59:59.987654321Z",
+                "2025-09-01T15:00:00.123456789Z",
+            ),
+        ] {
+            input.time_range = Some(crate::TimeRangeInput {
+                start: DateTime::parse_from_rfc3339(start)
+                    .unwrap()
+                    .with_timezone(&Utc),
+                end: DateTime::parse_from_rfc3339(end)
+                    .unwrap()
+                    .with_timezone(&Utc),
+            });
+            let result = resolve_retrieval_context(&input, &state);
+            if baseline_shape.get("time_range").is_some() {
+                let actual = serde_json::to_value(result.unwrap()).unwrap();
+                let mut expected = baseline_shape.clone();
+                expected["time_range"] = serde_json::json!({
+                    "start":expected_start,
+                    "end":expected_end,
+                });
+                assert_eq!(
+                    actual, expected,
+                    "native context drifted beyond the supplied range"
+                );
+            } else {
+                assert_eq!(
+                    result
+                        .unwrap_err()
+                        .downcast_ref::<crate::TimeRangeInputError>(),
+                    Some(&crate::TimeRangeInputError::UnsupportedNativeField)
+                );
+            }
+        }
+        input.mode = RetrievalMode::VectorOnly;
+        assert_eq!(
+            resolve_retrieval_context(&input, &state)
+                .unwrap_err()
+                .downcast_ref::<crate::TimeRangeInputError>(),
+            Some(&crate::TimeRangeInputError::UnsupportedRetrievalMode)
+        );
+        input.time_range = None;
+        input.scene.time = Some("2025-09-09".into());
+        assert!(resolve_retrieval_context(&input, &state).is_err());
+    }
+
+    #[test]
     fn typed_plan_preserves_batch_enrichment_commit_topology() {
         let namespace = "typed-plan-equivalence";
         let committed_at = DateTime::parse_from_rfc3339("2026-07-21T00:00:00Z")
@@ -3449,10 +3586,14 @@ mod tests {
         let link_id = deterministic_id(namespace, "memory_link", "link");
 
         let mut episode_a = EpisodeDraft::new("Episode   one");
-        episode_a.scene = Some(character_memory::Scene::at(DateTime::<Utc>::UNIX_EPOCH));
+        episode_a.scene = Some(character_memory::Scene::at(
+            DateTime::<Utc>::UNIX_EPOCH.into(),
+        ));
         episode_a.id = Some(episode_a_id);
         let mut episode_b = EpisodeDraft::new("Episode two");
-        episode_b.scene = Some(character_memory::Scene::at(DateTime::<Utc>::UNIX_EPOCH));
+        episode_b.scene = Some(character_memory::Scene::at(
+            DateTime::<Utc>::UNIX_EPOCH.into(),
+        ));
         episode_b.id = Some(episode_b_id);
         let mut observation_a = ObservationDraft::new(episode_a_id, "Observation   one");
         observation_a.id = Some(observation_a_id);
@@ -3954,6 +4095,7 @@ mod tests {
                     .retrieve(RetrieveInput {
                         activity: None,
                         cue_floors: None,
+                        time_range: None,
                         mode,
                         namespace: namespace.to_string(),
                         topic: Some("must not attach implicitly".to_string()),
@@ -4323,6 +4465,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.to_string(),
                 topic: Some("What is the restart-safe drink?".to_string()),
@@ -4513,6 +4656,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.to_string(),
                 topic: Some("What is the restart-safe drink?".to_string()),
@@ -4689,6 +4833,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace_b.to_string(),
                 topic: Some("Which sibling namespace must survive?".to_string()),
@@ -4745,6 +4890,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                time_range: None,
                 namespace: "b".into(),
                 topic: Some("The notebook is blue.".into()),
                 scene: crate::MemorySceneInput {
@@ -4894,8 +5040,11 @@ mod tests {
                 },
             ],
             vec![RetrieveOutcome {
+                time_range: None,
                 activity: None,
-                scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+                scene: character_memory::Scene::at(
+                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
+                ),
                 scene_references: Vec::new(),
                 memory_scenes: Vec::new(),
                 pack: ContinuityContextPack {
@@ -5006,8 +5155,11 @@ mod tests {
         let traced = flatten_outcome(
             &registry,
             RetrieveOutcome {
+                time_range: None,
                 activity: None,
-                scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+                scene: character_memory::Scene::at(
+                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
+                ),
                 scene_references: Vec::new(),
                 memory_scenes: Vec::new(),
                 pack: pack.clone(),
@@ -5018,8 +5170,11 @@ mod tests {
         let untraced = flatten_outcome(
             &registry,
             RetrieveOutcome {
+                time_range: None,
                 activity: None,
-                scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+                scene: character_memory::Scene::at(
+                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
+                ),
                 scene_references: Vec::new(),
                 memory_scenes: Vec::new(),
                 pack,
@@ -5189,8 +5344,9 @@ mod tests {
                     key: Some("external".into()),
                     words: None,
                 },
-                ..character_memory::Scene::at(now)
+                ..character_memory::Scene::at(now.into())
             },
+            scene_local_date: Some(now.date_naive()),
             ended_at: None,
             summary: "summary".to_string(),
             raw_ref: Some("external".to_string()),

@@ -843,8 +843,9 @@ mod tests {
     #[test]
     fn grounding_uses_native_sources_or_application_given_subjects() {
         let mut outcome = RetrieveOutcome {
+            time_range: None,
             activity: None,
-            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into()),
             scene_references: Vec::new(),
             memory_scenes: Vec::new(),
             pack: ContinuityContextPack::empty(),
@@ -1011,8 +1012,9 @@ mod tests {
             },
         ];
         let outcome = RetrieveOutcome {
+            time_range: None,
             activity: None,
-            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into()),
             scene_references: Vec::new(),
             memory_scenes: Vec::new(),
             pack: ContinuityContextPack::empty(),
@@ -1062,8 +1064,9 @@ mod tests {
             },
         ];
         let mut outcome = crate::RetrieveOutcome {
+            time_range: None,
             activity: None,
-            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into()),
             scene_references: Vec::new(),
             memory_scenes: Vec::new(),
             pack: character_memory::ContinuityContextPack::empty(),
@@ -1110,8 +1113,9 @@ mod tests {
             },
         ];
         let mut outcome = crate::RetrieveOutcome {
+            time_range: None,
             activity: None,
-            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into()),
             scene_references: Vec::new(),
             memory_scenes: Vec::new(),
             pack: character_memory::ContinuityContextPack::empty(),

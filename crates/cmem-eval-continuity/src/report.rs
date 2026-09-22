@@ -531,9 +531,10 @@ mod tests {
                 rationale.telemetry.selected_graph_root_count = selected;
                 rationale.telemetry.graph_root_omission_count = omitted;
                 cmem_eval::RetrieveOutcome {
+                    time_range: None,
                     activity: None,
                     scene: cmem_eval::character_memory::Scene::at(
-                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
                     ),
                     scene_references: Vec::new(),
                     memory_scenes: Vec::new(),
@@ -692,7 +693,7 @@ mod tests {
         })).unwrap();
         let visit = EpisodeDraft {
             scene: Some(cmem_eval::character_memory::Scene::at(
-                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
             )),
             ..EpisodeDraft::new("visit")
         }
@@ -700,7 +701,7 @@ mod tests {
         .unwrap();
         let noise = EpisodeDraft {
             scene: Some(cmem_eval::character_memory::Scene::at(
-                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
             )),
             ..EpisodeDraft::new("noise")
         }
@@ -719,9 +720,10 @@ mod tests {
             .into_iter()
             .collect();
         let native = RetrieveOutcome {
+            time_range: None,
             activity: None,
             scene: cmem_eval::character_memory::Scene::at(
-                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
             ),
             scene_references: Vec::new(),
             memory_scenes: Vec::new(),
@@ -906,7 +908,7 @@ mod tests {
             .map(|i| {
                 EpisodeDraft {
                     scene: Some(cmem_eval::character_memory::Scene::at(
-                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
                     )),
                     ..EpisodeDraft::new(format!("memory {i}"))
                 }
@@ -930,9 +932,10 @@ mod tests {
         let pack = RetrievedContextPack::from_ranked_items(
             vec![],
             vec![RetrieveOutcome {
+                time_range: None,
                 activity: None,
                 scene: cmem_eval::character_memory::Scene::at(
-                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
                 ),
                 scene_references: Vec::new(),
                 memory_scenes: Vec::new(),
