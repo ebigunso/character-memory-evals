@@ -1,6 +1,10 @@
 # M3: meeting someone known through 300 beliefs
 
-FINAL library `63f176fa6801a8268bb00e337267a0f8c334a681`, exact committed harness `0c7f57ed13bbda12fd3ab8382ea8d2b91d2dd453`: every a/b/control probe and the complete settled-matter payload are byte-identical to b470b10, including native traces. The only changed field in the complete raw JSON is `header.library_commit`. The AFTER column below therefore also gives the FINAL numbers: no-topic 12/12 fitting and 12/20 recall; with-topic 7/8 topic episodes, 12 person beliefs, 11/12 fitting; all four settled checks pass.
+Guarded final-pin evidence (2026-09-22): `poster-m3-checked63-a.json` and `poster-m3-checked63-b.json` use source commit `6e4509a1d66f8f25395e3021c038bd731ed80315` and library `63f176fa6801a8268bb00e337267a0f8c334a681`. Every run validates all 67 native write outcomes and all 366 expected vector-indexed objects before measuring. The input, measured probes and settled-matter payload match the earlier final-pin run.
+
+Historical runs below did not inspect degraded-success write outcomes. Matching numbers do not retroactively establish that those historical stores were undegraded; use the guarded final-pin pair for the current result. Historical raw JSON files retain their original bytes and provenance.
+
+Historical FINAL library `63f176fa6801a8268bb00e337267a0f8c334a681`, exact committed harness `0c7f57ed13bbda12fd3ab8382ea8d2b91d2dd453`: every a/b/control probe and the complete settled-matter payload are byte-identical to b470b10, including native traces. The only changed field in the complete raw JSON is `header.library_commit`. The AFTER column below therefore also gives the FINAL numbers: no-topic 12/12 fitting and 12/20 recall; with-topic 7/8 topic episodes, 12 person beliefs, 11/12 fitting; all four settled checks pass.
 
 AFTER THE FIX: library `b470b102765f6a6c8900b692d192663ede1d697b`, committed harness `0c7f57ed13bbda12fd3ab8382ea8d2b91d2dd453`, generator SHA-256 `821c12602b2db3157770a6dfd41585bd60a1f7b7351b13ee38c61145c1fc0044`. No API adjustment was needed. Unsealed synthetic measurement, 2026-09-21.
 
