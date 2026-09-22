@@ -40,8 +40,10 @@ pub const SUPPORTED_SCENARIO_FEATURES: &[ScenarioFeature] = &[
     ScenarioFeature::PlaceDescription,
     ScenarioFeature::ReferenceTrace,
     ScenarioFeature::MemorySceneTrace,
+    ScenarioFeature::ElapsedSinceMet,
     ScenarioFeature::CueTrace,
     ScenarioFeature::OmissionReasons,
+    ScenarioFeature::ResolutionOmission,
     ScenarioFeature::AuthoredDerivedMemory,
     ScenarioFeature::PackSections,
     ScenarioFeature::PackOrder,
@@ -1650,13 +1652,9 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn situated_writes_reject_degraded_native_outcomes() {
-        for missing_input in [
-            "Garden",
-            "Garden commitment",
-            "Garden\nSetting: Glass room\nWith: Guest",
-        ] {
+        for missing_input in ["Garden", "Garden commitment", "Glass room", "Guest"] {
             let mut scenario = situated_scenario();
-            if missing_input.contains("Setting:") {
+            if matches!(missing_input, "Glass room" | "Guest") {
                 let mut value = serde_json::to_value(&scenario).unwrap();
                 value["scenes"]["pair"]["where"] =
                     serde_json::json!({"by":"description", "text":"Glass room"});
@@ -2137,8 +2135,9 @@ pub(crate) mod tests {
                 "timestamp":"2024-01-04T09:00:00.456789123Z",
                 "scene":{"kind":"inline", "scene":probe_scene},
                 "assertions":{
-                    "carried":[{"memory":"visit", "reason":"pair"}, {"memory":"promise", "reason":"pair"}],
-                    "scenes":[{"memory":"visit", "scene":"pair"}, {"memory":"promise", "scene":"pair"}],
+                    "carried":[{"memory":"noise", "reason":"pair"}, {"memory":"promise", "reason":"pair"}],
+                    "elapsed_since_met":["ada"],
+                    "scenes":[{"memory":"noise", "scene":"pair"}, {"memory":"promise", "scene":"pair"}],
                     "references":[
                         {"participant":{"by":"key", "key":"self"}, "resolution":{"status":"resolved", "entity":"self"}},
                         {"participant":{"by":"name", "text":"  Jo  "}, "resolution":{"status":"ambiguous", "candidates":["jo-a", "jo-b"]}},
@@ -2193,6 +2192,51 @@ pub(crate) mod tests {
                 assert!(native.scene_references.iter().any(|fact| fact.reference
                     == SceneReference::ParticipantDescription { index: 3 }
                     && fact.resolution == SceneReferenceResolution::ContentCue));
+                let interactions = native
+                    .scene_references
+                    .iter()
+                    .flat_map(|reference| &reference.last_interactions)
+                    .filter(|(id, _)| pack.object_refs()[&id.to_string()].external_id == "ada")
+                    .collect::<Vec<_>>();
+                assert!(!interactions.is_empty());
+                for (_, fact) in interactions {
+                    let fact = fact.as_ref().unwrap();
+                    assert_eq!(
+                        pack.object_refs()[&fact.episode_id.to_string()].external_id,
+                        "noise"
+                    );
+                    assert_eq!(fact.scene_time, scenario.events[1].timestamp());
+                }
+                for corrupt_time in [false, true] {
+                    let mut wrong = native.clone();
+                    for fact in wrong
+                        .scene_references
+                        .iter_mut()
+                        .flat_map(|reference| reference.last_interactions.values_mut())
+                        .flatten()
+                    {
+                        if corrupt_time {
+                            fact.scene_time += chrono::Duration::nanoseconds(1);
+                        } else {
+                            fact.seconds_since += 1;
+                        }
+                    }
+                    let wrong = cmem_eval::RetrievedContextPack::from_ranked_items(
+                        pack.items().to_vec(),
+                        vec![wrong],
+                        cmem_eval::ContextRenderer::PlainText,
+                    )
+                    .with_object_refs(pack.object_refs().clone());
+                    assert!(
+                        crate::check_probe_assertions(scenario, &scenario.events[3], &wrong)
+                            .iter()
+                            .filter(|check| matches!(
+                                check.identity.assertion,
+                                crate::AssertionSubject::ElapsedSinceMet(_)
+                            ))
+                            .all(|check| check.check.status == crate::ScenarioStatus::Failed)
+                    );
+                }
                 let (visit_id, visit_scene) = native
                     .memory_scenes
                     .iter()
@@ -2264,11 +2308,102 @@ pub(crate) mod tests {
                             check.identity.assertion,
                             crate::AssertionSubject::References(_)
                                 | crate::AssertionSubject::Scene { .. }
+                                | crate::AssertionSubject::ElapsedSinceMet(_)
                         ))
                         .all(|check| check.check.status == crate::ScenarioStatus::Failed)
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn settled_matter_uses_native_omission_and_preserves_resolver() {
+        let mut value = serde_json::to_value(situated_scenario()).unwrap();
+        let events = value["events"].as_array_mut().unwrap();
+        events.pop();
+        events.extend([
+            serde_json::json!({"kind":"derive", "event_id":"paid", "timestamp":"2024-01-04T09:00:00Z", "memory":{"subtype":"reflection", "text":"Garden commitment fulfilled", "experiences":["noise"], "about":["ada"]}}),
+            serde_json::json!({"kind":"link", "event_id":"fulfill", "external_id":"fulfill", "timestamp":"2024-01-04T09:01:00Z", "from_external_id":"paid", "relation":"fulfills_commitment", "to_external_id":"promise"}),
+            serde_json::json!({"kind":"probe", "event_id":"meeting", "query_id":"meeting-query", "timestamp":"2024-01-05T09:00:00Z", "scene":{"kind":"named","name":"pair"}, "assertions":{"omitted":[{"memory":"promise","reason":"resolution"}],"elapsed_since_met":["ada"]}}),
+            serde_json::json!({"kind":"probe", "event_id":"topic", "query_id":"topic-query", "timestamp":"2024-01-05T09:01:00Z", "scene":{"kind":"named","name":"pair"}, "topic":"Garden commitment", "assertions":{"carried":[{"memory":"promise","reason":"topic","section":"derived_memories"}]}}),
+        ]);
+        let scenario = crate::parse_fixture_bytes(
+            &serde_json::to_vec(
+                &serde_json::json!({"schema_version":3,"seed":7,"scenarios":[value]}),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+        .scenarios
+        .remove(0);
+        assert!(scenario_missing_features(&scenario).unwrap().is_empty());
+        let run = run_embedded(&scenario).await;
+        let meeting = &run.traces[0].retrieval;
+        // Resolution removes current standing, but shared provenance can still
+        // bring history. A whole-pack omission must fail while it is present.
+        assert_eq!(run.outcome.status, crate::ScenarioStatus::Failed);
+        let omission = |pack: &cmem_eval::RetrievedContextPack| {
+            crate::check_probe_assertions(&scenario, &scenario.events[5], pack)
+                .into_iter()
+                .find(|check| {
+                    matches!(
+                        check.identity.assertion,
+                        crate::AssertionSubject::Omitted(_)
+                    )
+                })
+                .unwrap()
+                .check
+                .status
+        };
+        assert_eq!(omission(meeting), crate::ScenarioStatus::Failed);
+        let mut missing_reason = meeting.outcomes()[0].clone();
+        missing_reason.pack = cmem_eval::character_memory::ContinuityContextPack::empty();
+        missing_reason
+            .trace
+            .as_mut()
+            .unwrap()
+            .lifecycle_filter_decisions
+            .clear();
+        let missing_reason = cmem_eval::RetrievedContextPack::from_ranked_items(
+            meeting.items().to_vec(),
+            vec![missing_reason],
+            cmem_eval::ContextRenderer::PlainText,
+        )
+        .with_object_refs(meeting.object_refs().clone());
+        assert!(
+            crate::check_probe_assertions(&scenario, &scenario.events[5], &missing_reason)
+                .iter()
+                .filter(|check| matches!(
+                    check.identity.assertion,
+                    crate::AssertionSubject::Omitted(_)
+                ))
+                .all(|check| check.check.status == crate::ScenarioStatus::Failed)
+        );
+        let topic = &run.traces[1].retrieval;
+        let memory = topic.outcomes()[0]
+            .pack
+            .derived_memories
+            .iter()
+            .find(|memory| {
+                topic.object_refs()[&memory.memory.id.to_string()].external_id == "promise"
+            })
+            .unwrap();
+        assert_eq!(
+            memory
+                .resolved_by
+                .iter()
+                .map(|id| topic.object_refs()[&id.to_string()].external_id.as_str())
+                .collect::<Vec<_>>(),
+            ["paid"]
+        );
+        let encoded = serde_json::to_value(topic.outcomes()).unwrap();
+        assert!(
+            encoded[0]["pack"]["derived_memories"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value["resolved_by"] == serde_json::json!(memory.resolved_by))
+        );
     }
 
     async fn run_embedded(scenario: &ContinuityScenario) -> ContinuityScenarioRun {

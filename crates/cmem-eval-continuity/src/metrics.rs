@@ -195,7 +195,12 @@ pub fn check_probe_assertions(
     use cmem_eval::character_memory::{
         LifecycleFilterAction, LifecycleFilterReason, StaleCandidateReason,
     };
-    let InteractionEvent::Probe { assertions, .. } = event else {
+    let InteractionEvent::Probe {
+        assertions,
+        query_id,
+        ..
+    } = event
+    else {
         return Vec::new();
     };
     let admitted = native_admitted_memories(pack);
@@ -271,6 +276,9 @@ pub fn check_probe_assertions(
                                         ) | (
                                             OmissionReason::Supersession,
                                             LifecycleFilterReason::SupersededOmitted
+                                        ) | (
+                                            OmissionReason::Resolution,
+                                            LifecycleFilterReason::ResolvedOmitted
                                         )
                                     )
                             }) || (expected.reason == OmissionReason::Supersession
@@ -366,6 +374,35 @@ pub fn check_probe_assertions(
                             observed.as_ref(),
                         ),
                         "selected native cue facts must match the requested cue",
+                    )
+                }
+                AssertionSubject::ElapsedSinceMet(entity) => {
+                    let expected = scenario.analyze().expect("admitted scenario").probes[query_id]
+                        .elapsed_since_met[entity];
+                    let facts =
+                        pack.outcomes()
+                            .iter()
+                            .flat_map(|outcome| {
+                                outcome.scene_references.iter().flat_map(move |reference| {
+                                    reference.last_interactions.iter().filter_map(
+                                        move |(id, fact)| {
+                                            (entity_external_id(pack, *id) == Some(entity.as_str()))
+                                                .then_some((outcome, fact))
+                                        },
+                                    )
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                    let passed = !facts.is_empty()
+                        && facts.iter().all(|(outcome, fact)| {
+                            fact.as_ref().is_some_and(|fact| {
+                                fact.seconds_since == expected.num_seconds()
+                                    && outcome.scene.time - fact.scene_time == expected
+                            })
+                        });
+                    CheckResult::checked(
+                        passed,
+                        "native last interaction must match the authored elapsed time",
                     )
                 }
                 // These facts do not exist in the pinned library. Static support
@@ -1268,6 +1305,48 @@ mod tests {
                 count: 1,
             });
         assert!(omissions_have_reasons(&[outcome.clone()]));
+        // Resolution is not inferred from absence, or from a different native reason.
+        for reason in [
+            None,
+            Some(LifecycleFilterReason::SuppressedOmitted),
+            Some(LifecycleFilterReason::ResolvedOmitted),
+        ] {
+            let mut native = outcome.clone();
+            let id = native.pack.commitments[0].memory.id;
+            native.pack.commitments.clear();
+            native.pack.derived_memories.clear();
+            native.trace.as_mut().unwrap().lifecycle_filter_decisions = reason
+                .into_iter()
+                .map(|reason| LifecycleFilterDecision {
+                    object: MemoryObjectRef::new(ObjectType::DerivedMemory, id),
+                    retention_state: Some(cmem_eval::RetentionState::Active),
+                    superseded_by: Vec::new(),
+                    action: LifecycleFilterAction::Omitted,
+                    reason,
+                })
+                .collect();
+            let mut expected = event.clone();
+            let InteractionEvent::Probe { assertions, .. } = &mut expected else {
+                unreachable!()
+            };
+            assertions.omitted = vec![OmittedAssertion {
+                memory: "promise".into(),
+                reason: OmissionReason::Resolution,
+            }];
+            let check = check_probe_assertions(&scenario, &expected, &make_pack(native))
+                .into_iter()
+                .find(|check| {
+                    matches!(
+                        check.identity.assertion,
+                        crate::AssertionSubject::Omitted(_)
+                    )
+                })
+                .unwrap();
+            assert_eq!(
+                check.check.status == ScenarioStatus::Passed,
+                reason == Some(LifecycleFilterReason::ResolvedOmitted)
+            );
+        }
         let checked = check_probe_assertions(&scenario, &event, &make_pack(outcome));
         let omission = checked
             .iter()
