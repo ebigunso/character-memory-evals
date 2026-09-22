@@ -525,8 +525,8 @@ pub(super) fn overlap_geometry(scenario: &ContinuityScenario) -> Result<Value> {
             .chain(
                 inputs
                     .iter()
-                    .filter(|text| text.starts_with("Ledger entry ") && text.contains("\nSetting:"))
-                    .map(|text| ("normalized_episode", text.as_str())),
+                    .filter(|text| text.starts_with("Ledger entry "))
+                    .map(|text| ("episode_content", text.as_str())),
             )
         {
             let stored_vector = provider.vector_for_text(stored)?;
@@ -536,7 +536,7 @@ pub(super) fn overlap_geometry(scenario: &ContinuityScenario) -> Result<Value> {
         }
     }
     Ok(json!({"pairs":pairs,
-        "method":"Actual provider-emitted vectors used by the reworded overlap and keyless stores. The held-out query has a distinct authored base: description similarities are about 0.90, 0.957 and 0.973. Normalized episode bases remain controlled by episode index, independent of wording, to hold topic pressure fixed. The identical family is the exact-match control. This audit is separate from the 56-pair authored diagnostic and does not measure a language model."}))
+        "method":"Actual provider-emitted vectors used by the reworded overlap and keyless stores. The held-out query has a distinct authored base: separate setting and participant description similarities are about 0.90, 0.957 and 0.973. Episode content stays background, independent of wording, to hold topic pressure fixed. The identical family is the exact-match control. This audit is separate from the 56-pair authored diagnostic and does not measure a language model."}))
 }
 
 pub(super) fn paraphrase_geometry() -> Result<Value> {
@@ -630,7 +630,12 @@ mod tests {
         for pair in pairs {
             assert_eq!(pair["vectors_equal"], false, "{pair}");
             let score = pair["cosine"].as_f64().unwrap();
-            assert!((0.89..0.99).contains(&score), "{pair}");
+            let expected = match pair["surface"].as_str().unwrap() {
+                "description" => 0.89..0.99,
+                "episode_content" => -0.44..-0.43,
+                surface => panic!("unexpected surface: {surface}"),
+            };
+            assert!(expected.contains(&score), "{pair}");
         }
         let keyless = generated(&config(), &scenario, &probes).unwrap();
         assert_eq!(
