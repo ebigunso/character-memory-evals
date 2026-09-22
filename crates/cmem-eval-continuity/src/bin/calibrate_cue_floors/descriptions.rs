@@ -496,6 +496,49 @@ pub(super) fn native_paraphrase_scores(measurements: &Value) -> Value {
         "method":"One native best fetched scene-surface score per single-kind search at floor 1, before occasion selection or graph eligibility. Joined participant references share one score. Null is no match, not zero. Authored classes label results only; duplicate floor sweeps and ID orders are not independent samples. Controlled synthetic geometry, not a production threshold estimate."})
 }
 
+fn cosine(a: &[f32], b: &[f32]) -> f64 {
+    let dot = a
+        .iter()
+        .zip(b)
+        .map(|(x, y)| f64::from(*x) * f64::from(*y))
+        .sum::<f64>();
+    let norm = |v: &[f32]| v.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>().sqrt();
+    dot / (norm(a) * norm(b))
+}
+
+pub(super) fn overlap_geometry(scenario: &ContinuityScenario) -> Result<Value> {
+    let provider = ControllableSimilarityEmbeddingProvider::new(
+        scenario
+            .embedding
+            .controllable_similarity()
+            .unwrap()
+            .clone(),
+    )?;
+    let inputs = scenario.runtime_embedding_inputs();
+    let mut pairs = Vec::new();
+    for kind in ["place", "participant"] {
+        let query = probe_words(kind, true);
+        let query_vector = provider.vector_for_text(query)?;
+        for (surface, stored) in word_pool(kind)[..3]
+            .iter()
+            .map(|text| ("description", *text))
+            .chain(
+                inputs
+                    .iter()
+                    .filter(|text| text.starts_with("Ledger entry ") && text.contains("\nSetting:"))
+                    .map(|text| ("normalized_episode", text.as_str())),
+            )
+        {
+            let stored_vector = provider.vector_for_text(stored)?;
+            pairs.push(json!({"kind":kind,"query":query,"stored":stored,"surface":surface,
+                "query_vector":query_vector,"stored_vector":stored_vector,
+                "vectors_equal":query_vector == stored_vector,"cosine":cosine(&query_vector,&stored_vector)}));
+        }
+    }
+    Ok(json!({"pairs":pairs,
+        "method":"Actual provider-emitted vectors used by the reworded overlap and keyless stores. The held-out query has a distinct authored base: description similarities are about 0.90, 0.957 and 0.973. Normalized episode bases remain controlled by episode index, independent of wording, to hold topic pressure fixed. The identical family is the exact-match control. This audit is separate from the 56-pair authored diagnostic and does not measure a language model."}))
+}
+
 pub(super) fn paraphrase_geometry() -> Result<Value> {
     let mut fixture = ControllableSimilarityFixture {
         seed: CHECKED_FIXTURE_SEED,
@@ -543,13 +586,7 @@ pub(super) fn paraphrase_geometry() -> Result<Value> {
             }
             let a = provider.vector_for_text(left)?;
             let b = provider.vector_for_text(right)?;
-            let dot = a
-                .iter()
-                .zip(&b)
-                .map(|(x, y)| f64::from(*x) * f64::from(*y))
-                .sum::<f64>();
-            let norm = |v: &[f32]| v.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>().sqrt();
-            pairs.push(json!({"kind":kind,"same_referent":referent==other_referent,"left":left,"right":right,"cosine":dot/(norm(&a)*norm(&b))}));
+            pairs.push(json!({"kind":kind,"same_referent":referent==other_referent,"left":left,"right":right,"cosine":cosine(&a,&b)}));
         }
     }
     let mut distributions = Vec::new();
@@ -584,6 +621,45 @@ pub(super) fn paraphrase_geometry() -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn held_out_wording_has_graded_geometry_against_every_stored_surface() {
+        let (scenario, probes) = generated_overlap(&config(), true).unwrap();
+        let audit = overlap_geometry(&scenario).unwrap();
+        let pairs = audit["pairs"].as_array().unwrap();
+        assert_eq!(pairs.len(), 2 * (3 + 48));
+        for pair in pairs {
+            assert_eq!(pair["vectors_equal"], false, "{pair}");
+            let score = pair["cosine"].as_f64().unwrap();
+            assert!((0.89..0.99).contains(&score), "{pair}");
+        }
+        let keyless = generated(&config(), &scenario, &probes).unwrap();
+        assert_eq!(
+            keyless.embedding,
+            *scenario.embedding.controllable_similarity().unwrap()
+        );
+        for probe in &keyless.probes {
+            assert_eq!(
+                probe.input.scene.setting.words.as_deref(),
+                Some(probe_words("place", true))
+            );
+            assert_eq!(
+                probe.input.scene.participants[0].description.as_deref(),
+                Some(probe_words("participant", true))
+            );
+        }
+        let (control, _) = generated_overlap(&config(), false).unwrap();
+        let provider = ControllableSimilarityEmbeddingProvider::new(
+            control.embedding.controllable_similarity().unwrap().clone(),
+        )
+        .unwrap();
+        for kind in ["place", "participant"] {
+            assert_eq!(probe_words(kind, false), word_pool(kind)[0]);
+            assert_eq!(
+                provider.vector_for_text(probe_words(kind, false)).unwrap(),
+                provider.vector_for_text(word_pool(kind)[0]).unwrap()
+            );
+        }
+    }
     #[test]
     fn unlived_scene_counts_keep_overlapping_credit_and_displacement_distinct() {
         let item = |id: &str, cues: &[&str]| {
@@ -725,7 +801,7 @@ mod tests {
                 .collect::<std::collections::BTreeSet<_>>();
             assert_eq!(used.len(), 3);
             assert!(!used.contains(probe_words(kind, true)));
-            assert_eq!(
+            assert_ne!(
                 scenario
                     .embedding
                     .controllable_similarity()
@@ -736,7 +812,7 @@ mod tests {
                     .controllable_similarity()
                     .unwrap()
                     .clusters[probe_words(kind, false)],
-                "hold the query anchor fixed while varying written descriptions"
+                "held-out wording must differ from the exact-match query anchor"
             );
         }
         assert!(family.writes.iter().all(|w| {

@@ -290,8 +290,10 @@ fn generated_overlap(
     let mut background = vec![0.0; 9];
     background[8] = -1.0;
     assign(&mut embedding, "Character", background.clone());
-    assign(&mut embedding, place, vector(1.0, 0.0));
-    assign(&mut embedding, participant, vector(1.0, 0.0));
+    // The held-out wording must not share a base with any stored wording.
+    let query_x = if reworded { 0.9 } else { 1.0 };
+    assign(&mut embedding, place, vector(query_x, 0.0));
+    assign(&mut embedding, participant, vector(query_x, 0.0));
     assign(&mut embedding, topic, vector(0.0, 1.0));
     if reworded {
         for kind in ["place", "participant"] {
@@ -929,13 +931,14 @@ async fn main() -> Result<()> {
         "method":{
             "design":"One generated corpus, 17 memories (51 vector objects) per vector kind and 16 activity-thread members. Same store, same probe, one floor swept; other floors stay at native defaults. No scenario pass/fail assertions. Metadata targets are used only after native retrieval. Starvation is measured only when native isolated-cue control admits the target exclusively by that kind and removing the tested cue makes the target absent; otherwise it is null, with controls retained.",
             "geometry":"Seeded synthetic vectors: unrelated groups orthogonal; loud cue cosine about 1, quiet cue about 0.2, unlived words about 0.01 to the least-bad neighbour. Values are controlled pressure, not empirical natural-language relevance thresholds.",
-            "overlapping_pressure":"Separate generated situated corpus: 48 Experience episodes with native Setting and With words, no place key, and eight strong topic-only experiences graded from cosine 0.9 to 0.6. Body-only scene observations are background; the real normalized episode surface receives a vector with scene cosine about 0.99 and topic cosine about 0.05. Place-only, participant-only and combined scene probes each sweep all four floors; activity is absent, its sweep is a control. Each cohort stage lists the surviving authored episode identities, missing identities and other scored occupants (including companion observations, never counted as authored episode survival). The native topic-only control has the same cohort census, exposing losses even without scene competition. Occupancy is not a uniquely paired causal eviction. Non-topic sweeps are target-survival measurements, not exclusively-that-kind starvation claims; the existing single-target starvation control tracks the strongest episode.",
+            "overlapping_pressure":"Separate generated situated corpus: 48 Experience episodes with native Setting and With words, no place key, and eight strong topic-only experiences graded from cosine 0.9 to 0.6. Body-only scene observations are background; the real normalized episode surface receives a vector with exact-match-control scene cosine about 0.99 and topic cosine about 0.05. Reworded query similarities are graded below exact match and individually audited in reworded_geometry; the authored normalized episode bases stay fixed. Place-only, participant-only and combined scene probes each sweep all four floors; activity is absent, its sweep is a control. Each cohort stage lists the surviving authored episode identities, missing identities and other scored occupants (including companion observations, never counted as authored episode survival). The native topic-only control has the same cohort census, exposing losses even without scene competition. Occupancy is not a uniquely paired causal eviction. Non-topic sweeps are target-survival measurements, not exclusively-that-kind starvation claims; the existing single-target starvation control tracks the strongest episode.",
             "displacements":"Set differences versus the identical probe at tested-kind floor zero. Floor zero does not disable a cue: spare-room policy depends on the pinned library (979643f shares turns even at zero). Native floor credits are stage events, not causal admissions. Each admission names its stage/section displacement group; multiple admissions cannot be uniquely paired to displaced objects. All available native vector and final section score components are retained; root ordering score is not exposed.",
             "origin":"Candidate-merge/root floor credits precede graph expansion and are direct. At section selection, explicit matching Participant/Activity roots are direct; activity/key-only participant descendants or objects absent from retained vector candidates are inherited. Remaining cases are unknown because vector candidates and roots omit per-kind origin; no fixture labels reconstruct it.",
             "topic_roots":"Root IDs also found in the independent topic-only native candidate control, not an exclusive attribution of a root to topic. Pack slots count native Selected assignments containing topic and may overlap other kinds.",
             "limits":"Native default caps and depth. PLACE currently uses words/vector roots; saturated explicit PLACE roots promised by the future state slice are not simulated. Native write construction timestamps are omitted from observations; generated inputs and query times use no clock."},
         "generated_input":input,"measurements":measurements[0],"overlapping_input":overlap_input,"overlapping_measurements":measurements[1],
         "reworded_input":reworded_input,"reworded_measurements":measurements[2],
+        "reworded_geometry":descriptions::overlap_geometry(&reworded_scenario)?,
         "keyless_input":keyless,"keyless_measurements":measurements[3],
         "opposed_input":opposed_inputs,
         "opposed_identical_measurements":measurements[4],
