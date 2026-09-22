@@ -1,0 +1,53 @@
+{
+  "disposition": "PROMOTE pending owner/reviewer decision; lab-notebook evidence, not sealed",
+  "entries": [
+    {
+      "source": "C:\\w\\cme-floors\\.agent-work\\worker2\\task9-time-checkpoint\\before-a.json",
+      "archive": "C:\\w\\cme-floors\\.agent-work\\worker2\\task9-time-checkpoint\\evidence\\before-a.json.gz",
+      "original_sha256": "855f168e279120e78b028b2e4190e8e8ff647f3f3ed1a3e1ab9cf711b0658fa1",
+      "archive_sha256": "9b7f4e1a3155c1f7b415d65af0d602ce67c924e792bae0ee0e7656ec37597e42",
+      "original_bytes": 24064496,
+      "archive_bytes": 1199653,
+      "harness_commit": "f3ebb4bf1125997281a940b9ef0252c257575b69",
+      "library_commit": "f174f1b099b80d0f5deddcb0eb800933ff11bd65",
+      "time_input_sha256": "98a77709ed083e0d68f9c951542af788c1613cb0fbf3eb696615c04ed90059e0",
+      "generator_source_sha256": "bef92ddd580072964388703c74835516084e864a5c39e8c40aae23bb534831f3"
+    },
+    {
+      "source": "C:\\w\\cme-floors\\.agent-work\\worker2\\task9-time-checkpoint\\before-b.json",
+      "archive": "C:\\w\\cme-floors\\.agent-work\\worker2\\task9-time-checkpoint\\evidence\\before-b.json.gz",
+      "original_sha256": "855f168e279120e78b028b2e4190e8e8ff647f3f3ed1a3e1ab9cf711b0658fa1",
+      "archive_sha256": "9b7f4e1a3155c1f7b415d65af0d602ce67c924e792bae0ee0e7656ec37597e42",
+      "original_bytes": 24064496,
+      "archive_bytes": 1199653,
+      "harness_commit": "f3ebb4bf1125997281a940b9ef0252c257575b69",
+      "library_commit": "f174f1b099b80d0f5deddcb0eb800933ff11bd65",
+      "time_input_sha256": "98a77709ed083e0d68f9c951542af788c1613cb0fbf3eb696615c04ed90059e0",
+      "generator_source_sha256": "bef92ddd580072964388703c74835516084e864a5c39e8c40aae23bb534831f3"
+    },
+    {
+      "source": "C:\\w\\cme-floors\\.agent-work\\worker2\\task9-time-checkpoint\\after-a.json",
+      "archive": "C:\\w\\cme-floors\\.agent-work\\worker2\\task9-time-checkpoint\\evidence\\after-a.json.gz",
+      "original_sha256": "10b45fb7f9ad3e1e84f5cc21c451bbe085ea99c333c06b22698c1888fc19f458",
+      "archive_sha256": "9e250927f33d29e88d26cd4fce9a294e7ac65e1c61f1a75a16e14f34fa4de53e",
+      "original_bytes": 26787622,
+      "archive_bytes": 1335074,
+      "harness_commit": "f3ebb4bf1125997281a940b9ef0252c257575b69",
+      "library_commit": "d36d96d2eb77a31b11a0f1cdaf1c922ddfbc92a5",
+      "time_input_sha256": "98a77709ed083e0d68f9c951542af788c1613cb0fbf3eb696615c04ed90059e0",
+      "generator_source_sha256": "bef92ddd580072964388703c74835516084e864a5c39e8c40aae23bb534831f3"
+    },
+    {
+      "source": "C:\\w\\cme-floors\\.agent-work\\worker2\\task9-time-checkpoint\\after-b.json",
+      "archive": "C:\\w\\cme-floors\\.agent-work\\worker2\\task9-time-checkpoint\\evidence\\after-b.json.gz",
+      "original_sha256": "10b45fb7f9ad3e1e84f5cc21c451bbe085ea99c333c06b22698c1888fc19f458",
+      "archive_sha256": "9e250927f33d29e88d26cd4fce9a294e7ac65e1c61f1a75a16e14f34fa4de53e",
+      "original_bytes": 26787622,
+      "archive_bytes": 1335074,
+      "harness_commit": "f3ebb4bf1125997281a940b9ef0252c257575b69",
+      "library_commit": "d36d96d2eb77a31b11a0f1cdaf1c922ddfbc92a5",
+      "time_input_sha256": "98a77709ed083e0d68f9c951542af788c1613cb0fbf3eb696615c04ed90059e0",
+      "generator_source_sha256": "bef92ddd580072964388703c74835516084e864a5c39e8c40aae23bb534831f3"
+    }
+  ]
+}

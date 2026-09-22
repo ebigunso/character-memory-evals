@@ -1,0 +1,8 @@
+warning: linker stdout: ライブラリ C:\w\cme\.agent-work\worker2\task5-target\debug\deps\cmem_eval.lib とオブジェクト C:\w\cme\.agent-work\worker2\task5-target\debug\deps\cmem_eval.exp を作成中
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `cmem-eval-runner` (bin "cmem-eval") generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.60s
+     Running `C:/w/cme/.agent-work/worker2/task5-target\debug\cmem-eval.exe diff .agent-work/worker2/task9-time-checkpoint/smoke-d36d96d/baseline/traces.jsonl .agent-work/worker2/task9-time-checkpoint/smoke-d36d96d/candidate/traces.jsonl`
+summary: queries=1 differing=0 missing_from_a=0 missing_from_b=0 identity_changes=0 rank_changes=0 metric_changes=0 degradation_changes=0

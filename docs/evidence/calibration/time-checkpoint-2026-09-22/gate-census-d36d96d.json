@@ -1,0 +1,16 @@
+{
+  "library": "d36d96d2eb77a31b11a0f1cdaf1c922ddfbc92a5",
+  "workspace_exit": 0,
+  "raw_passed": 397,
+  "isolated_child_repeats": 2,
+  "top_level_passed": 395,
+  "filtered_raw": 251,
+  "waived_filters": [
+    "commands::pipeline::tests::output_leaf_links_are_rejected_before_writing_artifacts",
+    "driver::tests::scene_slice_preserves_authored_input_and_checks_native_results",
+    "driver::tests::situated_writes_reject_degraded_native_outcomes"
+  ],
+  "fmt": "pass",
+  "clippy": "pass",
+  "smoke": "two debug runs, zero diff"
+}

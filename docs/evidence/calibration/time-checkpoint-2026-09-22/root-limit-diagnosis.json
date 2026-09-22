@@ -1,0 +1,2282 @@
+{
+  "library": "d36d96d2eb77a31b11a0f1cdaf1c922ddfbc92a5",
+  "rows": [
+    {
+      "family": "daily-equal-anniversary",
+      "opposed_ids": false,
+      "authored_old_id": "daily-001",
+      "authored_old_time": "2024-09-09T13:00:00+09:00",
+      "authored_old_salience": 0.5,
+      "native_date_match_attempts": [
+        {
+          "native": {
+            "source": "date_match",
+            "root": {
+              "object_type": "episode",
+              "id": "0a81ec90-62be-540b-b902-5309b9b1aa8f"
+            },
+            "object_count": 0,
+            "relation_count": 0,
+            "filtered_node_count": 0,
+            "bounded_failure": null,
+            "outcome": "root_limit"
+          },
+          "external_id": "daily-001"
+        }
+      ],
+      "retained_recency_roots": [
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "e0edc120-8bd7-5972-bf6b-8ed4f2658465"
+          },
+          "external_id": "daily-366",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-09T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "54b4f611-56c3-5d10-8542-cc9ab9147c88"
+          },
+          "external_id": "daily-365",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-08T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "d5e83b63-9338-58b1-99a3-00146bfbdce9"
+          },
+          "external_id": "daily-364",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-07T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "18bd095b-3e99-5673-81e9-bbf32685f54b"
+          },
+          "external_id": "daily-363",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-06T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "1578f77a-bf51-5e1c-ba2d-08c8d68e67c3"
+          },
+          "external_id": "daily-362",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-05T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "19b38ebe-1fdd-5275-877d-25f18bbb1f03"
+          },
+          "external_id": "daily-361",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-04T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "d595bfbf-12a4-5c01-8867-de28d2e627cc"
+          },
+          "external_id": "daily-360",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-03T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "71d2d935-4d6e-57ec-8788-cb4184369318"
+          },
+          "external_id": "daily-359",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-02T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "2f7a6697-83b9-53f5-8e78-86617e4c343c"
+          },
+          "external_id": "daily-358",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "f0516e40-dd0c-5c98-8abb-505a945c3eeb"
+          },
+          "external_id": "daily-357",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "4a228b0f-54a0-5797-9606-960c22225ce3"
+          },
+          "external_id": "daily-356",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "e73473eb-ff98-57e1-8543-9a92ddae66d1"
+          },
+          "external_id": "daily-355",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        }
+      ],
+      "selected": [
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "e0edc120-8bd7-5972-bf6b-8ed4f2658465"
+          },
+          "external_id": "daily-366",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-09T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 1
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "54b4f611-56c3-5d10-8542-cc9ab9147c88"
+          },
+          "external_id": "daily-365",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-08T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 2
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "d5e83b63-9338-58b1-99a3-00146bfbdce9"
+          },
+          "external_id": "daily-364",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-07T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 3
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "18bd095b-3e99-5673-81e9-bbf32685f54b"
+          },
+          "external_id": "daily-363",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-06T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 4
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "1578f77a-bf51-5e1c-ba2d-08c8d68e67c3"
+          },
+          "external_id": "daily-362",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-05T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 5
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "19b38ebe-1fdd-5275-877d-25f18bbb1f03"
+          },
+          "external_id": "daily-361",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-04T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 6
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "d595bfbf-12a4-5c01-8867-de28d2e627cc"
+          },
+          "external_id": "daily-360",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-03T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 7
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "71d2d935-4d6e-57ec-8788-cb4184369318"
+          },
+          "external_id": "daily-359",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-02T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 8
+        }
+      ],
+      "native_date_match_floor_admissions": []
+    },
+    {
+      "family": "daily-equal-anniversary",
+      "opposed_ids": true,
+      "authored_old_id": "daily-008",
+      "authored_old_time": "2024-09-09T13:00:00+09:00",
+      "authored_old_salience": 0.5,
+      "native_date_match_attempts": [
+        {
+          "native": {
+            "source": "date_match",
+            "root": {
+              "object_type": "episode",
+              "id": "fea96469-efe1-54a1-b8f0-dc99e66b8580"
+            },
+            "object_count": 0,
+            "relation_count": 0,
+            "filtered_node_count": 0,
+            "bounded_failure": null,
+            "outcome": "root_limit"
+          },
+          "external_id": "daily-008"
+        }
+      ],
+      "retained_recency_roots": [
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "009c13d9-b3b2-5922-9bca-c335effc87f5"
+          },
+          "external_id": "daily-106",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-09T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "019bf6ea-7e7e-5421-93fb-da8a7c563fd7"
+          },
+          "external_id": "daily-126",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-08T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "01e4d4be-4a88-5768-9ca3-e67798f68e55"
+          },
+          "external_id": "daily-152",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-07T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "0277f49f-3278-5ce2-9869-21ce268c259f"
+          },
+          "external_id": "daily-151",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-06T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "03ee6228-783a-53e1-b023-53d59028d8cd"
+          },
+          "external_id": "daily-075",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-05T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "04e66359-8028-504e-a4fc-c59aaa435865"
+          },
+          "external_id": "daily-058",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-04T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "050ba1db-1de3-5bba-b6dc-36a15beafa83"
+          },
+          "external_id": "daily-137",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-03T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "055687f6-70f1-5aa5-805b-a3ee681b8221"
+          },
+          "external_id": "daily-074",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-02T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "06f68768-1a7e-57cc-aa40-04b9fb83efc7"
+          },
+          "external_id": "daily-153",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "072bebfb-69c4-5964-bade-f33cf286f7a5"
+          },
+          "external_id": "daily-318",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "076451ac-9f6f-5374-8d15-50c9a90c7483"
+          },
+          "external_id": "daily-345",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "07805d92-bae6-5177-8853-bfebb0d31ff5"
+          },
+          "external_id": "daily-201",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        }
+      ],
+      "selected": [
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "009c13d9-b3b2-5922-9bca-c335effc87f5"
+          },
+          "external_id": "daily-106",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-09T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 1
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "019bf6ea-7e7e-5421-93fb-da8a7c563fd7"
+          },
+          "external_id": "daily-126",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-08T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 2
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "01e4d4be-4a88-5768-9ca3-e67798f68e55"
+          },
+          "external_id": "daily-152",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-07T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 3
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "0277f49f-3278-5ce2-9869-21ce268c259f"
+          },
+          "external_id": "daily-151",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-06T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 4
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "03ee6228-783a-53e1-b023-53d59028d8cd"
+          },
+          "external_id": "daily-075",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-05T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 5
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "04e66359-8028-504e-a4fc-c59aaa435865"
+          },
+          "external_id": "daily-058",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-04T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 6
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "050ba1db-1de3-5bba-b6dc-36a15beafa83"
+          },
+          "external_id": "daily-137",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-03T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 7
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "055687f6-70f1-5aa5-805b-a3ee681b8221"
+          },
+          "external_id": "daily-074",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-02T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 8
+        }
+      ],
+      "native_date_match_floor_admissions": []
+    },
+    {
+      "family": "daily-salient-anniversary",
+      "opposed_ids": false,
+      "authored_old_id": "daily-001",
+      "authored_old_time": "2024-09-09T13:00:00+09:00",
+      "authored_old_salience": 1.0,
+      "native_date_match_attempts": [
+        {
+          "native": {
+            "source": "date_match",
+            "root": {
+              "object_type": "episode",
+              "id": "0a81ec90-62be-540b-b902-5309b9b1aa8f"
+            },
+            "object_count": 0,
+            "relation_count": 0,
+            "filtered_node_count": 0,
+            "bounded_failure": null,
+            "outcome": "root_limit"
+          },
+          "external_id": "daily-001"
+        }
+      ],
+      "retained_recency_roots": [
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "e0edc120-8bd7-5972-bf6b-8ed4f2658465"
+          },
+          "external_id": "daily-366",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-09T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "54b4f611-56c3-5d10-8542-cc9ab9147c88"
+          },
+          "external_id": "daily-365",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-08T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "d5e83b63-9338-58b1-99a3-00146bfbdce9"
+          },
+          "external_id": "daily-364",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-07T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "18bd095b-3e99-5673-81e9-bbf32685f54b"
+          },
+          "external_id": "daily-363",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-06T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "1578f77a-bf51-5e1c-ba2d-08c8d68e67c3"
+          },
+          "external_id": "daily-362",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-05T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "19b38ebe-1fdd-5275-877d-25f18bbb1f03"
+          },
+          "external_id": "daily-361",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-04T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "d595bfbf-12a4-5c01-8867-de28d2e627cc"
+          },
+          "external_id": "daily-360",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-03T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "71d2d935-4d6e-57ec-8788-cb4184369318"
+          },
+          "external_id": "daily-359",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-02T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "2f7a6697-83b9-53f5-8e78-86617e4c343c"
+          },
+          "external_id": "daily-358",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "f0516e40-dd0c-5c98-8abb-505a945c3eeb"
+          },
+          "external_id": "daily-357",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "4a228b0f-54a0-5797-9606-960c22225ce3"
+          },
+          "external_id": "daily-356",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "e73473eb-ff98-57e1-8543-9a92ddae66d1"
+          },
+          "external_id": "daily-355",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        }
+      ],
+      "selected": [
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "e0edc120-8bd7-5972-bf6b-8ed4f2658465"
+          },
+          "external_id": "daily-366",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-09T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 1
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "54b4f611-56c3-5d10-8542-cc9ab9147c88"
+          },
+          "external_id": "daily-365",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-08T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 2
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "d5e83b63-9338-58b1-99a3-00146bfbdce9"
+          },
+          "external_id": "daily-364",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-07T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 3
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "18bd095b-3e99-5673-81e9-bbf32685f54b"
+          },
+          "external_id": "daily-363",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-06T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 4
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "1578f77a-bf51-5e1c-ba2d-08c8d68e67c3"
+          },
+          "external_id": "daily-362",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-05T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 5
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "19b38ebe-1fdd-5275-877d-25f18bbb1f03"
+          },
+          "external_id": "daily-361",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-04T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 6
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "d595bfbf-12a4-5c01-8867-de28d2e627cc"
+          },
+          "external_id": "daily-360",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-03T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 7
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "71d2d935-4d6e-57ec-8788-cb4184369318"
+          },
+          "external_id": "daily-359",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-02T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 8
+        }
+      ],
+      "native_date_match_floor_admissions": []
+    },
+    {
+      "family": "daily-salient-anniversary",
+      "opposed_ids": true,
+      "authored_old_id": "daily-008",
+      "authored_old_time": "2024-09-09T13:00:00+09:00",
+      "authored_old_salience": 1.0,
+      "native_date_match_attempts": [
+        {
+          "native": {
+            "source": "date_match",
+            "root": {
+              "object_type": "episode",
+              "id": "fea96469-efe1-54a1-b8f0-dc99e66b8580"
+            },
+            "object_count": 0,
+            "relation_count": 0,
+            "filtered_node_count": 0,
+            "bounded_failure": null,
+            "outcome": "root_limit"
+          },
+          "external_id": "daily-008"
+        }
+      ],
+      "retained_recency_roots": [
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "009c13d9-b3b2-5922-9bca-c335effc87f5"
+          },
+          "external_id": "daily-106",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-09T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "019bf6ea-7e7e-5421-93fb-da8a7c563fd7"
+          },
+          "external_id": "daily-126",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-08T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "01e4d4be-4a88-5768-9ca3-e67798f68e55"
+          },
+          "external_id": "daily-152",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-07T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "0277f49f-3278-5ce2-9869-21ce268c259f"
+          },
+          "external_id": "daily-151",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-06T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "03ee6228-783a-53e1-b023-53d59028d8cd"
+          },
+          "external_id": "daily-075",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-05T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "04e66359-8028-504e-a4fc-c59aaa435865"
+          },
+          "external_id": "daily-058",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-04T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "050ba1db-1de3-5bba-b6dc-36a15beafa83"
+          },
+          "external_id": "daily-137",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-03T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "055687f6-70f1-5aa5-805b-a3ee681b8221"
+          },
+          "external_id": "daily-074",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-02T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "06f68768-1a7e-57cc-aa40-04b9fb83efc7"
+          },
+          "external_id": "daily-153",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "072bebfb-69c4-5964-bade-f33cf286f7a5"
+          },
+          "external_id": "daily-318",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "076451ac-9f6f-5374-8d15-50c9a90c7483"
+          },
+          "external_id": "daily-345",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "07805d92-bae6-5177-8853-bfebb0d31ff5"
+          },
+          "external_id": "daily-201",
+          "section": "omitted",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": null,
+          "source": "recency",
+          "outcome": "expanded"
+        }
+      ],
+      "selected": [
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "009c13d9-b3b2-5922-9bca-c335effc87f5"
+          },
+          "external_id": "daily-106",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-09T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 1
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "019bf6ea-7e7e-5421-93fb-da8a7c563fd7"
+          },
+          "external_id": "daily-126",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-08T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 2
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "01e4d4be-4a88-5768-9ca3-e67798f68e55"
+          },
+          "external_id": "daily-152",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-07T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 3
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "0277f49f-3278-5ce2-9869-21ce268c259f"
+          },
+          "external_id": "daily-151",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-06T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 4
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "03ee6228-783a-53e1-b023-53d59028d8cd"
+          },
+          "external_id": "daily-075",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-05T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 5
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "04e66359-8028-504e-a4fc-c59aaa435865"
+          },
+          "external_id": "daily-058",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-04T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 6
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "050ba1db-1de3-5bba-b6dc-36a15beafa83"
+          },
+          "external_id": "daily-137",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-03T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 7
+        },
+        {
+          "object": {
+            "object_type": "episode",
+            "id": "055687f6-70f1-5aa5-805b-a3ee681b8221"
+          },
+          "external_id": "daily-074",
+          "section": "relevant_episodes",
+          "section_score_components": {
+            "final_score": 0.30000001192092896,
+            "cue_score": 0.0,
+            "graph_score": 1.0,
+            "salience_score": 0.5
+          },
+          "vector_score": null,
+          "cue_kinds": [
+            "recency"
+          ],
+          "recorded_scene": {
+            "time": "2025-09-02T04:00:00Z",
+            "participants": [],
+            "setting": {
+              "key": null,
+              "words": null
+            },
+            "custom_values": {}
+          },
+          "rank": 8
+        }
+      ],
+      "native_date_match_floor_admissions": []
+    }
+  ],
+  "limit": "The omitted old episode has no selected native salience census. Draft mapping and native domain conversion preserve the authored value, but root ordering does not consult it."
+}
