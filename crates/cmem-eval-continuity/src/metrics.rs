@@ -397,7 +397,9 @@ pub fn check_probe_assertions(
                         && facts.iter().all(|(outcome, fact)| {
                             fact.as_ref().is_some_and(|fact| {
                                 fact.seconds_since == expected.num_seconds()
-                                    && outcome.scene.time - fact.scene_time == expected
+                                    && outcome.scene.time.with_timezone(&chrono::Utc)
+                                        - fact.scene_time
+                                        == expected
                             })
                         });
                     CheckResult::checked(
