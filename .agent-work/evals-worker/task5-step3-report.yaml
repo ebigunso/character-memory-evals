@@ -374,6 +374,11 @@
       "command": "validate_worker_report.py --file .agent-work/evals-worker/task5-step3-report.yaml",
       "result": "pass",
       "notes": "Schema validation before immutable handoff."
+    },
+    {
+      "command": "Post-commit artifact bytes, 64-file report inventory and 57 SHA256 checks against819a055",
+      "result": "pass",
+      "notes": "All 59 artifact blobs match disk; complete change list and all hashes match. An earlier supplemental index inventory check crossed the commit and misparsed an empty diff as one path; replaced with the fixed-commit check before handoff."
     }
   ],
   "validation_results": [
@@ -488,6 +493,14 @@
       "detail": "Independent Tier D review",
       "status": "skipped",
       "evidence": "Dispatched to evals-reviewer; immutable source and evidence handed off for Reviewer-owned acceptance."
+    },
+    {
+      "kind": "manual",
+      "required": false,
+      "owner": "worker",
+      "detail": "Evidence promotion integrity",
+      "status": "pass",
+      "evidence": "59 committed artifact blobs match disk, all64 changed files are listed, all57 manifest hashes match. Fixed-commit verification completed before handoff."
     }
   ],
   "tests": {
@@ -524,6 +537,15 @@
       "prevention": "Carry the exact authorized test-name waiver and passing test census in local evidence; run the unfiltered test in a capable CI environment.",
       "promotion_target": "residual_risk",
       "suggested_destination": "docs/coding-agent/lessons.md"
+    },
+    {
+      "id": "LESSON-CAND-await-artifact-verification",
+      "category": "validation",
+      "deviation": "The supplemental artifact verification process was still running when the evidence commit started, and its changing index inventory check failed.",
+      "root_cause": "A yielded exec session was treated as completed rather than awaited before the dependent Git mutation.",
+      "prevention": "Wait for terminal exit and inspect the result before any dependent commit; verify promotion against an immutable commit. The fixed-commit byte, inventory and hash checks now pass.",
+      "promotion_target": "harness_migration",
+      "suggested_destination": "docs/coding-agent/skill-candidates.md"
     }
   ]
 }
