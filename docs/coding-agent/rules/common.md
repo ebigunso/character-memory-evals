@@ -50,17 +50,21 @@ last_updated: "2026-09-23"
 
 ### Evidence ref creation and recovery
 
-Build the complete promoted folder and root `README.md` from the source commit with a separate index; replace the placeholders before running these commands from the repository root, use an unused `evidence.index` path and ref name, and leave the working tree and normal index untouched:
+Build the complete promoted folder and root `README.md` from the source commit with a separate index; replace the placeholders before running these commands from any worktree of the repository, use an unused `evidence.index` path and ref name, and leave the working tree and normal index untouched:
 
 ```bash
 export GIT_INDEX_FILE="$(git rev-parse --absolute-git-dir)/evidence.index"
-git read-tree <source-commit>
-git rm -q --cached -r -- <paths-not-kept>
+git read-tree --empty
+git read-tree --prefix=<folder>/ <source-commit>:<folder>
+blob=$(git rev-parse <source-commit>:README.md)
+git update-index --add --cacheinfo "100644,$blob,README.md"
 c=$(git commit-tree "$(git write-tree)" -m "Evidence <yyyy-mm-dd>-<slug>")
 git update-ref refs/evidence/<yyyy-mm-dd>-<slug> "$c"
 rm -f "$GIT_INDEX_FILE"
 unset GIT_INDEX_FILE
 ```
+
+Repeat `read-tree --prefix` for each kept folder and `update-index --add --cacheinfo` for each kept single file. For a never-committed file, obtain its blob with `git hash-object -w --no-filters <file>` so checkout filters cannot change its bytes, then add it at its recovery path with `update-index`.
 
 The orchestrator publishes the new ref with `git push origin refs/evidence/<yyyy-mm-dd>-<slug>`; do not rewrite an existing evidence ref. Recovery fetches only the requested evidence and restores its working-tree paths:
 
