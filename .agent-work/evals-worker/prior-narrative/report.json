@@ -1,0 +1,6576 @@
+{
+  "aggregate": {
+    "carried_recall_by_reason": {
+      "activity": {
+        "expected": 0,
+        "admitted": 0,
+        "recall": null
+      },
+      "date": {
+        "expected": 0,
+        "admitted": 0,
+        "recall": null
+      },
+      "due": {
+        "expected": 0,
+        "admitted": 0,
+        "recall": null
+      },
+      "own_day": {
+        "expected": 6,
+        "admitted": 0,
+        "recall": 0.0
+      },
+      "pair": {
+        "expected": 0,
+        "admitted": 0,
+        "recall": null
+      },
+      "place": {
+        "expected": 0,
+        "admitted": 0,
+        "recall": null
+      },
+      "recent_and_salient": {
+        "expected": 0,
+        "admitted": 0,
+        "recall": null
+      },
+      "topic": {
+        "expected": 9,
+        "admitted": 9,
+        "recall": 1.0
+      },
+      "trigger": {
+        "expected": 0,
+        "admitted": 0,
+        "recall": null
+      }
+    },
+    "omission_reason_invariant": {
+      "status": "passed",
+      "reason": "all executed retrievals account for lifecycle and currency omissions by reason"
+    },
+    "degradation": {
+      "any_degradation": false
+    },
+    "query_count": 7,
+    "restart_count": 0,
+    "metrics": {
+      "context_compression_ratio": {
+        "mean": 1.2126416778091829,
+        "median": 0.625,
+        "p50": 0.625,
+        "p95": 2.787878787878788
+      },
+      "context_reduction_rate": {
+        "mean": -0.4392428867637557,
+        "median": -0.6000000000000001,
+        "p50": -0.6000000000000001,
+        "p95": 0.6413043478260869
+      },
+      "context_validation_pass_rate": {
+        "mean": 1.0,
+        "median": 1.0,
+        "p50": 1.0,
+        "p95": 1.0
+      },
+      "full_history_tokens": {
+        "mean": 81.57142857142857,
+        "median": 75.0,
+        "p50": 75.0,
+        "p95": 95.0
+      },
+      "num_active_threads": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "num_derived_memories": {
+        "mean": 2.5714285714285716,
+        "median": 3.0,
+        "p50": 3.0,
+        "p95": 3.0
+      },
+      "num_relevant_episodes": {
+        "mean": 1.1428571428571428,
+        "median": 1.0,
+        "p50": 1.0,
+        "p95": 2.0
+      },
+      "num_relevant_observations": {
+        "mean": 1.1428571428571428,
+        "median": 1.0,
+        "p50": 1.0,
+        "p95": 2.0
+      },
+      "num_retrieved_items": {
+        "mean": 4.857142857142857,
+        "median": 5.0,
+        "p50": 5.0,
+        "p95": 7.0
+      },
+      "orphan_vector_leakage_rate": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "provenance_coverage": {
+        "mean": 1.0,
+        "median": 1.0,
+        "p50": 1.0,
+        "p95": 1.0
+      },
+      "retrieval_rationale_coverage": {
+        "mean": 1.0,
+        "median": 1.0,
+        "p50": 1.0,
+        "p95": 1.0
+      },
+      "retrieved_context_tokens": {
+        "mean": 109.85714285714286,
+        "median": 120.0,
+        "p50": 120.0,
+        "p95": 169.0
+      },
+      "returned_derived_memories_without_provenance": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "returned_items_without_external_id": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "returned_items_without_external_ids": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "sampled_context_pollution_rate": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "sampled_event_pollution_rate": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "superseded_current_leakage_rate": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "superseded_items_returned_as_current": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "suppressed_items_returned": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "suppressed_memory_leakage_rate": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      }
+    },
+    "metric_support": {
+      "abstention_accuracy": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "context_compression_ratio": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "context_reduction_rate": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "context_validation_pass_rate": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "continuity_gap_days": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "continuity_recall_fraction_gap_long@10": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "continuity_recall_fraction_gap_long@5": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "continuity_recall_fraction_gap_medium@10": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "continuity_recall_fraction_gap_medium@5": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "continuity_recall_fraction_gap_short@10": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "continuity_recall_fraction_gap_short@5": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "correction_lifecycle_safe_admission_rate": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "cross_store_id_validation_pass_rate": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "full_history_tokens": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "hub_context_share": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "num_active_threads": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "num_derived_memories": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "num_entities": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "num_relevant_episodes": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "num_relevant_observations": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "num_retrieved_items": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "orphan_vector_leakage_rate": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "provenance_coverage": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "qa_accuracy": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "qa_exact_match": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "qa_f1": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "retrieval_rationale_coverage": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "retrieved_context_tokens": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "returned_derived_memories_without_provenance": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "returned_items_with_authoritative_validation": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "returned_items_without_external_id": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "returned_items_without_external_ids": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "sampled_context_pollution_rate": {
+        "rows_present": 7,
+        "numeric_rows": 5,
+        "null_rows": 2,
+        "unsupported": false
+      },
+      "sampled_event_pollution_rate": {
+        "rows_present": 7,
+        "numeric_rows": 5,
+        "null_rows": 2,
+        "unsupported": false
+      },
+      "superseded_current_leakage_rate": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "superseded_items_returned_as_current": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "supersession_replacement_recall": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "suppressed_items_returned": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "suppressed_memory_leakage_rate": {
+        "rows_present": 7,
+        "numeric_rows": 7,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "temporal_recall_fraction@10": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "temporal_recall_fraction@5": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      },
+      "unsupported_answer_rate": {
+        "rows_present": 7,
+        "numeric_rows": 0,
+        "null_rows": 7,
+        "unsupported": true
+      }
+    },
+    "registry_coverage": {
+      "required_metrics_total": 36,
+      "required_metrics_present": 36,
+      "required_metrics_numeric": 17,
+      "required_metrics_null_only": 19,
+      "missing_required_metrics": []
+    },
+    "latency": {
+      "latency_ms": {
+        "mean": 57.57142857142857,
+        "median": 46.0,
+        "p50": 46.0,
+        "p95": 95.0
+      }
+    }
+  },
+  "scenarios": {
+    "b1-allotment-confidence": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "topic": {
+          "expected": 2,
+          "admitted": 2,
+          "recall": 1.0
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "passed",
+        "missing_features": [],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "at-table",
+              "kind": "carried",
+              "subject": "private-worry"
+            },
+            "status": "passed",
+            "reason": "memory admitted in the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "at-table",
+              "kind": "carried",
+              "subject": "shared-seeds"
+            },
+            "status": "passed",
+            "reason": "memory admitted in the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "at-table",
+              "kind": "scene",
+              "subject": {
+                "memory": "private-worry",
+                "scene": "jo_private"
+              }
+            },
+            "status": "passed",
+            "reason": "recorded native source scenes match the authored scene"
+          },
+          {
+            "identity": {
+              "event_id": "at-table",
+              "kind": "scene",
+              "subject": {
+                "memory": "shared-seeds",
+                "scene": "shared_table"
+              }
+            },
+            "status": "passed",
+            "reason": "recorded native source scenes match the authored scene"
+          }
+        ],
+        "probes": {
+          "b1-default": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "topic": {
+                "expected": 2,
+                "admitted": 2,
+                "recall": 1.0
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              }
+            },
+            "bystander_context_share": 0.0,
+            "context_tokens": 169
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "passed",
+          "reason": "native lifecycle and currency omissions are accounted for by reason"
+        }
+      },
+      "query_count": 1,
+      "metrics": {
+        "context_compression_ratio": {
+          "mean": 0.4437869822485207,
+          "median": 0.4437869822485207,
+          "p50": 0.4437869822485207,
+          "p95": 0.4437869822485207
+        },
+        "context_reduction_rate": {
+          "mean": -1.2533333333333334,
+          "median": -1.2533333333333334,
+          "p50": -1.2533333333333334,
+          "p95": -1.2533333333333334
+        },
+        "context_validation_pass_rate": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "full_history_tokens": {
+          "mean": 75.0,
+          "median": 75.0,
+          "p50": 75.0,
+          "p95": 75.0
+        },
+        "num_active_threads": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "num_derived_memories": {
+          "mean": 3.0,
+          "median": 3.0,
+          "p50": 3.0,
+          "p95": 3.0
+        },
+        "num_relevant_episodes": {
+          "mean": 2.0,
+          "median": 2.0,
+          "p50": 2.0,
+          "p95": 2.0
+        },
+        "num_relevant_observations": {
+          "mean": 2.0,
+          "median": 2.0,
+          "p50": 2.0,
+          "p95": 2.0
+        },
+        "num_retrieved_items": {
+          "mean": 7.0,
+          "median": 7.0,
+          "p50": 7.0,
+          "p95": 7.0
+        },
+        "orphan_vector_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "provenance_coverage": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "retrieval_rationale_coverage": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "retrieved_context_tokens": {
+          "mean": 169.0,
+          "median": 169.0,
+          "p50": 169.0,
+          "p95": 169.0
+        },
+        "returned_derived_memories_without_provenance": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "returned_items_without_external_id": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "returned_items_without_external_ids": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "sampled_context_pollution_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "sampled_event_pollution_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "superseded_current_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "superseded_items_returned_as_current": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "suppressed_items_returned": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "suppressed_memory_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      },
+      "metric_support": {
+        "abstention_accuracy": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "context_compression_ratio": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "context_reduction_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "context_validation_pass_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "continuity_gap_days": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_long@10": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_long@5": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_medium@10": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_medium@5": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_short@10": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_short@5": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "correction_lifecycle_safe_admission_rate": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "cross_store_id_validation_pass_rate": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "full_history_tokens": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "hub_context_share": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "num_active_threads": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_derived_memories": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_entities": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "num_relevant_episodes": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_relevant_observations": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_retrieved_items": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "orphan_vector_leakage_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "provenance_coverage": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "qa_accuracy": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "qa_exact_match": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "qa_f1": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "retrieval_rationale_coverage": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "retrieved_context_tokens": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_derived_memories_without_provenance": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_items_with_authoritative_validation": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "returned_items_without_external_id": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_items_without_external_ids": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "sampled_context_pollution_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "sampled_event_pollution_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "superseded_current_leakage_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "superseded_items_returned_as_current": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "supersession_replacement_recall": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "suppressed_items_returned": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "suppressed_memory_leakage_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "temporal_recall_fraction@10": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "temporal_recall_fraction@5": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "unsupported_answer_rate": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        }
+      },
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 36,
+        "required_metrics_numeric": 17,
+        "required_metrics_null_only": 19,
+        "missing_required_metrics": []
+      }
+    },
+    "b2-rehearsal-and-aside": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "topic": {
+          "expected": 4,
+          "admitted": 4,
+          "recall": 1.0
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "passed",
+        "missing_features": [],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "pair-default",
+              "kind": "carried",
+              "subject": "group-plan"
+            },
+            "status": "passed",
+            "reason": "memory admitted in the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "pair-default",
+              "kind": "carried",
+              "subject": "private-aside"
+            },
+            "status": "passed",
+            "reason": "memory admitted in the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "pair-default",
+              "kind": "scene",
+              "subject": {
+                "memory": "group-plan",
+                "scene": "rehearsal"
+              }
+            },
+            "status": "passed",
+            "reason": "recorded native source scenes match the authored scene"
+          },
+          {
+            "identity": {
+              "event_id": "pair-default",
+              "kind": "scene",
+              "subject": {
+                "memory": "private-aside",
+                "scene": "aside"
+              }
+            },
+            "status": "passed",
+            "reason": "recorded native source scenes match the authored scene"
+          },
+          {
+            "identity": {
+              "event_id": "group-default",
+              "kind": "carried",
+              "subject": "group-plan"
+            },
+            "status": "passed",
+            "reason": "memory admitted in the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "group-default",
+              "kind": "carried",
+              "subject": "private-aside"
+            },
+            "status": "passed",
+            "reason": "memory admitted in the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "group-default",
+              "kind": "scene",
+              "subject": {
+                "memory": "group-plan",
+                "scene": "rehearsal"
+              }
+            },
+            "status": "passed",
+            "reason": "recorded native source scenes match the authored scene"
+          },
+          {
+            "identity": {
+              "event_id": "group-default",
+              "kind": "scene",
+              "subject": {
+                "memory": "private-aside",
+                "scene": "aside"
+              }
+            },
+            "status": "passed",
+            "reason": "recorded native source scenes match the authored scene"
+          }
+        ],
+        "probes": {
+          "b2-group-default": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "topic": {
+                "expected": 2,
+                "admitted": 2,
+                "recall": 1.0
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              }
+            },
+            "bystander_context_share": 0.0,
+            "context_tokens": 161
+          },
+          "b2-pair-default": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "topic": {
+                "expected": 2,
+                "admitted": 2,
+                "recall": 1.0
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              }
+            },
+            "bystander_context_share": 0.0,
+            "context_tokens": 161
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "passed",
+          "reason": "native lifecycle and currency omissions are accounted for by reason"
+        }
+      },
+      "query_count": 2,
+      "metrics": {
+        "context_compression_ratio": {
+          "mean": 0.4409937888198758,
+          "median": 0.4409937888198758,
+          "p50": 0.4409937888198758,
+          "p95": 0.4409937888198758
+        },
+        "context_reduction_rate": {
+          "mean": -1.267605633802817,
+          "median": -1.267605633802817,
+          "p50": -1.267605633802817,
+          "p95": -1.267605633802817
+        },
+        "context_validation_pass_rate": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "full_history_tokens": {
+          "mean": 71.0,
+          "median": 71.0,
+          "p50": 71.0,
+          "p95": 71.0
+        },
+        "num_active_threads": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "num_derived_memories": {
+          "mean": 3.0,
+          "median": 3.0,
+          "p50": 3.0,
+          "p95": 3.0
+        },
+        "num_relevant_episodes": {
+          "mean": 2.0,
+          "median": 2.0,
+          "p50": 2.0,
+          "p95": 2.0
+        },
+        "num_relevant_observations": {
+          "mean": 2.0,
+          "median": 2.0,
+          "p50": 2.0,
+          "p95": 2.0
+        },
+        "num_retrieved_items": {
+          "mean": 7.0,
+          "median": 7.0,
+          "p50": 7.0,
+          "p95": 7.0
+        },
+        "orphan_vector_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "provenance_coverage": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "retrieval_rationale_coverage": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "retrieved_context_tokens": {
+          "mean": 161.0,
+          "median": 161.0,
+          "p50": 161.0,
+          "p95": 161.0
+        },
+        "returned_derived_memories_without_provenance": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "returned_items_without_external_id": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "returned_items_without_external_ids": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "sampled_context_pollution_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "sampled_event_pollution_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "superseded_current_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "superseded_items_returned_as_current": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "suppressed_items_returned": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "suppressed_memory_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      },
+      "metric_support": {
+        "abstention_accuracy": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "context_compression_ratio": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "context_reduction_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "context_validation_pass_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "continuity_gap_days": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_long@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_long@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_medium@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_medium@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_short@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_short@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "correction_lifecycle_safe_admission_rate": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "cross_store_id_validation_pass_rate": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "full_history_tokens": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "hub_context_share": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "num_active_threads": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_derived_memories": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_entities": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "num_relevant_episodes": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_relevant_observations": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_retrieved_items": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "orphan_vector_leakage_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "provenance_coverage": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "qa_accuracy": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "qa_exact_match": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "qa_f1": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "retrieval_rationale_coverage": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "retrieved_context_tokens": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_derived_memories_without_provenance": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_items_with_authoritative_validation": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "returned_items_without_external_id": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_items_without_external_ids": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "sampled_context_pollution_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "sampled_event_pollution_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "superseded_current_leakage_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "superseded_items_returned_as_current": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "supersession_replacement_recall": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "suppressed_items_returned": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "suppressed_memory_leakage_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "temporal_recall_fraction@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "temporal_recall_fraction@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "unsupported_answer_rate": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        }
+      },
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 36,
+        "required_metrics_numeric": 17,
+        "required_metrics_null_only": 19,
+        "missing_required_metrics": []
+      }
+    },
+    "b3-workshop-relationships": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "not_run",
+        "missing_features": [
+          "pair_counterpart_cue",
+          "staleness"
+        ],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "see-jo",
+              "kind": "carried",
+              "subject": "jo-trust"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-jo",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "iman-strain",
+                "cue": "pair"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-jo",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "kit-new",
+                "cue": "pair"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-iman",
+              "kind": "carried",
+              "subject": "iman-strain"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-iman",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "jo-trust",
+                "cue": "pair"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-iman",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "kit-new",
+                "cue": "pair"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-kit",
+              "kind": "carried",
+              "subject": "kit-new"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-kit",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "iman-strain",
+                "cue": "pair"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-kit",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "jo-trust",
+                "cue": "pair"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-iman-again",
+              "kind": "carried",
+              "subject": "iman-rebuilding"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-iman-again",
+              "kind": "omitted",
+              "subject": "iman-strain"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-iman-again",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "jo-trust",
+                "cue": "pair"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-iman-again",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "kit-new",
+                "cue": "pair"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "see-iman-again",
+              "kind": "staleness",
+              "subject": "iman-rebuilding"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+          }
+        ],
+        "probes": {
+          "b3-current": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "b3-new": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "b3-strained": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "b3-trusted": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "not_run",
+          "reason": "unsupported features: [\"pair_counterpart_cue\",\"staleness\"]"
+        }
+      },
+      "query_count": 0,
+      "metrics": {},
+      "metric_support": {},
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 0,
+        "required_metrics_numeric": 0,
+        "required_metrics_null_only": 0,
+        "missing_required_metrics": [
+          "abstention_accuracy",
+          "context_compression_ratio",
+          "context_reduction_rate",
+          "context_validation_pass_rate",
+          "continuity_gap_days",
+          "continuity_recall_fraction_gap_long@10",
+          "continuity_recall_fraction_gap_long@5",
+          "continuity_recall_fraction_gap_medium@10",
+          "continuity_recall_fraction_gap_medium@5",
+          "continuity_recall_fraction_gap_short@10",
+          "continuity_recall_fraction_gap_short@5",
+          "correction_lifecycle_safe_admission_rate",
+          "cross_store_id_validation_pass_rate",
+          "full_history_tokens",
+          "hub_context_share",
+          "num_active_threads",
+          "num_derived_memories",
+          "num_entities",
+          "num_relevant_episodes",
+          "num_relevant_observations",
+          "num_retrieved_items",
+          "orphan_vector_leakage_rate",
+          "provenance_coverage",
+          "qa_accuracy",
+          "qa_exact_match",
+          "qa_f1",
+          "retrieval_rationale_coverage",
+          "retrieved_context_tokens",
+          "sampled_context_pollution_rate",
+          "sampled_event_pollution_rate",
+          "superseded_current_leakage_rate",
+          "supersession_replacement_recall",
+          "suppressed_memory_leakage_rate",
+          "temporal_recall_fraction@10",
+          "temporal_recall_fraction@5",
+          "unsupported_answer_rate"
+        ]
+      }
+    },
+    "c4-churning-account": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "not_run",
+        "missing_features": [
+          "staleness",
+          "write_warnings"
+        ],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "account-6",
+              "kind": "write_warning",
+              "subject": "churning_chain"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "stable-basis",
+              "kind": "carried",
+              "subject": "account-6"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "stable-basis",
+              "kind": "carried",
+              "subject": "shared-harvest"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "stable-basis",
+              "kind": "omitted",
+              "subject": "account-0"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "stable-basis",
+              "kind": "omitted",
+              "subject": "account-1"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "stable-basis",
+              "kind": "omitted",
+              "subject": "account-2"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "stable-basis",
+              "kind": "omitted",
+              "subject": "account-3"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "stable-basis",
+              "kind": "omitted",
+              "subject": "account-4"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "stable-basis",
+              "kind": "omitted",
+              "subject": "account-5"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "stable-basis",
+              "kind": "staleness",
+              "subject": "account-6"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          }
+        ],
+        "probes": {
+          "c4-churn-current": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 2,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "not_run",
+          "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+        }
+      },
+      "query_count": 0,
+      "metrics": {},
+      "metric_support": {},
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 0,
+        "required_metrics_numeric": 0,
+        "required_metrics_null_only": 0,
+        "missing_required_metrics": [
+          "abstention_accuracy",
+          "context_compression_ratio",
+          "context_reduction_rate",
+          "context_validation_pass_rate",
+          "continuity_gap_days",
+          "continuity_recall_fraction_gap_long@10",
+          "continuity_recall_fraction_gap_long@5",
+          "continuity_recall_fraction_gap_medium@10",
+          "continuity_recall_fraction_gap_medium@5",
+          "continuity_recall_fraction_gap_short@10",
+          "continuity_recall_fraction_gap_short@5",
+          "correction_lifecycle_safe_admission_rate",
+          "cross_store_id_validation_pass_rate",
+          "full_history_tokens",
+          "hub_context_share",
+          "num_active_threads",
+          "num_derived_memories",
+          "num_entities",
+          "num_relevant_episodes",
+          "num_relevant_observations",
+          "num_retrieved_items",
+          "orphan_vector_leakage_rate",
+          "provenance_coverage",
+          "qa_accuracy",
+          "qa_exact_match",
+          "qa_f1",
+          "retrieval_rationale_coverage",
+          "retrieved_context_tokens",
+          "sampled_context_pollution_rate",
+          "sampled_event_pollution_rate",
+          "superseded_current_leakage_rate",
+          "supersession_replacement_recall",
+          "suppressed_memory_leakage_rate",
+          "temporal_recall_fraction@10",
+          "temporal_recall_fraction@5",
+          "unsupported_answer_rate"
+        ]
+      }
+    },
+    "c4-the-flood-story": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "not_run",
+        "missing_features": [
+          "staleness",
+          "write_warnings"
+        ],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "current-account",
+              "kind": "write_warning",
+              "subject": "near_verbatim_restatement"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "jo-remembers",
+              "kind": "carried",
+              "subject": "current-account"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "jo-remembers",
+              "kind": "carried",
+              "subject": "flood-basis"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "jo-remembers",
+              "kind": "omitted",
+              "subject": "first-account"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "jo-remembers",
+              "kind": "scene",
+              "subject": {
+                "memory": "flood-basis",
+                "scene": "flood"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "iman-remembers-months-later",
+              "kind": "carried",
+              "subject": "current-account"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "iman-remembers-months-later",
+              "kind": "carried",
+              "subject": "flood-basis"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "iman-remembers-months-later",
+              "kind": "omitted",
+              "subject": "first-account"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "iman-remembers-months-later",
+              "kind": "scene",
+              "subject": {
+                "memory": "flood-basis",
+                "scene": "flood"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          },
+          {
+            "identity": {
+              "event_id": "iman-remembers-months-later",
+              "kind": "staleness",
+              "subject": "current-account"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+          }
+        ],
+        "probes": {
+          "c4-other-scene-months-later": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 2,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "c4-same-basis": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 2,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "not_run",
+          "reason": "unsupported features: [\"staleness\",\"write_warnings\"]"
+        }
+      },
+      "query_count": 0,
+      "metrics": {},
+      "metric_support": {},
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 0,
+        "required_metrics_numeric": 0,
+        "required_metrics_null_only": 0,
+        "missing_required_metrics": [
+          "abstention_accuracy",
+          "context_compression_ratio",
+          "context_reduction_rate",
+          "context_validation_pass_rate",
+          "continuity_gap_days",
+          "continuity_recall_fraction_gap_long@10",
+          "continuity_recall_fraction_gap_long@5",
+          "continuity_recall_fraction_gap_medium@10",
+          "continuity_recall_fraction_gap_medium@5",
+          "continuity_recall_fraction_gap_short@10",
+          "continuity_recall_fraction_gap_short@5",
+          "correction_lifecycle_safe_admission_rate",
+          "cross_store_id_validation_pass_rate",
+          "full_history_tokens",
+          "hub_context_share",
+          "num_active_threads",
+          "num_derived_memories",
+          "num_entities",
+          "num_relevant_episodes",
+          "num_relevant_observations",
+          "num_retrieved_items",
+          "orphan_vector_leakage_rate",
+          "provenance_coverage",
+          "qa_accuracy",
+          "qa_exact_match",
+          "qa_f1",
+          "retrieval_rationale_coverage",
+          "retrieved_context_tokens",
+          "sampled_context_pollution_rate",
+          "sampled_event_pollution_rate",
+          "superseded_current_leakage_rate",
+          "supersession_replacement_recall",
+          "suppressed_memory_leakage_rate",
+          "temporal_recall_fraction@10",
+          "temporal_recall_fraction@5",
+          "unsupported_answer_rate"
+        ]
+      }
+    },
+    "d1-d8-morning-deadline": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "not_run",
+        "missing_features": [
+          "direction",
+          "due_date",
+          "due_cue",
+          "recent_and_salient_cue",
+          "staleness",
+          "resolution_omission"
+        ],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "before-due",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "pay-water",
+                "cue": "due"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"due_date\",\"due_cue\",\"recent_and_salient_cue\",\"staleness\",\"resolution_omission\"]"
+          },
+          {
+            "identity": {
+              "event_id": "wake-up",
+              "kind": "carried",
+              "subject": "evening-alarm"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"due_date\",\"due_cue\",\"recent_and_salient_cue\",\"staleness\",\"resolution_omission\"]"
+          },
+          {
+            "identity": {
+              "event_id": "wake-up",
+              "kind": "carried",
+              "subject": "pay-water"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"due_date\",\"due_cue\",\"recent_and_salient_cue\",\"staleness\",\"resolution_omission\"]"
+          },
+          {
+            "identity": {
+              "event_id": "wake-up",
+              "kind": "cued",
+              "subject": {
+                "memory": "evening-alarm",
+                "cue": "recent_and_salient"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"due_date\",\"due_cue\",\"recent_and_salient_cue\",\"staleness\",\"resolution_omission\"]"
+          },
+          {
+            "identity": {
+              "event_id": "wake-up",
+              "kind": "cued",
+              "subject": {
+                "memory": "pay-water",
+                "cue": "due"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"due_date\",\"due_cue\",\"recent_and_salient_cue\",\"staleness\",\"resolution_omission\"]"
+          },
+          {
+            "identity": {
+              "event_id": "overdue",
+              "kind": "carried",
+              "subject": "pay-water"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"due_date\",\"due_cue\",\"recent_and_salient_cue\",\"staleness\",\"resolution_omission\"]"
+          },
+          {
+            "identity": {
+              "event_id": "overdue",
+              "kind": "cued",
+              "subject": {
+                "memory": "pay-water",
+                "cue": "due"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"due_date\",\"due_cue\",\"recent_and_salient_cue\",\"staleness\",\"resolution_omission\"]"
+          },
+          {
+            "identity": {
+              "event_id": "overdue",
+              "kind": "staleness",
+              "subject": "pay-water"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"due_date\",\"due_cue\",\"recent_and_salient_cue\",\"staleness\",\"resolution_omission\"]"
+          },
+          {
+            "identity": {
+              "event_id": "next-morning",
+              "kind": "omitted",
+              "subject": "pay-water"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"due_date\",\"due_cue\",\"recent_and_salient_cue\",\"staleness\",\"resolution_omission\"]"
+          }
+        ],
+        "probes": {
+          "d1-d8-before": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "d1-d8-due": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "d1-d8-overdue": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "d1-d8-resolved": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "not_run",
+          "reason": "unsupported features: [\"direction\",\"due_date\",\"due_cue\",\"recent_and_salient_cue\",\"staleness\",\"resolution_omission\"]"
+        }
+      },
+      "query_count": 0,
+      "metrics": {},
+      "metric_support": {},
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 0,
+        "required_metrics_numeric": 0,
+        "required_metrics_null_only": 0,
+        "missing_required_metrics": [
+          "abstention_accuracy",
+          "context_compression_ratio",
+          "context_reduction_rate",
+          "context_validation_pass_rate",
+          "continuity_gap_days",
+          "continuity_recall_fraction_gap_long@10",
+          "continuity_recall_fraction_gap_long@5",
+          "continuity_recall_fraction_gap_medium@10",
+          "continuity_recall_fraction_gap_medium@5",
+          "continuity_recall_fraction_gap_short@10",
+          "continuity_recall_fraction_gap_short@5",
+          "correction_lifecycle_safe_admission_rate",
+          "cross_store_id_validation_pass_rate",
+          "full_history_tokens",
+          "hub_context_share",
+          "num_active_threads",
+          "num_derived_memories",
+          "num_entities",
+          "num_relevant_episodes",
+          "num_relevant_observations",
+          "num_retrieved_items",
+          "orphan_vector_leakage_rate",
+          "provenance_coverage",
+          "qa_accuracy",
+          "qa_exact_match",
+          "qa_f1",
+          "retrieval_rationale_coverage",
+          "retrieved_context_tokens",
+          "sampled_context_pollution_rate",
+          "sampled_event_pollution_rate",
+          "superseded_current_leakage_rate",
+          "supersession_replacement_recall",
+          "suppressed_memory_leakage_rate",
+          "temporal_recall_fraction@10",
+          "temporal_recall_fraction@5",
+          "unsupported_answer_rate"
+        ]
+      }
+    },
+    "d11-c6-reunion-and-departure": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "not_run",
+        "missing_features": [
+          "elapsed_since_met",
+          "staleness"
+        ],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "return-after-silence",
+              "kind": "carried",
+              "subject": "last-walk"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "return-after-silence",
+              "kind": "carried",
+              "subject": "walking-friends"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "return-after-silence",
+              "kind": "elapsed_since_met",
+              "subject": "nia"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "return-after-silence",
+              "kind": "staleness",
+              "subject": "walking-friends"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "remember-absent-nia",
+              "kind": "carried",
+              "subject": "farewell"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "remember-absent-nia",
+              "kind": "carried",
+              "subject": "former-walking-companions"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "remember-absent-nia",
+              "kind": "omitted",
+              "subject": "walking-friends"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "remember-absent-nia",
+              "kind": "staleness",
+              "subject": "former-walking-companions"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "nia-visits",
+              "kind": "carried",
+              "subject": "farewell"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "nia-visits",
+              "kind": "carried",
+              "subject": "former-walking-companions"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "nia-visits",
+              "kind": "omitted",
+              "subject": "walking-friends"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "nia-visits",
+              "kind": "elapsed_since_met",
+              "subject": "nia"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "nia-visits",
+              "kind": "staleness",
+              "subject": "former-walking-companions"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+          }
+        ],
+        "probes": {
+          "c6-departure-recorded": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 2,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "c6-reminiscence": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 2,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "d11-still-current": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 2,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "not_run",
+          "reason": "unsupported features: [\"elapsed_since_met\",\"staleness\"]"
+        }
+      },
+      "query_count": 0,
+      "metrics": {},
+      "metric_support": {},
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 0,
+        "required_metrics_numeric": 0,
+        "required_metrics_null_only": 0,
+        "missing_required_metrics": [
+          "abstention_accuracy",
+          "context_compression_ratio",
+          "context_reduction_rate",
+          "context_validation_pass_rate",
+          "continuity_gap_days",
+          "continuity_recall_fraction_gap_long@10",
+          "continuity_recall_fraction_gap_long@5",
+          "continuity_recall_fraction_gap_medium@10",
+          "continuity_recall_fraction_gap_medium@5",
+          "continuity_recall_fraction_gap_short@10",
+          "continuity_recall_fraction_gap_short@5",
+          "correction_lifecycle_safe_admission_rate",
+          "cross_store_id_validation_pass_rate",
+          "full_history_tokens",
+          "hub_context_share",
+          "num_active_threads",
+          "num_derived_memories",
+          "num_entities",
+          "num_relevant_episodes",
+          "num_relevant_observations",
+          "num_retrieved_items",
+          "orphan_vector_leakage_rate",
+          "provenance_coverage",
+          "qa_accuracy",
+          "qa_exact_match",
+          "qa_f1",
+          "retrieval_rationale_coverage",
+          "retrieved_context_tokens",
+          "sampled_context_pollution_rate",
+          "sampled_event_pollution_rate",
+          "superseded_current_leakage_rate",
+          "supersession_replacement_recall",
+          "suppressed_memory_leakage_rate",
+          "temporal_recall_fraction@10",
+          "temporal_recall_fraction@5",
+          "unsupported_answer_rate"
+        ]
+      }
+    },
+    "d13-my-day": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 6,
+          "admitted": 0,
+          "recall": 0.0
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "failed",
+        "missing_features": [],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "jo-asks",
+              "kind": "carried",
+              "subject": "afternoon"
+            },
+            "status": "failed",
+            "reason": "memory is absent from the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "jo-asks",
+              "kind": "carried",
+              "subject": "evening"
+            },
+            "status": "failed",
+            "reason": "memory is absent from the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "jo-asks",
+              "kind": "carried",
+              "subject": "morning"
+            },
+            "status": "failed",
+            "reason": "memory is absent from the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "jo-asks",
+              "kind": "in_order",
+              "subject": [
+                "morning",
+                "afternoon",
+                "evening"
+              ]
+            },
+            "status": "failed",
+            "reason": "a memory is missing or the native pack order differs"
+          },
+          {
+            "identity": {
+              "event_id": "iman-asks",
+              "kind": "carried",
+              "subject": "afternoon"
+            },
+            "status": "failed",
+            "reason": "memory is absent from the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "iman-asks",
+              "kind": "carried",
+              "subject": "evening"
+            },
+            "status": "failed",
+            "reason": "memory is absent from the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "iman-asks",
+              "kind": "carried",
+              "subject": "morning"
+            },
+            "status": "failed",
+            "reason": "memory is absent from the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "iman-asks",
+              "kind": "in_order",
+              "subject": [
+                "morning",
+                "afternoon",
+                "evening"
+              ]
+            },
+            "status": "failed",
+            "reason": "a memory is missing or the native pack order differs"
+          }
+        ],
+        "probes": {
+          "d13-iman": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 3,
+                "admitted": 0,
+                "recall": 0.0
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": 34
+          },
+          "d13-jo": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 3,
+                "admitted": 0,
+                "recall": 0.0
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": 33
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "passed",
+          "reason": "native lifecycle and currency omissions are accounted for by reason"
+        }
+      },
+      "query_count": 2,
+      "metrics": {
+        "context_compression_ratio": {
+          "mean": 2.7468805704099823,
+          "median": 2.787878787878788,
+          "p50": 2.787878787878788,
+          "p95": 2.787878787878788
+        },
+        "context_reduction_rate": {
+          "mean": 0.6358695652173914,
+          "median": 0.6413043478260869,
+          "p50": 0.6413043478260869,
+          "p95": 0.6413043478260869
+        },
+        "context_validation_pass_rate": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "full_history_tokens": {
+          "mean": 92.0,
+          "median": 92.0,
+          "p50": 92.0,
+          "p95": 92.0
+        },
+        "num_active_threads": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "num_derived_memories": {
+          "mean": 2.0,
+          "median": 2.0,
+          "p50": 2.0,
+          "p95": 2.0
+        },
+        "num_relevant_episodes": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "num_relevant_observations": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "num_retrieved_items": {
+          "mean": 2.0,
+          "median": 2.0,
+          "p50": 2.0,
+          "p95": 2.0
+        },
+        "orphan_vector_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "provenance_coverage": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "retrieval_rationale_coverage": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "retrieved_context_tokens": {
+          "mean": 33.5,
+          "median": 34.0,
+          "p50": 34.0,
+          "p95": 34.0
+        },
+        "returned_derived_memories_without_provenance": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "returned_items_without_external_id": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "returned_items_without_external_ids": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "superseded_current_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "superseded_items_returned_as_current": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "suppressed_items_returned": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "suppressed_memory_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      },
+      "metric_support": {
+        "abstention_accuracy": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "context_compression_ratio": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "context_reduction_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "context_validation_pass_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "continuity_gap_days": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_long@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_long@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_medium@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_medium@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_short@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_short@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "correction_lifecycle_safe_admission_rate": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "cross_store_id_validation_pass_rate": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "full_history_tokens": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "hub_context_share": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "num_active_threads": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_derived_memories": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_entities": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "num_relevant_episodes": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_relevant_observations": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_retrieved_items": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "orphan_vector_leakage_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "provenance_coverage": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "qa_accuracy": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "qa_exact_match": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "qa_f1": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "retrieval_rationale_coverage": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "retrieved_context_tokens": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_derived_memories_without_provenance": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_items_with_authoritative_validation": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "returned_items_without_external_id": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_items_without_external_ids": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "sampled_context_pollution_rate": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "sampled_event_pollution_rate": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "superseded_current_leakage_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "superseded_items_returned_as_current": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "supersession_replacement_recall": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "suppressed_items_returned": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "suppressed_memory_leakage_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "temporal_recall_fraction@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "temporal_recall_fraction@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "unsupported_answer_rate": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        }
+      },
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 36,
+        "required_metrics_numeric": 15,
+        "required_metrics_null_only": 21,
+        "missing_required_metrics": []
+      }
+    },
+    "d4-library-door": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "not_run",
+        "missing_features": [
+          "direction",
+          "description_reference_resolution",
+          "elapsed_since_met"
+        ],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "heard-nia",
+              "kind": "carried",
+              "subject": "atlas-owed"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          },
+          {
+            "identity": {
+              "event_id": "heard-nia",
+              "kind": "carried",
+              "subject": "last-conversation"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          },
+          {
+            "identity": {
+              "event_id": "heard-nia",
+              "kind": "carried",
+              "subject": "nia-state"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          },
+          {
+            "identity": {
+              "event_id": "heard-nia",
+              "kind": "carried",
+              "subject": "slip-awaited"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          },
+          {
+            "identity": {
+              "event_id": "heard-nia",
+              "kind": "references",
+              "subject": {
+                "by": "name",
+                "text": "Nia"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          },
+          {
+            "identity": {
+              "event_id": "heard-nia",
+              "kind": "elapsed_since_met",
+              "subject": "nia"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          },
+          {
+            "identity": {
+              "event_id": "recognized-stick",
+              "kind": "carried",
+              "subject": "atlas-owed"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          },
+          {
+            "identity": {
+              "event_id": "recognized-stick",
+              "kind": "carried",
+              "subject": "last-conversation"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          },
+          {
+            "identity": {
+              "event_id": "recognized-stick",
+              "kind": "carried",
+              "subject": "nia-state"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          },
+          {
+            "identity": {
+              "event_id": "recognized-stick",
+              "kind": "carried",
+              "subject": "slip-awaited"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          },
+          {
+            "identity": {
+              "event_id": "recognized-stick",
+              "kind": "references",
+              "subject": {
+                "by": "description",
+                "text": "the librarian with the copper walking stick"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          },
+          {
+            "identity": {
+              "event_id": "recognized-stick",
+              "kind": "elapsed_since_met",
+              "subject": "nia"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+          }
+        ],
+        "probes": {
+          "d4-by-description": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 4,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "d4-by-name": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 4,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "not_run",
+          "reason": "unsupported features: [\"direction\",\"description_reference_resolution\",\"elapsed_since_met\"]"
+        }
+      },
+      "query_count": 0,
+      "metrics": {},
+      "metric_support": {},
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 0,
+        "required_metrics_numeric": 0,
+        "required_metrics_null_only": 0,
+        "missing_required_metrics": [
+          "abstention_accuracy",
+          "context_compression_ratio",
+          "context_reduction_rate",
+          "context_validation_pass_rate",
+          "continuity_gap_days",
+          "continuity_recall_fraction_gap_long@10",
+          "continuity_recall_fraction_gap_long@5",
+          "continuity_recall_fraction_gap_medium@10",
+          "continuity_recall_fraction_gap_medium@5",
+          "continuity_recall_fraction_gap_short@10",
+          "continuity_recall_fraction_gap_short@5",
+          "correction_lifecycle_safe_admission_rate",
+          "cross_store_id_validation_pass_rate",
+          "full_history_tokens",
+          "hub_context_share",
+          "num_active_threads",
+          "num_derived_memories",
+          "num_entities",
+          "num_relevant_episodes",
+          "num_relevant_observations",
+          "num_retrieved_items",
+          "orphan_vector_leakage_rate",
+          "provenance_coverage",
+          "qa_accuracy",
+          "qa_exact_match",
+          "qa_f1",
+          "retrieval_rationale_coverage",
+          "retrieved_context_tokens",
+          "sampled_context_pollution_rate",
+          "sampled_event_pollution_rate",
+          "superseded_current_leakage_rate",
+          "supersession_replacement_recall",
+          "suppressed_memory_leakage_rate",
+          "temporal_recall_fraction@10",
+          "temporal_recall_fraction@5",
+          "unsupported_answer_rate"
+        ]
+      }
+    },
+    "d4-uncertain-arrivals": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "not_run",
+        "missing_features": [
+          "pair_counterpart_cue",
+          "description_reference_resolution"
+        ],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "alex-at-door",
+              "kind": "carried",
+              "subject": "baker-news"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"description_reference_resolution\"]"
+          },
+          {
+            "identity": {
+              "event_id": "alex-at-door",
+              "kind": "carried",
+              "subject": "potter-news"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"description_reference_resolution\"]"
+          },
+          {
+            "identity": {
+              "event_id": "alex-at-door",
+              "kind": "references",
+              "subject": {
+                "by": "name",
+                "text": "Alex"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"description_reference_resolution\"]"
+          },
+          {
+            "identity": {
+              "event_id": "unknown-visitor",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "baker-news",
+                "cue": "pair"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"description_reference_resolution\"]"
+          },
+          {
+            "identity": {
+              "event_id": "unknown-visitor",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "potter-news",
+                "cue": "pair"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"description_reference_resolution\"]"
+          },
+          {
+            "identity": {
+              "event_id": "unknown-visitor",
+              "kind": "references",
+              "subject": {
+                "by": "description",
+                "text": "an unfamiliar courier in a silver helmet"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"pair_counterpart_cue\",\"description_reference_resolution\"]"
+          }
+        ],
+        "probes": {
+          "d4-ambiguous": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 2,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "d4-unknown": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "not_run",
+          "reason": "unsupported features: [\"pair_counterpart_cue\",\"description_reference_resolution\"]"
+        }
+      },
+      "query_count": 0,
+      "metrics": {},
+      "metric_support": {},
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 0,
+        "required_metrics_numeric": 0,
+        "required_metrics_null_only": 0,
+        "missing_required_metrics": [
+          "abstention_accuracy",
+          "context_compression_ratio",
+          "context_reduction_rate",
+          "context_validation_pass_rate",
+          "continuity_gap_days",
+          "continuity_recall_fraction_gap_long@10",
+          "continuity_recall_fraction_gap_long@5",
+          "continuity_recall_fraction_gap_medium@10",
+          "continuity_recall_fraction_gap_medium@5",
+          "continuity_recall_fraction_gap_short@10",
+          "continuity_recall_fraction_gap_short@5",
+          "correction_lifecycle_safe_admission_rate",
+          "cross_store_id_validation_pass_rate",
+          "full_history_tokens",
+          "hub_context_share",
+          "num_active_threads",
+          "num_derived_memories",
+          "num_entities",
+          "num_relevant_episodes",
+          "num_relevant_observations",
+          "num_retrieved_items",
+          "orphan_vector_leakage_rate",
+          "provenance_coverage",
+          "qa_accuracy",
+          "qa_exact_match",
+          "qa_f1",
+          "retrieval_rationale_coverage",
+          "retrieved_context_tokens",
+          "sampled_context_pollution_rate",
+          "sampled_event_pollution_rate",
+          "superseded_current_leakage_rate",
+          "supersession_replacement_recall",
+          "suppressed_memory_leakage_rate",
+          "temporal_recall_fraction@10",
+          "temporal_recall_fraction@5",
+          "unsupported_answer_rate"
+        ]
+      }
+    },
+    "d5-resume-greenhouse": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "not_run",
+        "missing_features": [
+          "write_scene_what",
+          "thread_provenance"
+        ],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "resume",
+              "kind": "carried",
+              "subject": "constraint"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"write_scene_what\",\"thread_provenance\"]"
+          },
+          {
+            "identity": {
+              "event_id": "resume",
+              "kind": "carried",
+              "subject": "failed-frame"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"write_scene_what\",\"thread_provenance\"]"
+          },
+          {
+            "identity": {
+              "event_id": "resume",
+              "kind": "carried",
+              "subject": "greenhouse-work"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"write_scene_what\",\"thread_provenance\"]"
+          },
+          {
+            "identity": {
+              "event_id": "resume",
+              "kind": "carried",
+              "subject": "hinge-decision"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"write_scene_what\",\"thread_provenance\"]"
+          },
+          {
+            "identity": {
+              "event_id": "resume",
+              "kind": "in_order",
+              "subject": [
+                "constraint",
+                "failed-frame",
+                "hinge-decision"
+              ]
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"write_scene_what\",\"thread_provenance\"]"
+          },
+          {
+            "identity": {
+              "event_id": "resume",
+              "kind": "cued",
+              "subject": {
+                "memory": "constraint",
+                "cue": "activity"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"write_scene_what\",\"thread_provenance\"]"
+          },
+          {
+            "identity": {
+              "event_id": "resume",
+              "kind": "cued",
+              "subject": {
+                "memory": "failed-frame",
+                "cue": "activity"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"write_scene_what\",\"thread_provenance\"]"
+          },
+          {
+            "identity": {
+              "event_id": "resume",
+              "kind": "cued",
+              "subject": {
+                "memory": "greenhouse-work",
+                "cue": "activity"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"write_scene_what\",\"thread_provenance\"]"
+          },
+          {
+            "identity": {
+              "event_id": "resume",
+              "kind": "cued",
+              "subject": {
+                "memory": "hinge-decision",
+                "cue": "activity"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"write_scene_what\",\"thread_provenance\"]"
+          },
+          {
+            "identity": {
+              "event_id": "resume",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "shed-radio",
+                "cue": "activity"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"write_scene_what\",\"thread_provenance\"]"
+          }
+        ],
+        "probes": {
+          "d5-resume": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 4,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "not_run",
+          "reason": "unsupported features: [\"write_scene_what\",\"thread_provenance\"]"
+        }
+      },
+      "query_count": 0,
+      "metrics": {},
+      "metric_support": {},
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 0,
+        "required_metrics_numeric": 0,
+        "required_metrics_null_only": 0,
+        "missing_required_metrics": [
+          "abstention_accuracy",
+          "context_compression_ratio",
+          "context_reduction_rate",
+          "context_validation_pass_rate",
+          "continuity_gap_days",
+          "continuity_recall_fraction_gap_long@10",
+          "continuity_recall_fraction_gap_long@5",
+          "continuity_recall_fraction_gap_medium@10",
+          "continuity_recall_fraction_gap_medium@5",
+          "continuity_recall_fraction_gap_short@10",
+          "continuity_recall_fraction_gap_short@5",
+          "correction_lifecycle_safe_admission_rate",
+          "cross_store_id_validation_pass_rate",
+          "full_history_tokens",
+          "hub_context_share",
+          "num_active_threads",
+          "num_derived_memories",
+          "num_entities",
+          "num_relevant_episodes",
+          "num_relevant_observations",
+          "num_retrieved_items",
+          "orphan_vector_leakage_rate",
+          "provenance_coverage",
+          "qa_accuracy",
+          "qa_exact_match",
+          "qa_f1",
+          "retrieval_rationale_coverage",
+          "retrieved_context_tokens",
+          "sampled_context_pollution_rate",
+          "sampled_event_pollution_rate",
+          "superseded_current_leakage_rate",
+          "supersession_replacement_recall",
+          "suppressed_memory_leakage_rate",
+          "temporal_recall_fraction@10",
+          "temporal_recall_fraction@5",
+          "unsupported_answer_rate"
+        ]
+      }
+    },
+    "d6-suppress-draft-mnemonic": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        },
+        "topic": {
+          "expected": 3,
+          "admitted": 3,
+          "recall": 1.0
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": 0,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "passed",
+        "missing_features": [],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "recall-before-suppression",
+              "kind": "carried",
+              "subject": "draft-mnemonic"
+            },
+            "status": "passed",
+            "reason": "memory admitted in the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "recall-before-suppression",
+              "kind": "carried",
+              "subject": "route-plan"
+            },
+            "status": "passed",
+            "reason": "memory admitted in the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "recall-after-suppression",
+              "kind": "carried",
+              "subject": "route-plan"
+            },
+            "status": "passed",
+            "reason": "memory admitted in the requested native section"
+          },
+          {
+            "identity": {
+              "event_id": "recall-after-suppression",
+              "kind": "omitted",
+              "subject": "draft-mnemonic"
+            },
+            "status": "passed",
+            "reason": "absence with the requested native omission reason"
+          }
+        ],
+        "probes": {
+          "d6-after-suppression": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "topic": {
+                "expected": 1,
+                "admitted": 1,
+                "recall": 1.0
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              }
+            },
+            "bystander_context_share": 0.0,
+            "context_tokens": 91
+          },
+          "d6-before-suppression": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              },
+              "topic": {
+                "expected": 2,
+                "admitted": 2,
+                "recall": 1.0
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": 0,
+                "recall": null
+              }
+            },
+            "bystander_context_share": 0.0,
+            "context_tokens": 120
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "passed",
+          "reason": "native lifecycle and currency omissions are accounted for by reason"
+        }
+      },
+      "query_count": 2,
+      "metrics": {
+        "context_compression_ratio": {
+          "mean": 0.834478021978022,
+          "median": 1.043956043956044,
+          "p50": 1.043956043956044,
+          "p95": 1.043956043956044
+        },
+        "context_reduction_rate": {
+          "mean": -0.27894736842105267,
+          "median": 0.04210526315789476,
+          "p50": 0.04210526315789476,
+          "p95": 0.04210526315789476
+        },
+        "context_validation_pass_rate": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "full_history_tokens": {
+          "mean": 85.0,
+          "median": 95.0,
+          "p50": 95.0,
+          "p95": 95.0
+        },
+        "num_active_threads": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "num_derived_memories": {
+          "mean": 2.5,
+          "median": 3.0,
+          "p50": 3.0,
+          "p95": 3.0
+        },
+        "num_relevant_episodes": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "num_relevant_observations": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "num_retrieved_items": {
+          "mean": 4.5,
+          "median": 5.0,
+          "p50": 5.0,
+          "p95": 5.0
+        },
+        "orphan_vector_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "provenance_coverage": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "retrieval_rationale_coverage": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "retrieved_context_tokens": {
+          "mean": 105.5,
+          "median": 120.0,
+          "p50": 120.0,
+          "p95": 120.0
+        },
+        "returned_derived_memories_without_provenance": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "returned_items_without_external_id": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "returned_items_without_external_ids": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "sampled_context_pollution_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "sampled_event_pollution_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "superseded_current_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "superseded_items_returned_as_current": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "suppressed_items_returned": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "suppressed_memory_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      },
+      "metric_support": {
+        "abstention_accuracy": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "context_compression_ratio": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "context_reduction_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "context_validation_pass_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "continuity_gap_days": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_long@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_long@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_medium@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_medium@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_short@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_short@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "correction_lifecycle_safe_admission_rate": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "cross_store_id_validation_pass_rate": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "full_history_tokens": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "hub_context_share": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "num_active_threads": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_derived_memories": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_entities": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "num_relevant_episodes": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_relevant_observations": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_retrieved_items": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "orphan_vector_leakage_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "provenance_coverage": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "qa_accuracy": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "qa_exact_match": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "qa_f1": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "retrieval_rationale_coverage": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "retrieved_context_tokens": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_derived_memories_without_provenance": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_items_with_authoritative_validation": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "returned_items_without_external_id": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_items_without_external_ids": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "sampled_context_pollution_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "sampled_event_pollution_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "superseded_current_leakage_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "superseded_items_returned_as_current": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "supersession_replacement_recall": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "suppressed_items_returned": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "suppressed_memory_leakage_rate": {
+          "rows_present": 2,
+          "numeric_rows": 2,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "temporal_recall_fraction@10": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "temporal_recall_fraction@5": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        },
+        "unsupported_answer_rate": {
+          "rows_present": 2,
+          "numeric_rows": 0,
+          "null_rows": 2,
+          "unsupported": true
+        }
+      },
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 36,
+        "required_metrics_numeric": 17,
+        "required_metrics_null_only": 19,
+        "missing_required_metrics": []
+      }
+    },
+    "d7-waiting-for-jo": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "not_run",
+        "missing_features": [
+          "direction",
+          "trigger",
+          "intention_memory",
+          "trigger_cue"
+        ],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "iman-arrives",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "mention-step",
+                "cue": "trigger"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "iman-arrives",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "tell-jo",
+                "cue": "trigger"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "jo-arrives",
+              "kind": "carried",
+              "subject": "tell-jo"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "jo-arrives",
+              "kind": "cued",
+              "subject": {
+                "memory": "tell-jo",
+                "cue": "trigger"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "jo-arrives",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "mention-step",
+                "cue": "trigger"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "dinner-arises",
+              "kind": "carried",
+              "subject": "mention-step"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "dinner-arises",
+              "kind": "cued",
+              "subject": {
+                "memory": "mention-step",
+                "cue": "trigger"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "dinner-arises",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "tell-jo",
+                "cue": "trigger"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\"]"
+          }
+        ],
+        "probes": {
+          "d7-absent-control": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "d7-person-trigger": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "d7-topic-trigger": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "not_run",
+          "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\"]"
+        }
+      },
+      "query_count": 0,
+      "metrics": {},
+      "metric_support": {},
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 0,
+        "required_metrics_numeric": 0,
+        "required_metrics_null_only": 0,
+        "missing_required_metrics": [
+          "abstention_accuracy",
+          "context_compression_ratio",
+          "context_reduction_rate",
+          "context_validation_pass_rate",
+          "continuity_gap_days",
+          "continuity_recall_fraction_gap_long@10",
+          "continuity_recall_fraction_gap_long@5",
+          "continuity_recall_fraction_gap_medium@10",
+          "continuity_recall_fraction_gap_medium@5",
+          "continuity_recall_fraction_gap_short@10",
+          "continuity_recall_fraction_gap_short@5",
+          "correction_lifecycle_safe_admission_rate",
+          "cross_store_id_validation_pass_rate",
+          "full_history_tokens",
+          "hub_context_share",
+          "num_active_threads",
+          "num_derived_memories",
+          "num_entities",
+          "num_relevant_episodes",
+          "num_relevant_observations",
+          "num_retrieved_items",
+          "orphan_vector_leakage_rate",
+          "provenance_coverage",
+          "qa_accuracy",
+          "qa_exact_match",
+          "qa_f1",
+          "retrieval_rationale_coverage",
+          "retrieved_context_tokens",
+          "sampled_context_pollution_rate",
+          "sampled_event_pollution_rate",
+          "superseded_current_leakage_rate",
+          "supersession_replacement_recall",
+          "suppressed_memory_leakage_rate",
+          "temporal_recall_fraction@10",
+          "temporal_recall_fraction@5",
+          "unsupported_answer_rate"
+        ]
+      }
+    },
+    "d9-a-year-at-the-bakery": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "not_run",
+        "missing_features": [
+          "date_cue"
+        ],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "week-before",
+              "kind": "carried",
+              "subject": "opening-day"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"date_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "week-before",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "opening-day",
+                "cue": "date"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"date_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "anniversary",
+              "kind": "carried",
+              "subject": "opening-day"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"date_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "anniversary",
+              "kind": "cued",
+              "subject": {
+                "memory": "opening-day",
+                "cue": "date"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"date_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "week-after",
+              "kind": "carried",
+              "subject": "opening-day"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"date_cue\"]"
+          },
+          {
+            "identity": {
+              "event_id": "week-after",
+              "kind": "not_cued",
+              "subject": {
+                "memory": "opening-day",
+                "cue": "date"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"date_cue\"]"
+          }
+        ],
+        "probes": {
+          "d9-after-date": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "d9-before-date": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "d9-date-match": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "not_run",
+          "reason": "unsupported features: [\"date_cue\"]"
+        }
+      },
+      "query_count": 0,
+      "metrics": {},
+      "metric_support": {},
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 0,
+        "required_metrics_numeric": 0,
+        "required_metrics_null_only": 0,
+        "missing_required_metrics": [
+          "abstention_accuracy",
+          "context_compression_ratio",
+          "context_reduction_rate",
+          "context_validation_pass_rate",
+          "continuity_gap_days",
+          "continuity_recall_fraction_gap_long@10",
+          "continuity_recall_fraction_gap_long@5",
+          "continuity_recall_fraction_gap_medium@10",
+          "continuity_recall_fraction_gap_medium@5",
+          "continuity_recall_fraction_gap_short@10",
+          "continuity_recall_fraction_gap_short@5",
+          "correction_lifecycle_safe_admission_rate",
+          "cross_store_id_validation_pass_rate",
+          "full_history_tokens",
+          "hub_context_share",
+          "num_active_threads",
+          "num_derived_memories",
+          "num_entities",
+          "num_relevant_episodes",
+          "num_relevant_observations",
+          "num_retrieved_items",
+          "orphan_vector_leakage_rate",
+          "provenance_coverage",
+          "qa_accuracy",
+          "qa_exact_match",
+          "qa_f1",
+          "retrieval_rationale_coverage",
+          "retrieved_context_tokens",
+          "sampled_context_pollution_rate",
+          "sampled_event_pollution_rate",
+          "superseded_current_leakage_rate",
+          "supersession_replacement_recall",
+          "suppressed_memory_leakage_rate",
+          "temporal_recall_fraction@10",
+          "temporal_recall_fraction@5",
+          "unsupported_answer_rate"
+        ]
+      }
+    },
+    "tasks-and-favors-after-a-year": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "not_run",
+        "missing_features": [
+          "direction",
+          "trigger",
+          "intention_memory",
+          "trigger_cue",
+          "elapsed_since_met",
+          "staleness"
+        ],
+        "assertions": [
+          {
+            "identity": {
+              "event_id": "next-season",
+              "kind": "carried",
+              "subject": "instructions"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\",\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "next-season",
+              "kind": "carried",
+              "subject": "seed-task"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\",\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "next-season",
+              "kind": "cued",
+              "subject": {
+                "memory": "instructions",
+                "cue": "activity"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\",\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "next-season",
+              "kind": "cued",
+              "subject": {
+                "memory": "seed-task",
+                "cue": "activity"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\",\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "next-season",
+              "kind": "staleness",
+              "subject": "seed-task"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\",\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "next-meeting",
+              "kind": "carried",
+              "subject": "instructions"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\",\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "next-meeting",
+              "kind": "carried",
+              "subject": "key-favor"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\",\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "next-meeting",
+              "kind": "cued",
+              "subject": {
+                "memory": "key-favor",
+                "cue": "trigger"
+              }
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\",\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "next-meeting",
+              "kind": "elapsed_since_met",
+              "subject": "jo"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\",\"elapsed_since_met\",\"staleness\"]"
+          },
+          {
+            "identity": {
+              "event_id": "next-meeting",
+              "kind": "staleness",
+              "subject": "key-favor"
+            },
+            "status": "not_run",
+            "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\",\"elapsed_since_met\",\"staleness\"]"
+          }
+        ],
+        "probes": {
+          "favors-year-gap": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 1,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          },
+          "tasks-year-gap": {
+            "carried_recall_by_reason": {
+              "activity": {
+                "expected": 2,
+                "admitted": null,
+                "recall": null
+              },
+              "date": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "due": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "own_day": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "pair": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "place": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "recent_and_salient": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "topic": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              },
+              "trigger": {
+                "expected": 0,
+                "admitted": null,
+                "recall": null
+              }
+            },
+            "bystander_context_share": null,
+            "context_tokens": null
+          }
+        },
+        "omission_reason_invariant": {
+          "status": "not_run",
+          "reason": "unsupported features: [\"direction\",\"trigger\",\"intention_memory\",\"trigger_cue\",\"elapsed_since_met\",\"staleness\"]"
+        }
+      },
+      "query_count": 0,
+      "metrics": {},
+      "metric_support": {},
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 0,
+        "required_metrics_numeric": 0,
+        "required_metrics_null_only": 0,
+        "missing_required_metrics": [
+          "abstention_accuracy",
+          "context_compression_ratio",
+          "context_reduction_rate",
+          "context_validation_pass_rate",
+          "continuity_gap_days",
+          "continuity_recall_fraction_gap_long@10",
+          "continuity_recall_fraction_gap_long@5",
+          "continuity_recall_fraction_gap_medium@10",
+          "continuity_recall_fraction_gap_medium@5",
+          "continuity_recall_fraction_gap_short@10",
+          "continuity_recall_fraction_gap_short@5",
+          "correction_lifecycle_safe_admission_rate",
+          "cross_store_id_validation_pass_rate",
+          "full_history_tokens",
+          "hub_context_share",
+          "num_active_threads",
+          "num_derived_memories",
+          "num_entities",
+          "num_relevant_episodes",
+          "num_relevant_observations",
+          "num_retrieved_items",
+          "orphan_vector_leakage_rate",
+          "provenance_coverage",
+          "qa_accuracy",
+          "qa_exact_match",
+          "qa_f1",
+          "retrieval_rationale_coverage",
+          "retrieved_context_tokens",
+          "sampled_context_pollution_rate",
+          "sampled_event_pollution_rate",
+          "superseded_current_leakage_rate",
+          "supersession_replacement_recall",
+          "suppressed_memory_leakage_rate",
+          "temporal_recall_fraction@10",
+          "temporal_recall_fraction@5",
+          "unsupported_answer_rate"
+        ]
+      }
+    }
+  },
+  "tuning_observations": []
+}

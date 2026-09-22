@@ -1,0 +1,28 @@
+{
+  "run_id": "continuity_smoke",
+  "dataset": "continuity",
+  "dataset_kind": "continuity",
+  "input_sha256": "be5d0dc90518f9037fb5b00b4af80562424b7d893722c63210cae1780e92ba78",
+  "embedding_bindings": {
+    "graded-similarity": {
+      "kind": "frozen",
+      "store_sha256": "a2c5afaa96ce5e02d28058bd4c0951356d06695a975f4183de65281807a35130",
+      "source": "open_ai_api",
+      "model": "text-embedding-3-large",
+      "vector_size": 3072,
+      "dimension_policy": "model_native"
+    }
+  },
+  "harness_commit": "499e87a8cb58389bf5a5ac7218d1dd0c06a5915f",
+  "library_commit": "63f176fa6801a8268bb00e337267a0f8c334a681",
+  "generated_at": "2026-09-22T15:13:41.455962400Z",
+  "config": "run_id = \"continuity_smoke\"\ndataset = \"continuity\"\n\n[backend]\n\n[backend.embedding]\nprovider = \"frozen\"\nmodel = \"text-embedding-3-large\"\nvector_size = 3072\nstore_path = \"crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json\"\n\n[retrieval]\nmode = \"hybrid\"\n\n[retrieval.surface_policy]\nobject_types = [\"episode\", \"observation\", \"derived_memory\", \"memory_thread\", \"entity\"]\ninclude_debug_rationale = true\nmax_vector_candidates = 48\nmax_graph_roots = 48\n\n[retrieval.surface_policy.sections]\nactive_threads = 6\nrelevant_episodes = 8\nsalient_observations = 8\nderived_memories = 12\npreferences = 8\nrelationship_notes = 8\nopen_loops = 8\ncommitments = 8\ncharacter_signals = 8\n",
+  "config_sha256": "e26ac378a2cf3d45b5b20f4e1879ff6e44f27a650303076de5d677b45bd44ed1",
+  "adapter": {
+    "adapter": "real",
+    "mode": "live"
+  },
+  "storage_root": "C:\\Users\\Kohta\\GitLocal\\CharacterMemoryEvals\\.worktrees\\situated-scene-surfaces\\.agent-work\\evals-worker\\smoke-a\\stores",
+  "storage_root_sha256": "d7e0316a016a68a0fded3f7759d0f701de6ddabe69b1996c0439a256ba257d8e",
+  "retain_reason": null
+}

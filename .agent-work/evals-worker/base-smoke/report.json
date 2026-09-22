@@ -1,0 +1,969 @@
+{
+  "aggregate": {
+    "carried_recall_by_reason": {
+      "activity": {
+        "expected": 0,
+        "admitted": null,
+        "recall": null
+      },
+      "date": {
+        "expected": 0,
+        "admitted": null,
+        "recall": null
+      },
+      "due": {
+        "expected": 0,
+        "admitted": null,
+        "recall": null
+      },
+      "own_day": {
+        "expected": 0,
+        "admitted": null,
+        "recall": null
+      },
+      "pair": {
+        "expected": 0,
+        "admitted": null,
+        "recall": null
+      },
+      "place": {
+        "expected": 0,
+        "admitted": null,
+        "recall": null
+      },
+      "recent_and_salient": {
+        "expected": 0,
+        "admitted": null,
+        "recall": null
+      },
+      "topic": {
+        "expected": 0,
+        "admitted": null,
+        "recall": null
+      },
+      "trigger": {
+        "expected": 0,
+        "admitted": null,
+        "recall": null
+      }
+    },
+    "omission_reason_invariant": {
+      "status": "passed",
+      "reason": "all executed retrievals account for lifecycle and currency omissions by reason"
+    },
+    "degradation": {
+      "any_degradation": false
+    },
+    "query_count": 1,
+    "restart_count": 0,
+    "metrics": {
+      "context_compression_ratio": {
+        "mean": 0.3230452674897119,
+        "median": 0.3230452674897119,
+        "p50": 0.3230452674897119,
+        "p95": 0.3230452674897119
+      },
+      "context_reduction_rate": {
+        "mean": -2.0955414012738856,
+        "median": -2.0955414012738856,
+        "p50": -2.0955414012738856,
+        "p95": -2.0955414012738856
+      },
+      "context_validation_pass_rate": {
+        "mean": 1.0,
+        "median": 1.0,
+        "p50": 1.0,
+        "p95": 1.0
+      },
+      "continuity_gap_days": {
+        "mean": 183.57638888888889,
+        "median": 183.57638888888889,
+        "p50": 183.57638888888889,
+        "p95": 183.57638888888889
+      },
+      "continuity_recall_fraction_gap_long@10": {
+        "mean": 1.0,
+        "median": 1.0,
+        "p50": 1.0,
+        "p95": 1.0
+      },
+      "continuity_recall_fraction_gap_long@5": {
+        "mean": 1.0,
+        "median": 1.0,
+        "p50": 1.0,
+        "p95": 1.0
+      },
+      "full_history_tokens": {
+        "mean": 157.0,
+        "median": 157.0,
+        "p50": 157.0,
+        "p95": 157.0
+      },
+      "hub_context_share": {
+        "mean": 0.5,
+        "median": 0.5,
+        "p50": 0.5,
+        "p95": 0.5
+      },
+      "num_active_threads": {
+        "mean": 2.0,
+        "median": 2.0,
+        "p50": 2.0,
+        "p95": 2.0
+      },
+      "num_derived_memories": {
+        "mean": 8.0,
+        "median": 8.0,
+        "p50": 8.0,
+        "p95": 8.0
+      },
+      "num_relevant_episodes": {
+        "mean": 4.0,
+        "median": 4.0,
+        "p50": 4.0,
+        "p95": 4.0
+      },
+      "num_relevant_observations": {
+        "mean": 4.0,
+        "median": 4.0,
+        "p50": 4.0,
+        "p95": 4.0
+      },
+      "num_retrieved_items": {
+        "mean": 18.0,
+        "median": 18.0,
+        "p50": 18.0,
+        "p95": 18.0
+      },
+      "orphan_vector_leakage_rate": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "provenance_coverage": {
+        "mean": 1.0,
+        "median": 1.0,
+        "p50": 1.0,
+        "p95": 1.0
+      },
+      "retrieval_rationale_coverage": {
+        "mean": 1.0,
+        "median": 1.0,
+        "p50": 1.0,
+        "p95": 1.0
+      },
+      "retrieved_context_tokens": {
+        "mean": 486.0,
+        "median": 486.0,
+        "p50": 486.0,
+        "p95": 486.0
+      },
+      "returned_derived_memories_without_provenance": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "returned_items_without_external_id": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "returned_items_without_external_ids": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "sampled_context_pollution_rate": {
+        "mean": 0.75,
+        "median": 0.75,
+        "p50": 0.75,
+        "p95": 0.75
+      },
+      "sampled_event_pollution_rate": {
+        "mean": 0.75,
+        "median": 0.75,
+        "p50": 0.75,
+        "p95": 0.75
+      },
+      "superseded_current_leakage_rate": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "superseded_items_returned_as_current": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "suppressed_items_returned": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "suppressed_memory_leakage_rate": {
+        "mean": 0.0,
+        "median": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      }
+    },
+    "metric_support": {
+      "abstention_accuracy": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "context_compression_ratio": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "context_reduction_rate": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "context_validation_pass_rate": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "continuity_gap_days": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "continuity_recall_fraction_gap_long@10": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "continuity_recall_fraction_gap_long@5": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "continuity_recall_fraction_gap_medium@10": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "continuity_recall_fraction_gap_medium@5": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "continuity_recall_fraction_gap_short@10": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "continuity_recall_fraction_gap_short@5": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "correction_lifecycle_safe_admission_rate": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "cross_store_id_validation_pass_rate": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "full_history_tokens": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "hub_context_share": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "num_active_threads": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "num_derived_memories": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "num_entities": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "num_relevant_episodes": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "num_relevant_observations": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "num_retrieved_items": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "orphan_vector_leakage_rate": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "provenance_coverage": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "qa_accuracy": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "qa_exact_match": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "qa_f1": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "retrieval_rationale_coverage": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "retrieved_context_tokens": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "returned_derived_memories_without_provenance": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "returned_items_with_authoritative_validation": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "returned_items_without_external_id": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "returned_items_without_external_ids": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "sampled_context_pollution_rate": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "sampled_event_pollution_rate": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "superseded_current_leakage_rate": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "superseded_items_returned_as_current": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "supersession_replacement_recall": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "suppressed_items_returned": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "suppressed_memory_leakage_rate": {
+        "rows_present": 1,
+        "numeric_rows": 1,
+        "null_rows": 0,
+        "unsupported": false
+      },
+      "temporal_recall_fraction@10": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "temporal_recall_fraction@5": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      },
+      "unsupported_answer_rate": {
+        "rows_present": 1,
+        "numeric_rows": 0,
+        "null_rows": 1,
+        "unsupported": true
+      }
+    },
+    "registry_coverage": {
+      "required_metrics_total": 36,
+      "required_metrics_present": 36,
+      "required_metrics_numeric": 21,
+      "required_metrics_null_only": 15,
+      "missing_required_metrics": []
+    },
+    "latency": {
+      "latency_ms": {
+        "mean": 343.0,
+        "median": 343.0,
+        "p50": 343.0,
+        "p95": 343.0
+      }
+    }
+  },
+  "scenarios": {
+    "graded-similarity": {
+      "carried_recall_by_reason": {
+        "activity": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "date": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "due": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "own_day": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "pair": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "place": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "recent_and_salient": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "topic": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        },
+        "trigger": {
+          "expected": 0,
+          "admitted": null,
+          "recall": null
+        }
+      },
+      "outcome": {
+        "status": "passed",
+        "missing_features": [],
+        "assertions": [],
+        "probes": {},
+        "omission_reason_invariant": {
+          "status": "passed",
+          "reason": "native lifecycle and currency omissions are accounted for by reason"
+        }
+      },
+      "query_count": 1,
+      "metrics": {
+        "context_compression_ratio": {
+          "mean": 0.3230452674897119,
+          "median": 0.3230452674897119,
+          "p50": 0.3230452674897119,
+          "p95": 0.3230452674897119
+        },
+        "context_reduction_rate": {
+          "mean": -2.0955414012738856,
+          "median": -2.0955414012738856,
+          "p50": -2.0955414012738856,
+          "p95": -2.0955414012738856
+        },
+        "context_validation_pass_rate": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "continuity_gap_days": {
+          "mean": 183.57638888888889,
+          "median": 183.57638888888889,
+          "p50": 183.57638888888889,
+          "p95": 183.57638888888889
+        },
+        "continuity_recall_fraction_gap_long@10": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "continuity_recall_fraction_gap_long@5": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "full_history_tokens": {
+          "mean": 157.0,
+          "median": 157.0,
+          "p50": 157.0,
+          "p95": 157.0
+        },
+        "hub_context_share": {
+          "mean": 0.5,
+          "median": 0.5,
+          "p50": 0.5,
+          "p95": 0.5
+        },
+        "num_active_threads": {
+          "mean": 2.0,
+          "median": 2.0,
+          "p50": 2.0,
+          "p95": 2.0
+        },
+        "num_derived_memories": {
+          "mean": 8.0,
+          "median": 8.0,
+          "p50": 8.0,
+          "p95": 8.0
+        },
+        "num_relevant_episodes": {
+          "mean": 4.0,
+          "median": 4.0,
+          "p50": 4.0,
+          "p95": 4.0
+        },
+        "num_relevant_observations": {
+          "mean": 4.0,
+          "median": 4.0,
+          "p50": 4.0,
+          "p95": 4.0
+        },
+        "num_retrieved_items": {
+          "mean": 18.0,
+          "median": 18.0,
+          "p50": 18.0,
+          "p95": 18.0
+        },
+        "orphan_vector_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "provenance_coverage": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "retrieval_rationale_coverage": {
+          "mean": 1.0,
+          "median": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "retrieved_context_tokens": {
+          "mean": 486.0,
+          "median": 486.0,
+          "p50": 486.0,
+          "p95": 486.0
+        },
+        "returned_derived_memories_without_provenance": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "returned_items_without_external_id": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "returned_items_without_external_ids": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "sampled_context_pollution_rate": {
+          "mean": 0.75,
+          "median": 0.75,
+          "p50": 0.75,
+          "p95": 0.75
+        },
+        "sampled_event_pollution_rate": {
+          "mean": 0.75,
+          "median": 0.75,
+          "p50": 0.75,
+          "p95": 0.75
+        },
+        "superseded_current_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "superseded_items_returned_as_current": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "suppressed_items_returned": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "suppressed_memory_leakage_rate": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      },
+      "metric_support": {
+        "abstention_accuracy": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "context_compression_ratio": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "context_reduction_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "context_validation_pass_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "continuity_gap_days": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "continuity_recall_fraction_gap_long@10": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "continuity_recall_fraction_gap_long@5": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "continuity_recall_fraction_gap_medium@10": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_medium@5": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_short@10": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "continuity_recall_fraction_gap_short@5": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "correction_lifecycle_safe_admission_rate": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "cross_store_id_validation_pass_rate": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "full_history_tokens": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "hub_context_share": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_active_threads": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_derived_memories": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_entities": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "num_relevant_episodes": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_relevant_observations": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "num_retrieved_items": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "orphan_vector_leakage_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "provenance_coverage": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "qa_accuracy": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "qa_exact_match": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "qa_f1": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "retrieval_rationale_coverage": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "retrieved_context_tokens": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_derived_memories_without_provenance": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_items_with_authoritative_validation": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "returned_items_without_external_id": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "returned_items_without_external_ids": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "sampled_context_pollution_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "sampled_event_pollution_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "superseded_current_leakage_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "superseded_items_returned_as_current": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "supersession_replacement_recall": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "suppressed_items_returned": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "suppressed_memory_leakage_rate": {
+          "rows_present": 1,
+          "numeric_rows": 1,
+          "null_rows": 0,
+          "unsupported": false
+        },
+        "temporal_recall_fraction@10": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "temporal_recall_fraction@5": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        },
+        "unsupported_answer_rate": {
+          "rows_present": 1,
+          "numeric_rows": 0,
+          "null_rows": 1,
+          "unsupported": true
+        }
+      },
+      "registry_coverage": {
+        "required_metrics_total": 36,
+        "required_metrics_present": 36,
+        "required_metrics_numeric": 21,
+        "required_metrics_null_only": 15,
+        "missing_required_metrics": []
+      }
+    }
+  },
+  "tuning_observations": []
+}

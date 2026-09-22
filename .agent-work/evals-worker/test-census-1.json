@@ -1,0 +1,142 @@
+[
+  {
+    "target": "Running unittests src\\lib.rs (target\\debug\\deps\\cmem_eval-7cd39d6cc8ec4c32.exe)",
+    "passed": 110,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running unittests src\\lib.rs (target\\debug\\deps\\cmem_eval_benchmark_convert-ce7fca387416103f.exe)",
+    "passed": 10,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running unittests src\\main.rs (target\\debug\\deps\\cmem_eval_benchmark_convert-98ec45a7bd6b8fcb.exe)",
+    "passed": 0,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running unittests src\\lib.rs (target\\debug\\deps\\cmem_eval_continuity-043c75bbba7e5d7e.exe)",
+    "passed": 126,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running unittests src\\bin\\calibrate_cue_floors.rs (target\\debug\\deps\\calibrate_cue_floors-971cbc07a015c1ee.exe)",
+    "passed": 5,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running unittests src\\bin\\generate_continuity_fixtures.rs (target\\debug\\deps\\generate_continuity_fixtures-270b23df2b47dae1.exe)",
+    "passed": 0,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running unittests src\\bin\\generate_situated_loud_topic.rs (target\\debug\\deps\\generate_situated_loud_topic-77bcb93cf0099ec3.exe)",
+    "passed": 0,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running unittests src\\lib.rs (target\\debug\\deps\\cmem_eval_locomo-923176de0c71f62a.exe)",
+    "passed": 11,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running tests\\admission.rs (target\\debug\\deps\\admission-1cb044a2b1c7d79c.exe)",
+    "passed": 29,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running tests\\benchmark_derived_content.rs (target\\debug\\deps\\benchmark_derived_content-c9108f2b43efc5b7.exe)",
+    "passed": 4,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running unittests src\\lib.rs (target\\debug\\deps\\cmem_eval_longmemeval-7ed88ca8f957b2e7.exe)",
+    "passed": 8,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running tests\\admission.rs (target\\debug\\deps\\admission-6ed779214038bcab.exe)",
+    "passed": 22,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running tests\\repeated_sessions.rs (target\\debug\\deps\\repeated_sessions-2fba4b1d923c2a89.exe)",
+    "passed": 3,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Running unittests src\\main.rs (target\\debug\\deps\\cmem_eval-b67b84031a742d91.exe)",
+    "passed": 60,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 1
+  },
+  {
+    "target": "Running tests\\longmemeval_repeated_sessions.rs (target\\debug\\deps\\longmemeval_repeated_sessions-be62feb8e6a86bac.exe)",
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Doc-tests cmem_eval",
+    "passed": 0,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Doc-tests cmem_eval_benchmark_convert",
+    "passed": 0,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Doc-tests cmem_eval_continuity",
+    "passed": 0,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Doc-tests cmem_eval_locomo",
+    "passed": 0,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  },
+  {
+    "target": "Doc-tests cmem_eval_longmemeval",
+    "passed": 0,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0
+  }
+]

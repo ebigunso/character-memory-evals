@@ -1,0 +1,146 @@
+{
+  "b1-allotment-confidence": {
+    "status": "passed",
+    "missing_features": [],
+    "assertions": {
+      "passed": 4
+    }
+  },
+  "b2-rehearsal-and-aside": {
+    "status": "passed",
+    "missing_features": [],
+    "assertions": {
+      "passed": 8
+    }
+  },
+  "b3-workshop-relationships": {
+    "status": "not_run",
+    "missing_features": [
+      "pair_counterpart_cue",
+      "staleness"
+    ],
+    "assertions": {
+      "not_run": 14
+    }
+  },
+  "c4-churning-account": {
+    "status": "not_run",
+    "missing_features": [
+      "staleness",
+      "write_warnings"
+    ],
+    "assertions": {
+      "not_run": 10
+    }
+  },
+  "c4-the-flood-story": {
+    "status": "not_run",
+    "missing_features": [
+      "staleness",
+      "write_warnings"
+    ],
+    "assertions": {
+      "not_run": 10
+    }
+  },
+  "d1-d8-morning-deadline": {
+    "status": "not_run",
+    "missing_features": [
+      "direction",
+      "due_date",
+      "due_cue",
+      "recent_and_salient_cue",
+      "staleness"
+    ],
+    "assertions": {
+      "not_run": 9
+    }
+  },
+  "d11-c6-reunion-and-departure": {
+    "status": "not_run",
+    "missing_features": [
+      "staleness"
+    ],
+    "assertions": {
+      "not_run": 13
+    }
+  },
+  "d13-my-day": {
+    "status": "failed",
+    "missing_features": [],
+    "assertions": {
+      "failed": 8
+    }
+  },
+  "d4-library-door": {
+    "status": "not_run",
+    "missing_features": [
+      "direction",
+      "description_reference_resolution"
+    ],
+    "assertions": {
+      "not_run": 12
+    }
+  },
+  "d4-uncertain-arrivals": {
+    "status": "not_run",
+    "missing_features": [
+      "pair_counterpart_cue",
+      "description_reference_resolution"
+    ],
+    "assertions": {
+      "not_run": 6
+    }
+  },
+  "d5-resume-greenhouse": {
+    "status": "not_run",
+    "missing_features": [
+      "write_scene_what",
+      "thread_provenance"
+    ],
+    "assertions": {
+      "not_run": 10
+    }
+  },
+  "d6-suppress-draft-mnemonic": {
+    "status": "passed",
+    "missing_features": [],
+    "assertions": {
+      "passed": 4
+    }
+  },
+  "d7-waiting-for-jo": {
+    "status": "not_run",
+    "missing_features": [
+      "direction",
+      "trigger",
+      "intention_memory",
+      "trigger_cue"
+    ],
+    "assertions": {
+      "not_run": 8
+    }
+  },
+  "d9-a-year-at-the-bakery": {
+    "status": "not_run",
+    "missing_features": [
+      "date_cue"
+    ],
+    "assertions": {
+      "not_run": 6
+    }
+  },
+  "tasks-and-favors-after-a-year": {
+    "status": "not_run",
+    "missing_features": [
+      "direction",
+      "trigger",
+      "intention_memory",
+      "trigger_cue",
+      "staleness"
+    ],
+    "assertions": {
+      "not_run": 10
+    }
+  }
+}

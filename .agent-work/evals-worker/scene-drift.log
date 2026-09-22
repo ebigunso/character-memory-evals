@@ -1,0 +1,14 @@
+   Compiling cmem-eval-continuity v0.1.0 (C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\situated-scene-surfaces\crates\cmem-eval-continuity)
+warning: linker stdout: ライブラリ C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\situated-scene-surfaces\target\debug\deps\cmem_eval_continuity-c49ee570e3a713b0.lib とオブジェクト C:\Users\Kohta\GitLocal\CharacterMemoryEvals\.worktrees\situated-scene-surfaces\target\debug\deps\cmem_eval_continuity-c49ee570e3a713b0.exp を作成中
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `cmem-eval-continuity` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.42s
+     Running unittests src\lib.rs (target\debug\deps\cmem_eval_continuity-c49ee570e3a713b0.exe)
+
+running 1 test
+test driver::tests::scene_slice_preserves_authored_input_and_checks_native_results ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 125 filtered out; finished in 4.25s
+

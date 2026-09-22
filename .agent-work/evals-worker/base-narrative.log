@@ -1,0 +1,34 @@
+[cmem-eval][continuity][start] items=15 qa=34 elapsed_ms=0
+[cmem-eval][continuity][item 1/15][start] id=b1-allotment-confidence elapsed_ms=64
+[cmem-eval][continuity][item 1/15][done] id=b1-allotment-confidence item_latency_ms=0 elapsed_ms=721
+[cmem-eval][continuity][item 2/15][start] id=b2-rehearsal-and-aside elapsed_ms=737
+[cmem-eval][continuity][item 2/15][done] id=b2-rehearsal-and-aside item_latency_ms=0 elapsed_ms=1118
+[cmem-eval][continuity][item 3/15][start] id=b3-workshop-relationships elapsed_ms=1134
+[cmem-eval][continuity][item 3/15][done] id=b3-workshop-relationships item_latency_ms=0 elapsed_ms=1135
+[cmem-eval][continuity][item 4/15][start] id=d1-d8-morning-deadline elapsed_ms=1135
+[cmem-eval][continuity][item 4/15][done] id=d1-d8-morning-deadline item_latency_ms=0 elapsed_ms=1136
+[cmem-eval][continuity][item 5/15][start] id=d4-library-door elapsed_ms=1136
+[cmem-eval][continuity][item 5/15][done] id=d4-library-door item_latency_ms=0 elapsed_ms=1136
+[cmem-eval][continuity][item 6/15][start] id=d4-uncertain-arrivals elapsed_ms=1136
+[cmem-eval][continuity][item 6/15][done] id=d4-uncertain-arrivals item_latency_ms=0 elapsed_ms=1136
+[cmem-eval][continuity][item 7/15][start] id=d5-resume-greenhouse elapsed_ms=1136
+[cmem-eval][continuity][item 7/15][done] id=d5-resume-greenhouse item_latency_ms=0 elapsed_ms=1136
+[cmem-eval][continuity][item 8/15][start] id=d6-suppress-draft-mnemonic elapsed_ms=1136
+[cmem-eval][continuity][item 8/15][done] id=d6-suppress-draft-mnemonic item_latency_ms=0 elapsed_ms=1451
+[cmem-eval][continuity][item 9/15][start] id=d7-waiting-for-jo elapsed_ms=1468
+[cmem-eval][continuity][item 9/15][done] id=d7-waiting-for-jo item_latency_ms=0 elapsed_ms=1468
+[cmem-eval][continuity][item 10/15][start] id=d9-a-year-at-the-bakery elapsed_ms=1468
+[cmem-eval][continuity][item 10/15][done] id=d9-a-year-at-the-bakery item_latency_ms=0 elapsed_ms=1468
+[cmem-eval][continuity][item 11/15][start] id=d11-c6-reunion-and-departure elapsed_ms=1468
+[cmem-eval][continuity][item 11/15][done] id=d11-c6-reunion-and-departure item_latency_ms=0 elapsed_ms=1469
+[cmem-eval][continuity][item 12/15][start] id=d13-my-day elapsed_ms=1469
+[cmem-eval][continuity][item 12/15][done] id=d13-my-day item_latency_ms=0 elapsed_ms=1752
+[cmem-eval][continuity][item 13/15][start] id=tasks-and-favors-after-a-year elapsed_ms=1770
+[cmem-eval][continuity][item 13/15][done] id=tasks-and-favors-after-a-year item_latency_ms=0 elapsed_ms=1770
+[cmem-eval][continuity][item 14/15][start] id=c4-the-flood-story elapsed_ms=1770
+[cmem-eval][continuity][item 14/15][done] id=c4-the-flood-story item_latency_ms=0 elapsed_ms=1771
+[cmem-eval][continuity][item 15/15][start] id=c4-churning-account elapsed_ms=1771
+[cmem-eval][continuity][item 15/15][done] id=c4-churning-account item_latency_ms=0 elapsed_ms=1771
+[cmem-eval][continuity][write_outputs] rows=7 elapsed_ms=1771
+[cmem-eval][continuity][operations] {"commit":8,"derive":1,"experience":8,"forget":1,"prepare":8,"remember":4,"retrieve":7,"validate_plan":8}
+[cmem-eval][continuity][cleanup] namespaces=4 elapsed_ms=1961
