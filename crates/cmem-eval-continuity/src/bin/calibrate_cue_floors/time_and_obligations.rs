@@ -8,6 +8,9 @@ use cmem_eval::{
     RelationType,
 };
 
+#[path = "consolidation.rs"]
+mod consolidation;
+
 const EVENING: &str = "2025-09-09T20:00:00+09:00";
 const TOPIC: &str = "Repairing a copper bell";
 const DISTINCT: &str = "The disconnected observation records a violet ribbon.";
@@ -773,6 +776,7 @@ async fn ingest(runtime: &ContinuityRuntime, family: &Family) -> Result<BTreeMap
     let entities = GraphEnrichmentInput {
         namespace: family.namespace.clone(),
         entities: family.graph.entities.clone(),
+        threads: family.graph.threads.clone(),
         ..Default::default()
     };
     healthy(
@@ -780,7 +784,7 @@ async fn ingest(runtime: &ContinuityRuntime, family: &Family) -> Result<BTreeMap
             .remember_enrichment(entities)
             .await?
             .context("missing entity write")?,
-        0,
+        family.graph.threads.len(),
     )?;
     let mut ids = BTreeMap::new();
     for experience in &family.experiences {
@@ -958,8 +962,23 @@ fn opposed(original: &Family, ids: &BTreeMap<String, String>) -> Result<(Family,
         }
     }
     for link in &mut family.graph.links {
-        link.from.external_id = permutation[&link.from.external_id].clone();
-        link.to.external_id = permutation[&link.to.external_id].clone();
+        for endpoint in [&mut link.from, &mut link.to] {
+            if endpoint.object_type == ObjectType::MemoryThread {
+                ensure!(
+                    family
+                        .graph
+                        .threads
+                        .iter()
+                        .any(|t| t.external_id == endpoint.external_id),
+                    "unknown thread endpoint"
+                );
+            } else {
+                endpoint.external_id = permutation
+                    .get(&endpoint.external_id)
+                    .context("unmapped memory endpoint")?
+                    .clone();
+            }
+        }
     }
     for target in &mut family.topic_targets {
         *target = permutation[target].clone();
@@ -1138,7 +1157,10 @@ fn obligation_reading(
     Ok(json!(rows))
 }
 
-fn supported_probe_input(probe: &PlannedProbe) -> Result<(RetrieveInput, Vec<String>)> {
+fn supported_probe_input(
+    probe: &PlannedProbe,
+    anniversary_available: bool,
+) -> Result<(RetrieveInput, Vec<String>)> {
     let mut input = probe.supported_input.clone();
     let mut missing = probe.required_routes.clone();
     if let Some(floor) = probe.recency_floor {
@@ -1163,12 +1185,8 @@ fn supported_probe_input(probe: &PlannedProbe) -> Result<(RetrieveInput, Vec<Str
             });
             missing.retain(|route| route != "time_range" && route != "date_match");
         }
-    } else if serde_json::to_value(native::RetrievalTrace::empty())?
-        .get("anniversary_has_more")
-        .is_some()
-    {
-        // date_match alone also exists at the range-only pin. The anniversary
-        // trace field identifies the later capability without guessing a result.
+    } else if anniversary_available {
+        // This is witnessed by a range-free native retrieval, not an optional trace field.
         missing.retain(|route| route != "date_match");
     }
     Ok((input, missing))
@@ -1303,6 +1321,7 @@ async fn measure(
     runtime: &ContinuityRuntime,
     family: &Family,
     config: &BenchmarkRunConfig,
+    anniversary_available: bool,
 ) -> Result<Value> {
     let topic = input(config, &family.namespace, false, Some(TOPIC));
     let pack = runtime.adapter().retrieve(topic.clone()).await?;
@@ -1317,7 +1336,7 @@ async fn measure(
             &control,
         ))
         .await?;
-        let (input, missing) = supported_probe_input(probe)?;
+        let (input, missing) = supported_probe_input(probe, anniversary_available)?;
         let executed = if probe.required_routes.is_empty() {
             projection.clone()
         } else if missing.is_empty() {
@@ -1366,9 +1385,87 @@ fn activity_reading(
         "native_activity":observed["activity"],"root_cap":input.surface_policy.max_graph_roots,"episode_section_cap":input.surface_policy.sections.relevant_episodes})
 }
 
-pub(super) async fn run(stores: &Path, config: &BenchmarkRunConfig) -> Result<Value> {
-    let mut inputs = Vec::new();
-    let mut measurements = Vec::new();
+#[derive(Debug)]
+struct MissingAnniversaryRoad;
+
+impl std::fmt::Display for MissingAnniversaryRoad {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("required anniversary road missing: the range-free native sentinel returned no date_match attempt for its shared prior-year occasion")
+    }
+}
+
+impl std::error::Error for MissingAnniversaryRoad {}
+
+fn require_anniversary(available: bool, required: bool) -> Result<()> {
+    if required && !available {
+        return Err(MissingAnniversaryRoad.into());
+    }
+    Ok(())
+}
+
+async fn anniversary_capability(stores: &Path, config: &BenchmarkRunConfig) -> Result<Value> {
+    let mut family = empty("anniversary-capability");
+    experience(
+        &mut family,
+        "shared-prior-year",
+        "2024-09-09T12:00:00+09:00",
+        true,
+        0.5,
+        -0.1,
+    );
+    // Keep the old occasion outside the twelve recency roots. A participant
+    // expansion alone is not a witness: the trace must name the date road.
+    for n in 0..13 {
+        experience(
+            &mut family,
+            &format!("recent-{n:02}"),
+            &format!("2025-09-08T12:{n:02}:00+09:00"),
+            false,
+            0.5,
+            -0.1,
+        );
+    }
+    let query = input(config, &family.namespace, true, None);
+    let root = stores.join("anniversary-capability");
+    fs::create_dir(&root)?;
+    let runtime = ContinuityRuntime::new(
+        &root,
+        config,
+        EmbeddingRuntimeBinding::Controllable {
+            fixture: family.embedding.clone(),
+            dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
+        },
+    )
+    .await?;
+    let result = async {
+        let ids = Box::pin(ingest(&runtime, &family)).await?;
+        let pack = runtime.adapter().retrieve(query.clone()).await?;
+        let observed = snapshot(&pack, &query)?;
+        ensure!(observed["telemetry"]["graph_expansion"]["bounded_failure_count"] == 0, "anniversary capability retrieval was degraded");
+        let attempts = observed["trace"]["graph_expansions"].as_array().unwrap().iter()
+            .filter(|attempt| attempt["source"]=="date_match" && attempt["root"]["id"]==ids["shared-prior-year"])
+            .cloned().collect::<Vec<_>>();
+        let available = !attempts.is_empty();
+        Ok::<_,anyhow::Error>(json!({"available":available,"anniversary_probe_status":if available { "executed" } else { "not_run" },
+            "sentinel_retrieval_executed":true,"input":query,"family":family,"native_ids":ids,
+            "anniversary_root_attempts":attempts,"observed":observed,
+            "basis":"Public writes and a range-free retrieval; only a date_match root attempt for the shared prior-year occasion witnesses the anniversary road. Generic date_match type support or selection through participants/recency is insufficient."}))
+    }.await;
+    let cleanup = runtime.cleanup(&family.namespace).await;
+    drop(runtime);
+    cleanup?;
+    fs::remove_dir_all(&root)?;
+    result
+}
+
+pub(super) async fn run(
+    stores: &Path,
+    config: &BenchmarkRunConfig,
+    anniversary_required: bool,
+) -> Result<Value> {
+    let capability = Box::pin(anniversary_capability(stores, config)).await?;
+    let available = capability["available"] == true;
+    require_anniversary(available, anniversary_required)?;
     let builders: [fn(&BenchmarkRunConfig) -> Family; 6] = [
         time_family,
         obligations_family,
@@ -1377,6 +1474,39 @@ pub(super) async fn run(stores: &Path, config: &BenchmarkRunConfig) -> Result<Va
         |config| daily_anniversary_family(config, false),
         |config| daily_anniversary_family(config, true),
     ];
+    let mut result = run_families(stores, config, &builders, available).await?;
+    result["anniversary_capability"] = capability;
+    Ok(result)
+}
+
+pub(super) async fn run_consolidation(stores: &Path, config: &BenchmarkRunConfig) -> Result<Value> {
+    let mut result = run_families(
+        stores,
+        config,
+        &[
+            consolidation::home_family,
+            consolidation::office_family,
+            consolidation::activity_family,
+        ],
+        false,
+    )
+    .await?;
+    result["method"] = json!(consolidation::METHOD);
+    result
+        .as_object_mut()
+        .unwrap()
+        .remove("supported_parent_controls_executed");
+    Ok(result)
+}
+
+async fn run_families(
+    stores: &Path,
+    config: &BenchmarkRunConfig,
+    builders: &[fn(&BenchmarkRunConfig) -> Family],
+    anniversary_available: bool,
+) -> Result<Value> {
+    let mut inputs = Vec::new();
+    let mut measurements = Vec::new();
     for build in builders {
         let original = build(config);
         let mut next = original.clone();
@@ -1408,7 +1538,11 @@ pub(super) async fn run(stores: &Path, config: &BenchmarkRunConfig) -> Result<Va
                         );
                     }
                 }
-                let reading = Box::pin(measure(&runtime, &next, config)).await?;
+                let reading = if consolidation::is_family(&next) {
+                    Box::pin(consolidation::measure(&runtime, &next)).await?
+                } else {
+                    Box::pin(measure(&runtime, &next, config, anniversary_available)).await?
+                };
                 Ok::<_, anyhow::Error>((ids, reading))
             }
             .await;
@@ -1445,12 +1579,52 @@ pub(super) async fn run(stores: &Path, config: &BenchmarkRunConfig) -> Result<Va
     Ok(json!({"inputs":inputs,"measurements":measurements,
         "full_cases_executed":executed,"full_cases_not_run":not_run,"supported_parent_controls_executed":executed+not_run,
         "same_day_description_continuity":["/keyless_measurements","/opposed_keyless_measurements"],
-        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Each row separately executes a supported parent control with roles, due instant, range and explicit recency floor absent. executed_case records the full supported case; recency overrides and caller-given ranges run only when serialized native types advertise their fields; the adapter checks typed native range admission. Native range echo and has-more are separate from authored range membership. Anniversary support requires the native anniversary_has_more trace field; reference scene and date-match admissions are native, while local dates and anniversary identities are authored expectations. Missing fields remain not_run; no unavailable predicate is silently forwarded. Native resolution is reported; authored due classification is labelled hypothetical. Topic counts use eight graded episodes in each original family; added falsifiers use separate composition and spillover readings. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
+        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Each row separately executes a supported parent control with roles, due instant, range and explicit recency floor absent. executed_case records the full supported case; recency overrides and caller-given ranges run only when serialized native types advertise their fields; the adapter checks typed native range admission. Native range echo and has-more are separate from authored range membership. Anniversary support requires a range-free native sentinel to attempt the shared prior-year date_match root; --require-anniversary fails the run if that witness is absent; reference scene and date-match admissions are native, while local dates and anniversary identities are authored expectations. Missing fields remain not_run; no unavailable predicate is silently forwarded. Native resolution is reported; authored due classification is labelled hypothetical. Topic counts use eight graded episodes in each original family; added falsifiers use separate composition and spillover readings. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn anniversary_capability_uses_the_native_road_and_required_absence_fails() {
+        let root = std::env::temp_dir().join(format!("anniversary-witness-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let result = Box::pin(anniversary_capability(&root, &config())).await;
+        fs::remove_dir_all(&root).unwrap();
+        let capability = result.unwrap();
+        let available = capability["available"] == true;
+        let family = time_family(&config());
+        let anniversary = family
+            .probes
+            .iter()
+            .find(|p| p.name == "anniversary-local-morning")
+            .unwrap();
+        let (_, missing) = supported_probe_input(anniversary, available).unwrap();
+        assert_eq!(missing.is_empty(), available);
+        assert!(require_anniversary(available, false).is_ok());
+        assert_eq!(require_anniversary(available, true).is_ok(), available);
+        assert!(
+            require_anniversary(false, true)
+                .unwrap_err()
+                .downcast_ref::<MissingAnniversaryRoad>()
+                .is_some()
+        );
+        assert!(capability["input"]["time_range"].is_null());
+        assert_eq!(
+            capability["family"]["experiences"]
+                .as_array()
+                .unwrap()
+                .len(),
+            14
+        );
+        eprintln!(
+            "anniversary-capability-check {}",
+            json!({"status":capability["anniversary_probe_status"],
+            "native_road_attempts":capability["anniversary_root_attempts"],"missing_capabilities":missing,
+            "required_absence_fails":true,"sentinel_retrieval_executed":capability["sentinel_retrieval_executed"]})
+        );
+    }
 
     #[test]
     fn anniversary_falsifiers_have_a_single_salience_delta_and_distinct_local_day() {
@@ -1502,13 +1676,10 @@ mod tests {
             reference.date_naive(),
             reference.with_timezone(&Utc).date_naive()
         );
-        let native_anniversary = serde_json::to_value(native::RetrievalTrace::empty())
-            .unwrap()
-            .get("anniversary_has_more")
-            .is_some();
+        assert!(supported_probe_input(morning, true).unwrap().1.is_empty());
         assert_eq!(
-            supported_probe_input(morning).unwrap().1.is_empty(),
-            native_anniversary
+            supported_probe_input(morning, false).unwrap().1,
+            ["date_match"]
         );
         let names = time
             .graph
@@ -1663,7 +1834,7 @@ mod tests {
         let family = time_family(&config());
         let defaults = serde_json::to_value(native::RetrievalCueFloors::default()).unwrap();
         for probe in family.probes.iter().filter(|p| p.recency_floor.is_some()) {
-            let (mapped, missing) = supported_probe_input(probe).unwrap();
+            let (mapped, missing) = supported_probe_input(probe, false).unwrap();
             if defaults.get("recency").is_some() {
                 assert!(missing.is_empty(), "advertised recency must execute");
                 let mut actual = serde_json::to_value(&mapped).unwrap();

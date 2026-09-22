@@ -384,7 +384,26 @@ fn scene_reading(observed: &Value, family: &KeylessFamily, input: &RetrieveInput
                 .is_some_and(|t| &t[..10] == query_day)
         })
         .count();
+    let mut saliences = family
+        .writes
+        .iter()
+        .filter(|w| w.episode_external_id.starts_with("shared-"))
+        .map(|w| w.salience.unwrap())
+        .collect::<Vec<_>>();
+    saliences.sort_by(f32::total_cmp);
+    saliences.dedup();
+    let equal_salience = saliences.into_iter().map(|salience| {
+        let mut authored = family.writes.iter().filter(|w| w.episode_external_id.starts_with("shared-") && w.salience==Some(salience)).collect::<Vec<_>>();
+        authored.sort_by(|a,b| b.scene.time.cmp(&a.scene.time));
+        let selected = episodes.iter().filter(|s| authored.iter().any(|w| s["external_id"]==w.episode_external_id)).collect::<Vec<_>>();
+        let expected = authored.iter().take(selected.len()).map(|w| &w.episode_external_id).collect::<Vec<_>>();
+        json!({"authored_salience":salience,"available_occasions":authored.len(),"selected_occasions":selected.len(),
+            "expected_latest_ids_for_returned_count":expected,
+            "latest_n_of_equal_salience":(!selected.is_empty()).then(|| selected.iter().all(|s| expected.iter().any(|id| s["external_id"]==**id))),
+            "returned_native_salience_matches_authored":selected.iter().all(|s| s["recorded_episode_salience"]==json!(salience))})
+    }).collect::<Vec<_>>();
     json!({"occasion_count":episodes.len(), "occasions":episodes,
+        "equal_salience_recency":equal_salience,
         "most_recent_n_occasions":(!episodes.is_empty()).then_some(selected == latest),
         "expected_most_recent_ids_for_returned_count":latest,
         "same_day_occasions":same_day,"other_day_occasions":episodes.len()-same_day,
@@ -448,6 +467,7 @@ pub(super) async fn measure(runtime: &ContinuityRuntime, family: &KeylessFamily)
     }
     Ok(
         json!({"executed":rows.len(),"not_run":0,"entity_registration_calls":0,
+        "authored_salience_distribution":salience_distribution(family),
         "topic_only_control_cohort":target_cohort(&control,&family.targets),"topic_only_control_observed":control,
         "best_scene_surface_score_per_description":{
             "status":if rows.iter().any(|r| r["observed"]["trace"].get("scene_cue_searches").is_some()) { "available" } else { "not_available" },
@@ -455,6 +475,21 @@ pub(super) async fn measure(runtime: &ContinuityRuntime, family: &KeylessFamily)
         "method":"No person/entity keys, setting keys, names, activities or speaker keys on any write or probe; internal namespace and memory external IDs are storage bookkeeping, not perceived identities. Shared occasions span 12 days (4/day); topic targets follow the last day's occasions. Same-day probe uses that day's evening and descriptions only. Latest-N membership and the available same-day denominator are expectations from AUTHORED scene times. Returned same-day counts use native recorded scenes, and each returned occasion's native time is checked against its authored value. No native census of all stored scenes is obtained from the public adapter, so persisted times for unreturned occasions are not independently verified. No consolidation or temporal-filter success is claimed.",
         "rows":rows}),
     )
+}
+
+fn salience_distribution(family: &KeylessFamily) -> Value {
+    let mut values = family
+        .writes
+        .iter()
+        .map(|w| w.salience.unwrap())
+        .collect::<Vec<_>>();
+    values.sort_by(f32::total_cmp);
+    values.dedup();
+    json!({"basis":"Authored public write inputs, before retrieval; returned native episode salience is checked per row. Unreturned memories have no independent persisted-salience census.",
+        "groups":values.iter().map(|salience| json!({"salience":salience,
+            "episode_inputs":family.writes.iter().filter(|w| w.salience==Some(*salience)).count(),
+            "scene_occasions":family.writes.iter().filter(|w| w.salience==Some(*salience) && w.episode_external_id.starts_with("shared-")).count(),
+            "observation_inputs":family.writes.iter().filter(|w| w.salience==Some(*salience)).count()})).collect::<Vec<_>>()})
 }
 
 pub(super) fn native_paraphrase_scores(measurements: &Value) -> Value {
@@ -621,6 +656,49 @@ pub(super) fn paraphrase_geometry() -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn latest_occasions_are_compared_within_equal_authored_salience() {
+        let (scenario, probes) = generated_overlap(&config(), true).unwrap();
+        let mut family = generated(&config(), &scenario, &probes).unwrap();
+        let distribution = salience_distribution(&family);
+        assert_eq!(
+            distribution["groups"],
+            json!([{"salience":0.5,"episode_inputs":56,"scene_occasions":48,"observation_inputs":56}])
+        );
+        family.writes[0].salience = Some(1.0);
+        let slot = |index: usize| {
+            json!({"external_id":family.writes[index].episode_external_id,
+            "object":{"object_type":"episode"},"recorded_scene":{"time":family.writes[index].scene.time},
+            "recorded_episode_salience":family.writes[index].salience})
+        };
+        let read = scene_reading(
+            &json!({"selected":[slot(0),slot(47)]}),
+            &family,
+            &family.probes[0].input,
+        );
+        assert_eq!(read["most_recent_n_occasions"], false);
+        assert!(
+            read["equal_salience_recency"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|g| g["latest_n_of_equal_salience"] == true)
+        );
+        let bad = scene_reading(
+            &json!({"selected":[slot(46)]}),
+            &family,
+            &family.probes[0].input,
+        );
+        assert_eq!(
+            bad["equal_salience_recency"][0]["latest_n_of_equal_salience"],
+            false
+        );
+        assert_eq!(
+            bad["equal_salience_recency"][1]["latest_n_of_equal_salience"],
+            Value::Null
+        );
+    }
     #[test]
     fn held_out_wording_has_graded_geometry_against_every_stored_surface() {
         let (scenario, probes) = generated_overlap(&config(), true).unwrap();

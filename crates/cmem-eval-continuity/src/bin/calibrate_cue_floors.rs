@@ -518,7 +518,8 @@ fn snapshot(pack: &RetrievedContextPack, input: &RetrieveInput) -> Result<Value>
         json!({"object":object, "external_id":pack.object_refs().get(&key).map(|r| &r.external_id),
             "section":assignment.map(|a| &a["section"]), "section_score_components":assignment.map(|a| &a["reason"]["scores"]),
             "vector_score":candidate.map(|c| &c["score"]), "cue_kinds":assignment.map(|a| &a["cue_kinds"]),
-            "recorded_scene":scene})
+            "recorded_scene":scene,
+            "recorded_episode_salience":outcome.pack.relevant_episodes.iter().find(|episode| episode.id.to_string()==key).map(|episode| episode.salience_score)})
     };
     let selected = assignments
         .iter()
@@ -795,12 +796,26 @@ fn revision(path: &Path) -> Result<String> {
 async fn main() -> Result<()> {
     let mut args = env::args_os().skip(1);
     let output = args.next().context("usage: calibrate_cue_floors <new-report.json>; run via cargo after pinning the sibling library")?;
-    let slices_only = match args.next() {
-        None => false,
-        Some(flag) if flag == "--slices-only" => true,
-        Some(_) => anyhow::bail!("expected optional --slices-only"),
-    };
-    ensure!(args.next().is_none(), "unexpected extra arguments");
+    let mut slices_only = false;
+    let mut consolidation_only = false;
+    let mut anniversary_required = false;
+    for flag in args {
+        match flag.to_str() {
+            Some("--slices-only" | "--consolidation-only") => {
+                ensure!(!slices_only, "choose one measurement subset");
+                slices_only = true;
+                consolidation_only = flag == "--consolidation-only";
+            }
+            Some("--require-anniversary") => anniversary_required = true,
+            _ => anyhow::bail!(
+                "expected --slices-only, --consolidation-only or --require-anniversary"
+            ),
+        }
+    }
+    ensure!(
+        !consolidation_only || !anniversary_required,
+        "--require-anniversary needs the time families"
+    );
     let output = Path::new(&output);
     let config = config();
     config.validate()?;
@@ -826,8 +841,19 @@ async fn main() -> Result<()> {
     let overlap_input = json!({"scenario":overlap_scenario,"probes":overlap_probes});
     let reworded_input = json!({"scenario":reworded_scenario,"probes":reworded_probes});
     let mut opposed_inputs = Vec::new();
+    let mut consolidation = Value::Null;
     let result = async {
-        let time_and_prospective = Box::pin(time_and_obligations::run(&stores, &config)).await?;
+        consolidation = Box::pin(time_and_obligations::run_consolidation(&stores, &config)).await?;
+        let time_and_prospective = if consolidation_only {
+            Value::Null
+        } else {
+            Box::pin(time_and_obligations::run(
+                &stores,
+                &config,
+                anniversary_required,
+            ))
+            .await?
+        };
         let mut results = Vec::new();
         for (name, scenario, probes) in [
             ("orthogonal", &scenario, &probes),
@@ -920,14 +946,15 @@ async fn main() -> Result<()> {
         "checkout revision changed during calibration"
     );
     let report = json!({"header":{
-        "harness_commit":harness_commit,"library_commit":library_commit,"slices_only":slices_only,"profile":if cfg!(debug_assertions){"debug"}else{"release"},
+        "harness_commit":harness_commit,"library_commit":library_commit,"slices_only":slices_only,"consolidation_only":consolidation_only,"anniversary_required":anniversary_required,"profile":if cfg!(debug_assertions){"debug"}else{"release"},
         "seed":CHECKED_FIXTURE_SEED,"input_sha256":text_sha256(&serde_json::to_string(&input)?),"config_sha256":text_sha256(&serde_json::to_string(&config)?),
         "overlapping_input_sha256":text_sha256(&serde_json::to_string(&overlap_input)?),
         "reworded_input_sha256":text_sha256(&serde_json::to_string(&reworded_input)?),
         "keyless_input_sha256":text_sha256(&serde_json::to_string(&keyless)?),
         "opposed_input_sha256":text_sha256(&serde_json::to_string(&opposed_inputs)?),
         "time_prospective_input_sha256":text_sha256(&serde_json::to_string(&measurements[7]["inputs"])?),
-        "generator_source_sha256":text_sha256(concat!(include_str!("calibrate_cue_floors.rs"), include_str!("calibrate_cue_floors/descriptions.rs"), include_str!("calibrate_cue_floors/time_and_obligations.rs"))),
+        "consolidation_input_sha256":text_sha256(&serde_json::to_string(&consolidation["inputs"])?),
+        "generator_source_sha256":text_sha256(concat!(include_str!("calibrate_cue_floors.rs"), include_str!("calibrate_cue_floors/descriptions.rs"), include_str!("calibrate_cue_floors/time_and_obligations.rs"), include_str!("calibrate_cue_floors/consolidation.rs"))),
         "config":config,"native_candidate_limits":native::RetrievalCandidateLimits::default(),"native_graph_limits":native::RetrievalGraphLimits::default(),
         "native_section_limits":native::ContinuitySectionLimits::default(),"native_default_floors":native::RetrievalCueFloors::default(),"sweep":FLOORS,"stores_cleaned":true},
         "method":{
@@ -937,7 +964,7 @@ async fn main() -> Result<()> {
             "displacements":"Set differences versus the identical probe at tested-kind floor zero. Floor zero does not disable a cue: spare-room policy depends on the pinned library (979643f shares turns even at zero). Native floor credits are stage events, not causal admissions. Each admission names its stage/section displacement group; multiple admissions cannot be uniquely paired to displaced objects. All available native vector and final section score components are retained; root ordering score is not exposed.",
             "origin":"Candidate-merge/root floor credits precede graph expansion and are direct. At section selection, explicit matching Participant/Activity roots are direct; activity/key-only participant descendants or objects absent from retained vector candidates are inherited. Remaining cases are unknown because vector candidates and roots omit per-kind origin; no fixture labels reconstruct it.",
             "topic_roots":"Root IDs also found in the independent topic-only native candidate control, not an exclusive attribution of a root to topic. Pack slots count native Selected assignments containing topic and may overlap other kinds.",
-            "limits":"Native default caps and depth. PLACE currently uses words/vector roots; saturated explicit PLACE roots promised by the future state slice are not simulated. Native write construction timestamps are omitted from observations; generated inputs and query times use no clock."},
+            "limits":"Native default caps and depth. The original floor sweeps use words/vector roots for place; consolidation separately exercises real keyed settings through source-derived scope. Native write construction timestamps are omitted from observations; generated inputs and query times use no clock."},
         "generated_input":input,"measurements":measurements[0],"overlapping_input":overlap_input,"overlapping_measurements":measurements[1],
         "reworded_input":reworded_input,"reworded_measurements":measurements[2],
         "reworded_geometry":descriptions::overlap_geometry(&reworded_scenario)?,
@@ -947,6 +974,7 @@ async fn main() -> Result<()> {
         "opposed_reworded_measurements":measurements[5],
         "opposed_keyless_measurements":measurements[6],
         "time_and_prospective":measurements[7],
+        "consolidation":consolidation,
         "native_paraphrase_scores":{
             "original_ids":descriptions::native_paraphrase_scores(&measurements[2]),
             "opposed_ids":descriptions::native_paraphrase_scores(&measurements[5])},
