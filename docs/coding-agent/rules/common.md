@@ -53,16 +53,20 @@ last_updated: "2026-09-23"
 Build the complete promoted folder and root `README.md` from the source commit with a separate index; replace the placeholders before running these commands from any worktree of the repository, use an unused `evidence.index` path and ref name, and leave the working tree and normal index untouched:
 
 ```bash
-export GIT_INDEX_FILE="$(git rev-parse --absolute-git-dir)/evidence.index"
-git read-tree --empty
-git read-tree --prefix=<folder>/ <source-commit>:<folder>
-blob=$(git rev-parse <source-commit>:README.md)
-git update-index --add --cacheinfo "100644,$blob,README.md"
-c=$(git commit-tree "$(git write-tree)" -m "Evidence <yyyy-mm-dd>-<slug>")
-git update-ref refs/evidence/<yyyy-mm-dd>-<slug> "$c"
-rm -f "$GIT_INDEX_FILE"
-unset GIT_INDEX_FILE
+(
+  set -euo pipefail
+  export GIT_INDEX_FILE="$(git rev-parse --absolute-git-dir)/evidence.index"
+  trap 'rm -f "$GIT_INDEX_FILE"' EXIT
+  git read-tree --empty
+  git read-tree --prefix=<folder>/ <source-commit>:<folder>
+  blob=$(git rev-parse --verify <source-commit>:README.md)
+  git update-index --add --cacheinfo "100644,$blob,README.md"
+  c=$(git commit-tree "$(git write-tree)" -m "Evidence <yyyy-mm-dd>-<slug>")
+  git update-ref refs/evidence/<yyyy-mm-dd>-<slug> "$c" ""
+)
 ```
+
+The subshell stops at the first failing command, so a failed read never leaves a partial evidence commit, and the temporary index is removed on every exit. The empty old value makes `update-ref` create the ref only if it does not exist yet, so an existing evidence ref is never replaced.
 
 Repeat `read-tree --prefix` for each kept folder and `update-index --add --cacheinfo` for each kept single file. For a never-committed file, obtain its blob with `git hash-object -w --no-filters <file>` so checkout filters cannot change its bytes, then add it at its recovery path with `update-index`.
 

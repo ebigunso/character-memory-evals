@@ -23,7 +23,7 @@
 - The 256 KiB ceiling per promotion. Needed because: reviewers need a number to hold a promotion to; Design gives its reason.
 
 ## Scope / Non-goals
-- Scope: `docs/coding-agent/rules/{common,worker,reviewer}.md`, `.gitignore`, `.gitattributes` (one line), `.github/workflows/ci.yml` (one guard step), `docs/coding-agent/lessons.md`, and the plan file. On the stack: one cleanup commit each on PRs 63, 65 and 66, with no merge forward. One ref on GitHub, `refs/evidence/2026-09-21-scene-reminders`, plus a disposable test ref. In the library: the ADR-I-0036 citation and the scene-words plan permalink on every library branch head that carries them at execution time.
+- Scope: `docs/coding-agent/rules/{common,worker,reviewer}.md`, `.gitignore`, `.gitattributes` (one line), `.github/workflows/ci.yml` (one guard step), `docs/coding-agent/lessons.md`, and the plan file. On the stack: one cleanup commit each on PRs 63, 65 and 66, then the stack straightened 63 -> 64 -> 65 -> 66 by plain merges after the cleanup (Decision Log). Two refs on GitHub, `refs/evidence/2026-09-21-scene-reminders` and `refs/evidence/2026-09-22-time-checkpoint`, plus a disposable test ref. In the library: the ADR-I-0036 citation and the scene-words plan permalink on every library branch head that carries them at execution time.
 - Non-goals: rewriting history or force-pushing any branch (see Open Question 1). Moving or re-sealing `evidence/pr13r9ba` and `pr13r9bb` (register-sealed bytes stay where the closed v0.1.5 register links them). Changing `seal`/`verify` code. Git LFS, release assets or any storage outside git. Purging GitHub's server-side `refs/pull/*` copies (never downloaded by default). Any other change to the library.
 
 ## Design
