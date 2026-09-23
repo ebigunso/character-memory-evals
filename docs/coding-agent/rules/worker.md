@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "worker"
-last_updated: "2026-09-13"
+last_updated: "2026-09-23"
 ---
 
 # Worker Repository Rules
@@ -12,6 +12,8 @@ last_updated: "2026-09-13"
 - Dataset workers must keep gold labels out of adapter metadata and use them only in scorer/result output paths.
 - Never move, relocate, or delete gitignored local assets (datasets, snapshots, manifests) during validation procedures: copy them when a second location is needed, and verify the originals still exist before removing any temporary worktree or directory. These assets can be expensive or impossible to regenerate.
 - Never redirect AGMSG_STORAGE_PATH or send reports to an alternate/mirror database when the registered store rejects writes: escalate the write failure instead, and verify critical handoffs landed in the registered store before ending the turn.
+- Never use `git add -f` for a path under `.agent-work/`; discard scratch artifacts once read or promote cited evidence through the storage tiers in `common.md`.
+- Before promotion, state the durable citation, storage tier and new-file byte total from `git ls-tree -r -l`; main receives only markdown readings and their manifest within the 256 KiB ceiling, except register-cited sealed runs, which stay whole under `evidence/`.
 - Adapter tests run unconditionally with embedded stores; service lifecycle and collection-administration changes also require the `service-tests` feature suite against Qdrant, and an unavailable service is a failure.
 - For every changed metric field that measures the benchmark character, Workers must trace the value from fixture input through the live adapter DTO, persisted object, retrieval telemetry, metric, and report claim before accepting evidence.
 - New validators and admission checks on library-facing surfaces classify failures with an owned structured error type at introduction; notebook and one-off validators may use plain error context.
