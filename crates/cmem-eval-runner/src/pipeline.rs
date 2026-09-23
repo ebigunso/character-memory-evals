@@ -420,6 +420,8 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                     );
                 }
                 let input = RetrieveInput {
+                    activity: None,
+                    cue_floors: None,
                     mode: config.retrieval.mode,
                     namespace: namespace.clone(),
                     topic: Some(S::question_text(question).to_string()),
@@ -748,7 +750,13 @@ async fn run_continuity_pipeline(
             let runtime = ContinuityRuntime::new(&run_root, &config, embedding_binding).await?;
             runtimes.push((scenario.namespace.clone(), runtime));
             let runtime = &mut runtimes.last_mut().expect("just stored runtime").1;
-            let run = run_continuity_scenario(runtime, scenario, &config.retrieval).await?;
+            // Keep the large scenario future out of the enclosing CLI futures.
+            let run = Box::pin(run_continuity_scenario(
+                runtime,
+                scenario,
+                &config.retrieval,
+            ))
+            .await?;
             outcomes.insert(scenario.fixture_id.clone(), run.outcome);
             for (operation, count) in run.operation_counts {
                 *operation_counts.entry(operation).or_default() += count;
@@ -1750,6 +1758,8 @@ mod tests {
         assert!(error.to_string().contains("stale"), "{error:#}");
         let pack = adapter
             .retrieve(RetrieveInput {
+                activity: None,
+                cue_floors: None,
                 namespace: "stale".into(),
                 topic: Some("stale durable state".into()),
                 scene: cmem_eval::MemorySceneInput {
@@ -2434,30 +2444,10 @@ mod tests {
                     }
                 }
                 assert!(metrics["returned_items_without_external_id"].is_number());
-                let native_metrics = metrics
-                    .iter()
-                    .filter(|(key, _)| {
-                        matches!(
-                            key.as_str(),
-                            "correction_lifecycle_safe_admission_rate"
-                                | "hub_expansion_relevant_hit_rate"
-                                | "typed_rationale_coverage"
-                        ) || key.starts_with("rationale_category_share_")
-                            || key.starts_with("sampled_pollution_rationale_share_")
-                    })
-                    .collect::<Vec<_>>();
                 if mode == RetrievalMode::VectorOnly {
-                    for (key, value) in native_metrics {
-                        assert!(value.is_null(), "{} {key}: {value}", row.question_id);
-                    }
-                } else {
-                    assert!(metrics["typed_rationale_coverage"].is_number());
-                    if row.question_type.as_deref() == Some("entrenched_correction") {
-                        assert!(metrics["correction_lifecycle_safe_admission_rate"].is_number());
-                    }
-                    if row.question_type.as_deref() == Some("recurring_hub_entity") {
-                        assert!(metrics["hub_expansion_relevant_hit_rate"].is_number());
-                    }
+                    assert!(metrics["correction_lifecycle_safe_admission_rate"].is_null());
+                } else if row.question_type.as_deref() == Some("entrenched_correction") {
+                    assert!(metrics["correction_lifecycle_safe_admission_rate"].is_number());
                 }
                 assert!(metrics["sampled_context_pollution_rate"].is_number());
                 assert!(metrics["hub_context_share"].is_number());

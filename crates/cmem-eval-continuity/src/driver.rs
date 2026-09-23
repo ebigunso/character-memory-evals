@@ -31,6 +31,7 @@ pub const SUPPORTED_SCENARIO_FEATURES: &[ScenarioFeature] = &[
     ScenarioFeature::WriteSceneWhere,
     ScenarioFeature::WriteSceneCustom,
     ScenarioFeature::ProbeScene,
+    ScenarioFeature::ProbeActivity,
     ScenarioFeature::NoTopic,
     ScenarioFeature::ReferenceTime,
     ScenarioFeature::ParticipantName,
@@ -39,6 +40,7 @@ pub const SUPPORTED_SCENARIO_FEATURES: &[ScenarioFeature] = &[
     ScenarioFeature::PlaceDescription,
     ScenarioFeature::ReferenceTrace,
     ScenarioFeature::MemorySceneTrace,
+    ScenarioFeature::CueTrace,
     ScenarioFeature::OmissionReasons,
     ScenarioFeature::AuthoredDerivedMemory,
     ScenarioFeature::PackSections,
@@ -98,10 +100,11 @@ fn map_scene(timestamp: &str, scene: crate::SceneInput) -> Result<cmem_eval::Mem
 }
 
 fn map_situated_input(
-    namespace: &str,
+    scenario: &ContinuityScenario,
     timestamp: chrono::DateTime<Utc>,
     input: SituatedInput,
 ) -> Result<MappedSituatedInput> {
+    let namespace = scenario.namespace.as_str();
     let timestamp = timestamp.to_rfc3339_opts(SecondsFormat::AutoSi, true);
     Ok(match input {
         SituatedInput::Experience {
@@ -138,56 +141,68 @@ fn map_situated_input(
                 namespace: namespace.into(),
                 ..Default::default()
             };
-            if memory.subtype == AuthoredMemoryKind::Thread {
-                anyhow::ensure!(
-                    memory.experiences.is_empty()
-                        && memory.about.is_empty()
-                        && memory.supersedes.is_empty(),
-                    "unsupported thread provenance passed the feature gate"
-                );
-                input.threads.push(MemoryThreadInput {
-                    external_id,
-                    title: memory.text.clone(),
-                    summary: memory.text,
-                    status: ThreadStatus::Active,
-                    last_touched_at: Some(timestamp),
-                    salience_score: 0.5,
-                    canonical_key: None,
-                });
-            } else {
-                let derived_type = match memory.subtype {
-                    AuthoredMemoryKind::Reflection => DerivedType::Reflection,
-                    AuthoredMemoryKind::RelationshipNote => DerivedType::RelationshipNote,
-                    AuthoredMemoryKind::OpenLoop => DerivedType::OpenLoop,
-                    AuthoredMemoryKind::Commitment => DerivedType::Commitment,
-                    AuthoredMemoryKind::CharacterSignal => DerivedType::CharacterSignal,
-                    _ => bail!("unsupported derived subtype passed the feature gate"),
-                };
-                input.derived_memories.push(DerivedMemoryInput {
-                    external_id,
-                    created_at: Some(timestamp),
-                    derived_type,
-                    text: memory.text,
-                    source_episode_external_ids: memory.experiences,
-                    source_observation_external_ids: Vec::new(),
-                    thread_external_ids: Vec::new(),
-                    entity_external_ids: memory.about,
-                    salience_score: 0.5,
-                    assertions: Vec::new(),
-                    given_by_application: false,
-                    supersedes_external_ids: memory.supersedes,
-                    metadata: serde_json::Value::Null,
-                });
-            }
+            let derived_type = match memory.subtype {
+                AuthoredMemoryKind::Reflection => DerivedType::Reflection,
+                AuthoredMemoryKind::RelationshipNote => DerivedType::RelationshipNote,
+                AuthoredMemoryKind::OpenLoop => DerivedType::OpenLoop,
+                AuthoredMemoryKind::Commitment => DerivedType::Commitment,
+                AuthoredMemoryKind::CharacterSignal => DerivedType::CharacterSignal,
+                _ => bail!("unsupported derived subtype passed the feature gate"),
+            };
+            input.derived_memories.push(DerivedMemoryInput {
+                external_id,
+                created_at: Some(timestamp),
+                derived_type,
+                text: memory.text,
+                source_episode_external_ids: memory.experiences,
+                source_observation_external_ids: Vec::new(),
+                thread_external_ids: Vec::new(),
+                entity_external_ids: memory.about,
+                salience_score: 0.5,
+                assertions: Vec::new(),
+                given_by_application: false,
+                supersedes_external_ids: memory.supersedes,
+                metadata: serde_json::Value::Null,
+            });
             MappedSituatedInput::Derive(input)
         }
-        SituatedInput::Probe { scene, topic, .. } => MappedSituatedInput::Probe(RetrieveInput {
-            mode: cmem_eval::RetrievalMode::Hybrid,
-            namespace: namespace.into(),
-            topic,
-            scene: map_scene(&timestamp, scene)?,
-            surface_policy: Default::default(),
-        }),
+        SituatedInput::Probe {
+            mut scene, topic, ..
+        } => {
+            let activity = match scene.what.take() {
+                None => None,
+                Some(PerceivedReference::Key { key }) => Some(
+                    scenario
+                        .events
+                        .iter()
+                        .find_map(|event| match event {
+                            InteractionEvent::Derive {
+                                event_id, memory, ..
+                            } if event_id == &key => match memory.subtype {
+                                AuthoredMemoryKind::Thread => {
+                                    Some(cmem_eval::ActivityInput::Thread(key.clone()))
+                                }
+                                AuthoredMemoryKind::OpenLoop => {
+                                    Some(cmem_eval::ActivityInput::OpenLoop(key.clone()))
+                                }
+                                _ => None,
+                            },
+                            _ => None,
+                        })
+                        .context("activity must name an admitted thread or open loop")?,
+                ),
+                Some(_) => bail!("unsupported textual activity passed the feature gate"),
+            };
+            MappedSituatedInput::Probe(RetrieveInput {
+                activity,
+                cue_floors: None,
+                mode: cmem_eval::RetrievalMode::Hybrid,
+                namespace: namespace.into(),
+                topic,
+                scene: map_scene(&timestamp, scene)?,
+                surface_policy: Default::default(),
+            })
+        }
     })
 }
 
@@ -488,7 +503,7 @@ pub async fn run_continuity_scenario(
             | InteractionEvent::Derive { .. }
             | InteractionEvent::Probe { .. } => {
                 let input = scenario.situated_input(event)?.expect("situated event");
-                match map_situated_input(&scenario.namespace, event.timestamp(), input)? {
+                match map_situated_input(scenario, event.timestamp(), input)? {
                     MappedSituatedInput::Experience(input) => {
                         let external_id = input.episode_external_id.clone();
                         let observation_id = input.observation_external_id.clone();
@@ -548,23 +563,6 @@ pub async fn run_continuity_scenario(
                                 event.timestamp(),
                                 memory.external_id,
                                 memory.text
-                            ));
-                        }
-                        for thread in &input.threads {
-                            admitted.insert(
-                                thread.external_id.clone(),
-                                AdmittedObject {
-                                    object_type: ObjectType::MemoryThread,
-                                    source_episode_external_id: None,
-                                    original_raw_ref: None,
-                                    original_setting_key: None,
-                                },
-                            );
-                            history.push(format!(
-                                "{}|derive|{}|{}",
-                                event.timestamp(),
-                                thread.external_id,
-                                thread.summary
                             ));
                         }
                         write_outcomes.extend(
@@ -666,10 +664,7 @@ pub async fn run_continuity_scenario(
                                 ..Default::default()
                             },
                             ended_at: None,
-                            metadata: serde_json::json!({
-                                "continuity_event_id": event_id,
-                                "timestamp": timestamp,
-                            }),
+                            metadata: serde_json::Value::Null,
                         })
                         .await?;
                     write_outcomes.push(checked_write_outcome(scenario, event_id, result.outcome)?);
@@ -683,10 +678,7 @@ pub async fn run_continuity_scenario(
                             speaker: None,
                             text: observation_text.to_string(),
                             observed_at: Some(scripted_timestamp.clone()),
-                            metadata: serde_json::json!({
-                                "continuity_event_id": event_id,
-                                "timestamp": timestamp,
-                            }),
+                            metadata: serde_json::Value::Null,
                         })
                         .await?;
                     write_outcomes.push(checked_write_outcome(scenario, event_id, result.outcome)?);
@@ -850,10 +842,7 @@ pub async fn run_continuity_scenario(
                                 assertions: Vec::new(),
                                 given_by_application: false,
                                 supersedes_external_ids: Vec::new(),
-                                metadata: serde_json::json!({
-                                    "continuity_event_id": event_id,
-                                    "timestamp": timestamp,
-                                }),
+                                metadata: serde_json::Value::Null,
                             }],
                             links: association_links,
                             ..GraphEnrichmentInput::default()
@@ -930,10 +919,7 @@ pub async fn run_continuity_scenario(
                                 assertions: Vec::new(),
                                 given_by_application: false,
                                 supersedes_external_ids: supersedes_external_ids.clone(),
-                                metadata: serde_json::json!({
-                                    "continuity_event_id": event_id,
-                                    "timestamp": timestamp,
-                                }),
+                                metadata: serde_json::Value::Null,
                             },
                             original_source_provenance: provenance.clone(),
                             correction_origin_provenance: provenance.clone(),
@@ -1230,6 +1216,8 @@ async fn retrieve_query(
 ) -> Result<RetrievedContextPack> {
     adapter
         .retrieve(RetrieveInput {
+            activity: None,
+            cue_floors: None,
             mode: retrieval.mode,
             namespace: scenario.namespace.clone(),
             topic: Some(text.to_string()),
@@ -1476,6 +1464,7 @@ pub(crate) mod tests {
                 context_word_count: 0,
                 context: Default::default(),
                 retrieval_outcomes: vec![cmem_eval::RetrieveOutcome {
+                    activity: None,
                     scene: cmem_eval::character_memory::Scene::at(
                         chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
                     ),
@@ -1615,7 +1604,7 @@ pub(crate) mod tests {
         for event in &scenario.events {
             let input = scenario.situated_input(event).unwrap().unwrap();
             assert_no_gold(serde_json::to_string(&input).unwrap());
-            let mapped = map_situated_input(&scenario.namespace, event.timestamp(), input);
+            let mapped = map_situated_input(scenario, event.timestamp(), input);
             match mapped.unwrap() {
                 MappedSituatedInput::Experience(input) => {
                     assert_no_gold(serde_json::to_string(&input).unwrap())
@@ -1819,7 +1808,7 @@ pub(crate) mod tests {
             memory.subtype = subtype;
             memory.supersedes = vec!["prior-state".into()];
             let MappedSituatedInput::Derive(mapped) = map_situated_input(
-                &scenario.namespace,
+                &scenario,
                 scenario.events[2].timestamp(),
                 SituatedInput::Derive {
                     external_id,
@@ -1975,6 +1964,144 @@ pub(crate) mod tests {
                 missing.contains(&feature),
                 feature == ScenarioFeature::WriteSceneWhat
             );
+        }
+    }
+
+    #[tokio::test]
+    async fn activity_key_reaches_the_native_result() {
+        use cmem_eval::character_memory::{ActivityRef, ActivityResolution};
+        let mut value = serde_json::to_value(situated_scenario()).unwrap();
+        value["events"][2]["memory"]["subtype"] = "open_loop".into();
+        value["events"][3] = serde_json::json!({
+            "kind": "probe", "event_id": "resume", "query_id": "resume",
+            "timestamp": "2024-01-04T09:00:00Z",
+            "scene": {"kind": "inline", "scene": {"who": [{"reference": {"by": "key", "key": "self"}}], "what": {"by": "key", "key": "promise"}}},
+            "assertions": {"cued": [{"memory": "promise", "cue": "activity"}]}
+        });
+        let scenario: ContinuityScenario = serde_json::from_value(value).unwrap();
+        assert!(scenario_missing_features(&scenario).unwrap().is_empty());
+        let run = run_embedded(&scenario).await;
+        assert_eq!(
+            run.outcome.status,
+            crate::ScenarioStatus::Passed,
+            "{:?}",
+            run.outcome
+        );
+        let pack = &run.traces[0].retrieval;
+        let activity = pack.outcomes()[0].activity.as_ref().unwrap();
+        assert_eq!(activity.resolution, ActivityResolution::Found);
+        let ActivityRef::OpenLoop(id) = activity.activity else {
+            panic!("activity kind changed")
+        };
+        assert_eq!(pack.object_refs()[&id.to_string()].external_id, "promise");
+    }
+
+    #[test]
+    fn description_resolution_expectations_are_gated_without_gating_description_input() {
+        let mut value = serde_json::to_value(situated_scenario()).unwrap();
+        value["events"][3] = serde_json::json!({
+            "kind": "probe", "event_id": "probe", "query_id": "probe", "timestamp": "2024-01-04T09:00:00Z",
+            "scene": {"kind": "inline", "scene": {"who": [
+                {"reference": {"by": "key", "key": "self"}},
+                {"reference": {"by": "description", "text": "Garden"}}
+            ]}},
+            "assertions": {"carried": [{"memory": "visit", "reason": "pair"}]}
+        });
+        let scenario: ContinuityScenario = serde_json::from_value(value.clone()).unwrap();
+        assert!(scenario_missing_features(&scenario).unwrap().is_empty());
+        for resolution in [
+            serde_json::json!({"status": "unknown"}),
+            serde_json::json!({"status": "resolved", "entity": "ada"}),
+            serde_json::json!({"status": "ambiguous", "candidates": ["ada", "self"]}),
+        ] {
+            value["events"][3]["assertions"]["references"] = serde_json::json!([
+                {"participant": {"by": "description", "text": "Garden"}, "resolution": resolution}
+            ]);
+            let scenario: ContinuityScenario = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(
+                scenario_missing_features(&scenario).unwrap(),
+                [ScenarioFeature::DescriptionReferenceResolution]
+            );
+        }
+    }
+
+    #[test]
+    fn admitted_supported_scenarios_map_before_any_adapter_call() {
+        let mut scenarios = Vec::new();
+        for filename in ["situated_v1.toml", "situated_loud_topic_v1.json"] {
+            scenarios.extend(
+                crate::read_fixture(
+                    &Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("fixtures")
+                        .join(filename),
+                )
+                .unwrap()
+                .scenarios,
+            );
+        }
+        for subtype in ["open_loop", "thread"] {
+            let mut value = serde_json::to_value(situated_scenario()).unwrap();
+            value["events"][2]["memory"]["subtype"] = subtype.into();
+            value["events"][3] = serde_json::json!({
+                "kind": "probe", "event_id": "resume", "query_id": "resume",
+                "timestamp": "2024-01-04T09:00:00Z",
+                "scene": {"kind": "inline", "scene": {"who": [{"reference": {"by": "key", "key": "self"}}], "what": {"by": "key", "key": "promise"}}},
+                "assertions": {"cued": [{"memory": "promise", "cue": "activity"}]}
+            });
+            scenarios.push(serde_json::from_value(value).unwrap());
+        }
+        for scenario in scenarios {
+            if !scenario_missing_features(&scenario).unwrap().is_empty() {
+                continue;
+            }
+            for event in &scenario.events {
+                if let Some(input) = scenario.situated_input(event).unwrap() {
+                    map_situated_input(&scenario, event.timestamp(), input).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cue_support_is_derived_from_assertions_not_carried_labels() {
+        for (cue, feature) in [
+            ("topic", None),
+            ("pair", None),
+            ("place", None),
+            ("activity", None),
+            ("due", Some(ScenarioFeature::DueCue)),
+            ("date", Some(ScenarioFeature::DateCue)),
+            ("trigger", Some(ScenarioFeature::TriggerCue)),
+            ("own_day", Some(ScenarioFeature::OwnDayCue)),
+            (
+                "recent_and_salient",
+                Some(ScenarioFeature::RecentAndSalientCue),
+            ),
+        ] {
+            for polarity in ["carried", "cued", "not_cued"] {
+                let mut value = serde_json::to_value(situated_scenario()).unwrap();
+                let assertion = if polarity == "carried" {
+                    serde_json::json!({"memory": "visit", "reason": cue})
+                } else {
+                    serde_json::json!({"memory": "visit", "cue": cue})
+                };
+                value["events"][3] = serde_json::json!({
+                    "kind": "probe", "event_id": "probe", "query_id": "probe",
+                    "timestamp": "2024-01-04T09:00:00Z", "scene": {"kind": "named", "name": "pair"},
+                    "assertions": {polarity: [assertion]}
+                });
+                let scenario: ContinuityScenario = serde_json::from_value(value).unwrap();
+                let expected = match (polarity, cue) {
+                    ("carried", _) => None,
+                    ("not_cued", "pair") => Some(ScenarioFeature::PairCounterpartCue),
+                    _ => feature,
+                };
+                assert_eq!(
+                    scenario_missing_features(&scenario).unwrap(),
+                    expected.into_iter().collect::<Vec<_>>(),
+                    "{polarity} {cue}"
+                );
+            }
         }
     }
 
@@ -2411,6 +2538,7 @@ pub(crate) mod tests {
         assert_eq!(snapshot.fanout_decision_count, None);
         for native_trace in [None, Some(cmem_eval::RetrievalTrace::empty())] {
             let outcome = cmem_eval::RetrieveOutcome {
+                activity: None,
                 scene: cmem_eval::character_memory::Scene::at(
                     chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
                 ),

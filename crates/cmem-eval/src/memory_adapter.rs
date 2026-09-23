@@ -155,12 +155,21 @@ pub struct MemoryEndpointInput {
     pub external_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", content = "external_id", rename_all = "snake_case")]
+pub enum ActivityInput {
+    Thread(String),
+    OpenLoop(String),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetrieveInput {
     pub mode: RetrievalMode,
     pub namespace: String,
     pub topic: Option<String>,
     pub scene: MemorySceneInput,
+    pub activity: Option<ActivityInput>,
+    pub cue_floors: Option<character_memory::api::types::RetrievalCueFloors>,
     pub surface_policy: RetrievalSurfacePolicy,
 }
 

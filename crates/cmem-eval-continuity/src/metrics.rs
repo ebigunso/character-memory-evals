@@ -1,8 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cmem_eval::{
-    MetricFamily, MetricsConfig, RationaleCategory, RetrievalMode, RetrieveOutcome, RetrievedItem,
-    retrieval_metrics,
+    MetricFamily, MetricsConfig, RetrievalMode, RetrieveOutcome, RetrievedItem, retrieval_metrics,
 };
 use serde_json::{Map, Value};
 
@@ -357,16 +356,16 @@ pub fn check_probe_assertions(
                         },
                     )
                 }
-                AssertionSubject::Cued { cue, .. } | AssertionSubject::NotCued { cue, .. } => {
-                    // The pinned library has no named cue facts. When they land,
-                    // project all native outcomes here; unavailable is never negative evidence.
+                AssertionSubject::Cued { memory, cue }
+                | AssertionSubject::NotCued { memory, cue } => {
+                    let observed = native_cues(pack, memory);
                     CheckResult::checked(
                         check_cue(
                             *cue,
                             matches!(identity.assertion, AssertionSubject::Cued { .. }),
-                            None,
+                            observed.as_ref(),
                         ),
-                        "required named cue fact is absent from the native outcome",
+                        "selected native cue facts must match the requested cue",
                     )
                 }
                 // These facts do not exist in the pinned library. Static support
@@ -512,27 +511,50 @@ fn scene_matches(
 fn check_cue(
     cue: crate::CueKind,
     expected: bool,
-    observed: Option<&BTreeSet<crate::CueKind>>,
+    observed: Option<&BTreeSet<cmem_eval::character_memory::CueKind>>,
 ) -> bool {
-    observed.is_some_and(|observed| observed.contains(&cue) == expected)
+    cue.native()
+        .is_some_and(|cue| observed.is_some_and(|observed| observed.contains(&cue) == expected))
 }
-const RATIONALE_CATEGORIES: [RationaleCategory; 8] = [
-    RationaleCategory::Semantic,
-    RationaleCategory::Entity,
-    RationaleCategory::Thread,
-    RationaleCategory::Temporal,
-    RationaleCategory::Salience,
-    RationaleCategory::Scope,
-    RationaleCategory::Lifecycle,
-    RationaleCategory::GraphBound,
-];
-const CONTINUITY_METRICS: [&str; 8] = [
+
+fn native_cues(
+    pack: &cmem_eval::RetrievedContextPack,
+    memory: &str,
+) -> Option<BTreeSet<cmem_eval::character_memory::CueKind>> {
+    let mut observed = None::<BTreeSet<_>>;
+    for assignment in pack
+        .outcomes()
+        .iter()
+        .filter_map(|outcome| outcome.trace.as_ref())
+        .flat_map(|trace| &trace.section_assignments)
+        .filter(|assignment| {
+            matches!(
+                assignment.reason,
+                cmem_eval::character_memory::SectionAssignmentReason::Selected { .. }
+            )
+        })
+    {
+        if pack
+            .object_refs()
+            .get(&assignment.object.id.to_string())
+            .is_some_and(|object| {
+                object.external_id == memory
+                    || (object.object_type == cmem_eval::ObjectType::Observation
+                        && object.external_id == crate::observation_external_id(memory))
+            })
+        {
+            observed
+                .get_or_insert_with(BTreeSet::new)
+                .extend(&assignment.cue_kinds);
+        }
+    }
+    observed
+}
+const CONTINUITY_METRICS: [&str; 6] = [
     "continuity_gap_days",
     "hub_context_share",
-    "hub_expansion_relevant_hit_rate",
     "correction_lifecycle_safe_admission_rate",
     "supersession_replacement_recall",
-    "typed_rationale_coverage",
     "sampled_context_pollution_rate",
     "sampled_event_pollution_rate",
 ];
@@ -551,16 +573,6 @@ pub fn continuity_metric_family(
         }
         required_metrics.insert(format!("temporal_recall_fraction@{k}"));
     }
-    for category in RATIONALE_CATEGORIES {
-        required_metrics.insert(format!(
-            "rationale_category_share_{}",
-            rationale_category_name(category)
-        ));
-        required_metrics.insert(format!(
-            "sampled_pollution_rationale_share_{}",
-            rationale_category_name(category)
-        ));
-    }
     MetricFamily::new("continuity", required_metrics)
 }
 
@@ -578,7 +590,7 @@ pub fn insert_continuity_metrics(
         &[]
     };
     if trace.pattern == ScenarioPattern::Abstention {
-        insert_pollution_metrics(out, trace, graph_outcomes);
+        insert_pollution_metrics(out, trace);
         return;
     }
 
@@ -601,7 +613,7 @@ pub fn insert_continuity_metrics(
         }
     }
 
-    insert_hub_metrics(out, scenario, trace, graph_outcomes);
+    insert_hub_metrics(out, scenario, trace);
     if matches!(
         trace.pattern,
         ScenarioPattern::TemporalStructure | ScenarioPattern::TemporalPatterns
@@ -618,15 +630,13 @@ pub fn insert_continuity_metrics(
         }
     }
     insert_correction_metrics(out, scenario, trace, &retrieved_ids, graph_outcomes);
-    insert_rationale_metrics(out, trace, graph_outcomes);
-    insert_pollution_metrics(out, trace, graph_outcomes);
+    insert_pollution_metrics(out, trace);
 }
 
 fn insert_hub_metrics(
     out: &mut Map<String, Value>,
     scenario: &ContinuityScenario,
     trace: &ContinuityQueryObservation,
-    graph_outcomes: &[RetrieveOutcome],
 ) {
     let hub_ids = scenario
         .entities
@@ -666,43 +676,6 @@ fn insert_hub_metrics(
             trace.retrieval.items().len(),
         ),
     );
-
-    if let Some(categories) = &rationale_categories(graph_outcomes) {
-        let relevant = trace
-            .expected
-            .relevant_external_ids
-            .iter()
-            .map(String::as_str)
-            .collect::<BTreeSet<_>>();
-        let sampled_irrelevant = trace
-            .expected
-            .irrelevant_external_ids
-            .iter()
-            .map(String::as_str)
-            .collect::<BTreeSet<_>>();
-        let labeled_entity_expansions = trace
-            .retrieval
-            .items()
-            .iter()
-            .filter(|item| {
-                categories
-                    .get(&item.internal_id)
-                    .is_some_and(|values| values.contains(&RationaleCategory::Entity))
-                    && (item_matches_any(item, &relevant)
-                        || item_matches_any(item, &sampled_irrelevant))
-            })
-            .collect::<Vec<_>>();
-        out.insert(
-            "hub_expansion_relevant_hit_rate".to_string(),
-            rate(
-                labeled_entity_expansions
-                    .iter()
-                    .filter(|item| item_matches_any(item, &relevant))
-                    .count(),
-                labeled_entity_expansions.len(),
-            ),
-        );
-    }
 }
 
 fn insert_correction_metrics(
@@ -760,45 +733,7 @@ fn insert_correction_metrics(
     }
 }
 
-fn insert_rationale_metrics(
-    out: &mut Map<String, Value>,
-    trace: &ContinuityQueryObservation,
-    graph_outcomes: &[RetrieveOutcome],
-) {
-    let Some(categories) = &rationale_categories(graph_outcomes) else {
-        return;
-    };
-    let returned_categories = trace
-        .retrieval
-        .items()
-        .iter()
-        .map(|item| {
-            categories
-                .get(&item.internal_id)
-                .map(Vec::as_slice)
-                .unwrap_or(&[])
-        })
-        .collect::<Vec<_>>();
-    out.insert(
-        "typed_rationale_coverage".to_string(),
-        Value::from(if returned_categories.is_empty() {
-            1.0
-        } else {
-            returned_categories
-                .iter()
-                .filter(|values| !values.is_empty())
-                .count() as f64
-                / returned_categories.len() as f64
-        }),
-    );
-    insert_category_distribution(out, "rationale_category_share", &returned_categories);
-}
-
-fn insert_pollution_metrics(
-    out: &mut Map<String, Value>,
-    trace: &ContinuityQueryObservation,
-    graph_outcomes: &[RetrieveOutcome],
-) {
+fn insert_pollution_metrics(out: &mut Map<String, Value>, trace: &ContinuityQueryObservation) {
     let relevant = trace
         .expected
         .relevant_external_ids
@@ -857,68 +792,6 @@ fn insert_pollution_metrics(
             labeled_event_roots.len(),
         ),
     );
-    if let Some(categories) = &rationale_categories(graph_outcomes) {
-        let pollution_categories = pollution
-            .iter()
-            .map(|item| {
-                categories
-                    .get(&item.internal_id)
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[])
-            })
-            .collect::<Vec<_>>();
-        insert_category_distribution(
-            out,
-            "sampled_pollution_rationale_share",
-            &pollution_categories,
-        );
-    }
-}
-
-pub(crate) fn rationale_categories(
-    outcomes: &[RetrieveOutcome],
-) -> Option<BTreeMap<String, Vec<RationaleCategory>>> {
-    if !outcomes.iter().any(|outcome| outcome.trace.is_some()) {
-        return None;
-    }
-    let mut categories: BTreeMap<String, Vec<RationaleCategory>> = BTreeMap::new();
-    for assignment in outcomes
-        .iter()
-        .filter_map(|outcome| outcome.trace.as_ref())
-        .flat_map(|trace| &trace.section_assignments)
-    {
-        let values = categories
-            .entry(assignment.object.id.to_string())
-            .or_default();
-        for category in &assignment.rationale_categories {
-            if !values.contains(category) {
-                values.push(*category);
-            }
-        }
-    }
-    Some(categories)
-}
-
-fn insert_category_distribution(
-    out: &mut Map<String, Value>,
-    prefix: &str,
-    categories: &[&[RationaleCategory]],
-) {
-    let total = categories.iter().map(|values| values.len()).sum::<usize>();
-    if total == 0 {
-        return;
-    }
-    for category in RATIONALE_CATEGORIES {
-        let count = categories
-            .iter()
-            .flat_map(|values| values.iter())
-            .filter(|value| **value == category)
-            .count();
-        out.insert(
-            format!("{prefix}_{}", rationale_category_name(category)),
-            Value::from(count as f64 / total as f64),
-        );
-    }
 }
 
 fn ranked_ids_for_gold(items: &[RetrievedItem], gold_ids: &[String]) -> Vec<String> {
@@ -1004,19 +877,6 @@ fn rate(numerator: usize, denominator: usize) -> Value {
     }
 }
 
-fn rationale_category_name(category: RationaleCategory) -> &'static str {
-    match category {
-        RationaleCategory::Semantic => "semantic",
-        RationaleCategory::Entity => "entity",
-        RationaleCategory::Thread => "thread",
-        RationaleCategory::Temporal => "temporal",
-        RationaleCategory::Salience => "salience",
-        RationaleCategory::Scope => "scope",
-        RationaleCategory::Lifecycle => "lifecycle",
-        RationaleCategory::GraphBound => "graph_bound",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1035,7 +895,7 @@ mod tests {
             uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, id.as_bytes()),
         )
     }
-    fn assignment(id: &str, categories: Vec<RationaleCategory>) -> SectionAssignment {
+    fn assignment(id: &str, cues: Vec<cmem_eval::character_memory::CueKind>) -> SectionAssignment {
         SectionAssignment {
             object: object(id),
             section: ContextPackSection::RelevantEpisodes,
@@ -1044,12 +904,11 @@ mod tests {
                 scores: SectionScoreComponents {
                     final_score: 1.0,
                     cue_score: None,
-                    cue_score_source: None,
                     graph_score: None,
                     salience_score: None,
                 },
             },
-            rationale_categories: categories,
+            cue_kinds: cues.into_iter().collect(),
         }
     }
     fn unsafe_decision(id: &str) -> LifecycleFilterDecision {
@@ -1078,14 +937,94 @@ mod tests {
     #[test]
     fn situated_cue_predicate_distinguishes_missing_wrong_and_unavailable_facts() {
         use crate::CueKind;
-        let observed = BTreeSet::from([CueKind::Pair, CueKind::Due]);
-        assert!(check_cue(CueKind::Due, true, Some(&observed)));
-        assert!(!check_cue(CueKind::Date, true, Some(&observed)));
-        assert!(!check_cue(CueKind::Due, true, Some(&BTreeSet::new())));
-        assert!(!check_cue(CueKind::Due, true, None));
-        assert!(check_cue(CueKind::Date, false, Some(&observed)));
+        use cmem_eval::character_memory::CueKind as NativeCueKind;
+        let observed = BTreeSet::from([NativeCueKind::Participant, NativeCueKind::Place]);
+        assert!(check_cue(CueKind::Pair, true, Some(&observed)));
+        assert!(!check_cue(CueKind::Pair, false, Some(&observed)));
+        assert!(check_cue(CueKind::Place, true, Some(&observed)));
+        assert!(!check_cue(CueKind::Activity, true, Some(&observed)));
+        assert!(!check_cue(CueKind::Due, true, Some(&observed)));
         assert!(!check_cue(CueKind::Due, false, Some(&observed)));
         assert!(!check_cue(CueKind::Due, false, None));
+    }
+
+    #[test]
+    fn cue_facts_union_selected_assignments_and_keep_missing_facts_unavailable() {
+        use cmem_eval::character_memory::CueKind as Native;
+        let mut episode = assignment("visit", vec![Native::Topic, Native::Place]);
+        let mut observation =
+            assignment("observation", vec![Native::Participant, Native::Activity]);
+        observation.object.object_type = ObjectType::Observation;
+        let refs = [
+            (&episode, "visit".to_string()),
+            (&observation, crate::observation_external_id("visit")),
+        ]
+        .into_iter()
+        .map(|(assignment, external_id)| {
+            (
+                assignment.object.id.to_string(),
+                cmem_eval::MemoryEndpointInput {
+                    external_id,
+                    object_type: assignment.object.object_type,
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+        let make_pack = |assignments: Vec<SectionAssignment>| {
+            let outcomes = assignments
+                .into_iter()
+                .map(|assignment| {
+                    let mut outcome =
+                        trace(ScenarioPattern::SelectiveEntity).retrieval.outcomes()[0].clone();
+                    outcome.trace.as_mut().unwrap().section_assignments = vec![assignment];
+                    outcome
+                })
+                .collect();
+            RetrievedContextPack::from_ranked_items(vec![], outcomes, ContextRenderer::PlainText)
+                .with_object_refs(refs.clone())
+        };
+        let pack = make_pack(vec![episode.clone(), observation.clone()]);
+        let observed = native_cues(&pack, "visit").unwrap();
+        assert_eq!(
+            observed,
+            BTreeSet::from([
+                Native::Topic,
+                Native::Place,
+                Native::Participant,
+                Native::Activity
+            ])
+        );
+        for cue in [
+            crate::CueKind::Topic,
+            crate::CueKind::Place,
+            crate::CueKind::Pair,
+            crate::CueKind::Activity,
+        ] {
+            assert!(check_cue(cue, true, Some(&observed)));
+            assert!(!check_cue(cue, false, Some(&observed)));
+        }
+        let SectionAssignmentReason::Selected { scores } = episode.reason else {
+            unreachable!()
+        };
+        episode.reason = SectionAssignmentReason::OmittedByLimit {
+            intended_section: episode.section,
+            scores,
+        };
+        let pack = make_pack(vec![episode.clone(), observation]);
+        let observed = native_cues(&pack, "visit").unwrap();
+        assert!(check_cue(crate::CueKind::Topic, false, Some(&observed)));
+        let pack = make_pack(vec![episode]);
+        for memory in ["visit", "missing"] {
+            let observed = native_cues(&pack, memory);
+            assert!(observed.is_none());
+            for expected in [true, false] {
+                assert!(!check_cue(
+                    crate::CueKind::Topic,
+                    expected,
+                    observed.as_ref()
+                ));
+            }
+        }
     }
 
     #[test]
@@ -1168,6 +1107,7 @@ mod tests {
         native.derived_memories = vec![promise.into()];
         native.active_threads = vec![thread];
         let mut outcome = RetrieveOutcome {
+            activity: None,
             scene: cmem_eval::character_memory::Scene::at(
                 chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
             ),
@@ -1179,6 +1119,7 @@ mod tests {
         };
         let make_pack = |mut outcome: RetrieveOutcome| {
             let observation_outcome = RetrieveOutcome {
+                activity: None,
                 scene: cmem_eval::character_memory::Scene::at(
                     chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
                 ),
@@ -1401,9 +1342,12 @@ mod tests {
         native_trace.section_assignments = vec![
             assignment(
                 "relevant",
-                vec![RationaleCategory::Entity, RationaleCategory::Temporal],
+                vec![cmem_eval::character_memory::CueKind::Participant],
             ),
-            assignment("sampled-negative", vec![RationaleCategory::Semantic]),
+            assignment(
+                "sampled-negative",
+                vec![cmem_eval::character_memory::CueKind::Topic],
+            ),
         ];
         ContinuityQueryObservation {
             fixture_id: "fixture".to_string(),
@@ -1421,6 +1365,7 @@ mod tests {
             retrieval: RetrievedContextPack::from_ranked_items(
                 items,
                 vec![RetrieveOutcome {
+                    activity: None,
                     scene: cmem_eval::character_memory::Scene::at(
                         chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
                     ),
@@ -1477,14 +1422,9 @@ mod tests {
     }
 
     #[test]
-    fn entity_continuity_measures_share_hits_and_cap_utilization() {
+    fn entity_continuity_measures_hub_context_share() {
         let scenario = scenario(ScenarioPattern::RecurringHubEntity);
-        let mut trace = trace(ScenarioPattern::RecurringHubEntity);
-        mutate_trace(&mut trace, |telemetry| {
-            telemetry.as_mut().unwrap().section_assignments[1]
-                .rationale_categories
-                .push(RationaleCategory::Entity);
-        });
+        let trace = trace(ScenarioPattern::RecurringHubEntity);
         let mut out = Map::new();
         insert_continuity_metrics(
             &mut out,
@@ -1494,7 +1434,6 @@ mod tests {
             RetrievalMode::Hybrid,
         );
         assert_eq!(out["hub_context_share"], 1.0);
-        assert_eq!(out["hub_expansion_relevant_hit_rate"], 0.5);
     }
 
     #[test]
@@ -1538,45 +1477,10 @@ mod tests {
             let mut out = Map::new();
             cmem_eval::initialize_registry_metrics_for(&mut out, std::slice::from_ref(&family));
             insert_continuity_metrics(&mut out, &scenario, &trace, &config, mode);
-            let native = out
-                .iter()
-                .filter(|(key, _)| {
-                    matches!(
-                        key.as_str(),
-                        "correction_lifecycle_safe_admission_rate"
-                            | "hub_expansion_relevant_hit_rate"
-                            | "typed_rationale_coverage"
-                    ) || key.starts_with("rationale_category_share_")
-                        || key.starts_with("sampled_pollution_rationale_share_")
-                })
-                .collect::<Vec<_>>();
-            assert_eq!(
-                native
-                    .iter()
-                    .map(|(key, _)| key.as_str())
-                    .collect::<BTreeSet<_>>(),
-                BTreeSet::from([
-                    "correction_lifecycle_safe_admission_rate",
-                    "hub_expansion_relevant_hit_rate",
-                    "typed_rationale_coverage",
-                    "rationale_category_share_semantic",
-                    "rationale_category_share_entity",
-                    "rationale_category_share_thread",
-                    "rationale_category_share_temporal",
-                    "rationale_category_share_salience",
-                    "rationale_category_share_scope",
-                    "rationale_category_share_lifecycle",
-                    "rationale_category_share_graph_bound",
-                    "sampled_pollution_rationale_share_semantic",
-                    "sampled_pollution_rationale_share_entity",
-                    "sampled_pollution_rationale_share_thread",
-                    "sampled_pollution_rationale_share_temporal",
-                    "sampled_pollution_rationale_share_salience",
-                    "sampled_pollution_rationale_share_scope",
-                    "sampled_pollution_rationale_share_lifecycle",
-                    "sampled_pollution_rationale_share_graph_bound",
-                ])
-            );
+            let native = [(
+                "correction_lifecycle_safe_admission_rate",
+                &out["correction_lifecycle_safe_admission_rate"],
+            )];
             for (key, value) in native {
                 if mode == RetrievalMode::Hybrid {
                     assert!(value.is_number(), "{key}: {value}");
@@ -1639,28 +1543,12 @@ mod tests {
     }
 
     #[test]
-    fn rationale_quality_uses_typed_category_assignments() {
-        let out = metrics(ScenarioPattern::RecurringHubEntity);
-        assert_eq!(out["typed_rationale_coverage"], 1.0);
-        assert_eq!(out["rationale_category_share_entity"], 1.0 / 3.0);
-        assert_eq!(out["rationale_category_share_temporal"], 1.0 / 3.0);
-        assert_eq!(out["rationale_category_share_semantic"], 1.0 / 3.0);
-    }
-
-    #[test]
     fn sampled_pollution_does_not_classify_unlabeled_items_as_negative() {
         let scenario = scenario(ScenarioPattern::MixedSalienceAccumulation);
         let mut trace = trace(ScenarioPattern::MixedSalienceAccumulation);
         let mut items = trace.retrieval.items().to_vec();
         items.push(item("unlabeled", 3));
         replace_items(&mut trace, items);
-        mutate_trace(&mut trace, |telemetry| {
-            telemetry
-                .as_mut()
-                .unwrap()
-                .section_assignments
-                .push(assignment("unlabeled", vec![RationaleCategory::Salience]));
-        });
         let mut out = Map::new();
         insert_continuity_metrics(
             &mut out,
@@ -1671,7 +1559,6 @@ mod tests {
         );
         assert_eq!(out["sampled_context_pollution_rate"], 0.5);
         assert_eq!(out["sampled_event_pollution_rate"], 0.5);
-        assert_eq!(out["sampled_pollution_rationale_share_semantic"], 1.0);
     }
 
     #[test]
@@ -1693,7 +1580,6 @@ mod tests {
         assert_eq!(out["sampled_event_pollution_rate"], 1.0);
         assert!(out.get("continuity_gap_days").is_none());
         assert!(out.get("hub_context_share").is_none());
-        assert!(out.get("typed_rationale_coverage").is_none());
         assert!(out.get("fanout_over_budget_count").is_none());
     }
 
@@ -1785,26 +1671,5 @@ mod tests {
 
         assert_eq!(out["sampled_context_pollution_rate"], 0.0);
         assert_eq!(out["sampled_event_pollution_rate"], 0.0);
-    }
-
-    #[test]
-    fn missing_telemetry_stays_null_in_the_registry_instead_of_false_zero() {
-        let scenario = scenario(ScenarioPattern::SelectiveEntity);
-        let mut trace = trace(ScenarioPattern::SelectiveEntity);
-        mutate_trace(&mut trace, |telemetry| {
-            *telemetry = None;
-        });
-        let family =
-            continuity_metric_family(&MetricsConfig::default(), std::slice::from_ref(&scenario));
-        let mut out = Map::new();
-        cmem_eval::initialize_registry_metrics_for(&mut out, std::slice::from_ref(&family));
-        insert_continuity_metrics(
-            &mut out,
-            &scenario,
-            &trace,
-            &MetricsConfig::default(),
-            RetrievalMode::Hybrid,
-        );
-        assert_eq!(out["typed_rationale_coverage"], Value::Null);
     }
 }

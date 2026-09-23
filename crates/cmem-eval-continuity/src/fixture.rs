@@ -190,6 +190,7 @@ pub type RecallReason = CueKind;
 #[serde(rename_all = "snake_case")]
 pub enum CueKind {
     Pair,
+    Place,
     Due,
     Date,
     Trigger,
@@ -200,8 +201,9 @@ pub enum CueKind {
 }
 
 impl CueKind {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Pair,
+        Self::Place,
         Self::Due,
         Self::Date,
         Self::Trigger,
@@ -210,6 +212,17 @@ impl CueKind {
         Self::RecentAndSalient,
         Self::Topic,
     ];
+
+    pub(crate) fn native(self) -> Option<cmem_eval::character_memory::CueKind> {
+        use cmem_eval::character_memory::CueKind as Native;
+        match self {
+            Self::Topic => Some(Native::Topic),
+            Self::Pair => Some(Native::Participant),
+            Self::Place => Some(Native::Place),
+            Self::Activity => Some(Native::Activity),
+            Self::Due | Self::Date | Self::Trigger | Self::OwnDay | Self::RecentAndSalient => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -332,6 +345,7 @@ pub enum ScenarioFeature {
     WriteSceneWhat,
     WriteSceneCustom,
     ProbeScene,
+    ProbeActivity,
     NoTopic,
     ReferenceTime,
     ParticipantName,
@@ -348,7 +362,14 @@ pub enum ScenarioFeature {
     PreferenceMemory,
     ThreadProvenance,
     CueTrace,
+    PairCounterpartCue,
+    DueCue,
+    DateCue,
+    TriggerCue,
+    OwnDayCue,
+    RecentAndSalientCue,
     ReferenceTrace,
+    DescriptionReferenceResolution,
     MemorySceneTrace,
     ElapsedSinceMet,
     Staleness,
@@ -1664,6 +1685,9 @@ impl ContinuityScenario {
                         )?;
                         requirements.features.insert(feature);
                     }
+                    if matches!(scene.what, Some(PerceivedReference::Key { .. })) {
+                        requirements.features.insert(ScenarioFeature::ProbeActivity);
+                    }
                     if let Some(topic) = topic {
                         require_non_empty(&location, "probe.topic", topic)?;
                         require_embedding_input(
@@ -1924,12 +1948,10 @@ impl ContinuityScenario {
                             );
                         }
                     }
-                    if !self.events[event_index + 1..].iter().any(|event| {
-                        matches!(
-                            event,
-                            InteractionEvent::Query { .. } | InteractionEvent::Probe { .. }
-                        )
-                    }) {
+                    if !self.events[event_index + 1..]
+                        .iter()
+                        .any(|event| matches!(event, InteractionEvent::Query { .. }))
+                    {
                         return Err(location.error(
                             "restart",
                             FixtureAdmissionKind::RestartWithoutFollowingQuery,
@@ -2381,6 +2403,9 @@ impl ProbeAdmission<'_> {
         features: &mut BTreeSet<ScenarioFeature>,
     ) -> Result<ComputedProbeGold, FixtureError> {
         let location = self.location;
+        if *assertions == ProbeAssertions::default() && measures.bystanders.is_empty() {
+            return Err(location.error("probe.assertions", FixtureAdmissionKind::Empty));
+        }
         let memory = |field, id: &str| {
             require_admitted_kind(
                 location,
@@ -2475,10 +2500,26 @@ impl ProbeAdmission<'_> {
                     ));
                 }
                 features.insert(ScenarioFeature::CueTrace);
+                let missing = match assertion.cue {
+                    CueKind::Pair if !expected => Some(ScenarioFeature::PairCounterpartCue),
+                    CueKind::Due => Some(ScenarioFeature::DueCue),
+                    CueKind::Date => Some(ScenarioFeature::DateCue),
+                    CueKind::Trigger => Some(ScenarioFeature::TriggerCue),
+                    CueKind::OwnDay => Some(ScenarioFeature::OwnDayCue),
+                    CueKind::RecentAndSalient => Some(ScenarioFeature::RecentAndSalientCue),
+                    _ => None,
+                };
+                features.extend(missing);
             }
         }
         let mut references = BTreeSet::new();
         for assertion in &assertions.references {
+            if matches!(
+                assertion.participant,
+                PerceivedReference::Description { .. }
+            ) {
+                features.insert(ScenarioFeature::DescriptionReferenceResolution);
+            }
             let person = scene
                 .who
                 .iter()
@@ -3912,6 +3953,7 @@ bystanders = ["distractor"]
                 ScenarioFeature::Trigger,
                 ScenarioFeature::AuthoredDerivedMemory,
                 ScenarioFeature::CueTrace,
+                ScenarioFeature::DateCue,
                 ScenarioFeature::ReferenceTrace,
                 ScenarioFeature::MemorySceneTrace,
                 ScenarioFeature::ElapsedSinceMet,
@@ -5829,6 +5871,41 @@ bystanders = ["distractor"]
             matches!(kind, FixtureAdmissionKind::OutOfUnitInterval(value) if value.is_nan()),
             "{kind:?}"
         );
+    }
+
+    #[test]
+    fn situated_probe_requires_an_assertion_or_an_authored_measure() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            value["scenarios"][0]["events"][5]["assertions"] = serde_json::json!({});
+            // A bystander-only probe still has a measurement purpose.
+            parse_as(&value, extension).unwrap();
+            value["scenarios"][0]["events"][5]["measures"] = serde_json::json!({});
+            assert_eq!(
+                admission_of(parse_as(&value, extension).unwrap_err()).2,
+                FixtureAdmissionKind::Empty
+            );
+            value["scenarios"][0]["events"][5]["assertions"] = serde_json::json!({
+                "carried": [{"memory": "promise", "reason": "due"}]
+            });
+            parse_as(&value, extension).unwrap();
+        }
+    }
+
+    #[test]
+    fn situated_restart_requires_a_following_query_not_only_a_probe() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            value["scenarios"][0]["events"].as_array_mut().unwrap().insert(5, serde_json::json!({
+                "kind": "restart", "event_id": "restart", "timestamp": "2024-01-07T09:00:00Z",
+                "reopen_graph": true, "reopen_stats": true
+            }));
+            let error = parse_as(&value, extension).unwrap_err();
+            assert_eq!(
+                admission_of(error).2,
+                FixtureAdmissionKind::RestartWithoutFollowingQuery
+            );
+        }
     }
 
     #[test]

@@ -531,6 +531,7 @@ mod tests {
                 rationale.telemetry.selected_graph_root_count = selected;
                 rationale.telemetry.graph_root_omission_count = omitted;
                 cmem_eval::RetrieveOutcome {
+                    activity: None,
                     scene: cmem_eval::character_memory::Scene::at(
                         chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
                     ),
@@ -718,6 +719,7 @@ mod tests {
             .into_iter()
             .collect();
         let native = RetrieveOutcome {
+            activity: None,
             scene: cmem_eval::character_memory::Scene::at(
                 chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
             ),
@@ -928,6 +930,7 @@ mod tests {
         let pack = RetrievedContextPack::from_ranked_items(
             vec![],
             vec![RetrieveOutcome {
+                activity: None,
                 scene: cmem_eval::character_memory::Scene::at(
                     chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
                 ),

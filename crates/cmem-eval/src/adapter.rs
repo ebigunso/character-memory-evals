@@ -786,6 +786,8 @@ impl CharacterMemoryAdapter {
             let mut context = RetrievalContext {
                 topic: input.topic.clone(),
                 scene: resolve_scene(&input.scene, state)?,
+                activity: resolve_activity(input.activity.as_ref(), state)?,
+                cue_floors: input.cue_floors.unwrap_or_default(),
                 ..Default::default()
             };
             context.include_trace = true;
@@ -1555,6 +1557,8 @@ impl CharacterMemoryAdapter {
         let mut context = RetrievalContext {
             topic: input.topic,
             scene: resolve_scene(&input.scene, state)?,
+            activity: resolve_activity(input.activity.as_ref(), state)?,
+            cue_floors: input.cue_floors.unwrap_or_default(),
             ..Default::default()
         };
         context.include_trace = input.surface_policy.include_debug_rationale;
@@ -2100,6 +2104,36 @@ fn parse_timestamp(value: Option<&str>) -> Result<Option<DateTime<Utc>>> {
                 })
         })
         .transpose()
+}
+
+fn resolve_activity(
+    input: Option<&crate::ActivityInput>,
+    state: &ExternalIdRegistry,
+) -> Result<Option<character_memory::ActivityRef>> {
+    Ok(input.map(|activity| match activity {
+        crate::ActivityInput::Thread(external_id) => {
+            let id = state
+                .thread_ids
+                .get(external_id)
+                .or_else(|| state.derived_memory_ids.get(external_id))
+                .copied()
+                .unwrap_or_else(|| {
+                    deterministic_id(&state.namespace, "memory_thread", external_id)
+                });
+            character_memory::ActivityRef::Thread(id)
+        }
+        crate::ActivityInput::OpenLoop(external_id) => {
+            let id = state
+                .derived_memory_ids
+                .get(external_id)
+                .or_else(|| state.thread_ids.get(external_id))
+                .copied()
+                .unwrap_or_else(|| {
+                    deterministic_id(&state.namespace, "derived_memory", external_id)
+                });
+            character_memory::ActivityRef::OpenLoop(id)
+        }
+    }))
 }
 
 fn resolve_scene(
@@ -2805,6 +2839,8 @@ mod tests {
             assert!(observation.outcome.vector_indexing_failure.is_none());
         }
         let mut query = RetrieveInput {
+            activity: None,
+            cue_floors: None,
             mode: RetrievalMode::VectorOnly,
             namespace: "n".into(),
             topic: Some("same text".into()),
@@ -2898,6 +2934,8 @@ mod tests {
         assert!(vector_b.exists());
         adapter.reattach_namespace("b").await.unwrap();
         let query = RetrieveInput {
+            activity: None,
+            cue_floors: None,
             mode: RetrievalMode::Hybrid,
             namespace: "b".into(),
             topic: Some("The notebook is blue.".into()),
@@ -3143,6 +3181,8 @@ mod tests {
         assert_eq!(outcome.persisted_link_ids.len(), 1);
         let pack = adapter
             .retrieve(RetrieveInput {
+                activity: None,
+                cue_floors: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: "names".into(),
                 topic: Some("Ada".into()),
@@ -3243,6 +3283,8 @@ mod tests {
 
         let retrieved = adapter
             .retrieve(RetrieveInput {
+                activity: None,
+                cue_floors: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.into(),
                 topic: Some(text.into()),
@@ -3338,6 +3380,57 @@ mod tests {
         assert_eq!(first, deterministic_id("n1", "episode", "s1"));
         assert_ne!(first, deterministic_id("n2", "episode", "s1"));
         assert_ne!(first, deterministic_id("n1", "observation", "s1"));
+    }
+
+    #[test]
+    fn activity_resolution_preserves_exact_opposite_and_unknown_ids() {
+        let mut state = ExternalIdRegistry::new("namespace");
+        let thread_id = deterministic_id("namespace", "memory_thread", "thread");
+        let open_loop_id = deterministic_id("namespace", "derived_memory", "loop");
+        state.thread_ids.insert("thread".into(), thread_id);
+        state.derived_memory_ids.insert("loop".into(), open_loop_id);
+
+        let cases = [
+            (
+                crate::ActivityInput::Thread("thread".into()),
+                character_memory::ActivityRef::Thread(thread_id),
+            ),
+            (
+                crate::ActivityInput::Thread("loop".into()),
+                character_memory::ActivityRef::Thread(open_loop_id),
+            ),
+            (
+                crate::ActivityInput::Thread("missing".into()),
+                character_memory::ActivityRef::Thread(deterministic_id(
+                    "namespace",
+                    "memory_thread",
+                    "missing",
+                )),
+            ),
+            (
+                crate::ActivityInput::OpenLoop("loop".into()),
+                character_memory::ActivityRef::OpenLoop(open_loop_id),
+            ),
+            (
+                crate::ActivityInput::OpenLoop("thread".into()),
+                character_memory::ActivityRef::OpenLoop(thread_id),
+            ),
+            (
+                crate::ActivityInput::OpenLoop("missing".into()),
+                character_memory::ActivityRef::OpenLoop(deterministic_id(
+                    "namespace",
+                    "derived_memory",
+                    "missing",
+                )),
+            ),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                resolve_activity(Some(&input), &state).unwrap(),
+                Some(expected)
+            );
+        }
+        assert_eq!(resolve_activity(None, &state).unwrap(), None);
     }
 
     #[test]
@@ -3859,6 +3952,8 @@ mod tests {
             errors.push(
                 adapter
                     .retrieve(RetrieveInput {
+                        activity: None,
+                        cue_floors: None,
                         mode,
                         namespace: namespace.to_string(),
                         topic: Some("must not attach implicitly".to_string()),
@@ -4226,6 +4321,8 @@ mod tests {
         }
         let retrieved = (adapter_b
             .retrieve(RetrieveInput {
+                activity: None,
+                cue_floors: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.to_string(),
                 topic: Some("What is the restart-safe drink?".to_string()),
@@ -4414,6 +4511,8 @@ mod tests {
         assert!(retrieval_stats_path.exists());
         let fresh_retrieval = (adapter_c
             .retrieve(RetrieveInput {
+                activity: None,
+                cue_floors: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.to_string(),
                 topic: Some("What is the restart-safe drink?".to_string()),
@@ -4588,6 +4687,8 @@ mod tests {
         assert_eq!(reattached_b.restored_identity_count, 3);
         let surviving_b = (resetter
             .retrieve(RetrieveInput {
+                activity: None,
+                cue_floors: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace_b.to_string(),
                 topic: Some("Which sibling namespace must survive?".to_string()),
@@ -4642,6 +4743,8 @@ mod tests {
         assert!(adapter.namespace_path("b").exists());
         let pack = adapter
             .retrieve(RetrieveInput {
+                activity: None,
+                cue_floors: None,
                 namespace: "b".into(),
                 topic: Some("The notebook is blue.".into()),
                 scene: crate::MemorySceneInput {
@@ -4791,6 +4894,7 @@ mod tests {
                 },
             ],
             vec![RetrieveOutcome {
+                activity: None,
                 scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
                 scene_references: Vec::new(),
                 memory_scenes: Vec::new(),
@@ -4902,6 +5006,7 @@ mod tests {
         let traced = flatten_outcome(
             &registry,
             RetrieveOutcome {
+                activity: None,
                 scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
                 scene_references: Vec::new(),
                 memory_scenes: Vec::new(),
@@ -4913,6 +5018,7 @@ mod tests {
         let untraced = flatten_outcome(
             &registry,
             RetrieveOutcome {
+                activity: None,
                 scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
                 scene_references: Vec::new(),
                 memory_scenes: Vec::new(),

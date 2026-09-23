@@ -843,6 +843,7 @@ mod tests {
     #[test]
     fn grounding_uses_native_sources_or_application_given_subjects() {
         let mut outcome = RetrieveOutcome {
+            activity: None,
             scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
             scene_references: Vec::new(),
             memory_scenes: Vec::new(),
@@ -1010,6 +1011,7 @@ mod tests {
             },
         ];
         let outcome = RetrieveOutcome {
+            activity: None,
             scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
             scene_references: Vec::new(),
             memory_scenes: Vec::new(),
@@ -1060,6 +1062,7 @@ mod tests {
             },
         ];
         let mut outcome = crate::RetrieveOutcome {
+            activity: None,
             scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
             scene_references: Vec::new(),
             memory_scenes: Vec::new(),
@@ -1107,6 +1110,7 @@ mod tests {
             },
         ];
         let mut outcome = crate::RetrieveOutcome {
+            activity: None,
             scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
             scene_references: Vec::new(),
             memory_scenes: Vec::new(),
@@ -1153,7 +1157,6 @@ mod tests {
                 candidate: missing.object,
                 vector_score: None,
                 reason: character_memory::StaleCandidateReason::GraphObjectMissing,
-                rationale_categories: Vec::new(),
             });
         for outcomes in [vec![outcome.clone()], vec![outcome.clone(), outcome]] {
             let integrity = integrity_details_from_outcomes(&retrieved, &outcomes);

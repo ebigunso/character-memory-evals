@@ -280,6 +280,8 @@ mod tests {
         });
         let baseline = Bm25Baseline::new(&[episode], &observations);
         let mut input = RetrieveInput {
+            activity: None,
+            cue_floors: None,
             mode: crate::RetrievalMode::Bm25Only,
             namespace: "lexical".into(),
             topic: Some("tea".into()),

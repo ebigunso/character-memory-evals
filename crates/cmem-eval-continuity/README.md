@@ -88,9 +88,9 @@ An experience creates an episode and an observation. An explicit salience value 
 
 An authored `memory` requires `subtype`, nonblank `text`, nonempty distinct `experiences` naming earlier experiences, and `about` containing distinct declared entities (possibly empty). Subtypes are `reflection`, `preference`, `relationship_note`, `open_loop`, `commitment`, `intention`, `character_signal` and `thread`. Optional `supersedes` names distinct earlier authored derived memories; thread targets are rejected at load. Optional `actor` and `counterpart` must appear together and name declared entities. Optional `due` is an RFC 3339 timestamp. Optional `trigger` is `{kind = "participant", entity = "jo"}` or `{kind = "topic", text = "Thursday dinner"}`. Supersession is forwarded as authored input; it is not an additional feature gate. `expected_warning` is scoring-only and accepts `near_verbatim_restatement` or `churning_chain`.
 
-A probe may omit its topic entirely. A present topic must be nonblank; its embedding lookup uses trimmed text.
+A probe may omit its topic entirely. A present topic must be nonblank; its embedding lookup uses trimmed text. Every probe needs at least one assertion or a nonempty `measures.bystanders` list; an empty probe is rejected at load.
 
-Lifecycle events use the same event identity and timestamp: `link` supplies `external_id`, `from_external_id`, `relation` and `to_external_id`; `forget` supplies `target_external_ids`, `suppress_derived_from_target` and `apply_to_derived_from_target`; `correct` supplies `target_external_id`, `replacement_external_id` and `replacement_text`; `restart` supplies `reopen_graph` and `reopen_stats`. At least one store must reopen and a later query or probe must follow a restart. For the `remember` and `query` shapes, see [fixture.rs](src/fixture.rs).
+Lifecycle events use the same event identity and timestamp: `link` supplies `external_id`, `from_external_id`, `relation` and `to_external_id`; `forget` supplies `target_external_ids`, `suppress_derived_from_target` and `apply_to_derived_from_target`; `correct` supplies `target_external_id`, `replacement_external_id` and `replacement_text`; `restart` supplies `reopen_graph` and `reopen_stats`. Both graph and statistics stores must reopen and a later `query` must follow a restart; probe-only re-measurement is rejected at load. For the `remember` and `query` shapes, see [fixture.rs](src/fixture.rs).
 
 For deterministic authoring, use `provider = "controllable_similarity"` with `seed`, `vector_size`, `noise_magnitude`, `clusters` and `concepts`. Each cluster is a vector; each concept names its cluster and exact input strings. `own_concept = true` gives every otherwise-unassigned runtime input its own deterministic concept while preserving explicit groups. This supplies coverage, not semantic similarity: group texts explicitly when the narrative needs them to match. With `own_concept = false` (the default), the loader rejects uncovered inputs, including entity labels, normalized write texts, probe topics, textual scene references and topic triggers. Write inventory follows native whitespace collapse: episode scene words append a `Setting:` line and then a `With:` line per participant; keys and custom values add no embedding text. Probe text trims outer whitespace only. The provider strips native surface labels for lookup, and an unexpected native input fails instead of silently assigning a vector. A frozen provider is `{provider = "frozen"}` and requires complete configured cache coverage before execution; see the [root README](../../README.md#generate-and-validate-frozen-real-embeddings) for store generation.
 
@@ -121,6 +121,7 @@ Sections are `threads`, `episodes`, `observations`, `derived_memories`, `prefere
 | Value | Intended recall route |
 |---|---|
 | `pair` | The character and another participant's shared history or relationship picture |
+| `place` | The perceived place or setting |
 | `due` | A deadline |
 | `date` | A dated memory or anniversary |
 | `trigger` | An intention's participant or topic trigger |
@@ -129,7 +130,7 @@ Sections are `threads`, `episodes`, `observations`, `derived_memories`, `prefere
 | `recent_and_salient` | A recent, salient experience |
 | `topic` | Topical content |
 
-Current state is not a cue kind; it is the currency-filtered reading of the who and what cues, so use `pair` for a person and `activity` for a thread. The same memory may be checked for several cues, but duplicate `(memory, cue)` entries reject and the same tuple cannot be both `cued` and `not_cued`. Co-occurring cues do not prove each other: carry a due memory and assert `cued due` when a pair cue could also admit it. Unavailable cue facts fail both positive and negative checks if executed; they never become negative evidence.
+Current state is not a cue kind; it is the currency-filtered reading of the who and what cues, so use `pair` for a person and `activity` for a thread. The same memory may be checked for several cues, but duplicate `(memory, cue)` entries reject and the same tuple cannot be both `cued` and `not_cued`. Co-occurring cues do not prove each other: carry a due memory and assert `cued due` when a pair cue could also admit it. At library `9ff86d6`, `pair` maps to native `participant`; `topic`, `place` and `activity` map directly. Cue facts are the union of selected section assignments across native outcomes, including an experience's observation. Omitted assignments do not supply a cue fact. Unavailable cue facts fail both positive and negative checks if executed; they never become negative evidence.
 
 ## Measures and reports
 
@@ -137,13 +138,13 @@ Measures have no pass thresholds. Each probe reports:
 
 | Measure | Calculation |
 |---|---|
-| `carried_recall_by_reason` | For each of the eight reasons, `expected` counts carried targets and `admitted` counts targets present in any native section. `recall = admitted / expected`; the optional carried section affects its assertion, not this recall count. |
+| `carried_recall_by_reason` | For each cue-vocabulary reason, `expected` counts carried targets and `admitted` counts targets present in any native section. `recall = admitted / expected`; the optional carried section affects its assertion, not this recall count. |
 | `bystander_context_share` | Distinct admitted authored experiences or derived memories listed in `measures.bystanders`, divided by all distinct admitted authored experiences and derived memories. Episode and observation count once under their experience; entities and threads are excluded. |
 | `context_tokens` | Shared token counter applied to the rendered context. |
 
-`bystanders` defaults to empty; entries must be distinct prior experiences or derived memories, cannot be carried, and cannot be entities or threads. Audit each label against every cue at the probe: no pair, due, date, trigger, activity, own-day, recent-and-salient or topic cue may call for that memory in the story. A different scene alone does not make it a bystander. A memory formed in the probe's place or setting is not a bystander either. Place has no cue kind in the vocabulary until a scenario needs to assert it. This is a narrative review rule; the loader cannot determine semantic cue eligibility. Negative expectations for a particular cue belong in `not_cued`; explicit ineligibility belongs in `omitted` with its reason. A recent unremarkable experience can remain unlabelled rather than being forced into either class.
+`bystanders` defaults to empty; entries must be distinct prior experiences or derived memories, cannot be carried, and cannot be entities or threads. Audit each label against every cue at the probe: no pair, place, due, date, trigger, activity, own-day, recent-and-salient or topic cue may call for that memory in the story. A different scene alone does not make it a bystander. A memory formed in the probe's place or setting is not a bystander either. This is a narrative review rule; the loader cannot determine semantic cue eligibility. Negative expectations for a particular cue belong in `not_cued`; explicit ineligibility belongs in `omitted` with its reason. A recent unremarkable experience can remain unlabelled rather than being forced into either class.
 
-Per-scenario `carried_recall_by_reason` and the aggregate map pool `(probe, carried memory)` counts among probes that ran, then divide; they do not average per-probe ratios. Thus 0/1 and 9/9 give 9/10, and a repeated target on another probe counts again. Skipped targets are excluded from pooled counts and remain visible in per-probe diagnostics. All eight reasons are present. Recall is null for an unexecuted probe/scenario or a reason with no carried targets; an executed miss is zero. Unexecuted admitted counts are null. Empty pooled counts have `expected = 0`. Bystander share is null when unexecuted or when no countable memories were admitted. Context tokens are null when unexecuted and zero for an executed empty context.
+Per-scenario `carried_recall_by_reason` and the aggregate map pool `(probe, carried memory)` counts among probes that ran, then divide; they do not average per-probe ratios. Thus 0/1 and 9/9 give 9/10, and a repeated target on another probe counts again. Skipped targets are excluded from pooled counts and remain visible in per-probe diagnostics. All nine reasons are present. Recall is null for an unexecuted probe/scenario or a reason with no carried targets; an executed miss is zero. Unexecuted admitted counts are null. Empty pooled counts have `expected = 0`. Bystander share is null when unexecuted or when no countable memories were admitted. Context tokens are null when unexecuted and zero for an executed empty context.
 
 `report.json` includes every selected scenario, including those without trace rows. `outcome` contains status (`passed`, `failed`, `not_run`), missing features, assertion identities/results/reasons, per-probe measures and the omission-reason invariant. The invariant requires native lifecycle and currency omission counts to be accounted for by named reasons across every outcome; with no retrieval it is `not_run`. Passing requires executed checks and the invariant to hold; missing required native facts fail instead of being reconstructed from gold.
 
@@ -154,12 +155,13 @@ The loader derives needed features from actual fields and assertions; authors ca
 | Authored surface | Needed features |
 |---|---|
 | Experience scene | `write_scene`; present place/activity/custom adds `write_scene_where`, `write_scene_what`, `write_scene_custom` |
-| Probe | `probe_scene`, `reference_time`, `omission_reasons`; absent topic adds `no_topic` |
+| Probe | `probe_scene`, `reference_time`, `omission_reasons`; absent topic adds `no_topic`; an activity key adds `probe_activity` |
 | Probe textual references | Role-specific `participant_name`, `participant_description`, `place_name`, `place_description`, `activity_name`, `activity_description` |
 | Derive | `authored_derived_memory`; intention/preference add `intention_memory`/`preference_memory`; thread support/about/supersession adds `thread_provenance` |
 | Direction, due, trigger | `direction`, `due_date`, `trigger` respectively |
-| `cued` or `not_cued` | `cue_trace` |
+| `cued` or `not_cued` | `cue_trace`; due/date/trigger/own-day/recent-and-salient add `due_cue`/`date_cue`/`trigger_cue`/`own_day_cue`/`recent_and_salient_cue`; `not_cued pair` adds `pair_counterpart_cue` until the library distinguishes the self |
 | Reference, scene, elapsed, staleness assertions | `reference_trace`, `memory_scene_trace`, `elapsed_since_met`, `staleness` respectively |
+| Resolution assertion on a participant description | `description_reference_resolution`: the library reports only a content cue for descriptions, not resolved, ambiguous or unknown |
 | Omission by resolution | `resolution_omission` (unsupported until the library reports end of currency) |
 | Omission, warning, section, order expectations | `omission_reasons`, `write_warnings`, `pack_sections`, `pack_order` respectively |
 
