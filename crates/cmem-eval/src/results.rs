@@ -22,9 +22,9 @@ pub struct PerQuestionResult {
     pub gold_observation_ids: Vec<String>,
     pub retrieved: Vec<RetrievedItem>,
     pub context_text: String,
-    pub write_outcomes: Vec<crate::RecordedOutcome<crate::RememberOutcome>>,
-    pub link_outcomes: Vec<crate::RecordedOutcome<crate::LinkOutcome>>,
-    pub lifecycle_outcomes: Vec<crate::RecordedOutcome<crate::LifecycleMutationOutcome>>,
+    pub write_outcomes: Vec<crate::RememberOutcome>,
+    pub link_outcomes: Vec<crate::LinkOutcome>,
+    pub lifecycle_outcomes: Vec<crate::LifecycleMutationOutcome>,
     pub metrics: MetricsRecord,
     pub latency_ms: u64,
     pub context_char_count: usize,
@@ -99,7 +99,7 @@ pub struct ResultCompositionMetrics {
 pub struct ResultIntegrityDetails {
     pub returned_items_without_external_id: usize,
     pub returned_derived_memories_without_provenance: usize,
-    pub suppressed_or_deleted_returned_count: Option<usize>,
+    pub suppressed_returned_count: Option<usize>,
     pub superseded_current_returned_count: Option<usize>,
     pub provenance_coverage: Option<f64>,
     pub context_validation_pass_rate: Option<f64>,
@@ -143,24 +143,10 @@ impl Default for RunAdapterMetadata {
 pub fn write_jsonl(path: &Path, rows: &[PerQuestionResult]) -> Result<()> {
     let mut file = File::create_new(path).with_context(|| format!("create {}", path.display()))?;
     for row in rows {
-        serde_json::to_writer(&mut file, &canonical_row_value(row)?)?;
+        serde_json::to_writer(&mut file, row)?;
         file.write_all(b"\n")?;
     }
     Ok(())
-}
-
-fn canonical_row_value(row: &PerQuestionResult) -> serde_json::Result<Value> {
-    let mut canonical = row.clone();
-    canonical
-        .write_outcomes
-        .sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
-    canonical
-        .link_outcomes
-        .sort_by(|a, b| a.operation_id.cmp(&b.operation_id));
-    canonical
-        .lifecycle_outcomes
-        .sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
-    serde_json::to_value(canonical)
 }
 
 pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
@@ -216,16 +202,16 @@ pub fn summarize_degradation(rows: &[PerQuestionResult]) -> DegradationSummary {
     DegradationSummary {
         any_degradation: rows.iter().any(|row| {
             row.write_outcomes.iter().any(|record| {
-                let outcome = &record.outcome;
+                let outcome = record;
                 outcome.vector_indexing_failure.is_some()
                     || outcome.stats_update_status.failure.is_some()
                     || !outcome.repair_needed.is_empty()
             }) || row
                 .link_outcomes
                 .iter()
-                .any(|record| record.outcome.stats_update_status.failure.is_some())
+                .any(|record| record.stats_update_status.failure.is_some())
                 || row.lifecycle_outcomes.iter().any(|record| {
-                    let outcome = &record.outcome;
+                    let outcome = record;
                     outcome.vector_maintenance_failure.is_some()
                         || outcome.stats_update_status.failure.is_some()
                 })
@@ -327,12 +313,12 @@ mod tests {
     #[test]
     fn summary_preserves_null_metric_support() {
         let row = row(serde_json::json!({
-            "suppressed_or_deleted_items_returned": null
+            "suppressed_items_returned": null
         }));
 
         let summary = summarize_rows(&[row], &[]).unwrap();
 
-        assert!(summary.metric_support["suppressed_or_deleted_items_returned"].unsupported);
+        assert!(summary.metric_support["suppressed_items_returned"].unsupported);
         assert_eq!(summary.registry_coverage.required_metrics_present, 0);
         assert!(
             !summary
@@ -354,47 +340,40 @@ mod tests {
         assert_eq!(summary.registry_coverage.required_metrics_present, 1);
     }
 
-    fn write_outcome(operation_id: &str) -> crate::RecordedOutcome<crate::RememberOutcome> {
-        crate::RecordedOutcome {
-            operation_id: operation_id.into(),
-            outcome: crate::RememberOutcome {
-                persisted_object_ids: Vec::new(),
-                persisted_link_ids: Vec::new(),
-                vector_indexed_object_ids: Vec::new(),
-                vector_indexing_failure: None,
-                stats_update_status: Default::default(),
-                repair_needed: Vec::new(),
-                diagnostics: Default::default(),
-            },
+    fn write_outcome(id: u128) -> crate::RememberOutcome {
+        crate::RememberOutcome {
+            persisted_object_ids: vec![uuid::Uuid::from_u128(id)],
+            persisted_link_ids: Vec::new(),
+            vector_indexed_object_ids: Vec::new(),
+            vector_indexing_failure: None,
+            stats_update_status: Default::default(),
+            repair_needed: Vec::new(),
+            diagnostics: Default::default(),
         }
     }
 
-    fn lifecycle_outcome(
-        operation_id: &str,
-    ) -> crate::RecordedOutcome<crate::LifecycleMutationOutcome> {
-        crate::RecordedOutcome {
-            operation_id: operation_id.into(),
-            outcome: crate::LifecycleMutationOutcome {
-                graph_mutated_object_ids: Vec::new(),
-                graph_mutated_link_ids: Vec::new(),
-                vector_maintained_object_ids: Vec::new(),
-                vector_maintenance_failure: None,
-                stats_update_status: Default::default(),
-                trace: None,
-                diagnostics: Default::default(),
-            },
+    fn lifecycle_outcome(id: u128) -> crate::LifecycleMutationOutcome {
+        crate::LifecycleMutationOutcome {
+            graph_mutated_object_ids: vec![character_memory::MemoryObjectRef::new(
+                crate::ObjectType::Episode,
+                uuid::Uuid::from_u128(id),
+            )],
+            graph_mutated_link_ids: Vec::new(),
+            vector_maintained_object_ids: Vec::new(),
+            vector_maintenance_failure: None,
+            stats_update_status: Default::default(),
+            trace: None,
+            diagnostics: Default::default(),
         }
     }
 
     #[test]
     fn native_outcomes_preserve_failures_and_drive_degradation() {
         let mut result = row(serde_json::json!({}));
-        result.write_outcomes.push(write_outcome("write"));
-        result
-            .lifecycle_outcomes
-            .push(lifecycle_outcome("lifecycle"));
+        result.write_outcomes.push(write_outcome(1));
+        result.lifecycle_outcomes.push(lifecycle_outcome(1));
         assert!(!summarize_degradation(&[result.clone()]).any_degradation);
-        result.write_outcomes[0].outcome.vector_indexing_failure =
+        result.write_outcomes[0].vector_indexing_failure =
             Some(character_memory::VectorIndexingFailure {
                 unindexed_objects: Vec::new(),
                 cause: character_memory::VectorIndexingCause::ZeroNormEmbedding {
@@ -410,13 +389,12 @@ mod tests {
         let decoded = read_jsonl(&path).unwrap();
         assert_eq!(decoded[0].write_outcomes, result.write_outcomes);
         result.write_outcomes.clear();
-        result.lifecycle_outcomes[0].outcome.stats_update_status =
+        result.lifecycle_outcomes[0].stats_update_status =
             character_memory::StatsUpdateStatus::failed([], [], Vec::new());
         assert!(summarize_degradation(&[result.clone()]).any_degradation);
         result.lifecycle_outcomes.clear();
-        let mut link = link_outcome("link");
-        link.outcome.stats_update_status =
-            character_memory::StatsUpdateStatus::failed([], [], Vec::new());
+        let mut link = link_outcome();
+        link.stats_update_status = character_memory::StatsUpdateStatus::failed([], [], Vec::new());
         result.link_outcomes.push(link);
         assert!(summarize_degradation(&[result.clone()]).any_degradation);
         let existing = std::fs::read(&path).unwrap();
@@ -431,21 +409,18 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
-    fn link_outcome(operation_id: &str) -> crate::RecordedOutcome<crate::LinkOutcome> {
-        crate::RecordedOutcome {
-            operation_id: operation_id.into(),
-            outcome: crate::LinkOutcome {
-                link: character_memory::MemoryLinkDraft::new(
-                    crate::ObjectType::Episode,
-                    uuid::Uuid::from_u128(1),
-                    crate::RelationType::Mentions,
-                    crate::ObjectType::Entity,
-                    uuid::Uuid::from_u128(2),
-                )
-                .into_domain()
-                .unwrap(),
-                stats_update_status: character_memory::StatsUpdateStatus::default(),
-            },
+    fn link_outcome() -> crate::LinkOutcome {
+        crate::LinkOutcome {
+            link: character_memory::MemoryLinkDraft::new(
+                crate::ObjectType::Episode,
+                uuid::Uuid::from_u128(1),
+                crate::RelationType::Mentions,
+                crate::ObjectType::Entity,
+                uuid::Uuid::from_u128(2),
+            )
+            .into_domain()
+            .unwrap(),
+            stats_update_status: character_memory::StatsUpdateStatus::default(),
         }
     }
 
@@ -453,10 +428,7 @@ mod tests {
     fn read_jsonl_round_trips_results() {
         let path = temp_path("results", "jsonl");
         let result_row = row(serde_json::json!({"recall_any@1": 1.0}));
-        let expected_bytes = format!(
-            "{}\n",
-            serde_json::to_string(&canonical_row_value(&result_row).unwrap()).unwrap()
-        );
+        let expected_bytes = format!("{}\n", serde_json::to_string(&result_row).unwrap());
         write_jsonl(&path, std::slice::from_ref(&result_row)).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), expected_bytes);
         let rows = read_jsonl(&path).unwrap();
@@ -467,39 +439,17 @@ mod tests {
     }
 
     #[test]
-    fn write_jsonl_canonicalizes_outcomes_by_operation() {
-        let first_path = temp_path("results-canonical-first", "jsonl");
-        let second_path = temp_path("results-canonical-second", "jsonl");
+    fn write_jsonl_preserves_native_outcomes_in_event_order() {
+        let path = temp_path("results-event-order", "jsonl");
         let mut result = row(serde_json::json!({}));
-        for operation_id in ["b", "c", "a"] {
-            result.write_outcomes.push(write_outcome(operation_id));
-            result.link_outcomes.push(link_outcome(operation_id));
-            result
-                .lifecycle_outcomes
-                .push(lifecycle_outcome(operation_id));
+        for id in [2, 3, 1] {
+            result.write_outcomes.push(write_outcome(id));
+            result.link_outcomes.push(link_outcome());
+            result.lifecycle_outcomes.push(lifecycle_outcome(id));
         }
-
-        write_jsonl(&first_path, std::slice::from_ref(&result)).unwrap();
-        result.write_outcomes.reverse();
-        result.link_outcomes.reverse();
-        result.lifecycle_outcomes.reverse();
-        write_jsonl(&second_path, &[result]).unwrap();
-
-        let first = std::fs::read_to_string(&first_path).unwrap();
-        assert_eq!(first, std::fs::read_to_string(&second_path).unwrap());
-        let value: Value = serde_json::from_str(first.trim()).unwrap();
-        for family in ["write_outcomes", "link_outcomes", "lifecycle_outcomes"] {
-            let operation_ids = value[family]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|outcome| outcome["operation_id"].as_str().unwrap())
-                .collect::<Vec<_>>();
-            assert_eq!(operation_ids, vec!["a", "b", "c"]);
-        }
-
-        std::fs::remove_file(first_path).unwrap();
-        std::fs::remove_file(second_path).unwrap();
+        write_jsonl(&path, std::slice::from_ref(&result)).unwrap();
+        assert_eq!(read_jsonl(&path).unwrap(), vec![result]);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

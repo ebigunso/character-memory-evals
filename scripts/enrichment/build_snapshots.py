@@ -31,7 +31,7 @@ CANONICAL_EXPECTATIONS = {
         "source_items": 10,
     },
 }
-REPLAY_ID = "source-turn-replay-v1"
+REPLAY_ID = "source-turn-replay-v2"
 FORBIDDEN_KEYS = {
     "answer", "answers", "answer_session_ids", "category", "categories",
     "evidence", "evidence_dialog_ids", "evaluator", "evaluation", "gold",
@@ -41,7 +41,6 @@ FORBIDDEN_KEYS = {
     "observation", "observations", "event", "events", "image", "images",
     "caption", "captions",
 }
-ENTITY_TYPES = {"person", "user", "assistant", "project", "concept", "tool", "document", "place", "organization", "other"}
 DERIVED_TYPES = {"reflection", "user_preference", "assistant_preference", "commitment", "open_loop", "character_signal", "relationship_note", "project_note", "claim", "correction"}
 RELATIONS = {"has_observation", "observed_in", "mentions", "involves", "about", "derived_from", "part_of_thread", "supports", "contradicts", "supersedes", "resolves", "creates_open_loop", "fulfills_commitment", "associated_with"}
 OBJECT_LISTS = {"entity": "entities", "memory_thread": "threads", "derived_memory": "derived_memories", "memory_link": "links"}
@@ -289,11 +288,13 @@ def _snapshot(dataset: str, item: Item) -> dict[str, Any]:
     visible = _visible(item)
     speakers = sorted({turn.speaker for session in visible for turn in session.turns} | set(item.speakers))
     entities = []
+    naming_beliefs = []
     entity_ids: dict[str, str] = {}
     for speaker in speakers:
         entity_id = _token("entity", item.item_id, speaker)
         entity_ids[speaker] = entity_id
-        entities.append({"external_id": entity_id, "entity_type": "person", "name": speaker, "aliases": [], "canonical_key": f"speaker:{hashlib.sha256(speaker.encode('utf-8')).hexdigest()}", "summary": None})
+        entities.append({"external_id": entity_id})
+        naming_beliefs.append({"external_id": _token("name", item.item_id, speaker), "derived_type": "claim", "text": speaker, "source_episode_external_ids": [], "source_observation_external_ids": [], "thread_external_ids": [], "entity_external_ids": [entity_id], "assertions": [{"subject_external_id": entity_id, "predicate": "known_as", "name": speaker}], "given_by_application": True, "salience_score": 0.5, "supersedes_external_ids": [], "metadata": {"producer": WORKFLOW_IDS[dataset]}})
     threads = []
     memories = []
     links = []
@@ -304,9 +305,9 @@ def _snapshot(dataset: str, item: Item) -> dict[str, Any]:
             if not turn.text.strip():
                 continue
             memory_id = _token("memory", item.item_id, turn.observation_id)
-            memories.append({"external_id": memory_id, "derived_type": "reflection", "text": turn.text, "source_episode_external_ids": [session.episode_id], "source_observation_external_ids": [turn.observation_id], "thread_external_ids": [thread_id], "entity_external_ids": [entity_ids[turn.speaker]], "confidence": 1.0, "salience_score": 0.5, "stability": "medium", "is_current": True, "supersedes_external_ids": [], "metadata": {"producer": WORKFLOW_IDS[dataset]}})
-            for relation, object_type, target in (("part_of_thread", "memory_thread", thread_id), ("about", "entity", entity_ids[turn.speaker])):
-                links.append({"external_id": _token("link", memory_id, relation, target), "from": {"object_type": "derived_memory", "external_id": memory_id}, "relation": relation, "to": {"object_type": object_type, "external_id": target}, "confidence": 1.0, "rationale": None})
+            memories.append({"external_id": memory_id, "derived_type": "reflection", "text": turn.text, "source_episode_external_ids": [session.episode_id], "source_observation_external_ids": [turn.observation_id], "thread_external_ids": [thread_id], "entity_external_ids": [entity_ids[turn.speaker]], "salience_score": 0.5, "assertions": [], "given_by_application": False, "supersedes_external_ids": [], "metadata": {"producer": WORKFLOW_IDS[dataset]}})
+            links.append({"external_id": _token("link", memory_id, "part_of_thread", thread_id), "from": {"object_type": "derived_memory", "external_id": memory_id}, "relation": "part_of_thread", "to": {"object_type": "memory_thread", "external_id": thread_id}, "rationale": None})
+    memories.extend(naming_beliefs)
     graph = {"namespace": namespace, "entities": entities, "threads": threads, "derived_memories": memories, "links": links}
     return {"snapshot_id": f"{namespace}@{item.cutoff_type}", "namespace": namespace, "dataset_item_id": item.item_id, "cutoff": {"type": item.cutoff_type, "value": item.cutoff_value}, "graph": graph}
 
@@ -398,26 +399,29 @@ def _validate_snapshot(snapshot: dict[str, Any], dataset: str, item: Item) -> No
     visible = _visible(item)
     episodes = {session.episode_id: session for session in visible}
     observations = {turn.observation_id: (session.episode_id, turn.text) for session in visible for turn in session.turns}
-    for entity in graph["entities"]:
-        entity_type = _string(entity.get("entity_type"), "graph.entities.entity_type")
-        _require(entity_type in ENTITY_TYPES, "invalid entity_type enum")
     thread_ids = {obj["external_id"] for obj in graph["threads"]}
     entity_ids = {obj["external_id"] for obj in graph["entities"]}
     memory_ids = {obj["external_id"] for obj in graph["derived_memories"]}
     for memory in graph["derived_memories"]:
         derived_type = _string(memory.get("derived_type"), "graph.derived_memories.derived_type")
-        stability = _string(memory.get("stability"), "graph.derived_memories.stability")
         _require(derived_type in DERIVED_TYPES, "invalid derived_type enum")
-        _require(stability in {"low", "medium", "high"}, "invalid stability enum")
         source_episodes = _strings(memory.get("source_episode_external_ids"), "graph.derived_memories.source_episode_external_ids")
         source_observations = _strings(memory.get("source_observation_external_ids"), "graph.derived_memories.source_observation_external_ids")
-        _require(source_episodes or source_observations, "derived memory has no source provenance")
-        _require(all(source in episodes for source in source_episodes), "unresolved source episode provenance")
-        _require(all(source in observations for source in source_observations), "unresolved source observation provenance")
-        _require(len(source_observations) == 1, "exact-source derived memory must cite one observation")
-        cited_episode, cited_text = observations[source_observations[0]]
-        _require(cited_episode in source_episodes, "source episode/observation provenance mismatch")
-        _require(memory.get("text") == cited_text, "derived text is not exactly equal to cited visible source")
+        if memory.get("given_by_application"):
+            _require(not source_episodes and not source_observations, "application belief must be source-free")
+            speaker = _string(memory.get("text"), "graph.derived_memories.text")
+            subject = _token("entity", item.item_id, speaker)
+            _require(subject in entity_ids, "naming belief has no source speaker notion")
+            _require(memory.get("entity_external_ids") == [subject], "naming belief subject mismatch")
+            _require(memory.get("assertions") == [{"subject_external_id": subject, "predicate": "known_as", "name": speaker}], "naming assertion mismatch")
+        else:
+            _require(source_episodes or source_observations, "derived memory has no source provenance")
+            _require(all(source in episodes for source in source_episodes), "unresolved source episode provenance")
+            _require(all(source in observations for source in source_observations), "unresolved source observation provenance")
+            _require(len(source_observations) == 1, "exact-source derived memory must cite one observation")
+            cited_episode, cited_text = observations[source_observations[0]]
+            _require(cited_episode in source_episodes, "source episode/observation provenance mismatch")
+            _require(memory.get("text") == cited_text, "derived text is not exactly equal to cited visible source")
         thread_references = _strings(memory.get("thread_external_ids", []), "graph.derived_memories.thread_external_ids")
         entity_references = _strings(memory.get("entity_external_ids", []), "graph.derived_memories.entity_external_ids")
         supersedes_references = _strings(memory.get("supersedes_external_ids", []), "graph.derived_memories.supersedes_external_ids")
@@ -566,15 +570,15 @@ def self_test() -> None:
             _atomic_write(artifact, first)
         generated = _read_jsonl(artifact)[0]
         _require(generated["namespace"] == "lme:q-unicode" and generated["snapshot_id"] == "lme:q-unicode@question_date", "LongMemEval runtime namespace mismatch")
-        lme_memories = generated["graph"]["derived_memories"]
+        lme_memories = [m for m in generated["graph"]["derived_memories"] if not m["given_by_application"]]
         _require(len(lme_memories) == 1 and lme_memories[0]["text"] == "alpha\u2028βeta", "blank LongMemEval turns were not skipped or Unicode was not preserved")
-        _require(len(generated["graph"]["links"]) == 2, "blank LongMemEval turns emitted links")
+        _require(len(generated["graph"]["links"]) == 1, "blank LongMemEval turns emitted links")
         _require(generated["graph"]["threads"][0]["last_touched_at"] == "2023-05-30T23:40:00Z", "official LongMemEval date was not normalized to RFC3339")
         counts = _load_json(manifest)["counts"]
         _require(counts["affected_rows"] == 1 and counts["future_sessions_excluded"] == 1, "future exclusion totals failed")
         duplicate_snapshot = _read_jsonl(artifact)[1]
         _require([thread["title"] for thread in duplicate_snapshot["graph"]["threads"]] == ["Session dup", "Session middle", "Session dup"], "repeated sessions must keep source order and raw titles")
-        duplicate_memories = duplicate_snapshot["graph"]["derived_memories"]
+        duplicate_memories = [m for m in duplicate_snapshot["graph"]["derived_memories"] if not m["given_by_application"]]
         _require([memory["text"] for memory in duplicate_memories] == ["repeat payload", "middle payload", "repeat payload"], "every repeated source turn must be replayed")
         _require(duplicate_memories[2]["source_episode_external_ids"] == ["dup#2"] and duplicate_memories[2]["source_observation_external_ids"] == ["dup#2:turn:1"], "later duplicate provenance mismatch")
         duplicate_typed_ids = [(kind, obj["external_id"]) for kind, objects in (("thread", duplicate_snapshot["graph"]["threads"]), ("memory", duplicate_memories), ("link", duplicate_snapshot["graph"]["links"])) for obj in objects]
@@ -589,9 +593,9 @@ def self_test() -> None:
         collision_snapshot = _snapshot("longmemeval-s", collision_item)
         _validate_snapshot(collision_snapshot, "longmemeval-s", collision_item)
         _require([s.episode_id for s in collision_item.sessions] == ["dup", "dup#3", "dup#4", "dup#2"], "suffix assignment must reserve all raw IDs")
-        _require([m["source_episode_external_ids"] for m in collision_snapshot["graph"]["derived_memories"]] == [["dup#3"], ["dup#4"]], "cutoff changed assigned provenance")
+        _require([m["source_episode_external_ids"] for m in collision_snapshot["graph"]["derived_memories"] if not m["given_by_application"]] == [["dup#3"], ["dup#4"]], "cutoff changed assigned provenance")
         _require(all(t["title"] == "Session dup" and t["summary"] == "Source session dup" for t in collision_snapshot["graph"]["threads"]), "assigned IDs leaked into thread text")
-        _require(all(m["text"] == "same" for m in collision_snapshot["graph"]["derived_memories"]), "source turn text changed")
+        _require(all(m["text"] == "same" for m in collision_snapshot["graph"]["derived_memories"] if not m["given_by_application"]), "source turn text changed")
         differing = json.loads(json.dumps(lme))
         differing[1]["haystack_sessions"][2][0]["content"] = "different"
         try:
@@ -653,7 +657,7 @@ def self_test() -> None:
                     _require(expected in str(exc), f"malformed reference {field} error mismatch")
                 else:
                     raise AssertionError(f"malformed reference {field} was accepted")
-        for object_name, field in (("entities", "entity_type"), ("derived_memories", "derived_type"), ("derived_memories", "stability"), ("links", "relation")):
+        for object_name, field in (("derived_memories", "derived_type"), ("links", "relation")):
             malformed_enum = _snapshot("longmemeval-s", first_item)
             malformed_enum["graph"][object_name][0][field] = []
             try:
@@ -720,9 +724,9 @@ def self_test() -> None:
         locomo_snapshot = _read_jsonl(la)[0]
         _require(locomo_snapshot["namespace"] == "locomo:p1" and locomo_snapshot["snapshot_id"] == "locomo:p1@final_session", "LoCoMo runtime namespace mismatch")
         _require(locomo_snapshot["cutoff"] == {"type": "final_session", "value": "session_2"}, "LoCoMo final cutoff failed")
-        locomo_memories = locomo_snapshot["graph"]["derived_memories"]
+        locomo_memories = [m for m in locomo_snapshot["graph"]["derived_memories"] if not m["given_by_application"]]
         _require(len(locomo_memories) == 1 and locomo_memories[0]["text"] == "世界\u2029exact", "blank LoCoMo turns were not skipped or Unicode was not preserved")
-        _require(len(locomo_snapshot["graph"]["links"]) == 2, "blank LoCoMo turns emitted links")
+        _require(len(locomo_snapshot["graph"]["links"]) == 1, "blank LoCoMo turns emitted links")
 
 
 def _parser() -> argparse.ArgumentParser:

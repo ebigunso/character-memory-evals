@@ -21,8 +21,8 @@ pattern = "situated"
 catalog_situations = ["D4"]
 character_entity = "mara"
 entities = [
-  {external_id = "mara", label = "Mara", entity_type = "person", is_hub = false},
-  {external_id = "jo", label = "Jo", entity_type = "person", is_hub = false},
+  {external_id = "mara", label = "Mara", is_hub = false},
+  {external_id = "jo", label = "Jo", is_hub = false},
 ]
 [scenarios.embedding]
 provider = "controllable_similarity"
@@ -61,7 +61,7 @@ cued = [{memory = "gardening-friends", cue = "pair"}]
 
 The extension selects TOML or JSON; both use schema version 3 and the same admission rules. The root requires `schema_version`, `seed` and a nonempty `scenarios` array. Each scenario requires a unique nonblank `fixture_id` and `namespace`, `pattern = "situated"`, nonempty distinct `catalog_situations`, a declared `character_entity`, `entities`, `embedding`, and chronological `events`. It ends with a probe or legacy query. Event IDs are unique within a scenario; query IDs are unique throughout the fixture. Memory IDs cannot collide with declared entities or other admitted objects. Unknown fields reject. TOML duplicate keys reject, and non-finite TOML floats reject anywhere in the document with their key path before JSON conversion.
 
-Declare entities with `external_id`, `label`, `entity_type` (`person`, `organization` or `location`) and `is_hub`. The character is the entity whose recall is measured. Every scene, including named declarations and inline scenes, must include that character as a participant, identified by a key or by a scoring-only `gold_entity` annotation.
+Declare entities with `external_id`, `label` and `is_hub`. The label becomes the exact text of an application-given naming belief about the native notion, with a `known_as` assertion. The character is the entity whose recall is measured. Every scene, including named declarations and inline scenes, must include that character as a participant, identified by a key or by a scoring-only `gold_entity` annotation.
 
 Scenes live in the optional `scenes` map or inline on an event. Select one with `{kind = "named", name = "kitchen"}` or `{kind = "inline", scene = {...}}`. A scene has:
 

@@ -27,7 +27,7 @@ character_signals = 8
 
 [ingest]
 # Per-question graph snapshots produced from source-only chronological replay.
-enrichment_snapshot_path = "./datasets/enriched/longmemeval_s_online_snapshots.jsonl"
+enrichment_snapshot_path = "./datasets/enriched/longmemeval_s_groundwork_snapshots.jsonl"
 
 [metrics]
 ks_session = [1, 3, 5, 10]

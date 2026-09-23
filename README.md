@@ -43,7 +43,7 @@ Set `[backend] vector_store_mode = "service"` to use Qdrant at `backend.qdrant_c
 
 ## Continuity Evaluation
 
-Continuity fixtures run an ordered, fixture-scripted lifecycle through remember, staged prepare/validate/commit, retrieve, correct, forget, link, and restart operations. The harness observes and reports retrieval and lifecycle measurements; it does not enforce metric thresholds as CI pass/fail gates.
+Continuity fixtures run an ordered, fixture-scripted lifecycle through remember, staged prepare/validate/commit, retrieve, correct, forget, link, and restart operations. The harness observes and reports retrieval and lifecycle measurements; it does not enforce metric thresholds as CI pass/fail gates. At library `4c46991`, corrections supersede an active predecessor instead of suppressing it. Native outcomes are recorded in event order; `suppressed_items_returned` and `suppressed_returned_count` measure the remaining suppression state.
 
 ### Configuration and prerequisites
 
@@ -55,8 +55,8 @@ Archived continuity inputs are `continuity_retrieval.toml`, `continuity_baseline
 
 ```bash
 mkdir -p .agent-work/continuity-smoke/baseline .agent-work/continuity-smoke/candidate
-cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/baseline/traces.jsonl
-cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/candidate/traces.jsonl
+cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v4.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/baseline/traces.jsonl
+cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v4.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/candidate/traces.jsonl
 cargo run -p cmem-eval-runner -- diff ./.agent-work/continuity-smoke/baseline/traces.jsonl ./.agent-work/continuity-smoke/candidate/traces.jsonl
 ```
 
@@ -88,7 +88,7 @@ Continuity runs require Rust 1.97.0, the sibling `../CharacterMemory` checkout, 
 
 See the [scenario authoring contract](crates/cmem-eval-continuity/README.md) for the fixture shape, assertions, measures, cues and feature support.
 
-Situated fixtures describe experiences, authored derived memories and probes in TOML or JSON. The loader selects the format from the extension. Each scenario is checked against the pinned library's supported features before an adapter is constructed: a missing feature makes the whole scenario `not_run`, with no namespace, writes or retrieval. At library `d0fe82d`, probes require scene and reference-time inputs that the library cannot receive. Keyed-participant experiences and native derived types can run with a legacy query; write-side where/what/custom, intention, preference, thread provenance, direction, due dates and triggers remain unsupported at that pin.
+Situated fixtures describe experiences, authored derived memories and probes in TOML or JSON. The loader selects the format from the extension. Each scenario is checked against the pinned library's supported features before an adapter is constructed: a missing feature makes the whole scenario `not_run`, with no namespace, writes or retrieval. At library `4c46991`, probes require scene and reference-time inputs that the library cannot receive. Keyed-participant experiences and native derived types can run with a legacy query; write-side where/what/custom, intention, preference, thread provenance, direction, due dates and triggers remain unsupported at that pin.
 
 Run the narrative catalog and the generated loud-topic set into separate directories. The controllable-similarity config uses width 32 and pads smaller fixture vectors without changing their geometry:
 
@@ -161,10 +161,10 @@ The checked fixture seed is `20260712`. Generate into `runs/` for inspection ins
 
 ```bash
 cargo run -p cmem-eval-continuity --bin generate_continuity_fixtures -- \
-  ./runs/continuity/generated/continuity_v3.json 20260712
+  ./runs/continuity/generated/continuity_v4.json 20260712
 ```
 
-Schema v3 keeps backend persistence identities derived from config, stable namespaces, and external IDs and continues to reject the retired caller-supplied `collection_name`, `memory_id`, and `replacement_memory_id` fields. It requires every scenario to declare `provider = controllable_similarity` or `provider = frozen`; older fixture schema versions are rejected with the found and expected versions. Parse the candidate, inspect its semantic diff against `crates/cmem-eval-continuity/fixtures/continuity_v3.json`, validate the frozen store, and run the generator determinism tests before replacing the checked fixture.
+Schema v3 keeps backend persistence identities derived from config, stable namespaces, and external IDs and continues to reject the retired caller-supplied `collection_name`, `memory_id`, and `replacement_memory_id` fields. It requires every scenario to declare `provider = controllable_similarity` or `provider = frozen`; older fixture schema versions are rejected with the found and expected versions. Parse the candidate, inspect its semantic diff against `crates/cmem-eval-continuity/fixtures/continuity_v4.json`, validate the frozen store, and run the generator determinism tests before replacing the checked fixture.
 
 ### Read run artifacts
 
@@ -308,7 +308,7 @@ For a namespace-scoped enrichment file, set `[ingest] enrichment_path`. Its JSON
 
 Supported object types are `episode`, `observation`, `entity`, `memory_thread` and `derived_memory`; enum values use the public Character Memory API's snake-case names.
 
-Enrichment must be generated only from haystack or source conversation data. The loader rejects common gold-label keys such as `answer`, `evidence`, `answer_session_ids`, `has_answer`, `gold_*` and `label` anywhere in the JSON. Derived memories must include source episode or observation external IDs so provenance survives a round trip.
+Enrichment must be generated only from haystack or source conversation data. The loader rejects common gold-label keys such as `answer`, `evidence`, `answer_session_ids`, `has_answer`, `gold_*` and `label` anywhere in the JSON. Derived memories carry source episode or observation external IDs, or application-given grounding with a notion subject. Entity records contain only identity; speaker names are claim beliefs with native `known_as` assertions and subject references. Their text is the exact former entity label, so the checked frozen stores remain usable. The library generates About and Supersedes links from those references; the harness does not author those links between beliefs and notions or author Supersedes links.
 
 ## Metric Registry
 

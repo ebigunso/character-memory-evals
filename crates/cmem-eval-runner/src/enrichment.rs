@@ -254,7 +254,6 @@ pub fn validate_enrichment(input: &GraphEnrichmentInput) -> Result<()> {
     let mut ids = HashSet::new();
     for entity in &input.entities {
         insert_id(&mut ids, "entity", &entity.external_id)?;
-        require_non_empty("entity.name", &entity.name)?;
     }
     for thread in &input.threads {
         insert_id(&mut ids, "memory_thread", &thread.external_id)?;
@@ -265,13 +264,13 @@ pub fn validate_enrichment(input: &GraphEnrichmentInput) -> Result<()> {
     for memory in &input.derived_memories {
         insert_id(&mut ids, "derived_memory", &memory.external_id)?;
         require_non_empty("derived_memory.text", &memory.text)?;
-        validate_score("derived_memory.confidence", memory.confidence)?;
         validate_score("derived_memory.salience_score", memory.salience_score)?;
         if memory.source_episode_external_ids.is_empty()
             && memory.source_observation_external_ids.is_empty()
+            && !(memory.given_by_application && !memory.entity_external_ids.is_empty())
         {
             bail!(
-                "derived memory {} must include source episode or observation external IDs",
+                "derived memory {} must include source episode or observation external IDs, or be given by the application about a notion",
                 memory.external_id
             );
         }
@@ -280,7 +279,6 @@ pub fn validate_enrichment(input: &GraphEnrichmentInput) -> Result<()> {
     }
     for link in &input.links {
         insert_id(&mut ids, "memory_link", &link.external_id)?;
-        validate_score("link.confidence", link.confidence)?;
         require_non_empty("link.from.external_id", &link.from.external_id)?;
         require_non_empty("link.to.external_id", &link.to.external_id)?;
     }
@@ -371,7 +369,7 @@ pub fn empty_namespace(namespace: String) -> GraphEnrichmentInput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmem_eval::{DerivedType, Stability};
+    use cmem_eval::DerivedType;
 
     #[test]
     fn rejects_derived_memory_without_provenance() {
@@ -386,10 +384,9 @@ mod tests {
                 source_observation_external_ids: vec![],
                 thread_external_ids: vec![],
                 entity_external_ids: vec![],
-                confidence: 1.0,
                 salience_score: 0.5,
-                stability: Stability::Medium,
-                is_current: true,
+                assertions: Vec::new(),
+                given_by_application: false,
                 supersedes_external_ids: vec![],
                 metadata: serde_json::json!({}),
             }],

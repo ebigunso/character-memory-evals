@@ -8,23 +8,22 @@ use crate::{
     ExternalSourceRefInput, ForgetMemoryInput, FrozenEmbeddingProvider, GraphEnrichmentInput,
     LifecycleMutationResult, LinkMemoryInput, LinkMemoryResult, LiveEmbeddingProvider,
     MemoryEndpointInput, NamespaceLifecycleResult, ObservationInput, PrepareWriteInput,
-    PreparedWritePlan, RecordedOutcome, ReplacementDerivedMemoryInput, RetrievalMode,
-    RetrievalSurfacePolicy, RetrieveInput, RetrievedContextPack, RetrievedItem,
-    SourceProvenanceInput, SupersessionResult, VectorStoreMode, WriteResult,
-    deterministic_operation_id,
+    PreparedWritePlan, ReplacementDerivedMemoryInput, RetrievalMode, RetrievalSurfacePolicy,
+    RetrieveInput, RetrievedContextPack, RetrievedItem, SourceProvenanceInput, SupersessionResult,
+    VectorStoreMode, WriteResult,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use character_memory::{
-    ArchivePolicy, CandidateProvenance, CandidateValidation, CandidateValidationStatus,
+    BeliefAssertion, CandidateProvenance, CandidateValidation, CandidateValidationStatus,
     CharacterMemory, CommitOptions, ContinuitySectionLimits, CorrectMemoryDraft,
-    CorrectionCascadePolicy, CorrectionLifecyclePolicy, CorrectionTarget, DEFAULT_SCHEMA_VERSION,
-    DerivedMemoryCandidate, DerivedMemoryDraft, EmbeddingProvider, EntityCandidate, EntityDraft,
-    EpisodeCandidate, EpisodeDraft, ExternalSourceReference, ForgetCascadePolicy,
-    ForgetLifecyclePolicy, ForgetMemoryDraft, LifecycleMutationOutcome, LifecycleTargetRef,
-    MemoryCandidate, MemoryId, MemoryLinkCandidate, MemoryLinkDraft, MemoryObjectDraft,
-    MemoryObjectRef, MemoryThreadCandidate, MemoryThreadDraft, ObjectType, ObservationCandidate,
-    ObservationDraft, RememberInput, RememberOutcome, RememberPlanDefaults, RememberWritePlan,
+    CorrectionCascadePolicy, CorrectionTarget, DEFAULT_SCHEMA_VERSION, DerivedMemoryCandidate,
+    DerivedMemoryDraft, EmbeddingProvider, EntityCandidate, EntityDraft, EpisodeCandidate,
+    EpisodeDraft, ExternalSourceReference, ForgetCascadePolicy, ForgetLifecyclePolicy,
+    ForgetMemoryDraft, LifecycleMutationOutcome, LifecycleTargetRef, MemoryCandidate, MemoryId,
+    MemoryLinkCandidate, MemoryLinkDraft, MemoryObjectDraft, MemoryObjectRef,
+    MemoryThreadCandidate, MemoryThreadDraft, ObjectType, ObservationCandidate, ObservationDraft,
+    RememberInput, RememberOutcome, RememberPlanDefaults, RememberWritePlan,
     ReplacementDerivedMemoryDraft, RetrievalContext, Settings, SourceObjectCorrectionTarget,
     SourceProvenanceReference, SuppressionPolicy, VectorIndexCandidate,
 };
@@ -1032,7 +1031,7 @@ impl CharacterMemoryAdapter {
             ids.push((input.external_id, id, input.summary));
         }
 
-        let outcome = commit_typed_drafts(&state.memory, &namespace, objects, Vec::new()).await?;
+        let outcome = commit_typed_drafts(&state.memory, objects, Vec::new()).await?;
         for (external_id, id, text) in &ids {
             state
                 .episode_texts
@@ -1108,7 +1107,7 @@ impl CharacterMemoryAdapter {
             ids.push((input.external_id, input.episode_external_id, id, input.text));
         }
 
-        let outcome = commit_typed_drafts(&state.memory, &namespace, objects, Vec::new()).await?;
+        let outcome = commit_typed_drafts(&state.memory, objects, Vec::new()).await?;
         for (external_id, episode_external_id, id, text) in &ids {
             state
                 .observation_texts
@@ -1132,7 +1131,7 @@ impl CharacterMemoryAdapter {
     pub async fn remember_enrichment(
         &self,
         input: GraphEnrichmentInput,
-    ) -> Result<Option<RecordedOutcome<RememberOutcome>>> {
+    ) -> Result<Option<RememberOutcome>> {
         let mut namespaces = self.namespaces.lock().await;
         let state = namespaces
             .get_mut(&input.namespace)
@@ -1166,11 +1165,8 @@ impl CharacterMemoryAdapter {
 
         for entity in input.entities {
             let id = pending_entities[&entity.external_id];
-            let mut draft = EntityDraft::new(entity.entity_type, entity.name);
+            let mut draft = EntityDraft::new();
             draft.id = Some(id);
-            draft.aliases = entity.aliases;
-            draft.canonical_key = entity.canonical_key;
-            draft.summary = entity.summary;
             objects.push(MemoryObjectDraft::Entity(draft));
         }
 
@@ -1214,15 +1210,14 @@ impl CharacterMemoryAdapter {
                 &state.entity_ids,
                 &pending_entities,
             )?;
-            draft.confidence = memory.confidence;
+            draft.assertions = resolve_assertions(&memory.assertions, state, &pending_entities)?;
+            draft.given_by_application = memory.given_by_application;
             draft.salience_score = memory.salience_score;
-            draft.stability = memory.stability;
-            draft.is_current = memory.is_current;
             draft.supersedes = resolve_ids(
                 "derived_memory",
                 &memory.supersedes_external_ids,
                 &state.derived_memory_ids,
-                &pending_derived,
+                &BTreeMap::new(),
             )?;
             objects.push(MemoryObjectDraft::DerivedMemory(draft));
         }
@@ -1245,7 +1240,6 @@ impl CharacterMemoryAdapter {
             let mut draft = MemoryLinkDraft::new(from_type, from_id, link.relation, to_type, to_id);
             let id = deterministic_id(&input.namespace, "memory_link", &link.external_id);
             draft.id = Some(id);
-            draft.confidence = link.confidence;
             draft.rationale = link.rationale;
             pending_links.insert(link.external_id, id);
             links.push(draft);
@@ -1255,7 +1249,7 @@ impl CharacterMemoryAdapter {
             return Ok(None);
         }
 
-        let outcome = commit_typed_drafts(&state.memory, &input.namespace, objects, links).await?;
+        let outcome = commit_typed_drafts(&state.memory, objects, links).await?;
         for (external_id, id) in pending_entities {
             state.entity_ids.insert(external_id.clone(), id);
             state.reverse_entity_ids.insert(id, external_id);
@@ -1302,7 +1296,6 @@ impl CharacterMemoryAdapter {
             MemoryLinkDraft::new(from_type, from_id, input.link.relation, to_type, to_id);
         let id = deterministic_id(&input.namespace, "memory_link", &input.link.external_id);
         draft.id = Some(id);
-        draft.confidence = input.link.confidence;
         draft.rationale = input.link.rationale;
         let link_outcome = state.memory.link(draft).await?;
         let link_id = link_outcome.link.id;
@@ -1317,22 +1310,11 @@ impl CharacterMemoryAdapter {
             internal_id: link_id.to_string(),
             external_id: input.link.external_id,
         };
-        let outcome = RecordedOutcome {
-            operation_id: deterministic_operation_id(
-                &input.namespace,
-                "link",
-                [value.external_id.as_str()],
-            ),
-            outcome: link_outcome,
-        };
+        let outcome = link_outcome;
         Ok(WriteResult { value, outcome })
     }
 
     pub async fn correct(&self, input: CorrectMemoryInput) -> Result<LifecycleMutationResult> {
-        let operation_identity = serde_json::to_string(&input)
-            .context("serialize correction input for deterministic operation identity")?;
-        let operation_id =
-            deterministic_operation_id(&input.namespace, "correct", [operation_identity.as_str()]);
         let mut namespaces = self.namespaces.lock().await;
         let state = namespaces
             .get_mut(&input.namespace)
@@ -1367,24 +1349,10 @@ impl CharacterMemoryAdapter {
             superseded_derived_memory_ids,
             correction_origin,
             rationale: input.rationale,
-            lifecycle_policy: CorrectionLifecyclePolicy {
-                supersede_replaced_derived_memories: input
-                    .lifecycle_policy
-                    .supersede_replaced_derived_memories,
-                suppress_superseded_derived_memories: input
-                    .lifecycle_policy
-                    .suppress_superseded_derived_memories,
-                retain_original_source_objects: input
-                    .lifecycle_policy
-                    .retain_original_source_objects,
-                ..CorrectionLifecyclePolicy::default()
-            },
             cascade_policy: CorrectionCascadePolicy {
                 apply_to_provenanced_derived_memories: input
                     .cascade_policy
                     .apply_to_provenanced_derived_memories,
-                require_original_source_match: input.cascade_policy.require_original_source_match,
-                cascade_to_threads: input.cascade_policy.cascade_to_threads,
             },
             include_trace: input.include_trace,
         };
@@ -1394,14 +1362,10 @@ impl CharacterMemoryAdapter {
             state.reverse_derived_memory_ids.insert(id, external_id);
         }
         state.persist_identities()?;
-        lifecycle_result(state, outcome, operation_id)
+        lifecycle_result(state, outcome)
     }
 
     pub async fn forget(&self, input: ForgetMemoryInput) -> Result<LifecycleMutationResult> {
-        let operation_identity = serde_json::to_string(&input)
-            .context("serialize forget input for deterministic operation identity")?;
-        let operation_id =
-            deterministic_operation_id(&input.namespace, "forget", [operation_identity.as_str()]);
         let mut namespaces = self.namespaces.lock().await;
         let state = namespaces
             .get_mut(&input.namespace)
@@ -1420,27 +1384,16 @@ impl CharacterMemoryAdapter {
                     suppress_derived_from_target: input
                         .suppression_policy
                         .suppress_derived_from_target,
-                    preserve_original_raw_refs: input.suppression_policy.preserve_original_raw_refs,
                 },
-                archive: ArchivePolicy {
-                    archive_thread: input.archive_policy.archive_thread,
-                    archive_thread_derived_memories: input
-                        .archive_policy
-                        .archive_thread_derived_memories,
-                    preserve_original_raw_refs: input.archive_policy.preserve_original_raw_refs,
-                },
-                ..ForgetLifecyclePolicy::default()
             },
             cascade_policy: ForgetCascadePolicy {
                 apply_to_derived_from_target: input.cascade_policy.apply_to_derived_from_target,
                 apply_to_thread_members: input.cascade_policy.apply_to_thread_members,
             },
-            target_retention_state: input.target_retention_state,
-            target_thread_status: input.target_thread_status,
             include_trace: input.include_trace,
         };
         let outcome = state.memory.forget(draft).await?;
-        lifecycle_result(state, outcome, operation_id)
+        lifecycle_result(state, outcome)
     }
 
     pub async fn prepare(&self, input: PrepareWriteInput) -> Result<PreparedWritePlan> {
@@ -1488,14 +1441,11 @@ impl CharacterMemoryAdapter {
         remember_input.raw_refs = input.raw_refs.clone();
         remember_input.episode_drafts.push(episode);
         remember_input.observation_drafts.push(observation);
-        let mut backend_plan = remember_input.prepare_write_plan_with_options(
+        let backend_plan = remember_input.prepare_write_plan_with_options(
             &defaults,
             input.include_vector_index_candidates,
             input.include_stats_update_candidates,
         );
-        if let Some(key) = &input.idempotency_key {
-            backend_plan.idempotency_key.clone_from(key);
-        }
         Ok(PreparedWritePlan {
             namespace: input.namespace.clone(),
             input,
@@ -1524,7 +1474,6 @@ impl CharacterMemoryAdapter {
             .get_mut(&plan.namespace)
             .ok_or_else(|| anyhow!("namespace has no prepared state: {}", plan.namespace))?;
         let backend_plan = plan.plan;
-        let operation_id = backend_plan.idempotency_key.clone();
         let outcome = state
             .memory
             .commit(
@@ -1591,10 +1540,7 @@ impl CharacterMemoryAdapter {
             persisted_link_external_ids,
             vector_indexed_object_refs,
             repair_needed: outcome.repair_needed.clone(),
-            outcome: RecordedOutcome {
-                operation_id,
-                outcome,
-            },
+            outcome,
         })
     }
 
@@ -1629,7 +1575,13 @@ impl CharacterMemoryAdapter {
             commitments: sections.commitments,
             character_signals: sections.character_signals,
         };
-        context.object_type_defaults = input.surface_policy.object_types;
+        // Entity remains traversable under the native graph defaults, but has no vector surface.
+        context.object_type_defaults = input
+            .surface_policy
+            .object_types
+            .into_iter()
+            .filter(|object_type| *object_type != ObjectType::Entity)
+            .collect();
 
         let outcome = state.memory.retrieve(context).await?;
         Ok(flatten_outcome(state, outcome))
@@ -1861,12 +1813,10 @@ struct RememberTopology {
 
 async fn commit_typed_drafts(
     memory: &CharacterMemory,
-    namespace: &str,
     object_drafts: Vec<MemoryObjectDraft>,
     link_drafts: Vec<MemoryLinkDraft>,
-) -> Result<crate::RecordedOutcome<crate::RememberOutcome>> {
-    let (plan, expected) =
-        typed_remember_plan_at(namespace, object_drafts, link_drafts, Utc::now())?;
+) -> Result<crate::RememberOutcome> {
+    let (plan, expected) = typed_remember_plan_at(object_drafts, link_drafts, Utc::now())?;
     let validations = memory.validate_plan(&plan).await?;
     let invalid = validations
         .iter()
@@ -1892,17 +1842,12 @@ async fn commit_typed_drafts(
         );
     }
 
-    let operation_id = plan.idempotency_key.clone();
     let outcome = memory.commit(plan, CommitOptions::default()).await?;
     validate_remember_topology(&outcome, &expected)?;
-    Ok(RecordedOutcome {
-        operation_id,
-        outcome,
-    })
+    Ok(outcome)
 }
 
 fn typed_remember_plan_at(
-    namespace: &str,
     object_drafts: Vec<MemoryObjectDraft>,
     link_drafts: Vec<MemoryLinkDraft>,
     committed_at: DateTime<Utc>,
@@ -1947,11 +1892,6 @@ fn typed_remember_plan_at(
             MemoryObjectDraft::Entity(draft) => {
                 let id = required_draft_id(draft.id, "entity")?;
                 object_ids.push(id);
-                vector_ids.push(id);
-                vector_candidates.push(MemoryCandidate::VectorIndex(VectorIndexCandidate::new(
-                    MemoryObjectRef::new(ObjectType::Entity, id),
-                    provenance.clone(),
-                )));
                 object_candidates.push(MemoryCandidate::Entity(EntityCandidate::new(
                     draft,
                     provenance.clone(),
@@ -2007,14 +1947,7 @@ fn typed_remember_plan_at(
         )));
     }
 
-    let topology_key = object_ids
-        .iter()
-        .chain(&link_ids)
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\0");
-    let operation_id = deterministic_id(namespace, "remember_plan", &topology_key);
-    let mut plan = RememberWritePlan::new(operation_id, format!("cmem-eval:{operation_id}"));
+    let mut plan = RememberWritePlan::new();
     for candidate in object_candidates
         .into_iter()
         .chain(link_candidates)
@@ -2054,8 +1987,7 @@ fn complete_typed_draft(
         }
         MemoryObjectDraft::Entity(draft) => {
             required_draft_id(draft.id, "entity")?;
-            let created_at = *draft.created_at.get_or_insert(committed_at);
-            draft.updated_at.get_or_insert(created_at);
+            draft.created_at.get_or_insert(committed_at);
             draft
                 .schema_version
                 .get_or_insert_with(|| DEFAULT_SCHEMA_VERSION.to_owned());
@@ -2103,7 +2035,11 @@ fn validate_remember_topology(
             outcome.persisted_object_ids
         );
     }
-    if outcome.persisted_link_ids != expected.link_ids {
+    if !expected
+        .link_ids
+        .iter()
+        .all(|id| outcome.persisted_link_ids.contains(id))
+    {
         bail!(
             "typed remember persisted link topology changed: expected {:?}, got {:?}",
             expected.link_ids,
@@ -2373,6 +2309,32 @@ fn external_source_ref_to_live(input: &ExternalSourceRefInput) -> Result<Externa
     }
 }
 
+fn resolve_assertions(
+    assertions: &[crate::BeliefAssertionInput],
+    state: &NamespaceState,
+    pending_entities: &BTreeMap<String, MemoryId>,
+) -> Result<Vec<BeliefAssertion>> {
+    assertions
+        .iter()
+        .map(|assertion| {
+            let subject = pending_entities
+                .get(&assertion.subject_external_id)
+                .or_else(|| state.entity_ids.get(&assertion.subject_external_id))
+                .copied()
+                .with_context(|| {
+                    format!(
+                        "unknown assertion subject {}",
+                        assertion.subject_external_id
+                    )
+                })?;
+            Ok(BeliefAssertion {
+                subject,
+                predicate: assertion.predicate.clone(),
+            })
+        })
+        .collect()
+}
+
 fn replacement_to_live(
     input: &ReplacementDerivedMemoryInput,
     id: MemoryId,
@@ -2411,9 +2373,9 @@ fn replacement_to_live(
         &state.entity_ids,
         &BTreeMap::new(),
     )?;
-    draft.confidence = memory.confidence;
+    draft.assertions = resolve_assertions(&memory.assertions, state, &BTreeMap::new())?;
+    draft.given_by_application = memory.given_by_application;
     draft.salience_score = memory.salience_score;
-    draft.stability = memory.stability;
     draft.supersedes = resolve_ids(
         "derived_memory",
         &memory.supersedes_external_ids,
@@ -2430,7 +2392,6 @@ fn replacement_to_live(
 fn lifecycle_result(
     state: &NamespaceState,
     outcome: LifecycleMutationOutcome,
-    operation_id: String,
 ) -> Result<LifecycleMutationResult> {
     let mutated_object_refs = outcome
         .graph_mutated_object_ids
@@ -2469,10 +2430,7 @@ fn lifecycle_result(
         mutated_link_external_ids,
         vector_maintained_object_refs,
         superseded,
-        outcome: RecordedOutcome {
-            operation_id,
-            outcome,
-        },
+        outcome,
     })
 }
 
@@ -2610,7 +2568,6 @@ fn runtime_fixture_text(text: &str) -> Option<&str> {
         "Project note: ",
         "Claim: ",
         "Correction: ",
-        "Entity: ",
         "Thread summary: ",
     ]
     .into_iter()
@@ -2716,9 +2673,9 @@ mod tests {
     };
     use crate::{DerivedType, RetrievalSectionBudgets};
     use character_memory::{
-        CURRENT_SCHEMA_VERSION, ContinuityContextPack, EntityType, Episode, MemoryObjectRef,
-        Modality, RelationType, RetentionState, RetrievalRationale, RetrievalTrace,
-        RetrieveOutcome, Stability, VectorCandidateTrace, VectorSurface,
+        CURRENT_SCHEMA_VERSION, ContinuityContextPack, Episode, MemoryObjectRef, Modality,
+        RelationType, RetentionState, RetrievalRationale, RetrievalTrace, RetrieveOutcome,
+        VectorCandidateTrace, VectorSurface,
     };
     use std::process::Command;
     use tempfile::tempdir;
@@ -2801,7 +2758,7 @@ mod tests {
                 })
                 .await
                 .unwrap();
-            assert!(episode.outcome.outcome.vector_indexing_failure.is_none());
+            assert!(episode.outcome.vector_indexing_failure.is_none());
             let observation = adapter
                 .remember_observation(ObservationInput {
                     external_id: id.into(),
@@ -2814,13 +2771,7 @@ mod tests {
                 })
                 .await
                 .unwrap();
-            assert!(
-                observation
-                    .outcome
-                    .outcome
-                    .vector_indexing_failure
-                    .is_none()
-            );
+            assert!(observation.outcome.vector_indexing_failure.is_none());
         }
         let mut query = RetrieveInput {
             mode: RetrievalMode::VectorOnly,
@@ -3089,6 +3040,101 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn naming_beliefs_use_frozen_label_vectors_and_native_subjects() {
+        let directory = tempdir().unwrap();
+        let mut config = adapter_config("naming-belief".into());
+        config.backend.embedding.provider = EmbeddingProviderConfig::Frozen;
+        config.backend.embedding.model = "names".into();
+        config.backend.embedding.vector_size = Some(3);
+        config.backend.embedding.store_path = Some("unused.json".into());
+        let provider = FrozenEmbeddingProvider::from_store(
+            FrozenEmbeddingStore::new(
+                "names",
+                "test_fixture",
+                [("Ada".into(), vec![1.0, 0.0, 0.0])],
+            )
+            .unwrap(),
+            "unused.json",
+            "names",
+            3,
+        )
+        .unwrap();
+        let adapter = CharacterMemoryAdapter::new_with_frozen_embedding_provider(
+            directory.path(),
+            &config,
+            provider,
+        )
+        .await
+        .unwrap();
+        adapter.open_namespace("names").await.unwrap();
+        let outcome = adapter
+            .remember_enrichment(GraphEnrichmentInput {
+                namespace: "names".into(),
+                entities: vec![EntityInput {
+                    external_id: "ada".into(),
+                }],
+                derived_memories: vec![DerivedMemoryInput {
+                    external_id: "ada-name".into(),
+                    created_at: None,
+                    derived_type: DerivedType::Claim,
+                    text: "Ada".into(),
+                    source_episode_external_ids: Vec::new(),
+                    source_observation_external_ids: Vec::new(),
+                    thread_external_ids: Vec::new(),
+                    entity_external_ids: vec!["ada".into()],
+                    assertions: vec![crate::BeliefAssertionInput {
+                        subject_external_id: "ada".into(),
+                        predicate: crate::BeliefPredicate::KnownAs { name: "Ada".into() },
+                    }],
+                    given_by_application: true,
+                    salience_score: 0.5,
+                    supersedes_external_ids: Vec::new(),
+                    metadata: serde_json::Value::Null,
+                }],
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(outcome.vector_indexing_failure.is_none());
+        assert_eq!(
+            outcome.vector_indexed_object_ids,
+            [deterministic_id("names", "derived_memory", "ada-name")]
+        );
+        assert_eq!(outcome.persisted_link_ids.len(), 1);
+        let pack = adapter
+            .retrieve(RetrieveInput {
+                mode: RetrievalMode::Hybrid,
+                namespace: "names".into(),
+                query: "Ada".into(),
+                query_date: None,
+                surface_policy: RetrievalSurfacePolicy::default(),
+            })
+            .await
+            .unwrap();
+        let belief = &pack.outcomes()[0].pack.derived_memories[0].memory;
+        assert!(
+            !pack.outcomes()[0]
+                .rationale
+                .telemetry
+                .configured_object_types
+                .contains(&ObjectType::Entity)
+        );
+        assert_eq!(belief.text, "Ada");
+        assert!(belief.given_by_application);
+        assert_eq!(
+            belief.entity_ids,
+            [deterministic_id("names", "entity", "ada")]
+        );
+        assert_eq!(belief.assertions[0].subject, belief.entity_ids[0]);
+        assert_eq!(
+            belief.assertions[0].predicate,
+            crate::BeliefPredicate::KnownAs { name: "Ada".into() }
+        );
+        adapter.cleanup_namespace("names").await.unwrap();
+    }
+
+    #[tokio::test]
     async fn remembered_metadata_and_speaker_never_reach_stores_or_context() {
         let directory = tempdir().unwrap();
         let config = adapter_config("metadata-isolation".into());
@@ -3140,10 +3186,9 @@ mod tests {
                     source_observation_external_ids: vec!["observation".into()],
                     thread_external_ids: Vec::new(),
                     entity_external_ids: Vec::new(),
-                    confidence: 1.0,
                     salience_score: 1.0,
-                    stability: Stability::Medium,
-                    is_current: true,
+                    assertions: Vec::new(),
+                    given_by_application: false,
                     supersedes_external_ids: Vec::new(),
                     metadata: serde_json::json!({"gold_label": sentinels[2]}),
                 }],
@@ -3271,10 +3316,8 @@ mod tests {
         observation_a.id = Some(observation_a_id);
         let mut observation_b = ObservationDraft::new(episode_b_id, "Observation two");
         observation_b.id = Some(observation_b_id);
-        let mut entity = EntityDraft::new(EntityType::User, "Kohta");
+        let mut entity = EntityDraft::new();
         entity.id = Some(entity_id);
-        entity.aliases = vec!["K".to_string(), "Ko".to_string()];
-        entity.summary = Some("Fixture   owner".to_string());
         let mut thread = MemoryThreadDraft::new("Continuity", "Thread   summary");
         thread.id = Some(thread_id);
         let mut derived = DerivedMemoryDraft::new(DerivedType::Reflection, "Stable   insight");
@@ -3286,7 +3329,7 @@ mod tests {
         let mut link = MemoryLinkDraft::new(
             ObjectType::DerivedMemory,
             derived_id,
-            RelationType::About,
+            RelationType::AssociatedWith,
             ObjectType::Entity,
             entity_id,
         );
@@ -3306,7 +3349,6 @@ mod tests {
         expected_observation_b.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
         let mut expected_entity = entity.clone();
         expected_entity.created_at = Some(committed_at);
-        expected_entity.updated_at = Some(committed_at);
         expected_entity.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
         let mut expected_thread = thread.clone();
         expected_thread.created_at = Some(committed_at);
@@ -3322,7 +3364,6 @@ mod tests {
         expected_link.schema_version = Some(DEFAULT_SCHEMA_VERSION.to_owned());
 
         let (plan, topology) = typed_remember_plan_at(
-            namespace,
             vec![
                 MemoryObjectDraft::Episode(episode_a),
                 MemoryObjectDraft::Episode(episode_b),
@@ -3355,7 +3396,6 @@ mod tests {
                     episode_b_id,
                     observation_a_id,
                     observation_b_id,
-                    entity_id,
                     thread_id,
                     derived_id,
                 ],
@@ -3413,7 +3453,6 @@ mod tests {
                 (ObjectType::Episode, episode_b_id),
                 (ObjectType::Observation, observation_a_id),
                 (ObjectType::Observation, observation_b_id),
-                (ObjectType::Entity, entity_id),
                 (ObjectType::MemoryThread, thread_id),
                 (ObjectType::DerivedMemory, derived_id),
             ]
@@ -3756,7 +3795,6 @@ mod tests {
                     episode_started_at: None,
                     observation_observed_at: None,
                     raw_refs: Vec::new(),
-                    idempotency_key: None,
                     include_vector_index_candidates: true,
                     include_stats_update_candidates: true,
                 })
@@ -3903,7 +3941,6 @@ mod tests {
                 episode_started_at: Some("2025-01-01T00:00:00Z".to_string()),
                 observation_observed_at: Some("2025-01-01T00:00:00Z".to_string()),
                 raw_refs: vec!["fixture://continuity/restart".to_string()],
-                idempotency_key: Some("continuity-restart-write".to_string()),
                 include_vector_index_candidates: true,
                 include_stats_update_candidates: true,
             })
@@ -3933,11 +3970,6 @@ mod tests {
                 namespace: namespace.to_string(),
                 entities: vec![EntityInput {
                     external_id: "alice-entity".to_string(),
-                    entity_type: EntityType::Person,
-                    name: "Alice".to_string(),
-                    aliases: Vec::new(),
-                    canonical_key: None,
-                    summary: Some("A restart-safe graph entity.".to_string()),
                 }],
                 derived_memories: vec![DerivedMemoryInput {
                     created_at: None,
@@ -3948,10 +3980,9 @@ mod tests {
                     source_observation_external_ids: vec!["observation-external".to_string()],
                     thread_external_ids: Vec::new(),
                     entity_external_ids: vec!["alice-entity".to_string()],
-                    confidence: 1.0,
                     salience_score: 0.8,
-                    stability: Stability::Medium,
-                    is_current: true,
+                    assertions: Vec::new(),
+                    given_by_application: false,
                     supersedes_external_ids: Vec::new(),
                     metadata: serde_json::Value::Null,
                 }],
@@ -3973,14 +4004,13 @@ mod tests {
                         object_type: ObjectType::Episode,
                         external_id: "episode-external".to_string(),
                     },
-                    confidence: 1.0,
                     rationale: Some("exercise graph and stats persistence".to_string()),
                 },
             })
             .await)
             .expect("public link round-trip");
         assert_eq!(link.value.external_id, "alice-episode-link");
-        assert!(link.outcome.outcome.stats_update_status.failure.is_none());
+        assert!(link.outcome.stats_update_status.failure.is_none());
     }
 
     fn restart_correction(namespace: &str) -> CorrectMemoryInput {
@@ -4004,10 +4034,9 @@ mod tests {
                     source_observation_external_ids: vec!["observation-external".to_string()],
                     thread_external_ids: Vec::new(),
                     entity_external_ids: vec!["alice-entity".to_string()],
-                    confidence: 1.0,
                     salience_score: 0.8,
-                    stability: Stability::Medium,
-                    is_current: true,
+                    assertions: Vec::new(),
+                    given_by_application: false,
                     supersedes_external_ids: vec!["pre-correction-memory".to_string()],
                     metadata: serde_json::Value::Null,
                 },
@@ -4017,7 +4046,6 @@ mod tests {
             superseded_derived_memory_external_ids: vec!["pre-correction-memory".to_string()],
             correction_origin: origin,
             rationale: "The fixture scripted a correction.".to_string(),
-            lifecycle_policy: Default::default(),
             cascade_policy: Default::default(),
             include_trace: true,
         }
@@ -4058,10 +4086,7 @@ mod tests {
                 }],
                 rationale: "The fixture scripted suppression.".to_string(),
                 suppression_policy: Default::default(),
-                archive_policy: Default::default(),
                 cascade_policy: Default::default(),
-                target_retention_state: RetentionState::Suppressed,
-                target_thread_status: None,
                 include_trace: true,
             })
             .await)
@@ -4175,13 +4200,12 @@ mod tests {
             .unwrap();
         seed_restart_namespace(&adapter, namespace).await;
         let input = restart_correction(namespace);
-        let first = adapter.correct(input.clone()).await.unwrap();
+        adapter.correct(input.clone()).await.unwrap();
         let retry = adapter.correct(input).await.unwrap();
-        assert_eq!(retry.outcome.operation_id, first.outcome.operation_id);
         assert!(retry.mutated_object_refs.is_empty());
         assert!(retry.mutated_link_external_ids.is_empty());
         assert!(retry.superseded.is_empty());
-        assert!(retry.outcome.outcome.trace.is_some());
+        assert!(retry.outcome.trace.is_some());
         let mut external_ids = retry
             .vector_maintained_object_refs
             .iter()
@@ -4377,11 +4401,6 @@ mod tests {
                 namespace: namespace.to_string(),
                 entities: vec![EntityInput {
                     external_id: format!("entity-{label}"),
-                    entity_type: EntityType::Person,
-                    name: format!("Sibling {label}"),
-                    aliases: Vec::new(),
-                    canonical_key: None,
-                    summary: Some(format!("Graph sentinel for namespace {label}.")),
                 }],
                 links: vec![MemoryLinkInput {
                     external_id: format!("link-{label}"),
@@ -4394,7 +4413,6 @@ mod tests {
                         object_type: ObjectType::Episode,
                         external_id: format!("episode-{label}"),
                     },
-                    confidence: 1.0,
                     rationale: Some("sibling isolation sentinel".to_string()),
                 }],
                 ..GraphEnrichmentInput::default()
@@ -4867,7 +4885,6 @@ mod tests {
             episode_started_at: Some("2025-02-03T04:05:06Z".to_string()),
             observation_observed_at: Some("2025-02-03T04:05:06Z".to_string()),
             raw_refs: Vec::new(),
-            idempotency_key: None,
             include_vector_index_candidates: true,
             include_stats_update_candidates: true,
         };
@@ -4933,11 +4950,9 @@ mod tests {
                 .iter()
                 .all(|validation| validation.status != CandidateValidationStatus::Invalid)
         );
-        input.idempotency_key = Some("caller-key".into());
         input.include_vector_index_candidates = false;
         input.include_stats_update_candidates = false;
         let explicit = adapter.prepare(input.clone()).await.unwrap();
-        assert_eq!(explicit.plan.idempotency_key, "caller-key");
         assert!(!explicit.plan.candidates.iter().any(|candidate| matches!(
             candidate,
             MemoryCandidate::VectorIndex(_) | MemoryCandidate::StatsUpdate(_)

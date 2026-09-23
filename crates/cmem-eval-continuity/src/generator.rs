@@ -9,10 +9,10 @@ use cmem_eval::{ControllableSimilarityFixture, SimilarityConceptFixture};
 
 use crate::{
     AuthoredMemory, AuthoredMemoryKind, CONTINUITY_FIXTURE_SCHEMA_VERSION, CarriedAssertion,
-    ContinuityEntityKind, ContinuityFixtureSet, ContinuityScenario, ContinuityScenarioEmbedding,
-    CueAssertion, CueKind, EntityDeclaration, ExpectedRelevance, InteractionEvent,
-    PerceivedReference, ProbeAssertions, ProbeMeasures, RecallReason, RememberSurfaceTexts,
-    ScenarioPattern, Scene, SceneParticipant, SceneSelection, ThreadMembership,
+    ContinuityFixtureSet, ContinuityScenario, ContinuityScenarioEmbedding, CueAssertion, CueKind,
+    EntityDeclaration, ExpectedRelevance, InteractionEvent, PerceivedReference, ProbeAssertions,
+    ProbeMeasures, RecallReason, RememberSurfaceTexts, ScenarioPattern, Scene, SceneParticipant,
+    SceneSelection, ThreadMembership,
 };
 
 pub const CHECKED_FIXTURE_SEED: u64 = 0x0000_0000_0135_2768;
@@ -227,9 +227,9 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
                 ("kiln_workshop".into(), scene("nia", "new-kiln-workshop")),
             ]),
             entities: vec![
-                entity("mara", ContinuityEntityKind::Person, "Mara", false),
-                entity("nia", ContinuityEntityKind::Person, "Nia", false),
-                entity("ellis", ContinuityEntityKind::Person, "Ellis", false),
+                entity("mara", "Mara", false),
+                entity("nia", "Nia", false),
+                entity("ellis", "Ellis", false),
             ],
             embedding: ContinuityScenarioEmbedding::controllable_similarity_provider(
                 ControllableSimilarityFixture {
@@ -296,19 +296,9 @@ fn long_gap_recall(seed: u64) -> Result<ContinuityScenario> {
 fn recurring_hub_entity(seed: u64) -> Result<ContinuityScenario> {
     let id = "recurring-hub-entity";
     let entities = vec![
-        entity("entity-person", ContinuityEntityKind::Person, "Hub A", true),
-        entity(
-            "entity-organization",
-            ContinuityEntityKind::Organization,
-            "Hub B",
-            true,
-        ),
-        entity(
-            "entity-location",
-            ContinuityEntityKind::Location,
-            "Hub C",
-            true,
-        ),
+        entity("entity-person", "Hub A", true),
+        entity("entity-organization", "Hub B", true),
+        entity("entity-location", "Hub C", true),
     ];
     let mut events = Vec::new();
     let mut hub_inputs = Vec::new();
@@ -352,24 +342,9 @@ fn recurring_hub_entity(seed: u64) -> Result<ContinuityScenario> {
 fn hub_scale(seed: u64) -> Result<ContinuityScenario> {
     let id = "hub-scale";
     let entities = vec![
-        entity(
-            "hub-scale-person",
-            ContinuityEntityKind::Person,
-            "Scale Hub A",
-            true,
-        ),
-        entity(
-            "hub-scale-organization",
-            ContinuityEntityKind::Organization,
-            "Scale Hub B",
-            true,
-        ),
-        entity(
-            "hub-scale-location",
-            ContinuityEntityKind::Location,
-            "Scale Hub C",
-            true,
-        ),
+        entity("hub-scale-person", "Scale Hub A", true),
+        entity("hub-scale-organization", "Scale Hub B", true),
+        entity("hub-scale-location", "Scale Hub C", true),
     ];
     let cluster_ids = [
         "hub-scale-query",
@@ -641,7 +616,7 @@ fn thread_drift(seed: u64) -> Result<ContinuityScenario> {
                 "2025-01-01T08:00:00Z",
                 texts[0],
                 vec!["entity-organization"],
-                Some(("thread-1", 0.95)),
+                Some("thread-1"),
                 0.8,
             )?,
             remember(
@@ -650,7 +625,7 @@ fn thread_drift(seed: u64) -> Result<ContinuityScenario> {
                 "2025-02-01T08:00:00Z",
                 texts[1],
                 vec!["entity-organization"],
-                Some(("thread-1", 0.65)),
+                Some("thread-1"),
                 0.5,
             )?,
             remember(
@@ -659,7 +634,7 @@ fn thread_drift(seed: u64) -> Result<ContinuityScenario> {
                 "2025-03-01T08:00:00Z",
                 texts[2],
                 vec!["entity-location"],
-                Some(("thread-1", 0.25)),
+                Some("thread-1"),
                 0.2,
             )?,
             query(
@@ -909,30 +884,10 @@ fn graded_similarity(seed: u64) -> Result<ContinuityScenario> {
         "graded-similarity",
         ScenarioPattern::GradedSimilarity,
         vec![
-            entity(
-                "graded-character",
-                ContinuityEntityKind::Person,
-                "Iris Vale",
-                false,
-            ),
-            entity(
-                "graded-colleague",
-                ContinuityEntityKind::Person,
-                "Mara Chen",
-                false,
-            ),
-            entity(
-                "graded-observatory",
-                ContinuityEntityKind::Organization,
-                "Northlight Observatory",
-                true,
-            ),
-            entity(
-                "graded-cabinet",
-                ContinuityEntityKind::Location,
-                "East instrument cabinet",
-                false,
-            ),
+            entity("graded-character", "Iris Vale", false),
+            entity("graded-colleague", "Mara Chen", false),
+            entity("graded-observatory", "Northlight Observatory", true),
+            entity("graded-cabinet", "East instrument cabinet", false),
         ],
         vec![
             remember(
@@ -941,7 +896,7 @@ fn graded_similarity(seed: u64) -> Result<ContinuityScenario> {
                 "2025-01-18T19:10:00Z",
                 target,
                 vec!["graded-character", "graded-observatory", "graded-cabinet"],
-                Some(("aurora-calibration", 0.96)),
+                Some("aurora-calibration"),
                 0.9,
             )?,
             remember(
@@ -950,7 +905,7 @@ fn graded_similarity(seed: u64) -> Result<ContinuityScenario> {
                 "2025-02-11T18:45:00Z",
                 near_miss,
                 vec!["graded-character", "graded-observatory"],
-                Some(("meteor-calibration", 0.91)),
+                Some("meteor-calibration"),
                 0.7,
             )?,
             remember(
@@ -959,7 +914,7 @@ fn graded_similarity(seed: u64) -> Result<ContinuityScenario> {
                 "2025-03-03T10:20:00Z",
                 second_near_miss,
                 vec!["graded-colleague", "graded-observatory"],
-                Some(("aurora-calibration", 0.62)),
+                Some("aurora-calibration"),
                 0.5,
             )?,
             remember(
@@ -989,37 +944,12 @@ fn graded_similarity(seed: u64) -> Result<ContinuityScenario> {
 
 fn combined_life(seed: u64) -> Result<ContinuityScenario> {
     let entities = vec![
-        entity(
-            "life-character",
-            ContinuityEntityKind::Person,
-            "Iris Vale",
-            true,
-        ),
-        entity("life-mara", ContinuityEntityKind::Person, "Mara Chen", true),
-        entity(
-            "life-elian",
-            ContinuityEntityKind::Person,
-            "Elian Moss",
-            false,
-        ),
-        entity(
-            "life-workshop",
-            ContinuityEntityKind::Organization,
-            "Aster Workshop",
-            true,
-        ),
-        entity(
-            "life-observatory",
-            ContinuityEntityKind::Organization,
-            "Northlight Observatory",
-            true,
-        ),
-        entity(
-            "life-harbor",
-            ContinuityEntityKind::Location,
-            "Tideglass Harbor",
-            true,
-        ),
+        entity("life-character", "Iris Vale", true),
+        entity("life-mara", "Mara Chen", true),
+        entity("life-elian", "Elian Moss", false),
+        entity("life-workshop", "Aster Workshop", true),
+        entity("life-observatory", "Northlight Observatory", true),
+        entity("life-harbor", "Tideglass Harbor", true),
     ];
     let memories = vec![
         (
@@ -1027,7 +957,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2024-12-12T17:30:00Z",
             "Iris chose to restore Tideglass Harbor's dark lantern after seeing its unlit tower from the evening ferry.",
             vec!["life-character", "life-harbor"],
-            Some(("lantern-restoration", 0.98)),
+            Some("lantern-restoration"),
             0.92,
         ),
         (
@@ -1035,7 +965,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-01-02T09:15:00Z",
             "Northlight Observatory entrusted Iris with the lantern-room key and the surviving maintenance ledger.",
             vec!["life-character", "life-observatory", "life-harbor"],
-            Some(("lantern-restoration", 0.95)),
+            Some("lantern-restoration"),
             0.82,
         ),
         (
@@ -1043,7 +973,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-01-07T11:40:00Z",
             "Mara found the original lens maker's crescent mark beneath a layer of soot on the brass collar.",
             vec!["life-mara", "life-character", "life-harbor"],
-            Some(("lantern-restoration", 0.93)),
+            Some("lantern-restoration"),
             0.76,
         ),
         (
@@ -1051,7 +981,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-01-10T08:20:00Z",
             "Elian gave Iris two rosemary cuttings for the exposed community garden above the ferry shed.",
             vec!["life-elian", "life-character", "life-harbor"],
-            Some(("harbor-garden", 0.91)),
+            Some("harbor-garden"),
             0.48,
         ),
         (
@@ -1059,7 +989,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-01-14T14:10:00Z",
             "Iris catalogued seven dented brass panels before anyone removed them from the lantern housing.",
             vec!["life-character", "life-workshop"],
-            Some(("lantern-restoration", 0.9)),
+            Some("lantern-restoration"),
             0.52,
         ),
         (
@@ -1067,7 +997,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-01-20T07:50:00Z",
             "The first garden wind screen tore loose overnight, so Iris and Elian anchored its corners with sand-filled canvas pockets.",
             vec!["life-character", "life-elian", "life-harbor"],
-            Some(("harbor-garden", 0.88)),
+            Some("harbor-garden"),
             0.44,
         ),
         (
@@ -1075,7 +1005,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-01-28T16:35:00Z",
             "Mara and Iris cleaned the first intact prism with distilled water and a brush softer than the ledger recommended.",
             vec!["life-character", "life-mara", "life-workshop"],
-            Some(("lantern-restoration", 0.94)),
+            Some("lantern-restoration"),
             0.66,
         ),
         (
@@ -1091,7 +1021,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-02-05T10:45:00Z",
             "Aster Workshop built a padded oak cradle so the fragile lens assembly could be rotated without lifting it by hand.",
             vec!["life-workshop", "life-character"],
-            Some(("lantern-restoration", 0.96)),
+            Some("lantern-restoration"),
             0.7,
         ),
         (
@@ -1099,7 +1029,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-02-10T06:55:00Z",
             "A sharp frost browned one rosemary cutting, but the stem stayed green beneath the bark.",
             vec!["life-character", "life-elian", "life-harbor"],
-            Some(("harbor-garden", 0.84)),
+            Some("harbor-garden"),
             0.37,
         ),
         (
@@ -1107,7 +1037,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-02-16T13:25:00Z",
             "Iris promised Mara that the maker's scratched initials would remain visible inside the restored lantern.",
             vec!["life-character", "life-mara"],
-            Some(("lantern-restoration", 0.97)),
+            Some("lantern-restoration"),
             0.88,
         ),
         (
@@ -1115,7 +1045,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-02-24T15:10:00Z",
             "Salt corrosion had fused the lower bearing cover, so Iris stopped before forcing the screws and documented their condition.",
             vec!["life-character", "life-harbor"],
-            Some(("lantern-restoration", 0.92)),
+            Some("lantern-restoration"),
             0.73,
         ),
         (
@@ -1123,7 +1053,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-03-02T09:30:00Z",
             "Elian's soil test showed the garden beds were too alkaline for blueberries but suitable for sea kale and thyme.",
             vec!["life-elian", "life-character", "life-harbor"],
-            Some(("harbor-garden", 0.9)),
+            Some("harbor-garden"),
             0.51,
         ),
         (
@@ -1131,7 +1061,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-03-08T14:45:00Z",
             "Iris cracked a replacement prism by tightening its brass frame too quickly during a dry fitting.",
             vec!["life-character", "life-workshop"],
-            Some(("lantern-restoration", 0.98)),
+            Some("lantern-restoration"),
             0.97,
         ),
         (
@@ -1139,7 +1069,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-03-08T17:20:00Z",
             "Iris told Mara the cracked prism was her own mistake and wrote the failed torque setting into the maintenance ledger.",
             vec!["life-character", "life-mara"],
-            Some(("lantern-restoration", 0.96)),
+            Some("lantern-restoration"),
             0.94,
         ),
         (
@@ -1147,7 +1077,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-03-18T12:10:00Z",
             "Iris rebuilt the prism frame with a cork gasket and a gentler hand-tightened fit.",
             vec!["life-character", "life-workshop"],
-            Some(("lantern-restoration", 0.94)),
+            Some("lantern-restoration"),
             0.81,
         ),
         (
@@ -1155,7 +1085,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-03-25T08:40:00Z",
             "Work paused for four days when a pair of swallows began nesting beside the lantern-room vent.",
             vec!["life-character", "life-harbor"],
-            Some(("lantern-restoration", 0.72)),
+            Some("lantern-restoration"),
             0.42,
         ),
         (
@@ -1163,7 +1093,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-04-01T07:35:00Z",
             "Iris planted sea kale along the garden's windward edge while Elian moved the surviving rosemary behind a low slate wall.",
             vec!["life-character", "life-elian", "life-harbor"],
-            Some(("harbor-garden", 0.93)),
+            Some("harbor-garden"),
             0.55,
         ),
         (
@@ -1171,7 +1101,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-04-07T11:15:00Z",
             "The replacement lens glass arrived from the mainland wrapped in wool and marked as optically clear.",
             vec!["life-character", "life-workshop"],
-            Some(("lantern-restoration", 0.91)),
+            Some("lantern-restoration"),
             0.69,
         ),
         (
@@ -1179,7 +1109,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-04-12T19:05:00Z",
             "At sunset Iris noticed the new glass cast an amber band that would distort the harbor signal.",
             vec!["life-character", "life-harbor"],
-            Some(("lantern-restoration", 0.95)),
+            Some("lantern-restoration"),
             0.84,
         ),
         (
@@ -1187,7 +1117,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-04-15T09:00:00Z",
             "Mara backed Iris's decision to return the amber-tinted glass even though it threatened the public schedule.",
             vec!["life-mara", "life-character"],
-            Some(("lantern-restoration", 0.94)),
+            Some("lantern-restoration"),
             0.78,
         ),
         (
@@ -1195,7 +1125,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-04-20T17:25:00Z",
             "The garden adopted a watering roster after Iris found three beds soaked and the thyme bed dry on the same evening.",
             vec!["life-character", "life-elian", "life-harbor"],
-            Some(("harbor-garden", 0.9)),
+            Some("harbor-garden"),
             0.43,
         ),
         (
@@ -1203,7 +1133,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-05-01T10:00:00Z",
             "Northlight Observatory announced that the restored harbor lantern would reopen to the public on May 18.",
             vec!["life-character", "life-observatory", "life-harbor"],
-            Some(("lantern-restoration", 0.97)),
+            Some("lantern-restoration"),
             0.86,
         ),
         (
@@ -1211,7 +1141,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-05-05T15:30:00Z",
             "Mara recorded retired keeper Sela Rowan describing how fog once made the old lens appear to breathe.",
             vec!["life-mara", "life-observatory", "life-harbor"],
-            Some(("lantern-restoration", 0.78)),
+            Some("lantern-restoration"),
             0.62,
         ),
         (
@@ -1219,7 +1149,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-05-10T13:00:00Z",
             "Iris taught a small Aster Workshop class to polish spare brass without erasing tool marks.",
             vec!["life-character", "life-workshop"],
-            Some(("lantern-restoration", 0.83)),
+            Some("lantern-restoration"),
             0.57,
         ),
         (
@@ -1227,7 +1157,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-05-17T22:15:00Z",
             "A spring storm flooded the lantern loading ramp and carried two stacks of staging timber into the harbor.",
             vec!["life-character", "life-harbor"],
-            Some(("lantern-restoration", 0.96)),
+            Some("lantern-restoration"),
             0.91,
         ),
         (
@@ -1235,7 +1165,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-05-21T07:10:00Z",
             "The garden's purple sage bloomed after the storm, drawing bees to the sheltered side of the ferry shed.",
             vec!["life-character", "life-elian", "life-harbor"],
-            Some(("harbor-garden", 0.86)),
+            Some("harbor-garden"),
             0.38,
         ),
         (
@@ -1243,7 +1173,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-05-29T16:50:00Z",
             "The lantern bearing turned freely under load but produced a high squeal near the north stop.",
             vec!["life-character", "life-workshop"],
-            Some(("lantern-restoration", 0.93)),
+            Some("lantern-restoration"),
             0.71,
         ),
         (
@@ -1251,7 +1181,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-06-05T20:10:00Z",
             "Iris completed a full manual rotation test and marked the squealing sector for later lubrication.",
             vec!["life-character", "life-workshop"],
-            Some(("lantern-restoration", 0.94)),
+            Some("lantern-restoration"),
             0.68,
         ),
         (
@@ -1259,7 +1189,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-06-11T08:05:00Z",
             "Iris promised Elian she would keep the strongest rosemary plant in the workshop window through winter and return cuttings in spring.",
             vec!["life-character", "life-elian", "life-workshop"],
-            Some(("harbor-garden", 0.95)),
+            Some("harbor-garden"),
             0.87,
         ),
         (
@@ -1267,7 +1197,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-06-18T10:25:00Z",
             "A second glass shipment arrived with a neutral beam and a handwritten apology from the mainland maker.",
             vec!["life-character", "life-workshop"],
-            Some(("lantern-restoration", 0.92)),
+            Some("lantern-restoration"),
             0.74,
         ),
         (
@@ -1275,7 +1205,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-06-25T12:40:00Z",
             "Aster Workshop installed a lower handrail on the lantern stair after Iris saw a visiting keeper struggle with the final turn.",
             vec!["life-character", "life-workshop", "life-harbor"],
-            Some(("lantern-restoration", 0.82)),
+            Some("lantern-restoration"),
             0.63,
         ),
         (
@@ -1283,7 +1213,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-07-03T14:20:00Z",
             "Iris and Mara seated the neutral lens glass in the restored frame without covering the maker's initials.",
             vec!["life-character", "life-mara"],
-            Some(("lantern-restoration", 0.98)),
+            Some("lantern-restoration"),
             0.9,
         ),
         (
@@ -1291,7 +1221,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-07-09T07:45:00Z",
             "Elian counted three native bee species moving between the sage, thyme, and sea kale flowers.",
             vec!["life-elian", "life-character", "life-harbor"],
-            Some(("harbor-garden", 0.84)),
+            Some("harbor-garden"),
             0.4,
         ),
         (
@@ -1299,7 +1229,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-07-17T21:05:00Z",
             "The first powered beam crossed the harbor mouth six degrees too far north, so Iris stopped the motor before the public test.",
             vec!["life-character", "life-harbor"],
-            Some(("lantern-restoration", 0.97)),
+            Some("lantern-restoration"),
             0.89,
         ),
         (
@@ -1307,7 +1237,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-07-24T04:55:00Z",
             "During a natural fog Iris verified that the corrected beam remained visible from the south breakwater.",
             vec!["life-character", "life-harbor"],
-            Some(("lantern-restoration", 0.96)),
+            Some("lantern-restoration"),
             0.85,
         ),
         (
@@ -1315,7 +1245,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-08-02T12:30:00Z",
             "Iris let harbor children turn a wooden lens model while Mara explained why each prism bends light inward.",
             vec!["life-character", "life-mara", "life-observatory"],
-            Some(("lantern-restoration", 0.8)),
+            Some("lantern-restoration"),
             0.58,
         ),
         (
@@ -1323,7 +1253,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-08-09T15:15:00Z",
             "Mara painted the lantern-room trim in the muted green found beneath its newest coats.",
             vec!["life-mara", "life-harbor"],
-            Some(("lantern-restoration", 0.87)),
+            Some("lantern-restoration"),
             0.49,
         ),
         (
@@ -1331,7 +1261,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-08-16T10:35:00Z",
             "Iris apologized for dismissing Mara's first alignment reading and asked her to lead the independent recheck.",
             vec!["life-character", "life-mara"],
-            Some(("lantern-restoration", 0.91)),
+            Some("lantern-restoration"),
             0.88,
         ),
         (
@@ -1339,7 +1269,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-08-23T08:15:00Z",
             "The garden shared its first tomato harvest at the ferry queue, with the smallest fruit saved for seed.",
             vec!["life-character", "life-elian", "life-harbor"],
-            Some(("harbor-garden", 0.82)),
+            Some("harbor-garden"),
             0.36,
         ),
         (
@@ -1347,7 +1277,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-09-05T13:50:00Z",
             "The restored lens assembly was lifted into its permanent mount and rotated twice without binding.",
             vec!["life-character", "life-workshop", "life-harbor"],
-            Some(("lantern-restoration", 0.98)),
+            Some("lantern-restoration"),
             0.9,
         ),
         (
@@ -1355,7 +1285,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-09-12T20:00:00Z",
             "Mara ran the reopening rehearsal while Iris watched the beam from the south breakwater.",
             vec!["life-character", "life-mara", "life-harbor"],
-            Some(("lantern-restoration", 0.96)),
+            Some("lantern-restoration"),
             0.83,
         ),
         (
@@ -1363,7 +1293,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-09-14T19:30:00Z",
             "The Northlight harbor lantern reopened on September 14, and Iris invited retired keeper Sela Rowan to start its first rotation.",
             vec!["life-character", "life-observatory", "life-harbor"],
-            Some(("lantern-restoration", 0.99)),
+            Some("lantern-restoration"),
             0.98,
         ),
         (
@@ -1371,7 +1301,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-09-20T09:25:00Z",
             "Iris and Elian moved the garden's thyme into cold frames and chose one rosemary plant for the workshop window.",
             vec!["life-character", "life-elian", "life-workshop"],
-            Some(("harbor-garden", 0.93)),
+            Some("harbor-garden"),
             0.67,
         ),
         (
@@ -1379,7 +1309,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-10-01T16:45:00Z",
             "The first two weeks of the visitor log contained more sketches of the lens than signatures.",
             vec!["life-character", "life-observatory"],
-            Some(("lantern-restoration", 0.76)),
+            Some("lantern-restoration"),
             0.34,
         ),
         (
@@ -1387,7 +1317,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-10-08T18:10:00Z",
             "Mara recorded Iris retelling the prism accident without hiding her mistake or exaggerating the repair.",
             vec!["life-character", "life-mara", "life-observatory"],
-            Some(("lantern-restoration", 0.89)),
+            Some("lantern-restoration"),
             0.79,
         ),
         (
@@ -1395,7 +1325,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-10-15T08:30:00Z",
             "Iris moved the strongest rosemary plant into Aster Workshop and labeled it for Elian's spring cuttings.",
             vec!["life-character", "life-elian", "life-workshop"],
-            Some(("harbor-garden", 0.97)),
+            Some("harbor-garden"),
             0.86,
         ),
         (
@@ -1403,7 +1333,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-10-22T11:55:00Z",
             "A breathable winter cover replaced the lantern's old tar sheet so trapped salt moisture could escape.",
             vec!["life-character", "life-workshop", "life-harbor"],
-            Some(("lantern-restoration", 0.86)),
+            Some("lantern-restoration"),
             0.61,
         ),
         (
@@ -1419,7 +1349,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-11-12T09:20:00Z",
             "Elian added a clear shelter panel that kept rain off the winter rosemary without blocking the weak morning sun.",
             vec!["life-elian", "life-character", "life-workshop"],
-            Some(("harbor-garden", 0.88)),
+            Some("harbor-garden"),
             0.54,
         ),
         (
@@ -1443,7 +1373,7 @@ fn combined_life(seed: u64) -> Result<ContinuityScenario> {
             "2025-12-12T19:00:00Z",
             "The garden volunteers held a winter supper beneath the lantern, using dried thyme from the roof beds in every shared pot.",
             vec!["life-character", "life-elian", "life-harbor"],
-            Some(("harbor-garden", 0.83)),
+            Some("harbor-garden"),
             0.6,
         ),
         (
@@ -1510,24 +1440,9 @@ fn temporal_patterns(seed: u64) -> Result<ContinuityScenario> {
         "temporal-patterns",
         ScenarioPattern::TemporalPatterns,
         vec![
-            entity(
-                "temporal-character",
-                ContinuityEntityKind::Person,
-                "Iris Vale",
-                false,
-            ),
-            entity(
-                "temporal-observatory",
-                ContinuityEntityKind::Organization,
-                "Northlight Observatory",
-                true,
-            ),
-            entity(
-                "temporal-harbor",
-                ContinuityEntityKind::Location,
-                "Tideglass Harbor",
-                false,
-            ),
+            entity("temporal-character", "Iris Vale", false),
+            entity("temporal-observatory", "Northlight Observatory", true),
+            entity("temporal-harbor", "Tideglass Harbor", false),
         ],
         vec![
             remember(
@@ -1536,7 +1451,7 @@ fn temporal_patterns(seed: u64) -> Result<ContinuityScenario> {
                 "2025-01-09T05:40:00Z",
                 rehearsal_one,
                 vec!["temporal-character", "temporal-harbor"],
-                Some(("harbor-bells", 0.88)),
+                Some("harbor-bells"),
                 0.45,
             )?,
             remember(
@@ -1545,7 +1460,7 @@ fn temporal_patterns(seed: u64) -> Result<ContinuityScenario> {
                 "2025-02-13T05:35:00Z",
                 rehearsal_two,
                 vec!["temporal-character", "temporal-harbor"],
-                Some(("harbor-bells", 0.9)),
+                Some("harbor-bells"),
                 0.45,
             )?,
             remember(
@@ -1554,7 +1469,7 @@ fn temporal_patterns(seed: u64) -> Result<ContinuityScenario> {
                 "2025-03-03T09:00:00Z",
                 interval_start,
                 vec!["temporal-character", "temporal-observatory"],
-                Some(("winter-residency", 0.96)),
+                Some("winter-residency"),
                 0.75,
             )?,
             remember(
@@ -1563,7 +1478,7 @@ fn temporal_patterns(seed: u64) -> Result<ContinuityScenario> {
                 "2025-04-28T17:00:00Z",
                 interval_end,
                 vec!["temporal-character", "temporal-observatory"],
-                Some(("winter-residency", 0.96)),
+                Some("winter-residency"),
                 0.75,
             )?,
             remember(
@@ -1572,7 +1487,7 @@ fn temporal_patterns(seed: u64) -> Result<ContinuityScenario> {
                 "2025-05-08T05:20:00Z",
                 rehearsal_three,
                 vec!["temporal-character", "temporal-harbor"],
-                Some(("harbor-bells", 0.92)),
+                Some("harbor-bells"),
                 0.5,
             )?,
             remember(
@@ -1581,7 +1496,7 @@ fn temporal_patterns(seed: u64) -> Result<ContinuityScenario> {
                 "2025-06-21T12:00:00Z",
                 one_off,
                 vec!["temporal-character", "temporal-harbor"],
-                Some(("harbor-bells", 0.7)),
+                Some("harbor-bells"),
                 0.9,
             )?,
             query(
@@ -1651,30 +1566,10 @@ fn entrenched_correction(seed: u64) -> Result<ContinuityScenario> {
         "entrenched-correction",
         ScenarioPattern::EntrenchedCorrection,
         vec![
-            entity(
-                "entrenched-character",
-                ContinuityEntityKind::Person,
-                "Iris Vale",
-                true,
-            ),
-            entity(
-                "entrenched-colleague",
-                ContinuityEntityKind::Person,
-                "Mara Chen",
-                false,
-            ),
-            entity(
-                "entrenched-observatory",
-                ContinuityEntityKind::Organization,
-                "Northlight Observatory",
-                true,
-            ),
-            entity(
-                "entrenched-map-room",
-                ContinuityEntityKind::Location,
-                "Northlight map room",
-                false,
-            ),
+            entity("entrenched-character", "Iris Vale", true),
+            entity("entrenched-colleague", "Mara Chen", false),
+            entity("entrenched-observatory", "Northlight Observatory", true),
+            entity("entrenched-map-room", "Northlight map room", false),
         ],
         vec![
             remember(
@@ -1687,7 +1582,7 @@ fn entrenched_correction(seed: u64) -> Result<ContinuityScenario> {
                     "entrenched-observatory",
                     "entrenched-map-room",
                 ],
-                Some(("survey-planning", 0.95)),
+                Some("survey-planning"),
                 0.75,
             )?,
             link(
@@ -1729,7 +1624,7 @@ fn entrenched_correction(seed: u64) -> Result<ContinuityScenario> {
                     "entrenched-observatory",
                     "entrenched-map-room",
                 ],
-                Some(("survey-planning", 0.88)),
+                Some("survey-planning"),
                 0.65,
             )?,
             query(
@@ -1789,30 +1684,10 @@ fn autobiographical(seed: u64) -> Result<ContinuityScenario> {
         "autobiographical",
         ScenarioPattern::Autobiographical,
         vec![
-            entity(
-                "auto-character",
-                ContinuityEntityKind::Person,
-                "Iris Vale",
-                true,
-            ),
-            entity(
-                "auto-colleague",
-                ContinuityEntityKind::Person,
-                "Mara Chen",
-                false,
-            ),
-            entity(
-                "auto-workshop",
-                ContinuityEntityKind::Organization,
-                "Aster Workshop",
-                false,
-            ),
-            entity(
-                "auto-harbor",
-                ContinuityEntityKind::Location,
-                "Tideglass Harbor",
-                true,
-            ),
+            entity("auto-character", "Iris Vale", true),
+            entity("auto-colleague", "Mara Chen", false),
+            entity("auto-workshop", "Aster Workshop", false),
+            entity("auto-harbor", "Tideglass Harbor", true),
         ],
         vec![
             remember(
@@ -1821,7 +1696,7 @@ fn autobiographical(seed: u64) -> Result<ContinuityScenario> {
                 "2024-12-12T17:30:00Z",
                 first_choice,
                 vec!["auto-character", "auto-harbor"],
-                Some(("lantern-restoration", 0.95)),
+                Some("lantern-restoration"),
                 0.9,
             )?,
             remember(
@@ -1830,7 +1705,7 @@ fn autobiographical(seed: u64) -> Result<ContinuityScenario> {
                 "2025-01-06T10:00:00Z",
                 promise,
                 vec!["auto-character", "auto-colleague"],
-                Some(("lantern-restoration", 0.92)),
+                Some("lantern-restoration"),
                 0.85,
             )?,
             remember(
@@ -1839,7 +1714,7 @@ fn autobiographical(seed: u64) -> Result<ContinuityScenario> {
                 "2025-03-22T16:20:00Z",
                 mistake,
                 vec!["auto-character", "auto-workshop"],
-                Some(("lantern-restoration", 0.94)),
+                Some("lantern-restoration"),
                 0.95,
             )?,
             remember(
@@ -1848,7 +1723,7 @@ fn autobiographical(seed: u64) -> Result<ContinuityScenario> {
                 "2025-03-22T18:05:00Z",
                 admission,
                 vec!["auto-character", "auto-colleague"],
-                Some(("lantern-restoration", 0.9)),
+                Some("lantern-restoration"),
                 0.9,
             )?,
             remember(
@@ -1857,7 +1732,7 @@ fn autobiographical(seed: u64) -> Result<ContinuityScenario> {
                 "2025-04-04T13:15:00Z",
                 repair,
                 vec!["auto-character", "auto-workshop"],
-                Some(("lantern-restoration", 0.93)),
+                Some("lantern-restoration"),
                 0.8,
             )?,
             remember(
@@ -2120,36 +1995,15 @@ fn concepts<const N: usize>(
 
 fn standard_entities(hubs: bool) -> Vec<EntityDeclaration> {
     vec![
-        entity(
-            "entity-person",
-            ContinuityEntityKind::Person,
-            "Entity A",
-            hubs,
-        ),
-        entity(
-            "entity-organization",
-            ContinuityEntityKind::Organization,
-            "Entity B",
-            hubs,
-        ),
-        entity(
-            "entity-location",
-            ContinuityEntityKind::Location,
-            "Entity C",
-            hubs,
-        ),
+        entity("entity-person", "Entity A", hubs),
+        entity("entity-organization", "Entity B", hubs),
+        entity("entity-location", "Entity C", hubs),
     ]
 }
 
-fn entity(
-    external_id: &str,
-    entity_type: ContinuityEntityKind,
-    label: &str,
-    is_hub: bool,
-) -> EntityDeclaration {
+fn entity(external_id: &str, label: &str, is_hub: bool) -> EntityDeclaration {
     EntityDeclaration {
         external_id: external_id.into(),
-        entity_type,
         label: label.into(),
         is_hub,
     }
@@ -2161,7 +2015,7 @@ fn remember(
     at: &str,
     text: &str,
     entity_ids: Vec<&str>,
-    thread: Option<(&str, f32)>,
+    thread: Option<&str>,
     salience: f32,
 ) -> Result<InteractionEvent> {
     Ok(InteractionEvent::Remember {
@@ -2171,9 +2025,8 @@ fn remember(
         text: text.into(),
         surface_texts: None,
         entity_external_ids: entity_ids.into_iter().map(str::to_string).collect(),
-        thread: thread.map(|(id, confidence)| ThreadMembership {
+        thread: thread.map(|id| ThreadMembership {
             thread_external_id: id.into(),
-            confidence,
         }),
         salience,
     })
@@ -2291,7 +2144,7 @@ mod tests {
     };
 
     const PROCESS_PROBE_PATH: &str = "CMEM_CONTINUITY_FIXTURE_PROBE_PATH";
-    const CHECKED_FIXTURE: &[u8] = include_bytes!("../fixtures/continuity_v3.json");
+    const CHECKED_FIXTURE: &[u8] = include_bytes!("../fixtures/continuity_v4.json");
 
     #[test]
     fn situated_fixtures_load_and_loud_topic_regenerates_exactly() {
@@ -2523,12 +2376,7 @@ mod tests {
             CHECKED_FIXTURE_SEED,
             scenario_id,
             ScenarioPattern::LongGapRecall,
-            vec![entity(
-                "entity-new",
-                ContinuityEntityKind::Person,
-                "New Entity",
-                false,
-            )],
+            vec![entity("entity-new", "New Entity", false)],
             events,
             BTreeMap::new(),
         )
@@ -2556,12 +2404,7 @@ mod tests {
             CHECKED_FIXTURE_SEED,
             scenario_id,
             ScenarioPattern::LongGapRecall,
-            vec![entity(
-                "entity-new",
-                ContinuityEntityKind::Person,
-                "New Entity",
-                false,
-            )],
+            vec![entity("entity-new", "New Entity", false)],
             Vec::new(),
             concepts([("entity_background", "custom", vec!["custom input"])]),
         )
@@ -2718,7 +2561,7 @@ mod tests {
     }
 
     #[test]
-    fn recurring_hubs_span_three_entity_kinds_at_high_degree() {
+    fn recurring_hubs_have_high_degree() {
         let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
         let hub = scenario(&fixtures, ScenarioPattern::RecurringHubEntity);
         let hubs = hub
@@ -2726,16 +2569,7 @@ mod tests {
             .iter()
             .filter(|entity| entity.is_hub)
             .collect::<Vec<_>>();
-        assert_eq!(
-            hubs.iter()
-                .map(|entity| entity.entity_type)
-                .collect::<BTreeSet<_>>(),
-            BTreeSet::from([
-                ContinuityEntityKind::Location,
-                ContinuityEntityKind::Person,
-                ContinuityEntityKind::Organization,
-            ])
-        );
+        assert_eq!(hubs.len(), 3);
         for entity in hubs {
             let degree = hub
                 .events
@@ -2908,20 +2742,6 @@ mod tests {
                 .any(|event| matches!(event, InteractionEvent::Forget { .. }))
         );
 
-        let drift = scenario(&fixtures, ScenarioPattern::ThreadDrift);
-        let confidences = drift
-            .events
-            .iter()
-            .filter_map(|event| match event {
-                InteractionEvent::Remember {
-                    thread: Some(thread),
-                    ..
-                } => Some(thread.confidence),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        assert!(confidences.windows(2).all(|pair| pair[0] > pair[1]));
-
         let salience = scenario(&fixtures, ScenarioPattern::MixedSalienceAccumulation);
         let values = salience
             .events
@@ -3019,10 +2839,12 @@ mod tests {
         );
 
         let autobiography = scenario(&fixtures, ScenarioPattern::Autobiographical);
-        assert!(autobiography.entities.iter().any(|entity| {
-            entity.external_id == "auto-character"
-                && entity.entity_type == ContinuityEntityKind::Person
-        }));
+        assert!(
+            autobiography
+                .entities
+                .iter()
+                .any(|entity| { entity.external_id == "auto-character" })
+        );
     }
 
     #[test]

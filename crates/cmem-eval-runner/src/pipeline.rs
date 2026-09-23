@@ -1678,7 +1678,7 @@ mod tests {
         fs::write(&config_path, toml::to_string(&config).unwrap()).unwrap();
         ContinuityRunArgs {
             run: RunArgs {
-                dataset: PathBuf::from("../cmem-eval-continuity/fixtures/continuity_v3.json"),
+                dataset: PathBuf::from("../cmem-eval-continuity/fixtures/continuity_v4.json"),
                 config: config_path,
                 out: directory.join("continuity.jsonl"),
             },
@@ -2301,7 +2301,7 @@ mod tests {
             rows[0]
                 .write_outcomes
                 .iter()
-                .filter(|record| record.outcome.persisted_object_ids.len() == 3)
+                .filter(|record| record.persisted_object_ids.len() == 3)
                 .count(),
             1
         );
@@ -2402,10 +2402,7 @@ mod tests {
                         "superseded_current_leakage_rate",
                         "superseded_current_leakage_rate",
                     ),
-                    (
-                        "suppressed_or_deleted_items_returned",
-                        "suppressed_or_deleted_returned_count",
-                    ),
+                    ("suppressed_items_returned", "suppressed_returned_count"),
                     (
                         "superseded_items_returned_as_current",
                         "superseded_current_returned_count",
@@ -2737,7 +2734,6 @@ mod tests {
                 .first_mut()
                 .expect("correction scenario should emit lifecycle outcomes");
             let failed_internal_id = lifecycle
-                .outcome
                 .trace
                 .as_ref()
                 .unwrap()
@@ -2745,14 +2741,13 @@ mod tests {
                 .first()
                 .unwrap()
                 .id();
-            lifecycle.outcome.stats_update_status =
-                cmem_eval::character_memory::StatsUpdateStatus::failed(
-                    [],
-                    [failed_internal_id],
-                    Vec::new(),
-                );
+            lifecycle.stats_update_status = cmem_eval::character_memory::StatsUpdateStatus::failed(
+                [],
+                [failed_internal_id],
+                Vec::new(),
+            );
             let mut retry = lifecycle.clone();
-            retry.outcome.stats_update_status =
+            retry.stats_update_status =
                 cmem_eval::character_memory::StatsUpdateStatus::succeeded([failed_internal_id]);
             retry
         };
@@ -2892,7 +2887,7 @@ mod tests {
         let fixture_root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmem-eval-continuity/fixtures");
         let fixture = parse_fixture_bytes(
-            &fs::read(fixture_root.join("continuity_benchmarks_v1.json")).unwrap(),
+            &fs::read(fixture_root.join("continuity_benchmarks_v2.json")).unwrap(),
         )
         .unwrap();
         let runtime_texts = fixture
@@ -2929,7 +2924,7 @@ mod tests {
         let fixture_root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmem-eval-continuity/fixtures");
         let fixture =
-            parse_fixture_bytes(&fs::read(fixture_root.join("continuity_v3.json")).unwrap())
+            parse_fixture_bytes(&fs::read(fixture_root.join("continuity_v4.json")).unwrap())
                 .unwrap();
         let runtime_texts = fixture
             .scenarios

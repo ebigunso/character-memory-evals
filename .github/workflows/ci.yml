@@ -250,6 +250,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .agent-work/continuity-smoke/{a,b}
-          cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/a/traces.jsonl
-          cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v3.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/b/traces.jsonl
+          cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v4.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/a/traces.jsonl
+          cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/continuity_v4.json --config ./configs/continuity_smoke.toml --scenario graded-similarity --out ./.agent-work/continuity-smoke/b/traces.jsonl
           cargo run -p cmem-eval-runner -- diff ./.agent-work/continuity-smoke/a/traces.jsonl ./.agent-work/continuity-smoke/b/traces.jsonl
