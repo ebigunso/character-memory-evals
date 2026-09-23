@@ -1230,3 +1230,47 @@ Prevention:
 
 Evidence:
 - `crates/cmem-eval-continuity/src/driver.rs`; `crates/cmem-eval/src/results.rs`.
+
+- 2026-09-22 — M3 discarded write outcomes, so an Ok containing vector-indexing failure could silently invalidate the measurement; measure_person_state now checks every write outcome and aborts on vector, repair, statistics or indexing completeness failures, with a real missing-embedding regression. Measurement runners must enforce the same undegraded-write rule as the scenario driver before measuring.
+
+## 2026-09-22 - A measurement runner aborts on a degraded write  [tags: measurement, runner, validation, evidence]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/v0-2-situated-recall-scenarios-plan.md`
+- Task/Wave: the poster measurement of the library state slice (a generated runner over a keyed person with 300 beliefs), reviewed the day after its numbers were reported
+- Roles involved: Reviewer | Orchestrator | Worker
+
+Symptom:
+- The runner discarded every write outcome. The typed adapter can return Ok with a vector-indexing failure inside, so nothing in the reported numbers could show whether the store they came from was intact.
+
+Root cause:
+- Write outcomes were treated as fire-and-forget: the row was counted and the run moved on; an instrument defect and a design effect were indistinguishable in the evidence.
+
+Fix applied:
+- The runner checks every write outcome and aborts on the first degraded one; the final numbers were re-produced on a checked run (67 writes, 366 vectors, none degraded) and were unchanged.
+
+Prevention:
+- A measurement runner checks every write outcome and aborts on a degraded one; numbers from a run with an unchecked or degraded write are discarded, not annotated.
+- Before a family's numbers count, review the instrument for the known traps (identical description strings, identifiers correlated with time, structural zeros from a store that cannot exhibit the effect, an unmeasured deployment shape such as no keys at all); run before and after on the same family and inputs, identifiers ordered against time, twice.
+- Repo rule candidate: applied in worker.md (runner rule), reviewer.md (`instrument_validity` hotspot and evidence row), common.md (scenarios are the specification), orchestrator.md (measurement ownership), all dated 2026-09-22.
+- Harness migration candidate: the plan validator has no measurement validation kind; items are carried as `kind: command`, `owner: orchestrator` with the evaluation worker named in `detail`.
+- Residual risk / waiver: none.
+
+Evidence:
+- `.agent-work/reviewer/v0-2-measurement-extension-review.md`; the M3 ingest report under the poster-state worktree; decider ruling 2026-09-22 in the orchestration session.
+## 2026-09-23 - Store evidence according to its citations [tags: artifacts, git, planning]
+
+Symptom:
+- Force-added `.agent-work` files and raw archives promoted into the tree made default clones download them regardless of the checked-out branch.
+
+Root cause:
+- Branch history retains files deleted by later commits; separating branches or deleting files at their tips does not remove those reachable blobs.
+
+Fix applied:
+- Storage follows citation: discard uncited scratch, keep cited raw data recoverable under `refs/evidence/`, and keep readings and manifests on main; register-cited sealed runs remain whole on main. Task_3 published and verified evidence refs before removing the raw files from branch tips.
+
+Prevention:
+- The [common rules](rules/common.md#artifact-placement-and-disposition), CI guard and `.gitattributes` enforce placement and byte-preserving recovery. Plans containing git plumbing cite a dry run of the exact commands: two procedure defects surfaced only in dry runs. A plan does not close until every measurement reading it cites has a tracked or recoverable location.
+
+Evidence:
+- [Evidence-retention plan](plans/active/evals-evidence-retention-plan.md), Task_2 rules, Task_3 outcome and Decision Log.

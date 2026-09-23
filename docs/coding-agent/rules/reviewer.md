@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "reviewer"
-last_updated: "2026-09-14"
+last_updated: "2026-09-23"
 ---
 
 # Reviewer Repository Rules
@@ -28,6 +28,7 @@ last_updated: "2026-09-14"
 - converter_attribution: dataset converters whose source turns carry speaker, author, participant, or actor metadata must preserve behavioral text bytes and encode that attribution through native fixture references, with evidence for both properties (broken benchmark graphs, 2026-07-21).
 - collection_semantics: item/object counts deduplicate stable identities; decision multiplicity belongs only in explicitly named volume fields; published rates must be bounded.
 - determinism_and_canonicalization: seal command recipe changes must be reconciled against historical artifacts before accepting moved hashes.
+- instrument_validity: before a generated family's numbers count for a design decision, check the family for the known traps: identical strings for every description, identifiers correlated with time, structural zeros from a store that cannot exhibit the effect, and an unmeasured deployment shape such as no keys at all; a family that fails any of these produces no evidence until fixed (decider ruling 2026-09-22).
 
 ## Required Reviewer-Owned Evidence
 
@@ -37,7 +38,9 @@ last_updated: "2026-09-14"
 | Adapter or persistence changes | Embedded adapter suite passes with executed-test counts; service lifecycle and collection administration also pass with Qdrant up | `cargo test -p cmem-eval`; `cargo test -p cmem-eval --features service-tests service_mode_` |
 | Fixture/generator changes | Regenerated fixture byte-identity vs the checked artifact (state both SHA256 values) | generator CLI |
 | Sealing changes | Independently reproduce at least the canonical content hashes; unexplained movement is a blocker, not a footnote | committed configs + seal command recipe |
+| Evidence promotion | Check the tier against its durable citation, the new-file blob-size sum against the 256 KiB text-only ceiling on main, the README manifest's ref/commit/recovery commands, and every citation/link against main or the evidence commit; register-cited sealed runs must remain whole | `common.md` storage tiers, `git ls-tree -r -l`, manifest and cited paths |
 | Adapter lifecycle changes | Fresh open, intended reattach, and fresh-instance reset/cleanup tested across every durable store and identity, including phase-local configuration isolation and a surviving sibling for destructive scope | six recurrences, 2026-07-12 |
+| Measurement handed back to a library task | Instrument validity reviewed (the `instrument_validity` hotspot), before and after on the same family and inputs, identifiers ordered against time, two runs each, every write outcome checked | decider ruling 2026-09-22 |
 
 ## Review Heuristics
 

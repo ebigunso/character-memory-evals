@@ -1,2 +1,0 @@
-Task_9 scoped validation waiver, received via agmsg from orchestrator at 2026-09-21T07:53:23Z:
-Confirmed: Task_9 waives only commands::pipeline::tests::output_leaf_links_are_rejected_before_writing_artifacts when it fails with the Windows missing symlink privilege (OS 1314), same scoped waiver as the earlier steps; CI on Linux owns it. Every other failure blocks.

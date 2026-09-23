@@ -43,6 +43,9 @@ jobs:
           path: CharacterMemoryEvals
           persist-credentials: false
 
+      - name: Reject tracked scratch and raw evidence
+        run: test -z "$(git ls-files .agent-work; git ls-files docs/evidence | grep -v '\.md$')"
+
       - name: Check out public Character Memory sibling
         uses: actions/checkout@v6
         with:
