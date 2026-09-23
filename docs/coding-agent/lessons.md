@@ -1186,3 +1186,19 @@ Prevention:
 
 Evidence:
 - `crates/cmem-eval-continuity/src/fixture.rs`; `crates/cmem-eval-continuity/src/driver.rs`.
+## 2026-09-23 - Store evidence according to its citations [tags: artifacts, git, planning]
+
+Symptom:
+- Force-added `.agent-work` files and raw archives promoted into the tree made default clones download them regardless of the checked-out branch.
+
+Root cause:
+- Branch history retains files deleted by later commits; separating branches or deleting files at their tips does not remove those reachable blobs.
+
+Fix applied:
+- Storage follows citation: discard uncited scratch, keep cited raw data recoverable under `refs/evidence/`, and keep readings and manifests on main; register-cited sealed runs remain whole on main. Task_3 published and verified evidence refs before removing the raw files from branch tips.
+
+Prevention:
+- The [common rules](rules/common.md#artifact-placement-and-disposition), CI guard and `.gitattributes` enforce placement and byte-preserving recovery. Plans containing git plumbing cite a dry run of the exact commands: two procedure defects surfaced only in dry runs. A plan does not close until every measurement reading it cites has a tracked or recoverable location.
+
+Evidence:
+- [Evidence-retention plan](plans/active/evals-evidence-retention-plan.md), Task_2 rules, Task_3 outcome and Decision Log.
