@@ -574,6 +574,10 @@ mod tests {
 
     fn scenario(pattern: ScenarioPattern) -> ContinuityScenario {
         ContinuityScenario {
+            catalog_situations: Vec::new(),
+            character_entity: None,
+            scenes: BTreeMap::new(),
+            requirements: Default::default(),
             fixture_id: "fixture".to_string(),
             namespace: "namespace".to_string(),
             pattern,
