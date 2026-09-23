@@ -792,8 +792,19 @@ fn revision(path: &Path) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().into())
 }
 
+fn main() -> Result<()> {
+    // Nested debug futures exceed the Windows main thread's 1 MiB stack.
+    std::thread::Builder::new()
+        .name("cue-floor-calibration".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(run_calibration)
+        .context("spawn calibration thread")?
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn run_calibration() -> Result<()> {
     let mut args = env::args_os().skip(1);
     let output = args.next().context("usage: calibrate_cue_floors <new-report.json>; run via cargo after pinning the sibling library")?;
     let mut slices_only = false;
