@@ -29,7 +29,7 @@ const DISTINCT: &str = "The disconnected observation records a violet ribbon.";
 struct Experience {
     write: PrepareWriteInput,
     created_at: Option<String>,
-    // This one observation is written separately, without a MemoryLink.
+    // No authored MemoryLink; the library may derive its own ObservedIn link.
     unlinked_observation: Option<String>,
 }
 
@@ -784,6 +784,30 @@ async fn ingest(runtime: &ContinuityRuntime, family: &Family) -> Result<BTreeMap
     Ok(ingest_all(runtime, family).await?.0)
 }
 
+fn only_own_observed_in(
+    links: &[cmem_eval::character_memory::MemoryId],
+    relations: &[native::GraphRelationTrace],
+    observation: &str,
+    episode: &str,
+) -> bool {
+    let [link_id] = links else {
+        return links.is_empty();
+    };
+    let mut witnessed = false;
+    for relation in relations.iter().filter(|r| r.link_id == *link_id) {
+        if relation.relation != RelationType::ObservedIn
+            || relation.from.object_type != ObjectType::Observation
+            || relation.from.id.to_string() != observation
+            || relation.to.object_type != ObjectType::Episode
+            || relation.to.id.to_string() != episode
+        {
+            return false;
+        }
+        witnessed = true;
+    }
+    witnessed
+}
+
 async fn ingest_all(
     runtime: &ContinuityRuntime,
     family: &Family,
@@ -835,10 +859,30 @@ async fn ingest_all(
                 })
                 .await?;
             healthy(&observation.outcome, 1)?;
-            ensure!(
-                observation.outcome.persisted_link_ids.is_empty(),
-                "distinct observation unexpectedly wrote a link"
-            );
+            if !observation.outcome.persisted_link_ids.is_empty() {
+                // Untimed write verification, only on libraries deriving ObservedIn.
+                let mut input = family.probes[0].supported_input.clone();
+                input.topic = Some(text.clone());
+                let pack = adapter.retrieve(input.clone()).await?;
+                let observed = snapshot(&pack, &input)?;
+                ensure!(
+                    observed["telemetry"]["graph_expansion"]["bounded_failure_count"] == 0
+                        && matches!(
+                            observed["telemetry"]["vector_recall_completeness"]["kind"].as_str(),
+                            Some("exhaustive" | "not_requested")
+                        ),
+                    "degraded distinct-observation link verification"
+                );
+                ensure!(
+                    only_own_observed_in(
+                        &observation.outcome.persisted_link_ids,
+                        &pack.outcomes()[0].trace.as_ref().unwrap().graph_relations,
+                        &observation.value,
+                        &episode.value,
+                    ),
+                    "distinct observation wrote a link other than its own ObservedIn"
+                );
+            }
             observation_ids.insert(write.observation_external_id.clone(), observation.value);
             episode.value
         } else {
@@ -1656,6 +1700,53 @@ async fn run_families(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmem_eval::character_memory::MemoryObjectRef;
+    use uuid::Uuid;
+
+    #[test]
+    fn distinct_observation_accepts_only_its_own_derived_link() {
+        let observation = Uuid::from_u128(1);
+        let episode = Uuid::from_u128(2);
+        let link = Uuid::from_u128(3);
+        let stray = Uuid::from_u128(4);
+        let relation = native::GraphRelationTrace {
+            link_id: link,
+            from: MemoryObjectRef {
+                object_type: ObjectType::Observation,
+                id: observation,
+            },
+            to: MemoryObjectRef {
+                object_type: ObjectType::Episode,
+                id: episode,
+            },
+            relation: RelationType::ObservedIn,
+            proximity: 1,
+        };
+        let check = |links: &[Uuid], relations: &[native::GraphRelationTrace]| {
+            only_own_observed_in(
+                links,
+                relations,
+                &observation.to_string(),
+                &episode.to_string(),
+            )
+        };
+        assert!(check(&[], &[])); // Original library writes no link.
+        assert!(check(&[link], &[relation.clone(), relation.clone()]));
+        assert!(!check(&[stray], std::slice::from_ref(&relation)));
+        assert!(!check(&[link, stray], std::slice::from_ref(&relation)));
+        assert!(!check(&[link], &[]));
+        for field in 0..5 {
+            let mut wrong = relation.clone();
+            match field {
+                0 => wrong.relation = RelationType::Involves,
+                1 => wrong.from.id = stray,
+                2 => wrong.to.id = stray,
+                3 => wrong.from.object_type = ObjectType::Episode,
+                _ => wrong.to.object_type = ObjectType::Observation,
+            }
+            assert!(!check(&[link], &[relation.clone(), wrong]));
+        }
+    }
 
     #[tokio::test]
     async fn anniversary_capability_uses_the_native_road_and_required_absence_fails() {
