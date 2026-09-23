@@ -110,6 +110,8 @@ cargo run -p cmem-eval-runner -- compare-continuity ./.agent-work/situated/narra
 
 The comparison prints a JSON list of differences; an empty list means the compared outcomes agree. Stores are cleaned up by default as for other continuity runs.
 
+For the separate generated cue-floor experiment, see [cue floor calibration](crates/cmem-eval-continuity/README.md#cue-floor-calibration). It sweeps native floor overrides without changing or tuning the situated scenarios and writes one deterministic measurement report for the library's default-floor decision.
+
 ### Generate and validate frozen real embeddings
 
 A frozen store is a JSON cache keyed by model and the SHA-256 of each exact UTF-8 text. The existing schema-v2 file shape stays unchanged: `source` and `dimension_policy` are descriptive strings, and historical labels load verbatim without admission policy. Entries retain exact text beside each `f32` vector. Loading checks schema, model, configured vector width, sorted unique hashes, exact text bytes and finite components. Extra cache entries are allowed. A missing text fails before continuity creates namespace resources and names the `cmem-eval embeddings generate` command; runtime never fills the cache through a network request.
