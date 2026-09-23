@@ -32,9 +32,10 @@ last_updated: "2026-09-22"
 
 ## Measurement Ownership (library behavior changes)
 
-- This repository owns the measurement validation item of every library task that changes what comes to mind, its order or its standing: the measurement runs at that task's tip before its pull request opens, before and after on the same generated family and the same inputs, with identifiers ordered against time, run twice, and the numbers are handed back for the library worker report and the plan's Decision Log (decider ruling 2026-09-22).
+- This repository owns the measurement of library behavior changes at the checkpoints the library plans name (a slice's completion; a task introducing a new road or a design rule flagged high-risk; a review that changes a design rule), not at every step or fix tip (decider refinement 2026-09-22): each measurement runs before and after on the same generated family and the same inputs, with identifiers ordered against time, run twice, and the numbers are handed back for the library worker report and the plan's Decision Log (decider ruling 2026-09-22).
 - A library plan names the instrument in its `Design` section as an existing generated family here or the family it needs; when the family does not exist yet, building it is planned and tracked in this repository before the library task is dispatched, and the plan is not approvable until the instrument is named.
 - An instrument's validity is reviewed before its numbers count; numbers from an unreviewed instrument are not evidence and are not handed back.
+- Numbers handed back carry a reading of what they mean for the character against the behaviors the library's philosophy illustrates, and an explicit verdict, direction confirmed or direction questioned; a bare table is not a handoff (decider instruction 2026-09-22).
 
 ## Design-Consult Threshold (coordination/advice separation)
 

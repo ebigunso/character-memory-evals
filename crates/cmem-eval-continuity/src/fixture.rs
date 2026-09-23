@@ -1179,15 +1179,8 @@ impl ContinuityScenario {
             .collect::<BTreeSet<_>>();
         for event in &self.events {
             match event {
-                InteractionEvent::Experience { text, scene, .. } => {
+                InteractionEvent::Experience { text, .. } => {
                     inputs.insert(runtime_memory_embedding_text(text));
-                    let scene = match scene {
-                        SceneSelection::Named { name } => self.scenes.get(name),
-                        SceneSelection::Inline { scene } => Some(scene),
-                    };
-                    if let Some(scene) = scene {
-                        inputs.insert(runtime_episode_embedding_text(text, scene));
-                    }
                 }
                 InteractionEvent::Derive { memory, .. } => {
                     inputs.insert(runtime_memory_embedding_text(&memory.text));
@@ -1226,11 +1219,26 @@ impl ContinuityScenario {
                 | InteractionEvent::Restart { .. } => {}
             }
         }
-        inputs.extend(
-            self.scene_texts()
-                .into_iter()
-                .map(|text| text.trim().to_string()),
-        );
+        for event in &self.events {
+            let selection = match event {
+                InteractionEvent::Experience { scene, .. }
+                | InteractionEvent::Probe { scene, .. } => scene,
+                _ => continue,
+            };
+            let scene = match selection {
+                SceneSelection::Named { name } => self.scenes.get(name),
+                SceneSelection::Inline { scene } => Some(scene),
+            };
+            if let Some(scene) = scene {
+                inputs.extend(runtime_scene_embedding_texts(scene));
+                if let Some(
+                    PerceivedReference::Name { text } | PerceivedReference::Description { text },
+                ) = &scene.what
+                {
+                    inputs.insert(text.trim().to_string());
+                }
+            }
+        }
         inputs
     }
 
@@ -1420,12 +1428,14 @@ impl ContinuityScenario {
                         assigned_inputs.as_ref(),
                         &runtime_memory_embedding_text(text),
                     )?;
-                    require_embedding_input(
-                        &location,
-                        "experience.scene",
-                        assigned_inputs.as_ref(),
-                        &runtime_episode_embedding_text(text, scene),
-                    )?;
+                    for text in runtime_scene_embedding_texts(scene) {
+                        require_embedding_input(
+                            &location,
+                            "experience.scene",
+                            assigned_inputs.as_ref(),
+                            &text,
+                        )?;
+                    }
                     admit_external_id(
                         &location,
                         "experience.external_id",
@@ -1677,13 +1687,26 @@ impl ContinuityScenario {
                             PerceivedReference::Description { text } => (text, description_feature),
                             _ => continue,
                         };
+                        if matches!(
+                            feature,
+                            ScenarioFeature::ActivityName | ScenarioFeature::ActivityDescription
+                        ) {
+                            require_embedding_input(
+                                &location,
+                                "scene.reference.text",
+                                assigned_inputs.as_ref(),
+                                text.trim(),
+                            )?;
+                        }
+                        requirements.features.insert(feature);
+                    }
+                    for text in runtime_scene_embedding_texts(scene) {
                         require_embedding_input(
                             &location,
                             "scene.reference.text",
                             assigned_inputs.as_ref(),
-                            text.trim(),
+                            &text,
                         )?;
-                        requirements.features.insert(feature);
                     }
                     if matches!(scene.what, Some(PerceivedReference::Key { .. })) {
                         requirements.features.insert(ScenarioFeature::ProbeActivity);
@@ -1986,30 +2009,25 @@ pub fn runtime_memory_embedding_text(text: &str) -> String {
 
 // Follows CharacterMemory src/policy/embedding_surface.rs; the strict provider
 // lookup fails if the native embedding input diverges from this inventory.
-fn runtime_episode_embedding_text(text: &str, scene: &Scene) -> String {
-    let mut text = runtime_memory_embedding_text(text);
+fn runtime_scene_embedding_texts(scene: &Scene) -> Vec<String> {
     let words = |reference: &PerceivedReference| match reference {
         PerceivedReference::Name { text } | PerceivedReference::Description { text } => {
             Some(runtime_memory_embedding_text(text))
         }
         _ => None,
     };
-    let setting = scene
-        .place
-        .as_ref()
-        .and_then(words)
-        .map(|words| ("Setting", words));
+    let setting = scene.place.as_ref().and_then(words).unwrap_or_default();
     let participants = scene
         .who
         .iter()
         .filter_map(|person| words(&person.reference))
-        .map(|words| ("With", words));
-    for (label, words) in setting.into_iter().chain(participants) {
-        if !words.is_empty() {
-            text.push_str(&format!("\n{label}: {words}"));
-        }
-    }
-    text
+        .filter(|words| !words.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    [setting, participants]
+        .into_iter()
+        .filter(|text| !text.is_empty())
+        .collect()
 }
 
 impl InteractionEvent {
@@ -4629,7 +4647,11 @@ bystanders = ["distractor"]
         let store = FrozenEmbeddingStore::new(
             "text-embedding-3-small",
             "test_fixture",
-            [(runtime_lookup_text, vec![1.0; 1_536])],
+            [
+                (runtime_lookup_text, vec![1.0; 1_536]),
+                ("Quiet observatory".into(), vec![1.0; 1_536]),
+                ("Jo\nvisitor in violet".into(), vec![1.0; 1_536]),
+            ],
         )
         .unwrap();
         std::fs::write(&store_path, store.canonical_bytes().unwrap()).unwrap();
@@ -4677,6 +4699,43 @@ bystanders = ["distractor"]
         let outcome = (adapter.commit(plan, CommitWriteOptions::default()).await)
             .expect("frozen drift-guard write commit");
         assert_eq!(outcome.vector_indexed_object_refs.len(), 2);
+        assert!(outcome.outcome.vector_indexing_failure.is_none());
+        // The same content cache key must still work after adding scene words.
+        // Only the two separate scene keys exist; composite content cannot embed.
+        let result = adapter
+            .remember_episode(cmem_eval::EpisodeInput {
+                external_id: "with-scene".into(),
+                namespace: namespace.into(),
+                summary: content.into(),
+                scene: cmem_eval::MemorySceneInput {
+                    setting: cmem_eval::character_memory::SceneSetting {
+                        key: None,
+                        words: Some("  Quiet\n observatory  ".into()),
+                    },
+                    participants: vec![
+                        cmem_eval::SceneParticipantInput {
+                            name: Some("  Jo  ".into()),
+                            ..Default::default()
+                        },
+                        cmem_eval::SceneParticipantInput {
+                            description: Some(" visitor\n in violet ".into()),
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                },
+                ended_at: None,
+                metadata: serde_json::Value::Null,
+            })
+            .await
+            .expect("native scene write");
+        assert!(
+            result.outcome.vector_indexing_failure.is_none(),
+            "{:?}",
+            result.outcome
+        );
+        assert!(result.outcome.repair_needed.is_empty());
+        assert_eq!(result.outcome.vector_indexed_object_ids.len(), 1);
         (adapter.reset_namespace(namespace).await).expect("frozen drift-guard namespace cleanup");
     }
 
