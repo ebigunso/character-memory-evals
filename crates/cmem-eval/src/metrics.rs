@@ -605,21 +605,13 @@ pub fn integrity_details(retrieved: &[crate::RetrievedItem]) -> crate::ResultInt
 }
 
 fn suppressed(decision: &character_memory::LifecycleFilterDecision) -> bool {
-    use character_memory::{LifecycleFilterReason, RetentionState};
-    matches!(decision.retention_state, Some(RetentionState::Suppressed))
-        || matches!(
-            decision.reason,
-            LifecycleFilterReason::SuppressedIncludedByPolicy
-        )
+    decision.reason == character_memory::LifecycleFilterReason::SuppressedOmitted
 }
 
 fn superseded(decision: &character_memory::LifecycleFilterDecision) -> bool {
     use character_memory::LifecycleFilterReason;
     !decision.superseded_by.is_empty()
-        || matches!(
-            decision.reason,
-            LifecycleFilterReason::SupersededIncludedByPolicy
-        )
+        || matches!(decision.reason, LifecycleFilterReason::SupersededOmitted)
 }
 
 fn returned_lifecycle_decisions<'a>(
@@ -631,10 +623,10 @@ fn returned_lifecycle_decisions<'a>(
         .filter_map(|outcome| outcome.trace.as_ref())
         .flat_map(|trace| &trace.lifecycle_filter_decisions)
         .filter(move |decision| {
-            decision.action == character_memory::LifecycleFilterAction::Included
-                && retrieved
-                    .iter()
-                    .any(|item| item.internal_id == decision.object.id.to_string())
+            // An omission decision for a final returned item contradicts native lifecycle filtering.
+            retrieved
+                .iter()
+                .any(|item| item.internal_id == decision.object.id.to_string())
         })
 }
 
@@ -657,7 +649,7 @@ pub fn integrity_details_from_outcomes(
     retrieved: &[crate::RetrievedItem],
     outcomes: &[crate::RetrieveOutcome],
 ) -> crate::ResultIntegrityDetails {
-    use character_memory::{LifecycleFilterAction, LifecycleFilterReason, StaleCandidateReason};
+    use character_memory::{LifecycleFilterReason, StaleCandidateReason};
     let mut details = integrity_details(retrieved);
     if !outcomes.is_empty() {
         let grounded = outcomes
@@ -732,8 +724,7 @@ pub fn integrity_details_from_outcomes(
                         .lifecycle_filter_decisions
                         .iter()
                         .filter(|decision| {
-                            decision.action == LifecycleFilterAction::Omitted
-                                && decision.reason == LifecycleFilterReason::GraphObjectMissing
+                            decision.reason == LifecycleFilterReason::GraphObjectMissing
                                 && !retrieved
                                     .iter()
                                     .any(|item| item.internal_id == decision.object.id.to_string())
@@ -835,9 +826,8 @@ mod tests {
     use super::*;
     use crate::{ObjectType, RetrievedItem};
     use character_memory::{
-        ContinuityContextPack, LifecycleFilterAction, LifecycleFilterDecision,
-        LifecycleFilterReason, MemoryObjectRef, RetentionState, RetrievalRationale, RetrievalTrace,
-        RetrieveOutcome,
+        ContinuityContextPack, LifecycleFilterDecision, LifecycleFilterReason, MemoryObjectRef,
+        RetrievalRationale, RetrievalTrace, RetrieveOutcome,
     };
 
     #[test]
@@ -991,24 +981,18 @@ mod tests {
         trace.lifecycle_filter_decisions = vec![
             LifecycleFilterDecision {
                 object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
-                retention_state: Some(RetentionState::Suppressed),
                 superseded_by: vec![omitted_id],
-                action: LifecycleFilterAction::Included,
-                reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+                reason: LifecycleFilterReason::SuppressedOmitted,
             },
             LifecycleFilterDecision {
                 object: MemoryObjectRef::new(ObjectType::Episode, omitted_id),
-                retention_state: Some(RetentionState::Suppressed),
                 superseded_by: Vec::new(),
-                action: LifecycleFilterAction::Included,
-                reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+                reason: LifecycleFilterReason::SuppressedOmitted,
             },
             LifecycleFilterDecision {
                 object: MemoryObjectRef::new(ObjectType::Episode, returned_id),
-                retention_state: Some(RetentionState::Suppressed),
                 superseded_by: vec![omitted_id],
-                action: LifecycleFilterAction::Included,
-                reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+                reason: LifecycleFilterReason::SuppressedOmitted,
             },
         ];
         let outcome = RetrieveOutcome {
@@ -1133,10 +1117,8 @@ mod tests {
                     crate::ObjectType::Observation,
                     uuid::Uuid::nil(),
                 ),
-                retention_state: Some(character_memory::RetentionState::Suppressed),
                 superseded_by: Vec::new(),
-                action: character_memory::LifecycleFilterAction::Included,
-                reason: character_memory::LifecycleFilterReason::SuppressedIncludedByPolicy,
+                reason: character_memory::LifecycleFilterReason::SuppressedOmitted,
             });
 
         let integrity = integrity_details_from_outcomes(&retrieved, std::slice::from_ref(&outcome));
@@ -1146,11 +1128,9 @@ mod tests {
 
         let trace = outcome.trace.as_mut().unwrap();
         let mut missing = trace.lifecycle_filter_decisions[0].clone();
-        missing.retention_state = Some(character_memory::RetentionState::Active);
         missing.reason = character_memory::LifecycleFilterReason::GraphObjectMissing;
         trace.lifecycle_filter_decisions = vec![missing.clone(), missing.clone()];
         missing.object.id = uuid::Uuid::from_u128(1);
-        missing.action = character_memory::LifecycleFilterAction::Omitted;
         trace
             .lifecycle_filter_decisions
             .extend([missing.clone(), missing.clone()]);

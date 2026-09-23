@@ -2195,7 +2195,7 @@ pub(crate) mod tests {
                 );
                 assert!(native.scene_references.iter().any(|fact| fact.reference
                     == SceneReference::ParticipantDescription { index: 3 }
-                    && fact.resolution == SceneReferenceResolution::ContentCue));
+                    && fact.resolution == SceneReferenceResolution::Reminder));
                 let (visit_id, visit_scene) = native
                     .memory_scenes
                     .iter()

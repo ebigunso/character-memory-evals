@@ -5346,7 +5346,6 @@ mod tests {
                 },
                 ..character_memory::Scene::at(now.into())
             },
-            scene_local_date: Some(now.date_naive()),
             ended_at: None,
             summary: "summary".to_string(),
             raw_ref: Some("external".to_string()),
