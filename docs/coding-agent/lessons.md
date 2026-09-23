@@ -1231,6 +1231,8 @@ Prevention:
 Evidence:
 - `crates/cmem-eval-continuity/src/driver.rs`; `crates/cmem-eval/src/results.rs`.
 
+- 2026-09-22 — M3 discarded write outcomes, so an Ok containing vector-indexing failure could silently invalidate the measurement; measure_person_state now checks every write outcome and aborts on vector, repair, statistics or indexing completeness failures, with a real missing-embedding regression. Measurement runners must enforce the same undegraded-write rule as the scenario driver before measuring.
+
 ## 2026-09-22 - A measurement runner aborts on a degraded write  [tags: measurement, runner, validation, evidence]
 
 Context:
