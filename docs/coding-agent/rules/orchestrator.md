@@ -2,7 +2,7 @@
 rule_schema_version: 2
 suite_id: "rules-cme-20260714"
 rule_file: "orchestrator"
-last_updated: "2026-09-14"
+last_updated: "2026-09-22"
 ---
 
 # Orchestrator Repository Rules
@@ -29,6 +29,12 @@ last_updated: "2026-09-14"
 ## Value-Audit Triggers (design-value review scheduling)
 
 - Design-value audit verdict mechanics and triggers are harness-owned (long-horizon-audit appendix; third-bounce and pre-merge-churn triggers). Repo policy retained: the audit is judged against this repo's roadmap deliverables and philosophy — does it serve a meaningful purpose NOW — and is assigned to a Claude Tier A agent.
+
+## Measurement Ownership (library behavior changes)
+
+- This repository owns the measurement validation item of every library task that changes what comes to mind, its order or its standing: the measurement runs at that task's tip before its pull request opens, before and after on the same generated family and the same inputs, with identifiers ordered against time, run twice, and the numbers are handed back for the library worker report and the plan's Decision Log (decider ruling 2026-09-22).
+- A library plan names the instrument in its `Design` section as an existing generated family here or the family it needs; when the family does not exist yet, building it is planned and tracked in this repository before the library task is dispatched, and the plan is not approvable until the instrument is named.
+- An instrument's validity is reviewed before its numbers count; numbers from an unreviewed instrument are not evidence and are not handed back.
 
 ## Design-Consult Threshold (coordination/advice separation)
 

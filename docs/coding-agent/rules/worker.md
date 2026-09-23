@@ -19,6 +19,7 @@ last_updated: "2026-09-23"
 - New validators and admission checks on library-facing surfaces classify failures with an owned structured error type at introduction; notebook and one-off validators may use plain error context.
 - Before generating a dataset artifact, verify that the source-only input contains every non-label field required by evaluation semantics; missing required metadata must be corrected at the source rather than replaced with fallback semantics (lesson 2026-05-04).
 - Every public benchmark-fixture field must have an authoritative runtime consumer; remove fields that terminate in generation or validation, and do not expose backend-generated identities that fixture callers cannot control end to end (recurred 2026-07-14, rounds 5-6).
+- A measurement runner checks every write outcome and aborts the run on a degraded one; a run that reports numbers after a degraded write is invalid evidence and is discarded, never annotated (lesson 2026-09-22).
 
 ## Repo CI / Checks Mapping
 
