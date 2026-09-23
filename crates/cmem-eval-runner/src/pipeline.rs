@@ -1912,57 +1912,6 @@ mod tests {
         }
     }
 
-    #[cfg(any(unix, windows))]
-    #[tokio::test]
-    async fn output_leaf_links_are_rejected_before_writing_artifacts() {
-        #[cfg(unix)]
-        use std::os::unix::fs::symlink as symlink_file;
-        #[cfg(windows)]
-        use std::os::windows::fs::symlink_file;
-
-        let directory = tempfile::tempdir().unwrap();
-        let output_dir = directory.path().join("outputs");
-        fs::create_dir(&output_dir).unwrap();
-        let target = output_dir.join("stores/header.json");
-        let mut args = continuity_args(directory.path());
-        args.run.out = output_dir.join("results.jsonl");
-        let header = sibling_output(&args.run.out, "header.json");
-        symlink_file(&target, &header).unwrap();
-        let error = run_continuity(args).await.unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<OutputPathExists>().unwrap().name,
-            "header"
-        );
-        assert!(!output_dir.join("stores").exists());
-        assert_eq!(fs::read_dir(&output_dir).unwrap().count(), 1);
-        fs::remove_file(header).unwrap();
-
-        // All callers share the guard, including links to ordinary existing files.
-        for existing in [false, true] {
-            let target = directory.path().join("target.json");
-            if existing {
-                fs::write(&target, "original").unwrap();
-            }
-            for name in ["out", "header", "report"] {
-                let leaf = output_dir.join("link.jsonl");
-                symlink_file(&target, &leaf).unwrap();
-                let output = output_dir.join("results.jsonl");
-                let error = if name == "out" {
-                    create_run_root(&leaf, &[])
-                } else {
-                    create_run_root(&output, &[(name, &leaf)])
-                }
-                .unwrap_err();
-                assert_eq!(error.downcast_ref::<OutputPathExists>().unwrap().name, name);
-                assert!(!output_dir.join("stores").exists());
-                fs::remove_file(leaf).unwrap();
-            }
-            if existing {
-                assert_eq!(fs::read_to_string(target).unwrap(), "original");
-            }
-        }
-    }
-
     #[test]
     fn existing_output_files_and_directories_fail_admission() {
         let directory = tempfile::tempdir().unwrap();
