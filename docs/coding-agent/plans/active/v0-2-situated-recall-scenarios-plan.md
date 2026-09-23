@@ -16,6 +16,7 @@
 - After the library's scene and routes land, no scenario is "not run", and the draft's section 6 retrieval-tier criteria can be read off one run report.
 - The continuity baselines of ADR-I-0022 (pollution, context size, gap recall, the graph-only probe) are re-measured once at the library commit that closes v0.2 pack admission, with the comparability conditions from the census stated beside the numbers.
 - README describes what ships; the plan closes in completed.
+- Before closeout, every measurement reading this plan cites is kept at a tracked or recoverable location under the repository's evidence rule, including the census report (`.agent-work/orchestrator/v0-2-eval-census-report.md`) this plan rests on; a path under `.agent-work` is not a location.
 
 ## Planner-added requirements
 - A "not run" outcome beside passed and failed, decided for a whole scenario from the features it needs. Needed because: evaluation comes before the library work by ruling, so most scenarios cannot be asked of the pinned library on day one, and a scenario that runs with part of its input dropped can pass for the wrong reason.
@@ -317,6 +318,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - README.md
 - depends_on: [Task_5]
 - description: |
+  Dependency note: this task needs only Task_5's cue-forwarding step (the library's cues slice), not all of Task_5; it runs as soon as that step lands, before the remaining routes, so provisional cue floors are calibrated in time for the cues slice.
   External dependency: the library's cues slice at a pinned commit (the activity beside the topic, cue kinds in the trace, floors per cue kind at `context.cue_floors`, provisional at 1 each). Task_5 step 2 forwards those; this task measures. A generated calibration fixture, separate from the situated scenarios and never asserted as pass or fail, puts pressure on each kind whose floor the library claims (participant, place, activity) under a loud topic and against each other, at the library's default expansion depth, and sweeps the floor values. It reports, per kind and per floor value: whether a memory reachable only through that kind is admitted (starvation), and what each floor admission displaced and at what score, including the case where the scene's words match nothing the character has lived (pollution: a floor admits the least-bad neighbour). It reads cue kinds and floor admissions from the library's trace, and derives whether a kind was found directly or inherited through expansion from the candidate, root and relation traces; if that cannot be derived, it says so and reports to the library plan's owner. Lab-notebook grade: numbers, config and input hashes and the library commit; nothing sealed; every store it creates is cleaned up. It does not replace Task_6.
 - acceptance:
   - For each of the three kinds, the report gives starvation and pollution at each swept floor value, with an executed and not-run census, at the pinned library commit recorded in the header.
@@ -341,7 +343,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 - owns:
   - crates/cmem-eval-continuity/fixtures/embeddings/** (new files only, and only under Open Question 1)
   - docs/coding-agent/plans/active/v0-2-situated-recall-scenarios-plan.md
-- depends_on: [Task_5]
+- depends_on: [Task_5, Task_9]
 - description: |
   At the library commit that closes v0.2 pack admission: recall by reason and cost over the loud-topic set, and one re-measurement of pollution, context size, gap recall and the graph-only probe on the canonical 15-scenario set, under the comparability conditions in the census (question 4). The canonical set reuses its existing frozen store; existing stores are never touched. Lab-notebook grade: numbers, config and input hashes, and both commits in the Decision Log; nothing sealed.
 - acceptance:
@@ -394,6 +396,10 @@ Every task is one pull request, and the pull requests form one linear stack for 
   - Validation evidence: Tier D approved with no open findings. Worker fmt, all-target workspace Clippy and workspace tests passed twice (389 tests each); the reviewer independently passed those gates and reproduced both generated fixtures byte for byte. Smoke and narrative pairs have zero semantic differences; every raw difference is attributed, authored scenarios are unchanged and six protected hashes match. The exact local OS 1314 symlink-test waiver remains.
   - Census and limits: 3 passed, 1 failed (D13), 11 not run, unchanged. Only `elapsed_since_met` and `resolution_omission` leave the relevant missing-feature lists; other missing features still prevent those scenarios from running. Description identity stays gated, and this library pin has no best scene-surface score field.
   - Stack integration: PR 64's measurement rules and PR 65's guarded M3 runner were merged forward with merge commits `e1307e5` and `bbf2473`, preserving both dated lesson entries. The integrated tip `bbf2473` passed fmt, all-target workspace Clippy and workspace tests once at library `63f176f` (391 passed, zero failed, the same one OS 1314 filter).
+
+- 2026-09-20 Wave 2b completed: [Task_7]
+  - Summary: salience on experiences, the `cued` assertion and pooled recall per reason entered the scenario language and the run (PR 58), closing the Wave 2 gap that recent high-salience episodes could not be authored; Task_8 and Task_5 build on it.
+  - Validation evidence: recorded on PR 58; CI there is red only by the library-main construction noted below.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
