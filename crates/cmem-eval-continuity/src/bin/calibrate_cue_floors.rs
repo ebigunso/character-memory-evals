@@ -1106,6 +1106,7 @@ mod tests {
     use super::*;
     #[test]
     fn accepted_scene_inputs_remain_byte_identical() {
+        // Overlap and its keyless derivative use the separate surfaces from 499e87a.
         let config = config();
         let (scenario, probes) = generated(&config).unwrap();
         let (overlap, overlap_probes) = generated_overlap(&config, false).unwrap();
@@ -1118,11 +1119,11 @@ mod tests {
             ),
             (
                 json!({"scenario":overlap,"probes":overlap_probes}),
-                "bf8c0f78f624b9eb22e5d481efbda57ae3fed92cdb653719924c8a6ddeedcd66",
+                "c17712fe66a6406167165a46acf199d751b057d64cf7bd493c38bf12f4d8b043",
             ),
             (
                 json!({"scenario":reworded,"probes":reworded_probes}),
-                "69c25ae2a144c770dfb4a5ec3bc35b7c7ac439032a3d32900becc10a143316f0",
+                "d8ec3d6e6451029cb66e372a7ae14296e511c7660538cadc014962349ac6f0c4",
             ),
         ] {
             assert_eq!(
@@ -1132,7 +1133,7 @@ mod tests {
         }
         assert_eq!(
             text_sha256(&serde_json::to_string(&keyless).unwrap()),
-            "07ca4a0f709c00ede5905401b4656395481a9ffae10ca723f431baefe8bc6487"
+            "318d7f929d17c8850c466f3b00323556d7d81db6e4535d976a6bb7f8129dd94a"
         );
     }
     #[test]
