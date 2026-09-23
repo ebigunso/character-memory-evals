@@ -24,6 +24,49 @@ pub struct SituatedProbeMeasures {
     pub context_tokens: Option<usize>,
 }
 
+fn empty_carried_recalls(ran: bool) -> BTreeMap<String, CarriedRecall> {
+    crate::RecallReason::ALL
+        .into_iter()
+        .map(|reason| {
+            let key = serde_json::to_value(reason)
+                .expect("reason enum")
+                .as_str()
+                .unwrap()
+                .to_string();
+            (
+                key,
+                CarriedRecall {
+                    expected: 0,
+                    admitted: ran.then_some(0),
+                    recall: None,
+                },
+            )
+        })
+        .collect()
+}
+
+pub(crate) fn pool_carried_recall<'a>(
+    probes: impl Iterator<Item = &'a SituatedProbeMeasures>,
+) -> BTreeMap<String, CarriedRecall> {
+    let mut pooled = empty_carried_recalls(false);
+    for probe in probes {
+        for (reason, count) in &probe.carried_recall_by_reason {
+            if let Some(admitted) = count.admitted {
+                let total = pooled.entry(reason.clone()).or_insert(CarriedRecall {
+                    expected: 0,
+                    admitted: None,
+                    recall: None,
+                });
+                total.expected += count.expected;
+                *total.admitted.get_or_insert(0) += admitted;
+                total.recall = (total.expected != 0)
+                    .then(|| total.admitted.unwrap() as f64 / total.expected as f64);
+            }
+        }
+    }
+    pooled
+}
+
 /// Section membership and ordering come from the native pack. The registry only
 /// joins its object ids to authored ids; flattened retrieval items are not used.
 pub fn native_admitted_memories(
@@ -93,18 +136,16 @@ pub fn situated_probe_measures(
         })
         .map(|(id, _)| id.as_str())
         .collect::<BTreeSet<_>>();
-    let mut recalls = BTreeMap::<String, CarriedRecall>::new();
+    let mut recalls = empty_carried_recalls(pack.is_some());
     for expected in &assertions.carried {
         let reason = serde_json::to_value(expected.reason)
             .expect("reason is an enum")
             .as_str()
             .expect("reason is a string")
             .to_string();
-        let recall = recalls.entry(reason).or_insert(CarriedRecall {
-            expected: 0,
-            admitted: pack.map(|_| 0),
-            recall: None,
-        });
+        let recall = recalls
+            .get_mut(&reason)
+            .expect("closed recall reason vocabulary");
         recall.expected += 1;
         if let Some(count) = &mut recall.admitted {
             *count += usize::from(admitted.iter().any(|(id, _)| id == &expected.memory));
@@ -248,6 +289,18 @@ pub fn check_probe_assertions(
                         },
                     )
                 }
+                AssertionSubject::Cued { cue, .. } | AssertionSubject::NotCued { cue, .. } => {
+                    // The pinned library has no named cue facts. When they land,
+                    // project all native outcomes here; unavailable is never negative evidence.
+                    CheckResult::checked(
+                        check_cue(
+                            *cue,
+                            matches!(identity.assertion, AssertionSubject::Cued { .. }),
+                            None,
+                        ),
+                        "required named cue fact is absent from the native outcome",
+                    )
+                }
                 // These facts do not exist in the pinned library. Static support
                 // gating keeps their scenarios not-run; an executed missing fact
                 // must fail rather than be reconstructed from the author's gold.
@@ -256,6 +309,14 @@ pub fn check_probe_assertions(
             crate::AssertionResult { identity, check }
         })
         .collect()
+}
+
+fn check_cue(
+    cue: crate::CueKind,
+    expected: bool,
+    observed: Option<&BTreeSet<crate::CueKind>>,
+) -> bool {
+    observed.is_some_and(|observed| observed.contains(&cue) == expected)
 }
 const RATIONALE_CATEGORIES: [RationaleCategory; 8] = [
     RationaleCategory::Semantic,
@@ -821,7 +882,20 @@ mod tests {
     }
 
     #[test]
-    fn situated_measures_and_assertions_use_native_sections_and_authored_id_counts() {
+    fn situated_cue_predicate_distinguishes_missing_wrong_and_unavailable_facts() {
+        use crate::CueKind;
+        let observed = BTreeSet::from([CueKind::Pair, CueKind::Due]);
+        assert!(check_cue(CueKind::Due, true, Some(&observed)));
+        assert!(!check_cue(CueKind::Date, true, Some(&observed)));
+        assert!(!check_cue(CueKind::Due, true, Some(&BTreeSet::new())));
+        assert!(!check_cue(CueKind::Due, true, None));
+        assert!(check_cue(CueKind::Date, false, Some(&observed)));
+        assert!(!check_cue(CueKind::Due, false, Some(&observed)));
+        assert!(!check_cue(CueKind::Due, false, None));
+    }
+
+    #[test]
+    fn situated_measures_and_assertions_use_every_native_outcome_and_authored_id_counts() {
         use crate::{
             CarriedAssertion, MemorySection, OmissionReason, OmittedAssertion, ProbeAssertions,
             ProbeMeasures, RecallReason, ScenarioStatus, SceneSelection,
@@ -880,8 +954,8 @@ mod tests {
         })
         .collect::<BTreeMap<_, _>>();
         let mut native = ContinuityContextPack::empty();
-        native.relevant_episodes = vec![visit.clone(), noise.clone()];
-        native.salient_observations = vec![observation];
+        native.relevant_episodes = vec![visit.clone()];
+        native.salient_observations = vec![observation, noise_observation.clone()];
         native.commitments = vec![promise.clone().into()];
         native.derived_memories = vec![promise.into()];
         native.active_threads = vec![thread];
@@ -890,12 +964,25 @@ mod tests {
             rationale: RetrievalRationale::new("test"),
             trace: Some(RetrievalTrace::empty()),
         };
-        let make_pack = |outcome: RetrieveOutcome| {
+        let make_pack = |mut outcome: RetrieveOutcome| {
+            let observation_outcome = RetrieveOutcome {
+                pack: ContinuityContextPack {
+                    salient_observations: std::mem::take(&mut outcome.pack.salient_observations),
+                    commitments: std::mem::take(&mut outcome.pack.commitments),
+                    derived_memories: std::mem::take(&mut outcome.pack.derived_memories),
+                    ..ContinuityContextPack::empty()
+                },
+                rationale: std::mem::replace(
+                    &mut outcome.rationale,
+                    RetrievalRationale::new("episode"),
+                ),
+                trace: outcome.trace.take(),
+            };
             let mut rendered = item("flattened-decoy", 1);
             rendered.text = Some("hello world".into());
             RetrievedContextPack::from_ranked_items(
                 vec![rendered],
-                vec![outcome],
+                vec![outcome, observation_outcome],
                 ContextRenderer::PlainText,
             )
             .with_object_refs(refs.clone())
@@ -932,6 +1019,7 @@ mod tests {
             measures: measures.clone(),
         };
         let pack = make_pack(outcome.clone());
+        assert_eq!(pack.outcomes().len(), 2);
         let measured = situated_probe_measures(&scenario, &assertions, &measures, Some(&pack));
         assert_eq!(measured.bystander_context_share, Some(1.0 / 3.0));
         assert_eq!(measured.context_tokens, Some(2));
@@ -969,6 +1057,10 @@ mod tests {
             .pack
             .relevant_episodes
             .retain(|episode| episode.id != noise.id);
+        outcome
+            .pack
+            .salient_observations
+            .retain(|observation| observation.episode_id != noise.id);
         outcome.pack.active_threads.clear();
         let failed = check_probe_assertions(&event, &make_pack(outcome.clone()));
         assert_eq!(

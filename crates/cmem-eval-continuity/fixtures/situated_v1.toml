@@ -285,7 +285,7 @@ concepts = {}
 [scenarios.scenes.pair]
 who = [{reference = {by = "key", key = "mara"}}, {reference = {by = "key", key = "jo"}}]
 where = {by = "setting", key = "allotment-office"}
-[scenarios.scenes.morning]
+[scenarios.scenes.kitchen]
 who = [{reference = {by = "key", key = "mara"}}]
 where = {by = "setting", key = "mara-kitchen"}
 [[scenarios.events]]
@@ -301,11 +301,25 @@ event_id = "pay-water"
 timestamp = "2025-02-01T12:01:00Z"
 memory = {subtype = "commitment", text = "I owe Jo payment of our allotment water bill.", experiences = ["bill-agreement"], about = ["mara", "jo"], actor = "mara", counterpart = "jo", due = "2025-03-01T08:00:00Z"}
 [[scenarios.events]]
+kind = "experience"
+event_id = "evening-alarm"
+timestamp = "2025-02-28T20:00:00Z"
+text = "A pipe burst under my kitchen sink. I shut the valve just before the water reached my notebooks."
+scene = {kind = "named", name = "kitchen"}
+salience = 0.9
+[[scenarios.events]]
+kind = "experience"
+event_id = "evening-cup"
+timestamp = "2025-02-28T20:05:00Z"
+text = "After supper, I rinsed my teacup and put it back on the shelf."
+scene = {kind = "named", name = "kitchen"}
+salience = 0.1
+[[scenarios.events]]
 kind = "probe"
 event_id = "before-due"
 query_id = "d1-d8-before"
 timestamp = "2025-03-01T04:00:00Z"
-scene = {kind = "named", name = "morning"}
+scene = {kind = "named", name = "kitchen"}
 [scenarios.events.assertions]
 not_cued = [{memory = "pay-water", cue = "due"}]
 [[scenarios.events]]
@@ -313,18 +327,20 @@ kind = "probe"
 event_id = "wake-up"
 query_id = "d1-d8-due"
 timestamp = "2025-03-01T10:00:00Z"
-scene = {kind = "named", name = "morning"}
+scene = {kind = "named", name = "kitchen"}
 [scenarios.events.assertions]
-carried = [{memory = "pay-water", reason = "due"}]
+carried = [{memory = "pay-water", reason = "due"}, {memory = "evening-alarm", reason = "recent_and_salient"}]
+cued = [{memory = "pay-water", cue = "due"}, {memory = "evening-alarm", cue = "recent_and_salient"}]
 [[scenarios.events]]
 kind = "probe"
 event_id = "overdue"
 query_id = "d1-d8-overdue"
 timestamp = "2025-03-03T08:00:00Z"
-scene = {kind = "named", name = "morning"}
+scene = {kind = "named", name = "kitchen"}
 topic = "How to mend a bicycle puncture"
 [scenarios.events.assertions]
 carried = [{memory = "pay-water", reason = "due"}]
+cued = [{memory = "pay-water", cue = "due"}]
 staleness = ["pay-water"]
 [[scenarios.events]]
 kind = "experience"
@@ -345,7 +361,7 @@ kind = "probe"
 event_id = "next-morning"
 query_id = "d1-d8-resolved"
 timestamp = "2025-03-04T08:00:00Z"
-scene = {kind = "named", name = "morning"}
+scene = {kind = "named", name = "kitchen"}
 [scenarios.events.assertions]
 omitted = [{memory = "pay-water", reason = "resolution"}]
 
@@ -531,6 +547,7 @@ timestamp = "2025-03-10T09:00:00Z"
 scene = {kind = "named", name = "building"}
 [scenarios.events.assertions]
 carried = [{memory = "greenhouse-work", reason = "activity"}, {memory = "constraint", reason = "activity"}, {memory = "failed-frame", reason = "activity"}, {memory = "hinge-decision", reason = "activity"}]
+cued = [{memory = "greenhouse-work", cue = "activity"}, {memory = "constraint", cue = "activity"}, {memory = "failed-frame", cue = "activity"}, {memory = "hinge-decision", cue = "activity"}]
 in_order = [["constraint", "failed-frame", "hinge-decision"]]
 not_cued = [{memory = "shed-radio", cue = "activity"}]
 
@@ -661,6 +678,7 @@ timestamp = "2025-07-02T11:00:00Z"
 scene = {kind = "named", name = "jo"}
 [scenarios.events.assertions]
 carried = [{memory = "tell-jo", reason = "trigger"}]
+cued = [{memory = "tell-jo", cue = "trigger"}]
 not_cued = [{memory = "mention-step", cue = "trigger"}]
 [[scenarios.events]]
 kind = "probe"
@@ -671,6 +689,7 @@ scene = {kind = "named", name = "iman"}
 topic = "Are you coming to the hall on Thursday?"
 [scenarios.events.assertions]
 carried = [{memory = "mention-step", reason = "trigger"}]
+cued = [{memory = "mention-step", cue = "trigger"}]
 not_cued = [{memory = "tell-jo", cue = "trigger"}]
 
 # D9: the anniversary is of a dated experience, not an extracted future date.
@@ -719,6 +738,7 @@ timestamp = "2025-09-14T09:00:00Z"
 scene = {kind = "named", name = "bakery"}
 [scenarios.events.assertions]
 carried = [{memory = "opening-day", reason = "date"}]
+cued = [{memory = "opening-day", cue = "date"}]
 [[scenarios.events]]
 kind = "probe"
 event_id = "week-after"
@@ -930,6 +950,7 @@ timestamp = "2025-02-19T10:00:00Z"
 scene = {kind = "named", name = "task"}
 [scenarios.events.assertions]
 carried = [{memory = "instructions", reason = "activity"}, {memory = "seed-task", reason = "activity"}]
+cued = [{memory = "instructions", cue = "activity"}, {memory = "seed-task", cue = "activity"}]
 staleness = ["seed-task"]
 [[scenarios.events]]
 kind = "probe"
@@ -939,6 +960,7 @@ timestamp = "2025-02-20T10:00:00Z"
 scene = {kind = "named", name = "pair"}
 [scenarios.events.assertions]
 carried = [{memory = "instructions", reason = "pair"}, {memory = "key-favor", reason = "trigger"}]
+cued = [{memory = "key-favor", cue = "trigger"}]
 elapsed_since_met = ["jo"]
 staleness = ["key-favor"]
 

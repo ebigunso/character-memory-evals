@@ -10,7 +10,7 @@ use cmem_eval::{ControllableSimilarityFixture, SimilarityConceptFixture};
 use crate::{
     AuthoredMemory, AuthoredMemoryKind, CONTINUITY_FIXTURE_SCHEMA_VERSION, CarriedAssertion,
     ContinuityEntityKind, ContinuityFixtureSet, ContinuityScenario, ContinuityScenarioEmbedding,
-    CueKind, EntityDeclaration, ExpectedRelevance, InteractionEvent, NotCuedAssertion,
+    CueAssertion, CueKind, EntityDeclaration, ExpectedRelevance, InteractionEvent,
     PerceivedReference, ProbeAssertions, ProbeMeasures, RecallReason, RememberSurfaceTexts,
     ScenarioPattern, Scene, SceneParticipant, SceneSelection, ThreadMembership,
 };
@@ -84,6 +84,7 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
             text,
             scene: named("pottery_class"),
             speaker: Some("ellis".into()),
+            salience: None,
         });
     }
     // Ellis is absent at the probes, so this promise is not cued by its counterpart.
@@ -98,6 +99,7 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
         text: agreement.into(),
         scene: named("pottery_class"),
         speaker: Some("mara".into()),
+        salience: None,
     });
     events.push(InteractionEvent::Derive {
         event_id: "return-telescope".into(),
@@ -121,6 +123,7 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
         text: last_visit.into(),
         scene: named("nia_kitchen"),
         speaker: Some("nia".into()),
+        salience: None,
     });
     events.push(InteractionEvent::Derive {
         event_id: "nia-state".into(),
@@ -157,7 +160,7 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
             ..Default::default()
         };
         if id == "before-due" {
-            assertions.not_cued.push(NotCuedAssertion {
+            assertions.not_cued.push(CueAssertion {
                 memory: "return-telescope".into(),
                 cue: CueKind::Due,
             });
@@ -167,6 +170,14 @@ pub fn generate_situated_loud_topic_fixture(seed: u64) -> Result<ContinuityFixtu
                 reason: RecallReason::Due,
                 section: None,
             });
+            assertions.cued = assertions
+                .carried
+                .iter()
+                .map(|carried| CueAssertion {
+                    memory: carried.memory.clone(),
+                    cue: carried.reason,
+                })
+                .collect();
         }
         events.push(InteractionEvent::Probe {
             event_id: id.into(),
@@ -2301,6 +2312,25 @@ mod tests {
     fn loud_topic_saturates_smoke_content_candidates_without_matching_cued_memories() {
         let fixtures = generate_situated_loud_topic_fixture(CHECKED_FIXTURE_SEED).unwrap();
         let scenario = &fixtures.scenarios[0];
+        let mut quiet = serde_json::to_value(
+            scenario
+                .events
+                .iter()
+                .find(|event| event.event_id() == "quiet")
+                .unwrap(),
+        )
+        .unwrap();
+        let mut loud = serde_json::to_value(scenario.events.last().unwrap()).unwrap();
+        assert!(quiet.get("topic").is_none());
+        for probe in [&mut quiet, &mut loud] {
+            for field in ["event_id", "query_id", "topic"] {
+                probe.as_object_mut().unwrap().remove(field);
+            }
+        }
+        assert_eq!(
+            quiet, loud,
+            "paired probes must vary only the topic, apart from their IDs"
+        );
         let provider = cmem_eval::ControllableSimilarityEmbeddingProvider::new(
             scenario
                 .embedding
@@ -2318,6 +2348,23 @@ mod tests {
         else {
             panic!("expected the loud-topic probe");
         };
+        assert_eq!(
+            assertions.cued,
+            vec![
+                CueAssertion {
+                    memory: "last-visit".into(),
+                    cue: CueKind::Pair
+                },
+                CueAssertion {
+                    memory: "nia-state".into(),
+                    cue: CueKind::Pair
+                },
+                CueAssertion {
+                    memory: "return-telescope".into(),
+                    cue: CueKind::Due
+                },
+            ]
+        );
         let smoke: toml::Value =
             toml::from_str(include_str!("../../../configs/continuity_smoke.toml")).unwrap();
         let policy = &smoke["retrieval"]["surface_policy"];

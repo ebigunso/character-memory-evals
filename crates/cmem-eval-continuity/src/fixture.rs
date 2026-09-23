@@ -192,18 +192,7 @@ pub enum ScenePartition {
     Custom { key: String },
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum RecallReason {
-    Pair,
-    Due,
-    Date,
-    Trigger,
-    Activity,
-    OwnDay,
-    RecentAndSalient,
-    Topic,
-}
+pub type RecallReason = CueKind;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
@@ -216,6 +205,19 @@ pub enum CueKind {
     OwnDay,
     RecentAndSalient,
     Topic,
+}
+
+impl CueKind {
+    pub const ALL: [Self; 8] = [
+        Self::Pair,
+        Self::Due,
+        Self::Date,
+        Self::Trigger,
+        Self::Activity,
+        Self::OwnDay,
+        Self::RecentAndSalient,
+        Self::Topic,
+    ];
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -259,7 +261,7 @@ pub struct OmittedAssertion {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct NotCuedAssertion {
+pub struct CueAssertion {
     pub memory: String,
     pub cue: CueKind,
 }
@@ -292,7 +294,8 @@ pub struct ProbeAssertions {
     pub carried: Vec<CarriedAssertion>,
     pub in_order: Vec<Vec<String>>,
     pub omitted: Vec<OmittedAssertion>,
-    pub not_cued: Vec<NotCuedAssertion>,
+    pub cued: Vec<CueAssertion>,
+    pub not_cued: Vec<CueAssertion>,
     pub references: Vec<ReferenceAssertion>,
     pub scenes: Vec<MemorySceneAssertion>,
     /// Counterpart entities. The loader computes ages, not the author.
@@ -321,6 +324,7 @@ pub enum AssertionSubject {
     Carried(String),
     InOrder(Vec<String>),
     Omitted(String),
+    Cued { memory: String, cue: CueKind },
     NotCued { memory: String, cue: CueKind },
     References(PerceivedReference),
     Scene { memory: String, scene: String },
@@ -379,7 +383,7 @@ pub struct ScenarioRequirements {
     pub probes: BTreeMap<String, ComputedProbeGold>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SituatedInput {
     Experience {
@@ -387,6 +391,8 @@ pub enum SituatedInput {
         text: String,
         scene: SceneInput,
         speaker: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        salience: Option<f32>,
     },
     Derive {
         external_id: String,
@@ -639,6 +645,8 @@ pub enum InteractionEvent {
         scene: SceneSelection,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         speaker: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        salience: Option<f32>,
     },
     Derive {
         event_id: String,
@@ -794,6 +802,9 @@ pub enum FixtureError {
     Io(std::io::Error),
     UnsupportedFormat(String),
     Toml(toml::de::Error),
+    NonFiniteTomlFloat {
+        path: String,
+    },
     /// The bytes are not JSON.
     Json(serde_json::Error),
     /// The JSON does not have the fixture shape; `field` is the field serde
@@ -953,6 +964,9 @@ impl fmt::Display for FixtureError {
                 "unsupported continuity fixture extension {extension:?}; expected json or toml"
             ),
             Self::Toml(source) => write!(f, "continuity fixture TOML: {source}"),
+            Self::NonFiniteTomlFloat { path } => {
+                write!(f, "continuity fixture TOML {path}: float must be finite")
+            }
             Self::Json(source) => write!(f, "continuity fixture JSON syntax: {source}"),
             Self::Shape {
                 location, source, ..
@@ -977,7 +991,7 @@ impl std::error::Error for FixtureError {
         match self {
             Self::Io(source) => Some(source),
             Self::Toml(source) => Some(source),
-            Self::UnsupportedFormat(_) => None,
+            Self::UnsupportedFormat(_) | Self::NonFiniteTomlFloat { .. } => None,
             Self::Json(source) | Self::Shape { source, .. } => Some(source),
             Self::Embedding { source, .. } => Some(source.as_ref()),
             Self::Admission { .. } => None,
@@ -1089,12 +1103,14 @@ impl ContinuityScenario {
                 text,
                 scene,
                 speaker,
+                salience,
                 ..
             } => Some(SituatedInput::Experience {
                 external_id: external_id.clone(),
                 text: text.clone(),
                 scene: self.scene(scene, &location)?.input(),
                 speaker: speaker.clone(),
+                salience: *salience,
             }),
             InteractionEvent::Derive {
                 event_id: external_id,
@@ -1362,9 +1378,13 @@ impl ContinuityScenario {
                     text,
                     scene,
                     speaker,
+                    salience,
                     ..
                 } => {
                     self.require_situated_header(&location)?;
+                    if let Some(salience) = salience {
+                        require_unit_interval(&location, "experience.salience", *salience)?;
+                    }
                     let scene = self.scene(scene, &location)?;
                     validate_scene(
                         scene,
@@ -1485,10 +1505,7 @@ impl ContinuityScenario {
                             &location,
                             "derive.supersedes",
                             target,
-                            &[
-                                ContinuityObjectKind::DerivedMemory,
-                                ContinuityObjectKind::MemoryThread,
-                            ],
+                            &[ContinuityObjectKind::DerivedMemory],
                             &authored_memories,
                         )?;
                     }
@@ -2002,6 +2019,10 @@ impl InteractionEvent {
                         .iter()
                         .map(|a| AssertionSubject::Omitted(a.memory.clone())),
                 );
+                subjects.extend(assertions.cued.iter().map(|a| AssertionSubject::Cued {
+                    memory: a.memory.clone(),
+                    cue: a.cue,
+                }));
                 subjects.extend(
                     assertions
                         .not_cued
@@ -2117,6 +2138,7 @@ pub fn parse_fixture_source(
                 FixtureError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, source))
             })?;
             let value: toml::Value = toml::from_str(text).map_err(FixtureError::Toml)?;
+            require_finite_toml(&value, "$".into())?;
             let bytes = serde_json::to_vec(&value).map_err(FixtureError::Json)?;
             parse_fixture_bytes(&bytes)
         }
@@ -2124,6 +2146,26 @@ pub fn parse_fixture_source(
             extension.unwrap_or_default().to_string(),
         )),
     }
+}
+
+fn require_finite_toml(value: &toml::Value, path: String) -> Result<(), FixtureError> {
+    match value {
+        toml::Value::Float(number) if !number.is_finite() => {
+            return Err(FixtureError::NonFiniteTomlFloat { path });
+        }
+        toml::Value::Array(values) => {
+            for (index, value) in values.iter().enumerate() {
+                require_finite_toml(value, format!("{path}[{index}]"))?;
+            }
+        }
+        toml::Value::Table(values) => {
+            for (key, value) in values {
+                require_finite_toml(value, format!("{path}[{}]", serde_json::json!(key)))?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 pub fn parse_fixture_bytes(bytes: &[u8]) -> Result<ContinuityFixtureSet, FixtureError> {
@@ -2427,17 +2469,27 @@ impl ProbeAdmission<'_> {
             }
             features.insert(ScenarioFeature::PackOrder);
         }
-        let mut not_cued = BTreeSet::new();
-        for assertion in &assertions.not_cued {
-            memory("probe.assertions.not_cued", &assertion.memory)?;
-            let subject = (&assertion.memory, assertion.cue);
-            if !not_cued.insert(subject) {
-                return Err(location.error(
-                    "probe.assertions.not_cued",
-                    FixtureAdmissionKind::Duplicate(serde_json::to_string(&subject).unwrap()),
-                ));
+        let mut cue_subjects = BTreeMap::new();
+        for (field, expected, assertions) in [
+            ("probe.assertions.cued", true, &assertions.cued),
+            ("probe.assertions.not_cued", false, &assertions.not_cued),
+        ] {
+            for assertion in assertions {
+                memory(field, &assertion.memory)?;
+                let subject = (&assertion.memory, assertion.cue);
+                if let Some(previous) = cue_subjects.insert(subject, expected) {
+                    let subject = serde_json::to_string(&subject).unwrap();
+                    return Err(location.error(
+                        field,
+                        if previous == expected {
+                            FixtureAdmissionKind::Duplicate(subject)
+                        } else {
+                            FixtureAdmissionKind::Overlap(subject)
+                        },
+                    ));
+                }
+                features.insert(ScenarioFeature::CueTrace);
             }
-            features.insert(ScenarioFeature::CueTrace);
         }
         let mut references = BTreeSet::new();
         for assertion in &assertions.references {
@@ -2975,6 +3027,140 @@ bystanders = ["distractor"]
         value
     }
 
+    #[test]
+    fn situated_salience_is_optional_and_finite_in_both_formats() {
+        for extension in ["json", "toml"] {
+            let original = parse_as(&situated_value(), extension).unwrap();
+            let scenario = &original.scenarios[0];
+            assert!(
+                serde_json::to_value(&scenario.events[0])
+                    .unwrap()
+                    .get("salience")
+                    .is_none()
+            );
+            assert!(
+                serde_json::to_value(scenario.situated_input(&scenario.events[0]).unwrap())
+                    .unwrap()
+                    .get("salience")
+                    .is_none()
+            );
+            for salience in [0.0, 0.73, 1.0] {
+                let mut value = situated_value();
+                value["scenarios"][0]["events"][0]["salience"] = serde_json::json!(salience);
+                let admitted = parse_as(&value, extension).unwrap();
+                let changed = &admitted.scenarios[0];
+                assert_eq!(
+                    changed.requirements.features,
+                    scenario.requirements.features
+                );
+                assert!(
+                    matches!(changed.situated_input(&changed.events[0]).unwrap(),
+                    Some(SituatedInput::Experience { salience: Some(actual), .. }) if actual == salience as f32)
+                );
+            }
+            for salience in [-0.1, 1.1, 1e99] {
+                let mut value = situated_value();
+                value["scenarios"][0]["events"][0]["salience"] = serde_json::json!(salience);
+                assert_eq!(
+                    admission_of(parse_as(&value, extension).unwrap_err()),
+                    expected_admission(
+                        "encounter",
+                        Some("early-meeting"),
+                        "experience.salience",
+                        FixtureAdmissionKind::OutOfUnitInterval(salience as f32),
+                    )
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn toml_nonfinite_values_reject_before_json_conversion_with_their_path() {
+        for (key, number) in [
+            ("salience", "nan"),
+            ("salience", "inf"),
+            ("salience", "-inf"),
+        ] {
+            let source = SITUATED_CASE.replace(
+                "event_id = \"early-meeting\"",
+                &format!("event_id = \"early-meeting\"\n{key} = {number}"),
+            );
+            let error =
+                parse_fixture_source(std::path::Path::new("scenario.toml"), source.as_bytes())
+                    .unwrap_err();
+            assert!(matches!(error, FixtureError::NonFiniteTomlFloat { path }
+                if path == format!("$[\"scenarios\"][0][\"events\"][0][\"{key}\"]")));
+        }
+        let source = SITUATED_CASE.replace("noise_magnitude = 0.01", "noise_magnitude = inf");
+        assert!(matches!(
+            parse_fixture_source(std::path::Path::new("scenario.toml"), source.as_bytes()).unwrap_err(),
+            FixtureError::NonFiniteTomlFloat { path } if path == "$[\"scenarios\"][0][\"embedding\"][\"noise_magnitude\"]"
+        ));
+    }
+
+    #[test]
+    fn situated_cued_identity_and_conflicts_are_typed_in_both_formats() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            let controls = serde_json::json!([
+                {"memory":"distractor", "cue":"topic"},
+                {"memory":"promise", "cue":"due"}
+            ]);
+            value["scenarios"][0]["events"][5]["assertions"]["cued"] = controls.clone();
+            let admitted = parse_as(&value, extension).unwrap();
+            assert!(
+                admitted.scenarios[0]
+                    .requirements
+                    .features
+                    .contains(&ScenarioFeature::CueTrace)
+            );
+            let identities = admitted.scenarios[0].events[5].assertion_identities();
+            assert!(identities.contains(&AssertionIdentity {
+                event_id: "reunion".into(),
+                assertion: AssertionSubject::Cued {
+                    memory: "promise".into(),
+                    cue: CueKind::Due
+                }
+            }));
+            value["scenarios"][0]["events"][5]["assertions"]["cued"]
+                .as_array_mut()
+                .unwrap()
+                .reverse();
+            assert_eq!(
+                parse_as(&value, extension).unwrap().scenarios[0].events[5].assertion_identities(),
+                identities
+            );
+            value["scenarios"][0]["events"][5]["assertions"]["cued"] =
+                serde_json::json!([controls[0].clone(), controls[0].clone()]);
+            assert_eq!(
+                admission_of(parse_as(&value, extension).unwrap_err()),
+                expected_admission(
+                    "encounter",
+                    Some("reunion"),
+                    "probe.assertions.cued",
+                    FixtureAdmissionKind::Duplicate("[\"distractor\",\"topic\"]".into()),
+                )
+            );
+            value["scenarios"][0]["events"][5]["assertions"]["cued"] =
+                serde_json::json!([{"memory":"distractor","cue":"date"}]);
+            assert_eq!(
+                admission_of(parse_as(&value, extension).unwrap_err()),
+                expected_admission(
+                    "encounter",
+                    Some("reunion"),
+                    "probe.assertions.not_cued",
+                    FixtureAdmissionKind::Overlap("[\"distractor\",\"date\"]".into()),
+                )
+            );
+            value["scenarios"][0]["events"][5]["assertions"]["cued"][0]["cue"] =
+                Value::from("current_state");
+            assert!(matches!(
+                parse_as(&value, extension),
+                Err(FixtureError::Shape { .. })
+            ));
+        }
+    }
+
     fn check_scene_character_admission(extension: &str) {
         for (event_index, scene_name, event_id) in
             [(0, "pair", "early-meeting"), (5, "encounter", "reunion")]
@@ -3057,12 +3243,34 @@ bystanders = ["distractor"]
         check_scene_character_admission("toml");
     }
 
+    #[test]
+    fn situated_supersedes_rejects_thread_targets() {
+        for extension in ["json", "toml"] {
+            let mut value = situated_value();
+            value["scenarios"][0]["events"][3]["memory"]["subtype"] = Value::from("thread");
+            assert_eq!(
+                admission_of(parse_as(&value, extension).unwrap_err()),
+                expected_admission(
+                    "encounter",
+                    Some("promise"),
+                    "derive.supersedes",
+                    FixtureAdmissionKind::UnsupportedKind {
+                        external_id: "old-note".into(),
+                        found: ContinuityObjectKind::MemoryThread,
+                        allowed: &[ContinuityObjectKind::DerivedMemory],
+                    }
+                )
+            );
+        }
+    }
+
     fn check_bystander_memory_kinds(extension: &str) {
         let mut value = situated_value();
         value["scenarios"][0]["events"][5]["measures"]["bystanders"] =
             serde_json::json!(["distractor", "old-note"]);
         assert!(parse_as(&value, extension).is_ok());
         value["scenarios"][0]["events"][3]["memory"]["subtype"] = Value::from("thread");
+        value["scenarios"][0]["events"][4]["memory"]["supersedes"] = serde_json::json!([]);
         assert_eq!(
             admission_of(parse_as(&value, extension).unwrap_err()),
             expected_admission(
@@ -3308,6 +3516,7 @@ bystanders = ["distractor"]
                     let mut value = situated_value();
                     let scenario = &mut value["scenarios"][0];
                     scenario["events"][3]["memory"]["subtype"] = Value::from("thread");
+                    scenario["events"][4]["memory"]["supersedes"] = serde_json::json!([]);
                     scenario["scenes"]["mismatch"] = scenario["scenes"]["pair"].clone();
                     scenario["scenes"]["mismatch"][slot] = content;
                     scenario["events"][5]["assertions"]["scenes"] =
@@ -3563,6 +3772,7 @@ bystanders = ["distractor"]
                 let mut value = situated_value();
                 let scenario = &mut value["scenarios"][0];
                 scenario["events"][3]["memory"]["subtype"] = Value::from(subtype);
+                scenario["events"][4]["memory"]["supersedes"] = serde_json::json!([]);
                 let mut scene = scenario["scenes"]["pair"].clone();
                 scene["what"] = serde_json::json!({"by": "key", "key": "old-note"});
                 scenario["scenes"]["asserted-activity"] = scene;
@@ -3758,6 +3968,7 @@ bystanders = ["distractor"]
                         let mut value = situated_value();
                         let scenario = &mut value["scenarios"][0];
                         scenario["events"][3]["memory"]["subtype"] = Value::from(subtype);
+                        scenario["events"][4]["memory"]["supersedes"] = serde_json::json!([]);
                         let mut scene = scenario["scenes"]["pair"].clone();
                         scene["what"] = serde_json::json!({"by": "key", "key": "old-note"});
                         let selection = if named {
@@ -4400,6 +4611,7 @@ bystanders = ["distractor"]
                 observation_external_id: "whitespace-observation".to_string(),
                 participant_entity_external_ids: Vec::new(),
                 speaker_entity_external_id: None,
+                salience: None,
                 episode_started_at: None,
                 observation_observed_at: None,
                 raw_refs: Vec::new(),

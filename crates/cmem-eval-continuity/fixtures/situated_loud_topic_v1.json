@@ -1040,6 +1040,7 @@
             ],
             "in_order": [],
             "omitted": [],
+            "cued": [],
             "not_cued": [
               {
                 "memory": "return-telescope",
@@ -1146,6 +1147,20 @@
             ],
             "in_order": [],
             "omitted": [],
+            "cued": [
+              {
+                "memory": "last-visit",
+                "cue": "pair"
+              },
+              {
+                "memory": "nia-state",
+                "cue": "pair"
+              },
+              {
+                "memory": "return-telescope",
+                "cue": "due"
+              }
+            ],
             "not_cued": [],
             "references": [],
             "scenes": [],
@@ -1248,6 +1263,20 @@
             ],
             "in_order": [],
             "omitted": [],
+            "cued": [
+              {
+                "memory": "last-visit",
+                "cue": "pair"
+              },
+              {
+                "memory": "nia-state",
+                "cue": "pair"
+              },
+              {
+                "memory": "return-telescope",
+                "cue": "due"
+              }
+            ],
             "not_cued": [],
             "references": [],
             "scenes": [],

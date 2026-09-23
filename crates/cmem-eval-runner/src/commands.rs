@@ -49,7 +49,7 @@ enum Command {
     Run(RunCommand),
     Embeddings(crate::frozen_embeddings::EmbeddingsCommand),
     Diff(crate::diff::DiffArgs),
-    /// Compare scenario outcomes, assertion identities/results/reasons, and the invariant.
+    /// Compare scenario outcomes, assertions, recall, and omission invariants.
     CompareContinuity {
         before: PathBuf,
         after: PathBuf,
