@@ -1449,34 +1449,53 @@ async fn measure(
     config: &BenchmarkRunConfig,
     anniversary_available: bool,
 ) -> Result<Value> {
-    let mut topic = input(config, &family.namespace, false, Some(TOPIC));
-    if obligations::is_family(family) {
-        topic.scene.time = family.probes[0].supported_input.scene.time.clone();
-    }
+    let topic = if obligations::is_family(family) {
+        obligations::topic_control(&family.probes[0].supported_input)
+    } else {
+        input(config, &family.namespace, false, Some(TOPIC))
+    };
     let pack = runtime.adapter().retrieve(topic.clone()).await?;
     let control = snapshot(&pack, &topic)?;
     let mut rows = Vec::new();
     for probe in &family.probes {
+        let matched = if obligations::is_family(family) {
+            let query = obligations::topic_control(&probe.supported_input);
+            let observed = if serde_json::to_value(&query)? == serde_json::to_value(&topic)? {
+                control.clone()
+            } else {
+                let pack = runtime.adapter().retrieve(query.clone()).await?;
+                snapshot(&pack, &query)?
+            };
+            obligations::ensure_healthy(family, &query, &observed)?;
+            Some((query, observed))
+        } else {
+            None
+        };
+        let comparison = matched.as_ref().map_or(&control, |(_, observed)| observed);
         let projection = Box::pin(retrieve_reading(
             runtime,
             family,
             probe,
             &probe.supported_input,
-            &control,
+            comparison,
         ))
         .await?;
         let (input, missing) = supported_probe_input(probe, anniversary_available)?;
         let executed = if probe.required_routes.is_empty() {
             projection.clone()
         } else if missing.is_empty() {
-            Box::pin(retrieve_reading(runtime, family, probe, &input, &control)).await?
+            Box::pin(retrieve_reading(runtime, family, probe, &input, comparison)).await?
         } else {
             Value::Null
         };
-        rows.push(json!({"probe":probe.name,"planned_input":probe,
+        let mut row = json!({"probe":probe.name,"planned_input":probe,
             "status":if missing.is_empty() { "executed" } else { "not_run" },
             "missing_capabilities":missing,
-            "executed_case":executed,"parent_control":projection}));
+            "executed_case":executed,"parent_control":projection});
+        if let Some((query, observed)) = matched {
+            row["topic_alone_control"] = json!({"input":query,"observed":observed});
+        }
+        rows.push(row);
     }
     Ok(
         json!({"topic_alone_input":topic,"topic_alone_observed":control,
@@ -1634,6 +1653,48 @@ pub(super) async fn run_consolidation(
     Ok(result)
 }
 
+fn timing_queries(
+    family: &Family,
+    reading: &Value,
+    anniversary_available: bool,
+) -> Result<Vec<(String, RetrieveInput)>> {
+    let mut queries = Vec::new();
+    if !consolidation::is_family(family) {
+        queries.push((
+            "topic-alone-control".into(),
+            serde_json::from_value(reading["topic_alone_input"].clone())?,
+        ));
+    }
+    for probe in &family.probes {
+        if obligations::is_family(family) {
+            let row = reading["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["probe"] == probe.name)
+                .unwrap();
+            let control = &row["topic_alone_control"]["input"];
+            if control != &reading["topic_alone_input"] {
+                queries.push((
+                    format!("{}/topic-alone-control", probe.name),
+                    serde_json::from_value(control.clone())?,
+                ));
+            }
+        }
+        queries.push((
+            format!("{}/parent", probe.name),
+            probe.supported_input.clone(),
+        ));
+        if !probe.required_routes.is_empty() {
+            let (input, missing) = supported_probe_input(probe, anniversary_available)?;
+            if missing.is_empty() {
+                queries.push((format!("{}/full", probe.name), input));
+            }
+        }
+    }
+    Ok(queries)
+}
+
 async fn run_families(
     stores: &Path,
     config: &BenchmarkRunConfig,
@@ -1680,26 +1741,7 @@ async fn run_families(
                     Box::pin(measure(&runtime, &next, config, anniversary_available)).await?
                 };
                 if timings.enabled {
-                    let mut queries = Vec::new();
-                    if !consolidation::is_family(&next) {
-                        queries.push((
-                            "topic-alone-control".into(),
-                            input(config, &next.namespace, false, Some(TOPIC)),
-                        ));
-                    }
-                    for probe in &next.probes {
-                        queries.push((
-                            format!("{}/parent", probe.name),
-                            probe.supported_input.clone(),
-                        ));
-                        if !probe.required_routes.is_empty() {
-                            let (input, missing) =
-                                supported_probe_input(probe, anniversary_available)?;
-                            if missing.is_empty() {
-                                queries.push((format!("{}/full", probe.name), input));
-                            }
-                        }
-                    }
+                    let queries = timing_queries(&next, &reading, anniversary_available)?;
                     timings
                         .record(&runtime, &next.name, opposed_order, queries)
                         .await?;
@@ -1748,6 +1790,34 @@ mod tests {
     use super::*;
     use cmem_eval::character_memory::MemoryObjectRef;
     use uuid::Uuid;
+
+    #[test]
+    fn timed_controls_reuse_complete_recorded_requests() {
+        let config = config();
+        for family in [obligations::meeting(&config), obligations_family(&config)] {
+            let mut topic = input(&config, &family.namespace, false, Some(TOPIC));
+            // Deliberately differs from either builder default: reconstruction loses it.
+            topic.scene.time = Some("2025-09-09T22:00:00+09:00".into());
+            let reading = json!({"topic_alone_input":topic,"rows":family.probes.iter().map(|probe|
+                json!({"probe":probe.name,"topic_alone_control":{"input":obligations::topic_control(&probe.supported_input)}})
+            ).collect::<Vec<_>>()});
+            let timed = timing_queries(&family, &reading, false).unwrap();
+            assert_eq!(
+                serde_json::to_value(&timed[0].1).unwrap(),
+                reading["topic_alone_input"]
+            );
+            if obligations::is_family(&family) {
+                for row in reading["rows"].as_array().unwrap() {
+                    let name = format!("{}/topic-alone-control", row["probe"].as_str().unwrap());
+                    let (_, query) = timed.iter().find(|(label, _)| label == &name).unwrap();
+                    assert_eq!(
+                        serde_json::to_value(query).unwrap(),
+                        row["topic_alone_control"]["input"]
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn distinct_observation_accepts_only_its_own_derived_link() {

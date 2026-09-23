@@ -316,6 +316,17 @@ pub(super) fn meeting(config: &BenchmarkRunConfig) -> Family {
                 0.95,
                 consolidation::vector(7, 1.0),
             );
+            // These are reflections about a person, formed in a keyless scene.
+            // Extra Involves edges would test the ordinary hub bound
+            // instead of the intended crowded About prefix.
+            family
+                .experiences
+                .last_mut()
+                .unwrap()
+                .write
+                .scene
+                .participants
+                .clear();
         }
     }
     for n in 0..64 {
@@ -488,16 +499,32 @@ fn settled_or_superseded(family: &Family, id: &str) -> (bool, bool) {
     (settled, superseded)
 }
 
-pub(super) fn reading(
+pub(super) fn topic_control(input: &RetrieveInput) -> RetrieveInput {
+    let mut control = input.clone();
+    control.scene.participants.clear();
+    control.topic = Some(TOPIC.into());
+    control
+}
+
+pub(super) fn ensure_healthy(
     family: &Family,
     input: &RetrieveInput,
-    pack: &RetrievedContextPack,
     observed: &Value,
-    control: &Value,
-) -> Result<Value> {
+) -> Result<()> {
     ensure!(
         observed["telemetry"]["graph_expansion"]["bounded_failure_count"] == 0,
-        "degraded obligations graph recall"
+        "degraded obligations graph recall: family={} input={} graph={} expansions={}",
+        family.name,
+        serde_json::to_string(input)?,
+        observed["telemetry"]["graph_expansion"],
+        json!(
+            observed["trace"]["graph_expansions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|expansion| !expansion["bounded_failure"].is_null())
+                .collect::<Vec<_>>()
+        )
     );
     ensure!(
         matches!(
@@ -506,6 +533,17 @@ pub(super) fn reading(
         ),
         "incomplete obligations vector recall"
     );
+    Ok(())
+}
+
+pub(super) fn reading(
+    family: &Family,
+    input: &RetrieveInput,
+    pack: &RetrievedContextPack,
+    observed: &Value,
+    control: &Value,
+) -> Result<Value> {
+    ensure_healthy(family, input, observed)?;
     let selected = observed["selected"].as_array().unwrap();
     let contains = |id: &str| selected.iter().any(|s| s["external_id"] == id);
     let mut obligations = obligation_reading(pack, family, input)?;
@@ -654,6 +692,31 @@ mod tests {
         );
         assert_eq!(family.character_entity.as_deref(), Some("self"));
         assert_eq!(family.topic_targets.len(), 128);
+        for person in ["iris", "rowan", "nia"] {
+            let state = family
+                .graph
+                .derived_memories
+                .iter()
+                .filter(|m| m.salience_score == 0.95 && m.entity_external_ids == [person])
+                .collect::<Vec<_>>();
+            assert_eq!(state.len(), 32);
+            assert!(
+                state
+                    .iter()
+                    .flat_map(|m| &m.source_episode_external_ids)
+                    .all(|id| {
+                        family
+                            .experiences
+                            .iter()
+                            .find(|e| &e.write.episode_external_id == id)
+                            .unwrap()
+                            .write
+                            .scene
+                            .participants
+                            .is_empty()
+                    })
+            );
+        }
         let limits = native::ContinuitySectionLimits::default();
         for (kind, cap) in [
             (DerivedType::Reflection, limits.derived_memories),
@@ -678,6 +741,17 @@ mod tests {
                 .lifecycle_policy
                 .is_some_and(|v| v.include_superseded)
         }));
+        for probe in &family.probes {
+            let mut reference = probe.supported_input.clone();
+            reference.scene.time = Some("2025-09-09T22:00:00+09:00".into());
+            let mut expected = serde_json::to_value(&reference).unwrap();
+            expected["scene"]["participants"] = json!([]);
+            expected["topic"] = json!(TOPIC);
+            assert_eq!(
+                serde_json::to_value(topic_control(&reference)).unwrap(),
+                expected
+            );
+        }
         for obligation in &family.obligations {
             let memory = family
                 .graph

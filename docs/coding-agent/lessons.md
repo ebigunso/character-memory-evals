@@ -1230,3 +1230,47 @@ Prevention:
 
 Evidence:
 - `crates/cmem-eval-continuity/src/driver.rs`; `crates/cmem-eval/src/results.rs`.
+
+## 2026-09-24 - Measurement controls preserve the complete recorded request [tags: review, measurement, controls]
+
+Context:
+- Task: generated obligations family for the library prospective measurement; internal review findings F2 and F3.
+- Roles involved: Worker, Reviewer, Orchestrator.
+
+Symptom:
+- The timed topic-alone control used the shared evening default while the deterministic control used morning. The include-superseded comparison also used a default lifecycle policy on one side.
+
+Root cause:
+- Timing reconstructed the request independently, and one shared comparator was reused across probes with different eligibility policies.
+
+Fix applied:
+- Timed controls deserialize the recorded deterministic requests. Each obligations comparator clones its probe request and changes only the declared topic/participant contrast; its complete input is recorded beside the result.
+
+Prevention:
+- Derive measurement controls and timing requests from their authoritative inputs. Check complete serialized equality except for declared experimental differences, including time and lifecycle policy, through the production query assembly helper.
+- Prevention is implemented as a focused executable check; no new repository rule is needed for this occurrence.
+
+Evidence:
+- `crates/cmem-eval-continuity/src/bin/calibrate_cue_floors/time_and_obligations.rs`; `crates/cmem-eval-continuity/src/bin/calibrate_cue_floors/obligations.rs`.
+
+## 2026-09-24 - Pressure fixtures need a native saturation witness [tags: review, measurement, graph-bounds]
+
+Context:
+- Task: generated obligations family; internal review finding F1 and the first native diagnostic.
+- Roles involved: Worker, Reviewer, Orchestrator.
+
+Symptom:
+- The crowded person-state cohort also crowded source-scene participant links, so the settled-topic query hit the native hub limit before a valid BEFORE capture existed.
+
+Root cause:
+- Authored supply above the aboutness and section caps was checked, but a reused belief helper also created keyed source occasions and increased unrelated graph degree.
+
+Fix applied:
+- Preserve the original failing fixture as library evidence. Give only the added state crowd keyless source scenes, retaining its subject links and salience; retain the native bounds and fail-closed guard.
+
+Prevention:
+- Before accepting a pressure fixture, inspect the edges introduced by reused builders and require successful native captures in both identifier orders, zero bounded failures, and actual selected counts at the intended caps. Authored supply is not a saturation witness.
+- The task's native acceptance audit owns this check; no additional repository rule is introduced.
+
+Evidence:
+- `crates/cmem-eval-continuity/src/bin/calibrate_cue_floors/obligations.rs`; `crates/cmem-eval-continuity/src/bin/calibrate_cue_floors/consolidation.rs`.
