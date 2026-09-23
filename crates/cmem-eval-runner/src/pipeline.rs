@@ -422,8 +422,11 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                 let input = RetrieveInput {
                     mode: config.retrieval.mode,
                     namespace: namespace.clone(),
-                    query: S::question_text(question).to_string(),
-                    query_date: S::query_date(question),
+                    topic: Some(S::question_text(question).to_string()),
+                    scene: cmem_eval::MemorySceneInput {
+                        time: S::query_date(question),
+                        ..Default::default()
+                    },
                     surface_policy: config.retrieval.surface_policy.clone(),
                 };
                 let pack = if let Some(baseline) = &baseline {
@@ -596,13 +599,20 @@ impl DatasetSpec for ContinuitySpec {
     fn questions(item: &Self::Item) -> Vec<&Self::Question> {
         item.events
             .iter()
-            .filter(|event| matches!(event, InteractionEvent::Query { .. }))
+            .filter(|event| {
+                matches!(
+                    event,
+                    InteractionEvent::Query { .. } | InteractionEvent::Probe { .. }
+                )
+            })
             .collect()
     }
 
     fn question_id(question: &Self::Question) -> &str {
         match question {
-            InteractionEvent::Query { query_id, .. } => query_id,
+            InteractionEvent::Query { query_id, .. } | InteractionEvent::Probe { query_id, .. } => {
+                query_id
+            }
             _ => unreachable!("ContinuitySpec::questions returns query events only"),
         }
     }
@@ -614,13 +624,15 @@ impl DatasetSpec for ContinuitySpec {
     fn question_text(question: &Self::Question) -> &str {
         match question {
             InteractionEvent::Query { text, .. } => text,
+            InteractionEvent::Probe { topic, .. } => topic.as_deref().unwrap_or_default(),
             _ => unreachable!("ContinuitySpec::questions returns query events only"),
         }
     }
 
     fn query_date(question: &Self::Question) -> Option<String> {
         match question {
-            InteractionEvent::Query { timestamp, .. } => Some(timestamp.to_rfc3339()),
+            InteractionEvent::Query { timestamp, .. }
+            | InteractionEvent::Probe { timestamp, .. } => Some(timestamp.to_rfc3339()),
             _ => unreachable!("ContinuitySpec::questions returns query events only"),
         }
     }
@@ -1722,9 +1734,11 @@ mod tests {
                 external_id: "old".into(),
                 namespace: "stale".into(),
                 summary: "stale durable state".into(),
-                started_at: None,
+                scene: cmem_eval::MemorySceneInput {
+                    time: None,
+                    ..Default::default()
+                },
                 ended_at: None,
-                participants: Vec::new(),
                 metadata: Value::Null,
             })
             .await
@@ -1737,8 +1751,11 @@ mod tests {
         let pack = adapter
             .retrieve(RetrieveInput {
                 namespace: "stale".into(),
-                query: "stale durable state".into(),
-                query_date: None,
+                topic: Some("stale durable state".into()),
+                scene: cmem_eval::MemorySceneInput {
+                    time: None,
+                    ..Default::default()
+                },
                 mode: cmem_eval::RetrievalMode::Hybrid,
                 surface_policy: config.retrieval.surface_policy.clone(),
             })

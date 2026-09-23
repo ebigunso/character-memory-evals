@@ -5,14 +5,29 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Scene keys use the harness external entity identities until adapter admission.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MemorySceneInput {
+    pub time: Option<String>,
+    pub participants: Vec<SceneParticipantInput>,
+    pub setting: character_memory::SceneSetting,
+    pub custom_values: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SceneParticipantInput {
+    pub key: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EpisodeInput {
     pub external_id: String,
     pub namespace: String,
     pub summary: String,
-    pub started_at: Option<String>,
+    pub scene: MemorySceneInput,
     pub ended_at: Option<String>,
-    pub participants: Vec<String>,
     pub metadata: serde_json::Value,
 }
 
@@ -144,8 +159,8 @@ pub struct MemoryEndpointInput {
 pub struct RetrieveInput {
     pub mode: RetrievalMode,
     pub namespace: String,
-    pub query: String,
-    pub query_date: Option<String>,
+    pub topic: Option<String>,
+    pub scene: MemorySceneInput,
     pub surface_policy: RetrievalSurfacePolicy,
 }
 
@@ -308,7 +323,7 @@ pub enum CorrectionTargetInput {
         object_type: ObjectType,
         external_id: String,
         original_raw_ref: Option<String>,
-        original_source_ref: Option<String>,
+        original_setting_key: Option<String>,
     },
 }
 
@@ -412,14 +427,11 @@ pub struct PrepareWriteInput {
     pub content: String,
     pub episode_external_id: String,
     pub observation_external_id: String,
-    #[serde(default)]
-    pub participant_entity_external_ids: Vec<String>,
+    pub scene: MemorySceneInput,
     #[serde(default)]
     pub speaker_entity_external_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub salience: Option<f32>,
-    #[serde(default)]
-    pub episode_started_at: Option<String>,
     #[serde(default)]
     pub observation_observed_at: Option<String>,
     #[serde(default)]

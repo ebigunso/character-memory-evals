@@ -32,7 +32,7 @@ fn admitted_copies_keep_dates_text_and_collision_safe_identities() {
         .zip(&mapped.observations)
         .zip(&item.sessions)
     {
-        assert_eq!(episode.started_at, source.date);
+        assert_eq!(episode.scene.time, source.date);
         assert_eq!(episode.ended_at, source.date);
         assert_eq!(observation.observed_at, source.date);
         assert_eq!(observation.episode_external_id, episode.external_id);

@@ -129,7 +129,7 @@ impl ScenarioOutcome {
         else {
             unreachable!("probe outcome requires a probe event");
         };
-        let checks = crate::check_probe_assertions(event, pack);
+        let checks = crate::check_probe_assertions(scenario, event, pack);
         if checks
             .iter()
             .any(|result| result.check.status == ScenarioStatus::Failed)
@@ -531,6 +531,11 @@ mod tests {
                 rationale.telemetry.selected_graph_root_count = selected;
                 rationale.telemetry.graph_root_omission_count = omitted;
                 cmem_eval::RetrieveOutcome {
+                    scene: cmem_eval::character_memory::Scene::at(
+                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                    ),
+                    scene_references: Vec::new(),
+                    memory_scenes: Vec::new(),
                     pack: cmem_eval::character_memory::ContinuityContextPack::empty(),
                     rationale,
                     trace: Some(cmem_eval::RetrievalTrace::empty()),
@@ -684,8 +689,22 @@ mod tests {
             },
             "measures":{"bystanders":["noise"]}
         })).unwrap();
-        let visit = EpisodeDraft::new("visit").into_domain().unwrap();
-        let noise = EpisodeDraft::new("noise").into_domain().unwrap();
+        let visit = EpisodeDraft {
+            scene: Some(cmem_eval::character_memory::Scene::at(
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+            )),
+            ..EpisodeDraft::new("visit")
+        }
+        .into_domain()
+        .unwrap();
+        let noise = EpisodeDraft {
+            scene: Some(cmem_eval::character_memory::Scene::at(
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+            )),
+            ..EpisodeDraft::new("noise")
+        }
+        .into_domain()
+        .unwrap();
         let refs = [(visit.id, "visit"), (noise.id, "noise")]
             .map(|(id, external_id)| {
                 (
@@ -699,6 +718,11 @@ mod tests {
             .into_iter()
             .collect();
         let native = RetrieveOutcome {
+            scene: cmem_eval::character_memory::Scene::at(
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+            ),
+            scene_references: Vec::new(),
+            memory_scenes: Vec::new(),
             pack: ContinuityContextPack {
                 relevant_episodes: vec![visit, noise],
                 ..ContinuityContextPack::empty()
@@ -878,9 +902,14 @@ mod tests {
         let scenario = crate::driver::tests::situated_scenario();
         let episodes = (0..9)
             .map(|i| {
-                EpisodeDraft::new(format!("memory {i}"))
-                    .into_domain()
-                    .unwrap()
+                EpisodeDraft {
+                    scene: Some(cmem_eval::character_memory::Scene::at(
+                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                    )),
+                    ..EpisodeDraft::new(format!("memory {i}"))
+                }
+                .into_domain()
+                .unwrap()
             })
             .collect::<Vec<_>>();
         let refs = episodes
@@ -899,6 +928,11 @@ mod tests {
         let pack = RetrievedContextPack::from_ranked_items(
             vec![],
             vec![RetrieveOutcome {
+                scene: cmem_eval::character_memory::Scene::at(
+                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                ),
+                scene_references: Vec::new(),
+                memory_scenes: Vec::new(),
                 pack: ContinuityContextPack {
                     relevant_episodes: episodes,
                     ..ContinuityContextPack::empty()

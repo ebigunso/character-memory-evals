@@ -188,6 +188,7 @@ pub fn omissions_have_reasons(outcomes: &[RetrieveOutcome]) -> bool {
 }
 
 pub fn check_probe_assertions(
+    scenario: &ContinuityScenario,
     event: &InteractionEvent,
     pack: &cmem_eval::RetrievedContextPack,
 ) -> Vec<crate::AssertionResult> {
@@ -289,6 +290,73 @@ pub fn check_probe_assertions(
                         },
                     )
                 }
+                AssertionSubject::References(reference) => {
+                    let expected = &assertions
+                        .references
+                        .iter()
+                        .find(|assertion| &assertion.participant == reference)
+                        .expect("authored identity")
+                        .resolution;
+                    let passed = pack.outcomes().iter().any(|outcome| {
+                        outcome.scene_references.iter().any(|fact| {
+                            reference_matches(reference, fact, &outcome.scene, pack)
+                                && resolution_matches(expected, &fact.resolution, pack)
+                        })
+                    });
+                    CheckResult::checked(
+                        passed,
+                        if passed {
+                            "native reference outcome matches the authored expectation"
+                        } else {
+                            "native reference outcome is missing or differs"
+                        },
+                    )
+                }
+                AssertionSubject::Scene { memory, scene } => {
+                    let observed = pack
+                        .outcomes()
+                        .iter()
+                        .flat_map(|outcome| &outcome.memory_scenes)
+                        .filter(|fact| {
+                            pack.object_refs()
+                                .get(&fact.memory.id.to_string())
+                                .is_some_and(|object| {
+                                    object.external_id == *memory
+                                        || (object.object_type
+                                            == cmem_eval::ObjectType::Observation
+                                            && object.external_id
+                                                == crate::observation_external_id(memory))
+                                })
+                        })
+                        .collect::<Vec<_>>();
+                    let passed = !observed.is_empty()
+                        && observed.iter().all(|fact| {
+                            !fact.sources.is_empty()
+                                && fact.sources.iter().all(|source| match source {
+                                    cmem_eval::character_memory::SourceScene::Recorded {
+                                        episode_id,
+                                        scene: actual,
+                                    } => scene_matches(
+                                        scenario,
+                                        *episode_id,
+                                        &scenario.scenes[scene],
+                                        actual,
+                                        pack,
+                                    ),
+                                    cmem_eval::character_memory::SourceScene::Unavailable {
+                                        ..
+                                    } => false,
+                                })
+                        });
+                    CheckResult::checked(
+                        passed,
+                        if passed {
+                            "recorded native source scenes match the authored scene"
+                        } else {
+                            "recorded native source scene is missing, unavailable or differs"
+                        },
+                    )
+                }
                 AssertionSubject::Cued { cue, .. } | AssertionSubject::NotCued { cue, .. } => {
                     // The pinned library has no named cue facts. When they land,
                     // project all native outcomes here; unavailable is never negative evidence.
@@ -309,6 +377,136 @@ pub fn check_probe_assertions(
             crate::AssertionResult { identity, check }
         })
         .collect()
+}
+
+fn entity_external_id(
+    pack: &cmem_eval::RetrievedContextPack,
+    id: cmem_eval::character_memory::MemoryId,
+) -> Option<&str> {
+    pack.object_refs()
+        .get(&id.to_string())
+        .filter(|object| object.object_type == cmem_eval::ObjectType::Entity)
+        .map(|object| object.external_id.as_str())
+}
+
+fn reference_matches(
+    expected: &crate::PerceivedReference,
+    fact: &cmem_eval::character_memory::SceneReferenceResult,
+    scene: &cmem_eval::character_memory::Scene,
+    pack: &cmem_eval::RetrievedContextPack,
+) -> bool {
+    use crate::PerceivedReference;
+    use cmem_eval::character_memory::SceneReference;
+    match (&fact.reference, expected) {
+        (SceneReference::ParticipantKey { index }, PerceivedReference::Key { key }) => {
+            scene
+                .participants
+                .get(*index)
+                .and_then(|person| person.key)
+                .and_then(|id| entity_external_id(pack, id))
+                == Some(key.as_str())
+        }
+        (SceneReference::ParticipantName { index }, PerceivedReference::Name { text }) => {
+            scene
+                .participants
+                .get(*index)
+                .and_then(|person| person.name.as_deref())
+                == Some(text.as_str())
+        }
+        (
+            SceneReference::ParticipantDescription { index },
+            PerceivedReference::Description { text },
+        ) => {
+            scene
+                .participants
+                .get(*index)
+                .and_then(|person| person.description.as_deref())
+                == Some(text.as_str())
+        }
+        _ => false,
+    }
+}
+
+fn resolution_matches(
+    expected: &crate::ExpectedReferenceResolution,
+    actual: &cmem_eval::character_memory::SceneReferenceResolution,
+    pack: &cmem_eval::RetrievedContextPack,
+) -> bool {
+    use crate::ExpectedReferenceResolution as Expected;
+    use cmem_eval::character_memory::SceneReferenceResolution as Actual;
+    match (expected, actual) {
+        (Expected::Resolved { entity }, Actual::Resolved { notion_id }) => {
+            entity_external_id(pack, *notion_id) == Some(entity.as_str())
+        }
+        (Expected::Ambiguous { candidates }, Actual::Ambiguous { notion_ids }) => {
+            let actual = notion_ids
+                .iter()
+                .map(|id| entity_external_id(pack, *id))
+                .collect::<Option<BTreeSet<_>>>();
+            actual.as_ref() == Some(&candidates.iter().map(String::as_str).collect())
+        }
+        (Expected::Unknown, Actual::Unknown) => true,
+        _ => false,
+    }
+}
+
+fn scene_matches(
+    scenario: &ContinuityScenario,
+    episode_id: cmem_eval::character_memory::MemoryId,
+    expected: &crate::Scene,
+    actual: &cmem_eval::character_memory::Scene,
+    pack: &cmem_eval::RetrievedContextPack,
+) -> bool {
+    use crate::PerceivedReference;
+    let time_matches = pack
+        .object_refs()
+        .get(&episode_id.to_string())
+        .filter(|object| object.object_type == cmem_eval::ObjectType::Episode)
+        .is_some_and(|object| {
+            scenario.events.iter().any(|event| {
+                matches!(
+                    event,
+                    InteractionEvent::Experience { event_id, timestamp, .. }
+                        if event_id == &object.external_id && *timestamp == actual.time
+                )
+            })
+        });
+    let expected_participants = expected
+        .who
+        .iter()
+        .map(|person| match &person.reference {
+            PerceivedReference::Key { key } => (Some(key.as_str()), None, None),
+            PerceivedReference::Name { text } => (None, Some(text.as_str()), None),
+            PerceivedReference::Description { text } => (None, None, Some(text.as_str())),
+            PerceivedReference::Setting { .. } => unreachable!("fixture admission"),
+        })
+        .collect::<BTreeSet<_>>();
+    let actual_participants = actual
+        .participants
+        .iter()
+        .map(|person| {
+            let key = match person.key {
+                Some(id) => Some(entity_external_id(pack, id)?),
+                None => None,
+            };
+            Some((key, person.name.as_deref(), person.description.as_deref()))
+        })
+        .collect::<Option<BTreeSet<_>>>();
+    let (key, words) = match &expected.place {
+        Some(PerceivedReference::Key { key } | PerceivedReference::Setting { key }) => {
+            (Some(key.as_str()), None)
+        }
+        Some(PerceivedReference::Name { text } | PerceivedReference::Description { text }) => {
+            (None, Some(text.as_str()))
+        }
+        None => (None, None),
+    };
+    time_matches
+        && expected.what.is_none()
+        && actual_participants.as_ref() == Some(&expected_participants)
+        && actual.setting.key.as_deref() == key
+        && actual.setting.words.as_deref() == words
+        && actual.custom_values == expected.custom
 }
 
 fn check_cue(
@@ -845,8 +1043,8 @@ mod tests {
             reason: SectionAssignmentReason::Selected {
                 scores: SectionScoreComponents {
                     final_score: 1.0,
-                    vector_score: None,
-                    vector_score_source: None,
+                    cue_score: None,
+                    cue_score_source: None,
                     graph_score: None,
                     salience_score: None,
                 },
@@ -912,8 +1110,22 @@ mod tests {
         }
         scenario.events.insert(3, authored_thread);
         scenario.validate().unwrap();
-        let visit = EpisodeDraft::new("visit").into_domain().unwrap();
-        let noise = EpisodeDraft::new("noise").into_domain().unwrap();
+        let visit = EpisodeDraft {
+            scene: Some(cmem_eval::character_memory::Scene::at(
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+            )),
+            ..EpisodeDraft::new("visit")
+        }
+        .into_domain()
+        .unwrap();
+        let noise = EpisodeDraft {
+            scene: Some(cmem_eval::character_memory::Scene::at(
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+            )),
+            ..EpisodeDraft::new("noise")
+        }
+        .into_domain()
+        .unwrap();
         let observation = ObservationDraft::new(visit.id, "observation")
             .into_domain()
             .unwrap();
@@ -956,12 +1168,22 @@ mod tests {
         native.derived_memories = vec![promise.into()];
         native.active_threads = vec![thread];
         let mut outcome = RetrieveOutcome {
+            scene: cmem_eval::character_memory::Scene::at(
+                chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+            ),
+            scene_references: Vec::new(),
+            memory_scenes: Vec::new(),
             pack: native,
             rationale: RetrievalRationale::new("test"),
             trace: Some(RetrievalTrace::empty()),
         };
         let make_pack = |mut outcome: RetrieveOutcome| {
             let observation_outcome = RetrieveOutcome {
+                scene: cmem_eval::character_memory::Scene::at(
+                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                ),
+                scene_references: Vec::new(),
+                memory_scenes: Vec::new(),
                 pack: ContinuityContextPack {
                     salient_observations: std::mem::take(&mut outcome.pack.salient_observations),
                     commitments: std::mem::take(&mut outcome.pack.commitments),
@@ -1021,7 +1243,7 @@ mod tests {
         assert_eq!(measured.carried_recall_by_reason["pair"].recall, Some(1.0));
         assert_eq!(measured.carried_recall_by_reason["due"].admitted, Some(1));
         assert!(
-            check_probe_assertions(&event, &pack)
+            check_probe_assertions(&scenario, &event, &pack)
                 .iter()
                 .all(|result| result.check.status == ScenarioStatus::Passed)
         );
@@ -1057,7 +1279,7 @@ mod tests {
             .salient_observations
             .retain(|observation| observation.episode_id != noise.id);
         outcome.pack.active_threads.clear();
-        let failed = check_probe_assertions(&event, &make_pack(outcome.clone()));
+        let failed = check_probe_assertions(&scenario, &event, &make_pack(outcome.clone()));
         assert_eq!(
             failed
                 .iter()
@@ -1105,7 +1327,7 @@ mod tests {
                 count: 1,
             });
         assert!(omissions_have_reasons(&[outcome.clone()]));
-        let checked = check_probe_assertions(&event, &make_pack(outcome));
+        let checked = check_probe_assertions(&scenario, &event, &make_pack(outcome));
         let omission = checked
             .iter()
             .find(|result| {
@@ -1199,6 +1421,11 @@ mod tests {
             retrieval: RetrievedContextPack::from_ranked_items(
                 items,
                 vec![RetrieveOutcome {
+                    scene: cmem_eval::character_memory::Scene::at(
+                        chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                    ),
+                    scene_references: Vec::new(),
+                    memory_scenes: Vec::new(),
                     pack: ContinuityContextPack::empty(),
                     rationale: RetrievalRationale::new("test"),
                     trace: Some(native_trace),

@@ -72,7 +72,7 @@ Scenes live in the optional `scenes` map or inline on an event. Select one with 
 | `what` | Optional activity reference. A `key` must name an earlier authored thread or open loop when the scene is used. |
 | `custom` | Optional string-to-string map; keys and values must be nonblank. |
 
-Perceived references are `{by = "key", key = "id"}`, `{by = "name", text = "Jo"}`, or `{by = "description", text = "the visitor in the red coat"}`. `{by = "setting", key = "kitchen"}` is allowed only for `where`. Write-side scenes require keys or settings, never names or descriptions; probe scenes can use perceived names and descriptions. A participant's `gold_entity` must be declared and must agree with a key reference when both exist. It is removed from the input projection.
+Perceived references are `{by = "key", key = "id"}`, `{by = "name", text = "Jo"}`, or `{by = "description", text = "the visitor in the red coat"}`. `{by = "setting", key = "kitchen"}` is allowed only for `where`. Both experience and probe scenes accept perceived names and descriptions. The scene slice forwards place keys as setting keys and place words as setting words; activity remains unsupported. A participant's `gold_entity` must be declared and must agree with a key reference when both exist. It is removed from the input projection.
 
 ## Events and embeddings
 
@@ -92,7 +92,7 @@ A probe may omit its topic entirely. A present topic must be nonblank; its embed
 
 Lifecycle events use the same event identity and timestamp: `link` supplies `external_id`, `from_external_id`, `relation` and `to_external_id`; `forget` supplies `target_external_ids`, `suppress_derived_from_target` and `apply_to_derived_from_target`; `correct` supplies `target_external_id`, `replacement_external_id` and `replacement_text`; `restart` supplies `reopen_graph` and `reopen_stats`. At least one store must reopen and a later query or probe must follow a restart. For the `remember` and `query` shapes, see [fixture.rs](src/fixture.rs).
 
-For deterministic authoring, use `provider = "controllable_similarity"` with `seed`, `vector_size`, `noise_magnitude`, `clusters` and `concepts`. Each cluster is a vector; each concept names its cluster and exact input strings. `own_concept = true` gives every otherwise-unassigned runtime input its own deterministic concept while preserving explicit groups. This supplies coverage, not semantic similarity: group texts explicitly when the narrative needs them to match. With `own_concept = false` (the default), the loader rejects uncovered inputs, including entity labels, normalized write texts, probe topics, textual scene references and topic triggers. Runtime normalization includes whitespace collapse and native derived-label prefix stripping. A frozen provider is `{provider = "frozen"}` and requires complete configured cache coverage before execution; see the [root README](../../README.md#generate-and-validate-frozen-real-embeddings) for store generation.
+For deterministic authoring, use `provider = "controllable_similarity"` with `seed`, `vector_size`, `noise_magnitude`, `clusters` and `concepts`. Each cluster is a vector; each concept names its cluster and exact input strings. `own_concept = true` gives every otherwise-unassigned runtime input its own deterministic concept while preserving explicit groups. This supplies coverage, not semantic similarity: group texts explicitly when the narrative needs them to match. With `own_concept = false` (the default), the loader rejects uncovered inputs, including entity labels, normalized write texts, probe topics, textual scene references and topic triggers. Write inventory follows native whitespace collapse: episode scene words append a `Setting:` line and then a `With:` line per participant; keys and custom values add no embedding text. Probe text trims outer whitespace only. The provider strips native surface labels for lookup, and an unexpected native input fails instead of silently assigning a vector. A frozen provider is `{provider = "frozen"}` and requires complete configured cache coverage before execution; see the [root README](../../README.md#generate-and-validate-frozen-real-embeddings) for store generation.
 
 ## Assertions and cue vocabulary
 
@@ -154,12 +154,13 @@ The loader derives needed features from actual fields and assertions; authors ca
 | Authored surface | Needed features |
 |---|---|
 | Experience scene | `write_scene`; present place/activity/custom adds `write_scene_where`, `write_scene_what`, `write_scene_custom` |
-| Probe | `probe_scene`, `reference_time`; absent topic adds `no_topic` |
+| Probe | `probe_scene`, `reference_time`, `omission_reasons`; absent topic adds `no_topic` |
 | Probe textual references | Role-specific `participant_name`, `participant_description`, `place_name`, `place_description`, `activity_name`, `activity_description` |
 | Derive | `authored_derived_memory`; intention/preference add `intention_memory`/`preference_memory`; thread support/about/supersession adds `thread_provenance` |
 | Direction, due, trigger | `direction`, `due_date`, `trigger` respectively |
 | `cued` or `not_cued` | `cue_trace` |
 | Reference, scene, elapsed, staleness assertions | `reference_trace`, `memory_scene_trace`, `elapsed_since_met`, `staleness` respectively |
+| Omission by resolution | `resolution_omission` (unsupported until the library reports end of currency) |
 | Omission, warning, section, order expectations | `omission_reasons`, `write_warnings`, `pack_sections`, `pack_order` respectively |
 
 `SUPPORTED_SCENARIO_FEATURES` in [driver.rs](src/driver.rs) is the single statement of support. Any missing feature makes the entire scenario `not_run` before adapter construction, writes or retrieval; a supported prefix is not executed.

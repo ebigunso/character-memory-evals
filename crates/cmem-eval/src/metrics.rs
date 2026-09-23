@@ -843,6 +843,9 @@ mod tests {
     #[test]
     fn grounding_uses_native_sources_or_application_given_subjects() {
         let mut outcome = RetrieveOutcome {
+            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+            scene_references: Vec::new(),
+            memory_scenes: Vec::new(),
             pack: ContinuityContextPack::empty(),
             rationale: RetrievalRationale::new("grounding"),
             trace: None,
@@ -1007,6 +1010,9 @@ mod tests {
             },
         ];
         let outcome = RetrieveOutcome {
+            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+            scene_references: Vec::new(),
+            memory_scenes: Vec::new(),
             pack: ContinuityContextPack::empty(),
             rationale: RetrievalRationale::new("test"),
             trace: Some(trace),
@@ -1054,6 +1060,9 @@ mod tests {
             },
         ];
         let mut outcome = crate::RetrieveOutcome {
+            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+            scene_references: Vec::new(),
+            memory_scenes: Vec::new(),
             pack: character_memory::ContinuityContextPack::empty(),
             rationale: character_memory::RetrievalRationale::new("test"),
             trace: Some(crate::RetrievalTrace::empty()),
@@ -1098,6 +1107,9 @@ mod tests {
             },
         ];
         let mut outcome = crate::RetrieveOutcome {
+            scene: character_memory::Scene::at(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH),
+            scene_references: Vec::new(),
+            memory_scenes: Vec::new(),
             pack: character_memory::ContinuityContextPack::empty(),
             rationale: character_memory::RetrievalRationale::new("test"),
             trace: Some(crate::RetrievalTrace::empty()),

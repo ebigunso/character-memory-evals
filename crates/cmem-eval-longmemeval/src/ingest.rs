@@ -26,9 +26,15 @@ pub fn to_memory_inputs(instance: &LongMemEvalInstance) -> LongMemEvalMemoryInpu
                 session.session_id,
                 participants.join(", ")
             ),
-            started_at: session.date.clone(),
+            scene: cmem_eval::MemorySceneInput {
+                time: session.date.clone(),
+                setting: cmem_eval::character_memory::SceneSetting {
+                    key: Some(assigned.clone()),
+                    words: None,
+                },
+                ..Default::default()
+            },
             ended_at: session.date.clone(),
-            participants,
             metadata: serde_json::json!({
                 "source": "longmemeval_s",
                 "raw_date": session.raw_date.clone(),
@@ -92,7 +98,7 @@ mod tests {
         .unwrap();
         let mapped = to_memory_inputs(&rows[0]);
         assert_eq!(
-            mapped.episodes[0].started_at.as_deref(),
+            mapped.episodes[0].scene.time.as_deref(),
             Some("2023-05-30T23:40:00Z")
         );
         let metadata = serde_json::to_string(&mapped.observations[0].metadata).unwrap();

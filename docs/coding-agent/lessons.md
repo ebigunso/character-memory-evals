@@ -1186,6 +1186,50 @@ Prevention:
 
 Evidence:
 - `crates/cmem-eval-continuity/src/fixture.rs`; `crates/cmem-eval-continuity/src/driver.rs`.
+
+## 2026-09-21 - A label that groups a measurement is checked against what the scenario actually contains  [tags: review, fixtures, admission]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/v0-2-situated-recall-scenarios-plan.md`
+- Task/Wave: Task_5 step 1; found by external review on the scenario-language pull request
+- Roles involved: Copilot review, Worker, Orchestrator
+
+Symptom:
+- A scenario could declare the situated pattern while holding only legacy events, or the reverse, pass admission, and be measured and reported under the wrong pattern with no failure.
+
+Root cause:
+- The pattern was an authored label the loader trusted; nothing tied it to the event family the scenario contains.
+
+Fix applied:
+- The loader rejects a scenario unless its pattern is situated exactly when it contains situated events, with the existing typed error (commit e294823).
+
+Prevention:
+- Any authored label that decides how a result is grouped or which checks run is validated at admission against the content it describes. A wrong label must fail at load, never mis-group a measurement.
+
+Evidence:
+- `crates/cmem-eval-continuity/src/fixture.rs`.
+
+## 2026-09-21 - A scenario does not pass on infrastructure the run itself counts as degraded  [tags: review, driver, measurement]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/v0-2-situated-recall-scenarios-plan.md`
+- Task/Wave: Task_5 step 1; found by external review on the run pull request
+- Roles involved: Copilot review, Worker, Orchestrator
+
+Symptom:
+- The situated write helper rejected failed vector indexing but let a failed statistics update continue, so a scenario could be reported passed while the same run's degradation summary counted a degraded write. Retrieval selectivity reads those statistics, so the pass was not a valid measurement.
+
+Root cause:
+- The pass condition listed the failures it rejected one by one, and the list was shorter than the set the degradation summary already knew.
+
+Fix applied:
+- A statistics-update failure is rejected like a vector-indexing failure (commit 3ba296c).
+
+Prevention:
+- When a run has a summary of what counts as degraded, the pass condition is derived from that same set, or is checked against it field by field, whenever either changes.
+
+Evidence:
+- `crates/cmem-eval-continuity/src/driver.rs`; `crates/cmem-eval/src/results.rs`.
 ## 2026-09-23 - Store evidence according to its citations [tags: artifacts, git, planning]
 
 Symptom:

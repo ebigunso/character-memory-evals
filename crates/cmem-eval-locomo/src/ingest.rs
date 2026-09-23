@@ -44,9 +44,15 @@ pub fn to_memory_inputs(
                         participants.join(", ")
                     )
                 }),
-            started_at: session.timestamp.clone(),
+            scene: cmem_eval::MemorySceneInput {
+                time: session.timestamp.clone(),
+                setting: cmem_eval::character_memory::SceneSetting {
+                    key: Some(session.session_id.clone()),
+                    words: None,
+                },
+                ..Default::default()
+            },
             ended_at: session.timestamp.clone(),
-            participants,
             metadata: serde_json::json!({
                 "source": "locomo",
                 "include_image_captions": include_image_captions,
@@ -230,7 +236,7 @@ mod tests {
 
         let mapped = to_memory_inputs(&rows[0], false, false, false);
         assert_eq!(
-            mapped.episodes[0].started_at.as_deref(),
+            mapped.episodes[0].scene.time.as_deref(),
             Some("2023-05-08T13:56:00Z")
         );
         let metadata = serde_json::to_string(&mapped.observations[0].metadata).unwrap();

@@ -63,7 +63,7 @@ async fn situated_toml_cli_keeps_mixed_and_all_not_run_scenarios() {
         let gated = &report.scenarios["gated"].outcome;
         assert_eq!(gated.status, ScenarioStatus::NotRun);
         assert!(
-            gated
+            !gated
                 .missing_features
                 .contains(&cmem_eval_continuity::ScenarioFeature::ProbeScene)
         );

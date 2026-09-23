@@ -62,10 +62,20 @@ impl Bm25Baseline {
     }
 
     pub fn retrieve(&self, input: &RetrieveInput) -> RetrievedContextPack {
+        let query = input.topic.as_deref().unwrap_or_default();
+        // A lexical baseline has nothing to rank without query terms; every score
+        // would be zero and the pack would be arbitrary.
+        if tokenize(query).is_empty() {
+            return RetrievedContextPack::from_ranked_items(
+                Vec::new(),
+                Vec::new(),
+                ContextRenderer::PlainText,
+            );
+        }
         let mut counts = [0, 0];
         let items = self
             .index
-            .rank(&input.query)
+            .rank(query)
             .into_iter()
             .filter_map(|score| {
                 let mut item = self.items[&score.id].clone();
@@ -252,9 +262,11 @@ mod tests {
             external_id: "session".into(),
             namespace: "lexical".into(),
             summary: "green tea".into(),
-            started_at: None,
+            scene: crate::MemorySceneInput {
+                time: None,
+                ..Default::default()
+            },
             ended_at: None,
-            participants: Vec::new(),
             metadata: serde_json::Value::Null,
         };
         let observations = ["tea tea", "train ticket"].map(|text| ObservationInput {
@@ -270,8 +282,11 @@ mod tests {
         let mut input = RetrieveInput {
             mode: crate::RetrievalMode::Bm25Only,
             namespace: "lexical".into(),
-            query: "tea".into(),
-            query_date: None,
+            topic: Some("tea".into()),
+            scene: crate::MemorySceneInput {
+                time: None,
+                ..Default::default()
+            },
             surface_policy: crate::RetrievalSurfacePolicy {
                 object_types: vec![ObjectType::Episode, ObjectType::Observation],
                 sections: crate::RetrievalSectionBudgets {
@@ -290,6 +305,10 @@ mod tests {
         assert!(pack.outcomes().is_empty());
         input.surface_policy.object_types = vec![ObjectType::Episode];
         assert_eq!(baseline.retrieve(&input).context_text(), "green tea");
+        for topic in [None, Some(String::new()), Some(" , ".into())] {
+            input.topic = topic;
+            assert!(baseline.retrieve(&input).items().is_empty());
+        }
     }
 
     #[test]
