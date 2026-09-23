@@ -21,7 +21,7 @@ pub(super) fn is_family(family: &Family) -> bool {
     )
 }
 
-fn vector(axis: usize, cosine: f32) -> Vec<f32> {
+pub(super) fn vector(axis: usize, cosine: f32) -> Vec<f32> {
     let mut value = vec![0.0; 9];
     value[axis] = cosine;
     value[8] = (1.0 - cosine * cosine).sqrt();
@@ -45,7 +45,7 @@ fn link(family: &mut Family, from: &str, relation: RelationType, kind: ObjectTyp
 }
 
 // A derived memory's setting is formed by its source; metadata never supplies it.
-fn belief(
+pub(super) fn belief(
     family: &mut Family,
     text: String,
     place: Option<&str>,
@@ -266,7 +266,7 @@ fn selected<'a>(observed: &'a Value, ids: &[String]) -> Vec<&'a Value> {
         .collect()
 }
 
-fn composition(family: &Family, query: &RetrieveInput, observed: &Value) -> Value {
+pub(super) fn composition(family: &Family, query: &RetrieveInput, observed: &Value) -> Value {
     let all = observed["selected"].as_array().unwrap();
     let people = query.scene.participants.iter().filter_map(|p| p.key.as_ref()).map(|person| {
         let ids = family.graph.derived_memories.iter().filter(|m| m.entity_external_ids.contains(person)).map(|m| m.external_id.clone()).collect::<Vec<_>>();

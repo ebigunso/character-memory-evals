@@ -10,6 +10,16 @@ use cmem_eval::{
 
 #[path = "consolidation.rs"]
 mod consolidation;
+#[path = "residuals.rs"]
+mod residuals;
+
+pub(super) async fn run_residuals(
+    stores: &Path,
+    config: &BenchmarkRunConfig,
+    timings: &mut timing::Timings,
+) -> Result<Value> {
+    residuals::run(stores, config, timings).await
+}
 
 const EVENING: &str = "2025-09-09T20:00:00+09:00";
 const TOPIC: &str = "Repairing a copper bell";
@@ -771,6 +781,13 @@ fn healthy(outcome: &cmem_eval::RememberOutcome, expected_vectors: usize) -> Res
 }
 
 async fn ingest(runtime: &ContinuityRuntime, family: &Family) -> Result<BTreeMap<String, String>> {
+    Ok(ingest_all(runtime, family).await?.0)
+}
+
+async fn ingest_all(
+    runtime: &ContinuityRuntime,
+    family: &Family,
+) -> Result<(BTreeMap<String, String>, BTreeMap<String, String>)> {
     let adapter = runtime.adapter();
     adapter.open_namespace(&family.namespace).await?;
     let entities = GraphEnrichmentInput {
@@ -787,6 +804,7 @@ async fn ingest(runtime: &ContinuityRuntime, family: &Family) -> Result<BTreeMap
         family.graph.threads.len(),
     )?;
     let mut ids = BTreeMap::new();
+    let mut observation_ids = BTreeMap::new();
     for experience in &family.experiences {
         let write = &experience.write;
         let native_id = if let Some(text) = &experience.unlinked_observation {
@@ -821,6 +839,7 @@ async fn ingest(runtime: &ContinuityRuntime, family: &Family) -> Result<BTreeMap
                 observation.outcome.persisted_link_ids.is_empty(),
                 "distinct observation unexpectedly wrote a link"
             );
+            observation_ids.insert(write.observation_external_id.clone(), observation.value);
             episode.value
         } else {
             let mut plan = adapter.prepare(write.clone()).await?;
@@ -842,6 +861,15 @@ async fn ingest(runtime: &ContinuityRuntime, family: &Family) -> Result<BTreeMap
                     _ => None,
                 })
                 .context("prepared episode has no ID")?;
+            let observation_id = plan
+                .plan
+                .candidates
+                .iter()
+                .find_map(|candidate| match candidate {
+                    native::MemoryCandidate::Observation(observation) => observation.draft.id,
+                    _ => None,
+                })
+                .context("prepared observation lacks its native ID")?;
             plan.plan.validations = adapter.validate_plan(&plan).await?;
             ensure!(
                 plan.plan
@@ -852,6 +880,17 @@ async fn ingest(runtime: &ContinuityRuntime, family: &Family) -> Result<BTreeMap
             );
             let result = adapter.commit(plan, CommitWriteOptions::default()).await?;
             healthy(&result.outcome, 2)?;
+            ensure!(
+                result
+                    .outcome
+                    .persisted_object_ids
+                    .contains(&observation_id),
+                "observation was not persisted"
+            );
+            observation_ids.insert(
+                write.observation_external_id.clone(),
+                observation_id.to_string(),
+            );
             ensure!(
                 result
                     .outcome
@@ -908,7 +947,7 @@ async fn ingest(runtime: &ContinuityRuntime, family: &Family) -> Result<BTreeMap
             "explicit graph links were not all persisted"
         );
     }
-    Ok(ids)
+    Ok((ids, observation_ids))
 }
 
 fn opposed(original: &Family, ids: &BTreeMap<String, String>) -> Result<(Family, Value)> {
@@ -1462,6 +1501,7 @@ pub(super) async fn run(
     stores: &Path,
     config: &BenchmarkRunConfig,
     anniversary_required: bool,
+    timings: &mut timing::Timings,
 ) -> Result<Value> {
     let capability = Box::pin(anniversary_capability(stores, config)).await?;
     let available = capability["available"] == true;
@@ -1474,12 +1514,16 @@ pub(super) async fn run(
         |config| daily_anniversary_family(config, false),
         |config| daily_anniversary_family(config, true),
     ];
-    let mut result = run_families(stores, config, &builders, available).await?;
+    let mut result = run_families(stores, config, &builders, available, timings).await?;
     result["anniversary_capability"] = capability;
     Ok(result)
 }
 
-pub(super) async fn run_consolidation(stores: &Path, config: &BenchmarkRunConfig) -> Result<Value> {
+pub(super) async fn run_consolidation(
+    stores: &Path,
+    config: &BenchmarkRunConfig,
+    timings: &mut timing::Timings,
+) -> Result<Value> {
     let mut result = run_families(
         stores,
         config,
@@ -1489,6 +1533,7 @@ pub(super) async fn run_consolidation(stores: &Path, config: &BenchmarkRunConfig
             consolidation::activity_family,
         ],
         false,
+        timings,
     )
     .await?;
     result["method"] = json!(consolidation::METHOD);
@@ -1504,6 +1549,7 @@ async fn run_families(
     config: &BenchmarkRunConfig,
     builders: &[fn(&BenchmarkRunConfig) -> Family],
     anniversary_available: bool,
+    timings: &mut timing::Timings,
 ) -> Result<Value> {
     let mut inputs = Vec::new();
     let mut measurements = Vec::new();
@@ -1543,6 +1589,31 @@ async fn run_families(
                 } else {
                     Box::pin(measure(&runtime, &next, config, anniversary_available)).await?
                 };
+                if timings.enabled {
+                    let mut queries = Vec::new();
+                    if !consolidation::is_family(&next) {
+                        queries.push((
+                            "topic-alone-control".into(),
+                            input(config, &next.namespace, false, Some(TOPIC)),
+                        ));
+                    }
+                    for probe in &next.probes {
+                        queries.push((
+                            format!("{}/parent", probe.name),
+                            probe.supported_input.clone(),
+                        ));
+                        if !probe.required_routes.is_empty() {
+                            let (input, missing) =
+                                supported_probe_input(probe, anniversary_available)?;
+                            if missing.is_empty() {
+                                queries.push((format!("{}/full", probe.name), input));
+                            }
+                        }
+                    }
+                    timings
+                        .record(&runtime, &next.name, opposed_order, queries)
+                        .await?;
+                }
                 Ok::<_, anyhow::Error>((ids, reading))
             }
             .await;

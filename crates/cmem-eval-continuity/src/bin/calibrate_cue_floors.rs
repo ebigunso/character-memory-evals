@@ -21,6 +21,8 @@ use serde_json::{Value, json};
 mod descriptions;
 #[path = "calibrate_cue_floors/time_and_obligations.rs"]
 mod time_and_obligations;
+#[path = "calibrate_cue_floors/timing.rs"]
+mod timing;
 
 const KINDS: [&str; 4] = ["participant", "place", "activity", "topic"];
 const FLOORS: [usize; 5] = [0, 1, 2, 3, 5];
@@ -809,22 +811,32 @@ async fn run_calibration() -> Result<()> {
     let output = args.next().context("usage: calibrate_cue_floors <new-report.json>; run via cargo after pinning the sibling library")?;
     let mut slices_only = false;
     let mut consolidation_only = false;
+    let mut residuals_only = false;
     let mut anniversary_required = false;
-    for flag in args {
+    let mut timing_output = None;
+    while let Some(flag) = args.next() {
         match flag.to_str() {
-            Some("--slices-only" | "--consolidation-only") => {
+            Some("--slices-only" | "--consolidation-only" | "--residuals-only") => {
                 ensure!(!slices_only, "choose one measurement subset");
                 slices_only = true;
                 consolidation_only = flag == "--consolidation-only";
+                residuals_only = flag == "--residuals-only";
             }
             Some("--require-anniversary") => anniversary_required = true,
+            Some("--timings") => {
+                ensure!(timing_output.is_none(), "one timing output is allowed");
+                timing_output = Some(
+                    args.next()
+                        .context("--timings requires a new JSON output path")?,
+                );
+            }
             _ => anyhow::bail!(
-                "expected --slices-only, --consolidation-only or --require-anniversary"
+                "expected --slices-only, --consolidation-only, --residuals-only, --require-anniversary or --timings <new.json>"
             ),
         }
     }
     ensure!(
-        !consolidation_only || !anniversary_required,
+        !(consolidation_only || residuals_only) || !anniversary_required,
         "--require-anniversary needs the time families"
     );
     let output = Path::new(&output);
@@ -846,6 +858,17 @@ async fn run_calibration() -> Result<()> {
         fs::File::create_new(output)
             .context("refusing to replace an existing calibration report")?,
     );
+    let mut timing_file = timing_output
+        .as_ref()
+        .map(|path| {
+            fs::File::create_new(path).context("refusing to replace an existing timing report")
+        })
+        .transpose()?
+        .map(std::io::BufWriter::new);
+    let mut timings = timing::Timings {
+        enabled: timing_file.is_some(),
+        ..Default::default()
+    };
     let stores = output.with_extension("stores");
     fs::create_dir(&stores).context("calibration store directory must be new")?;
     let input = json!({"scenario":scenario,"probes":probes});
@@ -853,8 +876,23 @@ async fn run_calibration() -> Result<()> {
     let reworded_input = json!({"scenario":reworded_scenario,"probes":reworded_probes});
     let mut opposed_inputs = Vec::new();
     let mut consolidation = Value::Null;
+    let mut residuals = Value::Null;
     let result = async {
-        consolidation = Box::pin(time_and_obligations::run_consolidation(&stores, &config)).await?;
+        if residuals_only {
+            residuals = Box::pin(time_and_obligations::run_residuals(
+                &stores,
+                &config,
+                &mut timings,
+            ))
+            .await?;
+            return Ok(vec![Value::Null; 8]);
+        }
+        consolidation = Box::pin(time_and_obligations::run_consolidation(
+            &stores,
+            &config,
+            &mut timings,
+        ))
+        .await?;
         let time_and_prospective = if consolidation_only {
             Value::Null
         } else {
@@ -862,6 +900,7 @@ async fn run_calibration() -> Result<()> {
                 &stores,
                 &config,
                 anniversary_required,
+                &mut timings,
             ))
             .await?
         };
@@ -887,9 +926,17 @@ async fn run_calibration() -> Result<()> {
             fs::create_dir(&run_root)?;
             let mut runtime = ContinuityRuntime::new(&run_root, &config, binding).await?;
             let result = Box::pin(measure(&mut runtime, scenario, probes, &config)).await;
+            let timed = if result.is_ok() {
+                timings
+                    .record(&runtime, name, false, timing::scene_queries(probes))
+                    .await
+            } else {
+                Ok(())
+            };
             let cleanup = runtime.cleanup(&scenario.namespace).await;
             drop(runtime);
             cleanup?;
+            timed?;
             results.push(result?);
         }
         let run_root = stores.join("keyless");
@@ -900,9 +947,22 @@ async fn run_calibration() -> Result<()> {
         };
         let runtime = ContinuityRuntime::new(&run_root, &config, binding).await?;
         let result = Box::pin(descriptions::measure(&runtime, &keyless)).await;
+        let timed = if result.is_ok() {
+            timings
+                .record(
+                    &runtime,
+                    "keyless",
+                    false,
+                    descriptions::timing_inputs(&keyless),
+                )
+                .await
+        } else {
+            Ok(())
+        };
         let cleanup = runtime.cleanup(&keyless.namespace).await;
         drop(runtime);
         cleanup?;
+        timed?;
         results.push(result?);
         for (name, scenario, probes) in [
             ("identical", &overlap_scenario, &overlap_probes),
@@ -927,9 +987,26 @@ async fn run_calibration() -> Result<()> {
             opposed_inputs
                 .push(json!({"family":name,"scenario":opposed,"probes":probes,"id_order":ids}));
             let result = Box::pin(measure(&mut runtime, &opposed, probes, &config)).await;
+            let timed = if result.is_ok() {
+                timings
+                    .record(
+                        &runtime,
+                        if name == "identical" {
+                            "overlapping"
+                        } else {
+                            name
+                        },
+                        true,
+                        timing::scene_queries(probes),
+                    )
+                    .await
+            } else {
+                Ok(())
+            };
             let cleanup = runtime.cleanup(&opposed.namespace).await;
             drop(runtime);
             cleanup?;
+            timed?;
             results.push(result?);
         }
         let run_root = stores.join("keyless-ids-opposed");
@@ -942,11 +1019,30 @@ async fn run_calibration() -> Result<()> {
         let (opposed, ids) = descriptions::opposed_keyless(&runtime, &keyless).await?;
         opposed_inputs.push(json!({"family":"keyless","input":opposed,"id_order":ids}));
         let result = Box::pin(descriptions::measure(&runtime, &opposed)).await;
+        let timed = if result.is_ok() {
+            timings
+                .record(
+                    &runtime,
+                    "keyless",
+                    true,
+                    descriptions::timing_inputs(&opposed),
+                )
+                .await
+        } else {
+            Ok(())
+        };
         let cleanup = runtime.cleanup(&opposed.namespace).await;
         drop(runtime);
         cleanup?;
+        timed?;
         results.push(result?);
         results.push(time_and_prospective);
+        residuals = Box::pin(time_and_obligations::run_residuals(
+            &stores,
+            &config,
+            &mut timings,
+        ))
+        .await?;
         Ok::<_, anyhow::Error>(results)
     }
     .await;
@@ -956,7 +1052,7 @@ async fn run_calibration() -> Result<()> {
         revision(&library)? == library_commit && revision(workspace)? == harness_commit,
         "checkout revision changed during calibration"
     );
-    let report = json!({"header":{
+    let mut report = json!({"header":{
         "harness_commit":harness_commit,"library_commit":library_commit,"slices_only":slices_only,"consolidation_only":consolidation_only,"anniversary_required":anniversary_required,"profile":if cfg!(debug_assertions){"debug"}else{"release"},
         "seed":CHECKED_FIXTURE_SEED,"input_sha256":text_sha256(&serde_json::to_string(&input)?),"config_sha256":text_sha256(&serde_json::to_string(&config)?),
         "overlapping_input_sha256":text_sha256(&serde_json::to_string(&overlap_input)?),
@@ -965,7 +1061,7 @@ async fn run_calibration() -> Result<()> {
         "opposed_input_sha256":text_sha256(&serde_json::to_string(&opposed_inputs)?),
         "time_prospective_input_sha256":text_sha256(&serde_json::to_string(&measurements[7]["inputs"])?),
         "consolidation_input_sha256":text_sha256(&serde_json::to_string(&consolidation["inputs"])?),
-        "generator_source_sha256":text_sha256(concat!(include_str!("calibrate_cue_floors.rs"), include_str!("calibrate_cue_floors/descriptions.rs"), include_str!("calibrate_cue_floors/time_and_obligations.rs"), include_str!("calibrate_cue_floors/consolidation.rs"))),
+        "generator_source_sha256":text_sha256(concat!(include_str!("calibrate_cue_floors.rs"), include_str!("calibrate_cue_floors/descriptions.rs"), include_str!("calibrate_cue_floors/time_and_obligations.rs"), include_str!("calibrate_cue_floors/consolidation.rs"), include_str!("calibrate_cue_floors/residuals.rs"), include_str!("calibrate_cue_floors/timing.rs"))),
         "config":config,"native_candidate_limits":native::RetrievalCandidateLimits::default(),"native_graph_limits":native::RetrievalGraphLimits::default(),
         "native_section_limits":native::ContinuitySectionLimits::default(),"native_default_floors":native::RetrievalCueFloors::default(),"sweep":FLOORS,"stores_cleaned":true},
         "method":{
@@ -990,9 +1086,23 @@ async fn run_calibration() -> Result<()> {
             "original_ids":descriptions::native_paraphrase_scores(&measurements[2]),
             "opposed_ids":descriptions::native_paraphrase_scores(&measurements[5])},
         "paraphrase_geometry":descriptions::paraphrase_geometry()?});
+    report["header"]["residuals_only"] = json!(residuals_only);
+    report["header"]["residual_input_sha256"] =
+        json!(text_sha256(&serde_json::to_string(&residuals["inputs"])?));
+    report["consolidation_residuals"] = residuals;
     serde_json::to_writer_pretty(&mut file, &report)?;
     file.write_all(b"\n")?;
     file.flush()?;
+    if let Some(file) = &mut timing_file {
+        serde_json::to_writer_pretty(
+            &mut *file,
+            &json!({"header":report["header"],
+            "method":"Three additional warm recalls per planned query after its deterministic measurement, sequentially on the same store. Elapsed wall-clock uses Instant around adapter.retrieve only, excluding request clone, ingestion, report construction and validation. Rows retain each sample and its median, not a median pooled over different queries. Full sweeps and both existing ID orders are retained; the orthogonal structural control has only its existing original order. Time/prospective rows include supported parent controls and available full queries; unavailable full inputs are not timed. No speed threshold or performance pass/fail verdict.",
+            "rows":timings.rows}),
+        )?;
+        file.write_all(b"\n")?;
+        file.flush()?;
+    }
     eprintln!("wrote {}", output.display());
     Ok(())
 }
@@ -1000,6 +1110,37 @@ async fn run_calibration() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn accepted_scene_inputs_remain_byte_identical() {
+        let config = config();
+        let (scenario, probes) = generated(&config).unwrap();
+        let (overlap, overlap_probes) = generated_overlap(&config, false).unwrap();
+        let (reworded, reworded_probes) = generated_overlap(&config, true).unwrap();
+        let keyless = descriptions::generated(&config, &reworded, &reworded_probes).unwrap();
+        for (input, expected) in [
+            (
+                json!({"scenario":scenario,"probes":probes}),
+                "1c3f463c4202ad13007608b3bcf74831b3b945db040e999651af4ff35012f48c",
+            ),
+            (
+                json!({"scenario":overlap,"probes":overlap_probes}),
+                "bf8c0f78f624b9eb22e5d481efbda57ae3fed92cdb653719924c8a6ddeedcd66",
+            ),
+            (
+                json!({"scenario":reworded,"probes":reworded_probes}),
+                "69c25ae2a144c770dfb4a5ec3bc35b7c7ac439032a3d32900becc10a143316f0",
+            ),
+        ] {
+            assert_eq!(
+                text_sha256(&serde_json::to_string(&input).unwrap()),
+                expected
+            );
+        }
+        assert_eq!(
+            text_sha256(&serde_json::to_string(&keyless).unwrap()),
+            "07ca4a0f709c00ede5905401b4656395481a9ffae10ca723f431baefe8bc6487"
+        );
+    }
     #[test]
     fn native_scene_score_reader_distinguishes_missing_and_no_match() {
         let row = |probe: &str, floor, trace| json!({"probe":probe,"floor":floor,"observed":{"trace":trace}});

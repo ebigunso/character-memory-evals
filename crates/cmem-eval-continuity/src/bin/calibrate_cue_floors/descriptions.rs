@@ -477,6 +477,12 @@ pub(super) async fn measure(runtime: &ContinuityRuntime, family: &KeylessFamily)
     )
 }
 
+pub(super) fn timing_inputs(family: &KeylessFamily) -> Vec<(String, RetrieveInput)> {
+    let mut queries = vec![("topic-alone-control".into(), family.topic_alone.clone())];
+    queries.extend(timing::probes(&family.probes));
+    queries
+}
+
 fn salience_distribution(family: &KeylessFamily) -> Value {
     let mut values = family
         .writes
