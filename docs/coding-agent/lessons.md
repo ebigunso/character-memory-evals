@@ -1260,13 +1260,13 @@ Context:
 - Roles involved: Worker, Reviewer, Orchestrator.
 
 Symptom:
-- The crowded person-state cohort also crowded source-scene participant links, so the settled-topic query hit the native hub limit before a valid BEFORE capture existed.
+- The crowded person-state cohort also crowded source-scene participant links, so the settled-topic query hit the native hub limit before a valid BEFORE capture existed. After removing that confound, a successful full capture still filled only 4/4/4 slots: its twelve roots each reached only their own body and source.
 
 Root cause:
 - Authored supply above the aboutness and section caps was checked, but a reused belief helper also created keyed source occasions and increased unrelated graph degree.
 
 Fix applied:
-- Preserve the original failing fixture as library evidence. Give only the added state crowd keyless source scenes, retaining its subject links and salience; retain the native bounds and fail-closed guard.
+- Preserve the original failing fixture as library evidence. Give only the added state crowd keyless source scenes, retaining its subject links and salience; retain the native bounds and fail-closed guard. Add bounded shared topical sources and reject unsaturated topic-only controls before accepting the experiment.
 
 Prevention:
 - Before accepting a pressure fixture, inspect the edges introduced by reused builders and require successful native captures in both identifier orders, zero bounded failures, and actual selected counts at the intended caps. Authored supply is not a saturation witness.

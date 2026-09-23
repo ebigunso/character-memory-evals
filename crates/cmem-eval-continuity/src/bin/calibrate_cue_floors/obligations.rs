@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 const MORNING: &str = "2025-09-09T08:00:00+09:00";
 const OWN_TOPIC: &str = "Finishing my watercolor of the harbor";
-pub(super) const METHOD: &str = "Prospective obligations in two new stores, leaving every existing family unchanged. Meeting pressure contains both directions, resolved and fulfilled matters, a future-due trigger control, a self-only undated promise, crowded person state, two present people in both orders, and current/superseded controls. Sixty-four unrelated topic memories and their source occasions compete under native caps. The keyless store has 367 equal-salience daily occasions and several overdue obligations. Authored party assertions and UTC due instants are retained separately; the base writes neither. Every supported parent query executes, while future role/identity/trigger/due behavior stays not_run. After wiring those library inputs, only those role/due fields and the required self constructor argument may differ. Both native ID orders reuse the shared public-ingest census and permutation. F1-F9 are readings for cross-pin comparison, not baseline pass claims; F10 compares all existing families. Native paths, limits and floors are recorded separately from authored expectations. No dates or roles are inferred from text, no gold reaches metadata, no wall clock or behavior threshold changes retrieval.";
+pub(super) const METHOD: &str = "Prospective obligations in two new stores, leaving every existing family unchanged. Meeting pressure contains both directions, resolved and fulfilled matters, a future-due trigger control, a self-only undated promise, crowded person state, two present people in both orders, and current/superseded controls. Sixty-four unrelated topic memories and their source occasions compete under native caps; two bounded shared occasions per kind make the cohort reachable within the ordinary root budget. The keyless store has 367 equal-salience daily occasions and several overdue obligations. Authored party assertions and UTC due instants are retained separately; the base writes neither. Every supported parent query executes, while future role/identity/trigger/due behavior stays not_run. After wiring those library inputs, only those role/due fields and the required self constructor argument may differ. Both native ID orders reuse the shared public-ingest census and permutation. F1-F9 are readings for cross-pin comparison, not baseline pass claims; F10 compares all existing families. Native paths, limits and floors are recorded separately from authored expectations. No dates or roles are inferred from text, no gold reaches metadata, no wall clock or behavior threshold changes retrieval.";
 
 pub(super) fn is_family(family: &Family) -> bool {
     matches!(
@@ -329,6 +329,7 @@ pub(super) fn meeting(config: &BenchmarkRunConfig) -> Family {
                 .clear();
         }
     }
+    let mut topic_sources = Vec::new();
     for n in 0..64 {
         let (kind, text) = match n % 3 {
             0 => (
@@ -376,6 +377,26 @@ pub(super) fn meeting(config: &BenchmarkRunConfig) -> Family {
                 .clone(),
             source.episode_external_id.clone(),
         ]);
+        // Two source occasions per kind expose the cohort through twelve roots.
+        // Each shared source has at most eleven DerivedFrom links and one ObservedIn,
+        // below the ordinary fanout; all original source bodies remain in the story.
+        if n < 6 {
+            topic_sources.push(source.episode_external_id.clone());
+        } else {
+            let shared_source = &topic_sources[n % 6];
+            let memory = family.graph.derived_memories.last_mut().unwrap();
+            memory
+                .source_episode_external_ids
+                .push(shared_source.clone());
+            let id = memory.external_id.clone();
+            consolidation::link(
+                &mut family,
+                &id,
+                RelationType::DerivedFrom,
+                ObjectType::Episode,
+                shared_source,
+            );
+        }
     }
     assign(
         &mut family.embedding,
@@ -533,6 +554,28 @@ pub(super) fn ensure_healthy(
         ),
         "incomplete obligations vector recall"
     );
+    if family.name == "prospective-meeting"
+        && input.topic.as_deref() == Some(TOPIC)
+        && input.scene.participants.is_empty()
+    {
+        let limits = &input.surface_policy.sections;
+        for (section, cap) in [
+            ("derived_memories", limits.derived_memories),
+            ("open_loops", limits.open_loops),
+            ("commitments", limits.commitments),
+        ] {
+            let selected = observed["selected"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|row| row["section"] == section)
+                .count();
+            ensure!(
+                selected == cap,
+                "unsaturated obligations pressure fixture: section={section} selected={selected} cap={cap}"
+            );
+        }
+    }
     Ok(())
 }
 
@@ -683,6 +726,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pressure_admission_requires_actual_section_saturation() {
+        let family = meeting(&config());
+        let query = topic_control(&family.probes[0].supported_input);
+        let snapshot = |counts: [usize; 3]| {
+            json!({
+                "telemetry":{"graph_expansion":{"bounded_failure_count":0},
+                             "vector_recall_completeness":{"kind":"exhaustive"}},
+                "selected":(["derived_memories", "open_loops", "commitments"].into_iter()
+                    .zip(counts).flat_map(|(section, count)|
+                        (0..count).map(move |_| json!({"section":section}))).collect::<Vec<_>>())
+            })
+        };
+        assert!(ensure_healthy(&family, &query, &snapshot([4, 4, 4])).is_err());
+        assert!(ensure_healthy(&family, &query, &snapshot([12, 8, 8])).is_ok());
+    }
+
+    #[test]
     fn stories_cover_direction_day_boundaries_pressure_and_opposed_references() {
         let family = meeting(&config());
         let reference = timestamp(MORNING).unwrap();
@@ -735,6 +795,35 @@ mod tests {
                     > cap
             );
         }
+        let mut source_degrees = BTreeMap::<&str, usize>::new();
+        for memory in family
+            .graph
+            .derived_memories
+            .iter()
+            .filter(|m| family.topic_targets.contains(&m.external_id))
+        {
+            for source in &memory.source_episode_external_ids {
+                *source_degrees.entry(source).or_default() += 1;
+                assert!(
+                    family
+                        .graph
+                        .links
+                        .iter()
+                        .any(|link| link.from.external_id == memory.external_id
+                            && link.to.external_id == *source
+                            && link.relation == RelationType::DerivedFrom)
+                );
+            }
+        }
+        assert_eq!(
+            source_degrees.values().filter(|count| **count > 1).count(),
+            6
+        );
+        assert!(
+            source_degrees
+                .values()
+                .all(|count| *count < native::RetrievalGraphLimits::default().max_fanout_per_node)
+        );
         assert!(family.probes.iter().any(|p| p.trigger_floor == Some(2)));
         assert!(family.probes.iter().any(|p| {
             p.supported_input
