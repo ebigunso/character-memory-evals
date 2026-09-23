@@ -334,6 +334,9 @@ pub enum AssertionSubject {
 #[serde(rename_all = "snake_case")]
 pub enum ScenarioFeature {
     WriteScene,
+    WriteSceneWhere,
+    WriteSceneWhat,
+    WriteSceneCustom,
     ProbeScene,
     NoTopic,
     ReferenceTime,
@@ -348,6 +351,9 @@ pub enum ScenarioFeature {
     DueDate,
     Trigger,
     AuthoredDerivedMemory,
+    IntentionMemory,
+    PreferenceMemory,
+    ThreadProvenance,
     CueTrace,
     ReferenceTrace,
     PartitionTrace,
@@ -1256,7 +1262,7 @@ impl ContinuityScenario {
         self.analyze().map(|_| ())
     }
 
-    fn analyze(&self) -> Result<ScenarioRequirements, FixtureError> {
+    pub(crate) fn analyze(&self) -> Result<ScenarioRequirements, FixtureError> {
         let scenario = FixtureLocation::scenario(&self.fixture_id);
         let controllable_embedding = self.embedding.controllable_similarity();
         if let Some(embedding) = controllable_embedding {
@@ -1416,6 +1422,21 @@ impl ContinuityScenario {
                         }
                     }
                     requirements.features.insert(ScenarioFeature::WriteScene);
+                    if scene.place.is_some() {
+                        requirements
+                            .features
+                            .insert(ScenarioFeature::WriteSceneWhere);
+                    }
+                    if scene.what.is_some() {
+                        requirements
+                            .features
+                            .insert(ScenarioFeature::WriteSceneWhat);
+                    }
+                    if !scene.custom.is_empty() {
+                        requirements
+                            .features
+                            .insert(ScenarioFeature::WriteSceneCustom);
+                    }
                 }
                 InteractionEvent::Derive {
                     event_id: external_id,
@@ -1545,6 +1566,28 @@ impl ContinuityScenario {
                     requirements
                         .features
                         .insert(ScenarioFeature::AuthoredDerivedMemory);
+                    match memory.subtype {
+                        AuthoredMemoryKind::Intention => {
+                            requirements
+                                .features
+                                .insert(ScenarioFeature::IntentionMemory);
+                        }
+                        AuthoredMemoryKind::Preference => {
+                            requirements
+                                .features
+                                .insert(ScenarioFeature::PreferenceMemory);
+                        }
+                        AuthoredMemoryKind::Thread
+                            if !memory.experiences.is_empty()
+                                || !memory.about.is_empty()
+                                || !memory.supersedes.is_empty() =>
+                        {
+                            requirements
+                                .features
+                                .insert(ScenarioFeature::ThreadProvenance);
+                        }
+                        _ => {}
+                    }
                 }
                 InteractionEvent::Probe {
                     query_id,
@@ -3668,6 +3711,8 @@ bystanders = ["distractor"]
             scenario.requirements.features,
             BTreeSet::from([
                 ScenarioFeature::WriteScene,
+                ScenarioFeature::WriteSceneWhere,
+                ScenarioFeature::WriteSceneCustom,
                 ScenarioFeature::ProbeScene,
                 ScenarioFeature::NoTopic,
                 ScenarioFeature::ReferenceTime,
@@ -4353,6 +4398,8 @@ bystanders = ["distractor"]
                 content: content.to_string(),
                 episode_external_id: "whitespace-episode".to_string(),
                 observation_external_id: "whitespace-observation".to_string(),
+                participant_entity_external_ids: Vec::new(),
+                speaker_entity_external_id: None,
                 episode_started_at: None,
                 observation_observed_at: None,
                 raw_refs: Vec::new(),

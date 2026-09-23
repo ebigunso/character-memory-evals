@@ -9,6 +9,254 @@ use serde_json::{Map, Value};
 use crate::{ContinuityQueryObservation, ContinuityScenario, InteractionEvent, ScenarioPattern};
 
 const GAP_BUCKETS: [&str; 3] = ["short", "medium", "long"];
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct CarriedRecall {
+    pub expected: usize,
+    pub admitted: Option<usize>,
+    pub recall: Option<f64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct SituatedProbeMeasures {
+    pub carried_recall_by_reason: BTreeMap<String, CarriedRecall>,
+    pub bystander_context_share: Option<f64>,
+    pub context_tokens: Option<usize>,
+}
+
+/// Section membership and ordering come from the native pack. The registry only
+/// joins its object ids to authored ids; flattened retrieval items are not used.
+pub fn native_admitted_memories(
+    pack: &cmem_eval::RetrievedContextPack,
+) -> Vec<(String, crate::MemorySection)> {
+    use crate::MemorySection;
+    let mut admitted = Vec::new();
+    let external = |id: cmem_eval::character_memory::MemoryId| {
+        pack.object_refs()
+            .get(&id.to_string())
+            .map(|object| object.external_id.clone())
+    };
+    for outcome in pack.outcomes() {
+        let native = &outcome.pack;
+        let mut push = |id, section| {
+            if let Some(id) = external(id) {
+                admitted.push((id, section));
+            }
+        };
+        for thread in &native.active_threads {
+            push(thread.id, MemorySection::Threads);
+        }
+        for episode in &native.relevant_episodes {
+            push(episode.id, MemorySection::Episodes);
+        }
+        for observation in &native.salient_observations {
+            push(observation.episode_id, MemorySection::Observations);
+        }
+        for (section, memories) in [
+            (MemorySection::DerivedMemories, &native.derived_memories),
+            (MemorySection::Preferences, &native.preferences),
+            (MemorySection::RelationshipNotes, &native.relationship_notes),
+            (MemorySection::OpenLoops, &native.open_loops),
+            (MemorySection::Commitments, &native.commitments),
+            (MemorySection::CharacterSignals, &native.character_signals),
+        ] {
+            for memory in memories {
+                push(memory.memory.id, section);
+            }
+        }
+    }
+    admitted
+}
+
+pub fn situated_probe_measures(
+    scenario: &ContinuityScenario,
+    assertions: &crate::ProbeAssertions,
+    measures: &crate::ProbeMeasures,
+    pack: Option<&cmem_eval::RetrievedContextPack>,
+) -> SituatedProbeMeasures {
+    let admitted = pack.map(native_admitted_memories).unwrap_or_default();
+    let authored = scenario
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            InteractionEvent::Experience { event_id, .. } => Some(event_id.as_str()),
+            InteractionEvent::Derive {
+                event_id, memory, ..
+            } if memory.subtype != crate::AuthoredMemoryKind::Thread => Some(event_id.as_str()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let counted = admitted
+        .iter()
+        .filter(|(id, section)| {
+            *section != crate::MemorySection::Threads && authored.contains(id.as_str())
+        })
+        .map(|(id, _)| id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut recalls = BTreeMap::<String, CarriedRecall>::new();
+    for expected in &assertions.carried {
+        let reason = serde_json::to_value(expected.reason)
+            .expect("reason is an enum")
+            .as_str()
+            .expect("reason is a string")
+            .to_string();
+        let recall = recalls.entry(reason).or_insert(CarriedRecall {
+            expected: 0,
+            admitted: pack.map(|_| 0),
+            recall: None,
+        });
+        recall.expected += 1;
+        if let Some(count) = &mut recall.admitted {
+            *count += usize::from(admitted.iter().any(|(id, _)| id == &expected.memory));
+            recall.recall = Some(*count as f64 / recall.expected as f64);
+        }
+    }
+    SituatedProbeMeasures {
+        carried_recall_by_reason: recalls,
+        bystander_context_share: (!counted.is_empty()).then(|| {
+            measures
+                .bystanders
+                .iter()
+                .filter(|id| counted.contains(id.as_str()))
+                .count() as f64
+                / counted.len() as f64
+        }),
+        context_tokens: pack.map(|pack| cmem_eval::count_tokens(pack.context_text())),
+    }
+}
+
+/// Native typed summaries account for each lifecycle/currency omission, even
+/// when there are no candidates or no omissions in an executed retrieval.
+pub fn omissions_have_reasons(outcomes: &[RetrieveOutcome]) -> bool {
+    !outcomes.is_empty()
+        && outcomes.iter().all(|outcome| {
+            let rationale = &outcome.rationale;
+            rationale.lifecycle_omission_count
+                == rationale
+                    .lifecycle_omission_reasons
+                    .iter()
+                    .map(|reason| reason.count)
+                    .sum::<usize>()
+                && rationale.stale_candidate_omission_count
+                    == rationale
+                        .stale_candidate_omission_reasons
+                        .iter()
+                        .map(|reason| reason.count)
+                        .sum::<usize>()
+        })
+}
+
+pub fn check_probe_assertions(
+    event: &InteractionEvent,
+    pack: &cmem_eval::RetrievedContextPack,
+) -> Vec<crate::AssertionResult> {
+    use crate::{AssertionSubject, CheckResult, OmissionReason};
+    use cmem_eval::character_memory::{
+        LifecycleFilterAction, LifecycleFilterReason, StaleCandidateReason,
+    };
+    let InteractionEvent::Probe { assertions, .. } = event else {
+        return Vec::new();
+    };
+    let admitted = native_admitted_memories(pack);
+    event
+        .assertion_identities()
+        .into_iter()
+        .map(|identity| {
+            let check = match &identity.assertion {
+                AssertionSubject::Carried(id) => {
+                    let expected = assertions
+                        .carried
+                        .iter()
+                        .find(|assertion| &assertion.memory == id)
+                        .expect("authored identity");
+                    let passed = admitted.iter().any(|(actual, section)| {
+                        actual == id && expected.section.is_none_or(|expected| expected == *section)
+                    });
+                    CheckResult::checked(
+                        passed,
+                        if passed {
+                            "memory admitted in the requested native section"
+                        } else {
+                            "memory is absent from the requested native section"
+                        },
+                    )
+                }
+                AssertionSubject::InOrder(ids) => {
+                    let positions = ids
+                        .iter()
+                        .map(|id| admitted.iter().position(|(actual, _)| actual == id))
+                        .collect::<Option<Vec<_>>>();
+                    let passed = positions.is_some_and(|positions| {
+                        positions.windows(2).all(|pair| pair[0] < pair[1])
+                    });
+                    CheckResult::checked(
+                        passed,
+                        if passed {
+                            "relative native pack order"
+                        } else {
+                            "a memory is missing or the native pack order differs"
+                        },
+                    )
+                }
+                AssertionSubject::Omitted(id) => {
+                    let expected = assertions
+                        .omitted
+                        .iter()
+                        .find(|assertion| &assertion.memory == id)
+                        .expect("authored identity");
+                    let ids = pack
+                        .object_refs()
+                        .iter()
+                        .filter(|(_, object)| {
+                            &object.external_id == id
+                                || (object.object_type == cmem_eval::ObjectType::Observation
+                                    && object.external_id == crate::observation_external_id(id))
+                        })
+                        .map(|(id, _)| id.as_str())
+                        .collect::<BTreeSet<_>>();
+                    let explained = pack
+                        .outcomes()
+                        .iter()
+                        .filter_map(|outcome| outcome.trace.as_ref())
+                        .any(|trace| {
+                            trace.lifecycle_filter_decisions.iter().any(|decision| {
+                                ids.contains(decision.object.id.to_string().as_str())
+                                    && decision.action == LifecycleFilterAction::Omitted
+                                    && matches!(
+                                        (expected.reason, decision.reason),
+                                        (
+                                            OmissionReason::Suppression,
+                                            LifecycleFilterReason::SuppressedOmitted
+                                        ) | (
+                                            OmissionReason::Supersession,
+                                            LifecycleFilterReason::SupersededOmitted
+                                        )
+                                    )
+                            }) || (expected.reason == OmissionReason::Supersession
+                                && trace.stale_candidate_omissions.iter().any(|omission| {
+                                    ids.contains(omission.candidate.id.to_string().as_str())
+                                        && omission.reason == StaleCandidateReason::Superseded
+                                }))
+                        });
+                    let passed = !admitted.iter().any(|(actual, _)| actual == id) && explained;
+                    CheckResult::checked(
+                        passed,
+                        if passed {
+                            "absence with the requested native omission reason"
+                        } else {
+                            "memory is present or the requested native omission reason is absent"
+                        },
+                    )
+                }
+                // These facts do not exist in the pinned library. Static support
+                // gating keeps their scenarios not-run; an executed missing fact
+                // must fail rather than be reconstructed from the author's gold.
+                _ => CheckResult::checked(false, "required fact is absent from the native outcome"),
+            };
+            crate::AssertionResult { identity, check }
+        })
+        .collect()
+}
 const RATIONALE_CATEGORIES: [RationaleCategory; 8] = [
     RationaleCategory::Semantic,
     RationaleCategory::Entity,
@@ -570,6 +818,218 @@ mod tests {
             rationale: vec!["typed trace".to_string()],
             text: None,
         }
+    }
+
+    #[test]
+    fn situated_measures_and_assertions_use_native_sections_and_authored_id_counts() {
+        use crate::{
+            CarriedAssertion, MemorySection, OmissionReason, OmittedAssertion, ProbeAssertions,
+            ProbeMeasures, RecallReason, ScenarioStatus, SceneSelection,
+        };
+        use cmem_eval::character_memory::{
+            DerivedMemoryDraft, EpisodeDraft, LifecycleFilterAction, LifecycleFilterDecision,
+            LifecycleFilterReason, LifecycleOmissionSummary, MemoryObjectRef, MemoryThreadDraft,
+            ObservationDraft,
+        };
+        let mut scenario = crate::driver::tests::situated_scenario();
+        let mut authored_thread = scenario.events[2].clone();
+        if let InteractionEvent::Derive {
+            event_id, memory, ..
+        } = &mut authored_thread
+        {
+            *event_id = "thread".into();
+            memory.subtype = crate::AuthoredMemoryKind::Thread;
+        }
+        scenario.events.insert(3, authored_thread);
+        scenario.validate().unwrap();
+        let visit = EpisodeDraft::new("visit").into_domain().unwrap();
+        let noise = EpisodeDraft::new("noise").into_domain().unwrap();
+        let observation = ObservationDraft::new(visit.id, "observation")
+            .into_domain()
+            .unwrap();
+        let noise_observation = ObservationDraft::new(noise.id, "noise observation")
+            .into_domain()
+            .unwrap();
+        let noise_observation_external = crate::observation_external_id("noise");
+        let mut draft = DerivedMemoryDraft::new(cmem_eval::DerivedType::Commitment, "promise");
+        draft.derived_from_episode_ids.push(visit.id);
+        let promise = draft.into_domain().unwrap();
+        let thread = MemoryThreadDraft::new("thread", "thread")
+            .into_domain()
+            .unwrap();
+        let refs = [
+            (visit.id, "visit", ObjectType::Episode),
+            (noise.id, "noise", ObjectType::Episode),
+            (promise.id, "promise", ObjectType::DerivedMemory),
+            (thread.id, "thread", ObjectType::MemoryThread),
+            (
+                noise_observation.id,
+                noise_observation_external.as_str(),
+                ObjectType::Observation,
+            ),
+        ]
+        .into_iter()
+        .map(|(id, external_id, object_type)| {
+            (
+                id.to_string(),
+                cmem_eval::MemoryEndpointInput {
+                    external_id: external_id.into(),
+                    object_type,
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+        let mut native = ContinuityContextPack::empty();
+        native.relevant_episodes = vec![visit.clone(), noise.clone()];
+        native.salient_observations = vec![observation];
+        native.commitments = vec![promise.clone().into()];
+        native.derived_memories = vec![promise.into()];
+        native.active_threads = vec![thread];
+        let mut outcome = RetrieveOutcome {
+            pack: native,
+            rationale: RetrievalRationale::new("test"),
+            trace: Some(RetrievalTrace::empty()),
+        };
+        let make_pack = |outcome: RetrieveOutcome| {
+            let mut rendered = item("flattened-decoy", 1);
+            rendered.text = Some("hello world".into());
+            RetrievedContextPack::from_ranked_items(
+                vec![rendered],
+                vec![outcome],
+                ContextRenderer::PlainText,
+            )
+            .with_object_refs(refs.clone())
+        };
+        let assertions = ProbeAssertions {
+            carried: vec![
+                CarriedAssertion {
+                    memory: "visit".into(),
+                    reason: RecallReason::Pair,
+                    section: Some(MemorySection::Episodes),
+                },
+                CarriedAssertion {
+                    memory: "promise".into(),
+                    reason: RecallReason::Due,
+                    section: Some(MemorySection::Commitments),
+                },
+            ],
+            in_order: vec![vec!["visit".into(), "promise".into()]],
+            ..Default::default()
+        };
+        let measures = ProbeMeasures {
+            bystanders: vec!["noise".into()],
+        };
+        let mut event = InteractionEvent::Probe {
+            event_id: "probe".into(),
+            query_id: "probe".into(),
+            timestamp: scenario.events[3].timestamp(),
+            scene: SceneSelection::Named {
+                name: "pair".into(),
+            },
+            topic: None,
+            partition: None,
+            assertions: Box::new(assertions.clone()),
+            measures: measures.clone(),
+        };
+        let pack = make_pack(outcome.clone());
+        let measured = situated_probe_measures(&scenario, &assertions, &measures, Some(&pack));
+        assert_eq!(measured.bystander_context_share, Some(1.0 / 3.0));
+        assert_eq!(measured.context_tokens, Some(2));
+        assert_eq!(measured.carried_recall_by_reason["pair"].recall, Some(1.0));
+        assert_eq!(measured.carried_recall_by_reason["due"].admitted, Some(1));
+        assert!(
+            check_probe_assertions(&event, &pack)
+                .iter()
+                .all(|result| result.check.status == ScenarioStatus::Passed)
+        );
+        let not_run = situated_probe_measures(&scenario, &assertions, &measures, None);
+        assert_eq!(not_run.context_tokens, None);
+        assert_eq!(not_run.bystander_context_share, None);
+        assert_eq!(not_run.carried_recall_by_reason["pair"].recall, None);
+        let empty = situated_probe_measures(
+            &scenario,
+            &assertions,
+            &measures,
+            Some(&RetrievedContextPack::default()),
+        );
+        assert_eq!(empty.context_tokens, Some(0));
+        assert_eq!(empty.bystander_context_share, None);
+        assert_eq!(empty.carried_recall_by_reason["pair"].recall, Some(0.0));
+
+        let InteractionEvent::Probe { assertions, .. } = &mut event else {
+            unreachable!()
+        };
+        assertions.carried[0].section = Some(MemorySection::Commitments);
+        assertions.in_order[0].reverse();
+        assertions.omitted.push(OmittedAssertion {
+            memory: "noise".into(),
+            reason: OmissionReason::Suppression,
+        });
+        outcome
+            .pack
+            .relevant_episodes
+            .retain(|episode| episode.id != noise.id);
+        outcome.pack.active_threads.clear();
+        let failed = check_probe_assertions(&event, &make_pack(outcome.clone()));
+        assert_eq!(
+            failed
+                .iter()
+                .filter(|result| result.check.status == ScenarioStatus::Failed)
+                .map(|result| (
+                    result.identity.assertion.clone(),
+                    result.check.reason.as_str()
+                ))
+                .collect::<BTreeMap<_, _>>(),
+            BTreeMap::from([
+                (
+                    crate::AssertionSubject::Carried("visit".into()),
+                    "memory is absent from the requested native section",
+                ),
+                (
+                    crate::AssertionSubject::InOrder(vec!["promise".into(), "visit".into()]),
+                    "a memory is missing or the native pack order differs",
+                ),
+                (
+                    crate::AssertionSubject::Omitted("noise".into()),
+                    "memory is present or the requested native omission reason is absent",
+                ),
+            ])
+        );
+        outcome
+            .trace
+            .as_mut()
+            .unwrap()
+            .lifecycle_filter_decisions
+            .push(LifecycleFilterDecision {
+                object: MemoryObjectRef::new(ObjectType::Observation, noise_observation.id),
+                retention_state: Some(cmem_eval::RetentionState::Suppressed),
+                is_current: None,
+                superseded_by: Vec::new(),
+                action: LifecycleFilterAction::Omitted,
+                reason: LifecycleFilterReason::SuppressedOmitted,
+            });
+        outcome.rationale.lifecycle_omission_count = 1;
+        assert!(!omissions_have_reasons(&[]));
+        assert!(!omissions_have_reasons(&[outcome.clone()]));
+        outcome
+            .rationale
+            .lifecycle_omission_reasons
+            .push(LifecycleOmissionSummary {
+                reason: LifecycleFilterReason::SuppressedOmitted,
+                count: 1,
+            });
+        assert!(omissions_have_reasons(&[outcome.clone()]));
+        let checked = check_probe_assertions(&event, &make_pack(outcome));
+        let omission = checked
+            .iter()
+            .find(|result| {
+                matches!(
+                    result.identity.assertion,
+                    crate::AssertionSubject::Omitted(_)
+                )
+            })
+            .unwrap();
+        assert_eq!(omission.check.status, ScenarioStatus::Passed);
     }
 
     fn scenario(pattern: ScenarioPattern) -> ContinuityScenario {

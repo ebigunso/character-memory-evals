@@ -83,6 +83,8 @@ pub struct MemoryThreadInput {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DerivedMemoryInput {
     pub external_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
     pub derived_type: DerivedType,
     pub text: String,
     #[serde(default)]
@@ -106,6 +108,23 @@ pub struct DerivedMemoryInput {
     #[serde(default)]
     pub metadata: serde_json::Value,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsupportedCorrectionCreatedAt {
+    pub external_id: String,
+}
+
+impl std::fmt::Display for UnsupportedCorrectionCreatedAt {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the library correction draft cannot carry created_at for {:?}",
+            self.external_id
+        )
+    }
+}
+
+impl std::error::Error for UnsupportedCorrectionCreatedAt {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MemoryLinkInput {
@@ -152,6 +171,7 @@ pub struct RetrievedContextPack {
     context_char_count: usize,
     context_word_count: usize,
     outcomes: Vec<crate::RetrieveOutcome>,
+    object_refs: std::collections::BTreeMap<String, MemoryEndpointInput>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,7 +208,20 @@ impl RetrievedContextPack {
             items,
             context_text,
             outcomes,
+            object_refs: Default::default(),
         }
+    }
+
+    pub fn with_object_refs(
+        mut self,
+        object_refs: std::collections::BTreeMap<String, MemoryEndpointInput>,
+    ) -> Self {
+        self.object_refs = object_refs;
+        self
+    }
+
+    pub fn object_refs(&self) -> &std::collections::BTreeMap<String, MemoryEndpointInput> {
+        &self.object_refs
     }
 
     pub fn items(&self) -> &[RetrievedItem] {
@@ -429,6 +462,10 @@ pub struct PrepareWriteInput {
     pub content: String,
     pub episode_external_id: String,
     pub observation_external_id: String,
+    #[serde(default)]
+    pub participant_entity_external_ids: Vec<String>,
+    #[serde(default)]
+    pub speaker_entity_external_id: Option<String>,
     #[serde(default)]
     pub episode_started_at: Option<String>,
     #[serde(default)]

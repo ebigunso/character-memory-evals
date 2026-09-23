@@ -79,6 +79,7 @@ pub fn to_memory_inputs(
                 .filter(|summary| !summary.is_empty())
         {
             derived_memories.push(DerivedMemoryInput {
+                created_at: None,
                 external_id: format!("{}:derived:session_summary", session.session_id),
                 derived_type: DerivedType::Reflection,
                 text: summary.to_string(),
@@ -103,6 +104,7 @@ pub fn to_memory_inputs(
                     continue;
                 }
                 derived_memories.push(DerivedMemoryInput {
+                    created_at: None,
                     external_id: format!(
                         "{}:derived:generated_observation:{}",
                         session.session_id,

@@ -84,6 +84,30 @@ max = 15
 
 Continuity runs require Rust 1.97.0, the sibling `../CharacterMemory` checkout, the checked fixture and writable paths for the configured stores. The embedded adapter is the service-free default. Qdrant is optional: select `backend.vector_store_mode = "service"` and provide a gRPC endpoint such as `http://127.0.0.1:6334` to use it. Controllable-similarity and frozen runtime providers require no `OPENAI_API_KEY`; generating a new OpenAI frozen store requires the key.
 
+### Run situated scenarios
+
+Situated fixtures describe experiences, authored derived memories and probes in TOML or JSON. The loader selects the format from the extension. Each scenario is checked against the pinned library's supported features before an adapter is constructed: a missing feature makes the whole scenario `not_run`, with no namespace, writes or retrieval. At library `d0fe82d`, probes require scene and reference-time inputs that the library cannot receive. Keyed-participant experiences and native derived types can run with a legacy query; write-side where/what/custom, intention, preference, thread provenance, direction, due dates and triggers remain unsupported at that pin.
+
+Run the narrative catalog and the generated loud-topic set into separate directories. The controllable-similarity config uses width 32 and pads smaller fixture vectors without changing their geometry:
+
+```bash
+cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/situated_v1.toml --config ./configs/continuity_situated.toml --out ./.agent-work/situated/narrative/traces.jsonl
+cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/situated_loud_topic_v1.json --config ./configs/continuity_situated.toml --out ./.agent-work/situated/loud-topic/traces.jsonl
+```
+
+`report.json` includes every selected scenario, including those with no query rows. Each `scenarios[id].outcome` records `passed`, `failed` or `not_run`, missing features, assertion identities with their results and reasons, and per-probe measures. Passing means the executed assertions and the omission-reason invariant hold; recall and cost measures have no pass thresholds. An all-not-run run succeeds and writes an empty `traces.jsonl`, a run header and a report. Only executed scenarios have embedding bindings in the header.
+
+Per-probe `carried_recall_by_reason` groups expected and admitted memories by the author's reason; that reason is never checked against a retrieval cue. `bystander_context_share` counts each authored experience or derived memory once, credits an episode or observation to its experience, and excludes entities and threads. It is null for an unexecuted probe or a pack with no counted memories. `context_tokens` uses the shared token counter over the rendered context, is zero for an executed empty pack, and is null for an unexecuted probe. Native pack sections and trace facts determine assertions; missing facts on an executed probe fail. The aggregate `omission_reason_invariant` records whether native lifecycle and currency omissions have reasons, or `not_run` if no retrieval was executed.
+
+To compare a repeat, run the same fixture into a fresh directory and compare its reports. This command compares scenario outcomes, assertion identities/results/reasons and the invariant; assertion list order is immaterial. Use the existing `diff` command separately for retrieved identities and numeric metrics:
+
+```bash
+cargo run -p cmem-eval-runner -- run continuity --dataset ./crates/cmem-eval-continuity/fixtures/situated_v1.toml --config ./configs/continuity_situated.toml --out ./.agent-work/situated/repeat/traces.jsonl
+cargo run -p cmem-eval-runner -- compare-continuity ./.agent-work/situated/narrative/report.json ./.agent-work/situated/repeat/report.json
+```
+
+The comparison prints a JSON list of differences; an empty list means the compared outcomes agree. Stores are cleaned up by default as for other continuity runs.
+
 ### Generate and validate frozen real embeddings
 
 A frozen store is a JSON cache keyed by model and the SHA-256 of each exact UTF-8 text. The existing schema-v2 file shape stays unchanged: `source` and `dimension_policy` are descriptive strings, and historical labels load verbatim without admission policy. Entries retain exact text beside each `f32` vector. Loading checks schema, model, configured vector width, sorted unique hashes, exact text bytes and finite components. Extra cache entries are allowed. A missing text fails before continuity creates namespace resources and names the `cmem-eval embeddings generate` command; runtime never fills the cache through a network request.

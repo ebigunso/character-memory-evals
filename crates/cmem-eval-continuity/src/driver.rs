@@ -12,15 +12,150 @@ use cmem_eval::{
     EmbeddingRuntimeBinding, EntityInput, EntityType, EpisodeInput, ForgetCascadePolicyInput,
     ForgetMemoryInput, GraphEnrichmentInput, LinkMemoryInput, MemoryEndpointInput, MemoryLinkInput,
     MemoryThreadInput, NamespaceLifecycleResult, ObjectType, ObservationInput, PrepareWriteInput,
-    RelationType, ReplacementDerivedMemoryInput, RetentionState, RetrievalConfig, RetrieveInput,
-    RetrievedContextPack, SourceProvenanceInput, Stability, SuppressionPolicyInput, ThreadStatus,
+    PreparedWritePlan, RelationType, ReplacementDerivedMemoryInput, RetentionState,
+    RetrievalConfig, RetrieveInput, RetrievedContextPack, SourceProvenanceInput, Stability,
+    SuppressionPolicyInput, ThreadStatus,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ContinuityEntityKind, ContinuityScenario, ExpectedRelevance, InteractionEvent, ScenarioPattern,
-    derived_external_id, observation_external_id,
+    AuthoredMemoryKind, ContinuityEntityKind, ContinuityScenario, ExpectedRelevance,
+    InteractionEvent, PerceivedReference, ScenarioFeature, ScenarioOutcome, ScenarioPattern,
+    SituatedInput, derived_external_id, observation_external_id,
 };
+
+// Keep this declaration and the one scenario-to-contract mapping below together.
+// Only whole features forwarded by the pinned library belong here.
+pub const SUPPORTED_SCENARIO_FEATURES: &[ScenarioFeature] = &[
+    ScenarioFeature::WriteScene,
+    ScenarioFeature::AuthoredDerivedMemory,
+    ScenarioFeature::PackSections,
+    ScenarioFeature::PackOrder,
+];
+
+pub fn scenario_missing_features(scenario: &ContinuityScenario) -> Result<Vec<ScenarioFeature>> {
+    Ok(scenario
+        .analyze()?
+        .features
+        .into_iter()
+        .filter(|feature| !SUPPORTED_SCENARIO_FEATURES.contains(feature))
+        .collect())
+}
+
+enum MappedSituatedInput {
+    Experience(PrepareWriteInput),
+    Derive(GraphEnrichmentInput),
+    #[expect(
+        dead_code,
+        reason = "remove when the core contract can carry probe scene and reference time"
+    )]
+    Probe(RetrieveInput),
+}
+
+fn map_situated_input(
+    namespace: &str,
+    timestamp: chrono::DateTime<Utc>,
+    input: SituatedInput,
+) -> Result<MappedSituatedInput> {
+    let timestamp = timestamp.to_rfc3339_opts(SecondsFormat::AutoSi, true);
+    Ok(match input {
+        SituatedInput::Experience {
+            external_id,
+            text,
+            scene,
+            speaker,
+        } => {
+            anyhow::ensure!(
+                scene.place.is_none() && scene.what.is_none() && scene.custom.is_empty(),
+                "unsupported write scene passed the feature gate"
+            );
+            let participants = scene
+                .who
+                .into_iter()
+                .map(|reference| match reference {
+                    PerceivedReference::Key { key } => Ok(key),
+                    _ => bail!("unsupported write participant passed the feature gate"),
+                })
+                .collect::<Result<Vec<_>>>()?;
+            MappedSituatedInput::Experience(PrepareWriteInput {
+                namespace: namespace.into(),
+                content: text,
+                observation_external_id: observation_external_id(&external_id),
+                episode_external_id: external_id,
+                participant_entity_external_ids: participants,
+                speaker_entity_external_id: speaker,
+                episode_started_at: Some(timestamp.clone()),
+                observation_observed_at: Some(timestamp),
+                raw_refs: Vec::new(),
+                idempotency_key: None,
+                include_vector_index_candidates: true,
+                include_stats_update_candidates: true,
+            })
+        }
+        SituatedInput::Derive {
+            external_id,
+            memory,
+        } => {
+            anyhow::ensure!(
+                memory.actor.is_none()
+                    && memory.counterpart.is_none()
+                    && memory.due.is_none()
+                    && memory.trigger.is_none(),
+                "unsupported derived fields passed the feature gate"
+            );
+            let mut input = GraphEnrichmentInput {
+                namespace: namespace.into(),
+                ..Default::default()
+            };
+            if memory.subtype == AuthoredMemoryKind::Thread {
+                anyhow::ensure!(
+                    memory.experiences.is_empty()
+                        && memory.about.is_empty()
+                        && memory.supersedes.is_empty(),
+                    "unsupported thread provenance passed the feature gate"
+                );
+                input.threads.push(MemoryThreadInput {
+                    external_id,
+                    title: memory.text.clone(),
+                    summary: memory.text,
+                    status: ThreadStatus::Active,
+                    last_touched_at: Some(timestamp),
+                    salience_score: 0.5,
+                    canonical_key: None,
+                });
+            } else {
+                let derived_type = match memory.subtype {
+                    AuthoredMemoryKind::Reflection => DerivedType::Reflection,
+                    AuthoredMemoryKind::RelationshipNote => DerivedType::RelationshipNote,
+                    AuthoredMemoryKind::OpenLoop => DerivedType::OpenLoop,
+                    AuthoredMemoryKind::Commitment => DerivedType::Commitment,
+                    AuthoredMemoryKind::CharacterSignal => DerivedType::CharacterSignal,
+                    _ => bail!("unsupported derived subtype passed the feature gate"),
+                };
+                input.derived_memories.push(DerivedMemoryInput {
+                    external_id,
+                    created_at: Some(timestamp),
+                    derived_type,
+                    text: memory.text,
+                    source_episode_external_ids: memory.experiences,
+                    source_observation_external_ids: Vec::new(),
+                    thread_external_ids: Vec::new(),
+                    entity_external_ids: memory.about,
+                    confidence: 1.0,
+                    salience_score: 0.5,
+                    stability: Stability::Medium,
+                    is_current: true,
+                    supersedes_external_ids: memory.supersedes,
+                    metadata: serde_json::Value::Null,
+                });
+            }
+            MappedSituatedInput::Derive(input)
+        }
+        SituatedInput::Probe { .. } => {
+            bail!("the pinned library cannot receive a probe scene and reference time")
+        }
+    })
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContinuityQueryTrace {
@@ -70,6 +205,7 @@ impl From<&ExpectedRelevance> for ExpectedRelevanceRecord {
 
 #[derive(Debug, Default, PartialEq)]
 pub struct ContinuityScenarioRun {
+    pub outcome: ScenarioOutcome,
     pub traces: Vec<ContinuityQueryObservation>,
     pub query_latencies_ms: BTreeMap<String, u128>,
     pub operation_counts: BTreeMap<String, usize>,
@@ -246,16 +382,12 @@ pub async fn run_continuity_scenario(
     scenario: &ContinuityScenario,
     retrieval: &RetrievalConfig,
 ) -> Result<ContinuityScenarioRun> {
-    scenario.validate()?;
-    if scenario.events.iter().any(|event| {
-        matches!(
-            event,
-            InteractionEvent::Experience { .. }
-                | InteractionEvent::Derive { .. }
-                | InteractionEvent::Probe { .. }
-        )
-    }) {
-        bail!("situated events are not yet runnable by the continuity driver");
+    let missing = scenario_missing_features(scenario)?;
+    if !missing.is_empty() {
+        return Ok(ContinuityScenarioRun {
+            outcome: ScenarioOutcome::not_run(scenario, missing),
+            ..Default::default()
+        });
     }
     runtime
         .adapter()
@@ -305,7 +437,9 @@ pub async fn run_continuity_scenario(
                 entities,
                 ..GraphEnrichmentInput::default()
             })
-            .await?,
+            .await?
+            .map(|outcome| checked_write_outcome(scenario, "entities", outcome))
+            .transpose()?,
     );
     increment(&mut run.operation_counts, "remember");
 
@@ -314,7 +448,104 @@ pub async fn run_continuity_scenario(
             InteractionEvent::Experience { .. }
             | InteractionEvent::Derive { .. }
             | InteractionEvent::Probe { .. } => {
-                unreachable!("situated events are rejected before namespace creation");
+                let input = scenario.situated_input(event)?.expect("situated event");
+                match map_situated_input(&scenario.namespace, event.timestamp(), input)? {
+                    MappedSituatedInput::Experience(input) => {
+                        let external_id = input.episode_external_id.clone();
+                        let observation_id = input.observation_external_id.clone();
+                        history.push(format!(
+                            "{}|experience|{}|{}",
+                            event.timestamp(),
+                            external_id,
+                            input.content
+                        ));
+                        let plan = runtime.adapter().prepare(input).await?;
+                        increment(&mut run.operation_counts, "prepare");
+                        write_outcomes.push(
+                            commit_validated_plan(
+                                runtime.adapter(),
+                                scenario,
+                                event.event_id(),
+                                plan,
+                                &mut run.operation_counts,
+                            )
+                            .await?,
+                        );
+                        increment(&mut run.operation_counts, "experience");
+                        for (id, object_type) in [
+                            (external_id.clone(), ObjectType::Episode),
+                            (observation_id, ObjectType::Observation),
+                        ] {
+                            let raw_ref =
+                                format!("eval://{}/{}/{}", scenario.namespace, object_type, id);
+                            admitted.insert(
+                                id,
+                                AdmittedObject {
+                                    object_type,
+                                    source_episode_external_id: Some(external_id.clone()),
+                                    original_raw_ref: Some(raw_ref),
+                                    original_source_ref: (object_type == ObjectType::Episode)
+                                        .then_some(external_id.clone()),
+                                },
+                            );
+                        }
+                    }
+                    MappedSituatedInput::Derive(input) => {
+                        for memory in &input.derived_memories {
+                            admitted.insert(
+                                memory.external_id.clone(),
+                                AdmittedObject {
+                                    object_type: ObjectType::DerivedMemory,
+                                    source_episode_external_id: memory
+                                        .source_episode_external_ids
+                                        .first()
+                                        .cloned(),
+                                    original_raw_ref: None,
+                                    original_source_ref: None,
+                                },
+                            );
+                            history.push(format!(
+                                "{}|derive|{}|{}",
+                                event.timestamp(),
+                                memory.external_id,
+                                memory.text
+                            ));
+                        }
+                        for thread in &input.threads {
+                            admitted.insert(
+                                thread.external_id.clone(),
+                                AdmittedObject {
+                                    object_type: ObjectType::MemoryThread,
+                                    source_episode_external_id: None,
+                                    original_raw_ref: None,
+                                    original_source_ref: None,
+                                },
+                            );
+                            history.push(format!(
+                                "{}|derive|{}|{}",
+                                event.timestamp(),
+                                thread.external_id,
+                                thread.summary
+                            ));
+                        }
+                        write_outcomes.extend(
+                            runtime
+                                .adapter()
+                                .remember_enrichment(input)
+                                .await?
+                                .map(|outcome| {
+                                    checked_write_outcome(scenario, event.event_id(), outcome)
+                                })
+                                .transpose()?,
+                        );
+                        increment(&mut run.operation_counts, "derive");
+                    }
+                    MappedSituatedInput::Probe(input) => {
+                        let pack = runtime.adapter().retrieve(input).await?;
+                        increment(&mut run.operation_counts, "retrieve");
+                        run.outcome.record_probe(scenario, event, &pack);
+                    }
+                }
             }
             InteractionEvent::Remember {
                 event_id,
@@ -358,7 +589,7 @@ pub async fn run_continuity_scenario(
                             }),
                         })
                         .await?;
-                    write_outcomes.push(result.outcome);
+                    write_outcomes.push(checked_write_outcome(scenario, event_id, result.outcome)?);
                     increment(&mut run.operation_counts, "remember_episode");
                     let result = runtime
                         .adapter()
@@ -375,16 +606,18 @@ pub async fn run_continuity_scenario(
                             }),
                         })
                         .await?;
-                    write_outcomes.push(result.outcome);
+                    write_outcomes.push(checked_write_outcome(scenario, event_id, result.outcome)?);
                     increment(&mut run.operation_counts, "remember_observation");
                 } else {
-                    let mut plan = runtime
+                    let plan = runtime
                         .adapter()
                         .prepare(PrepareWriteInput {
                             namespace: scenario.namespace.clone(),
                             content: text.clone(),
                             episode_external_id: external_id.clone(),
                             observation_external_id: observation_external_id.clone(),
+                            participant_entity_external_ids: Vec::new(),
+                            speaker_entity_external_id: None,
                             episode_started_at: Some(scripted_timestamp.clone()),
                             observation_observed_at: Some(scripted_timestamp.clone()),
                             raw_refs: vec![original_raw_ref.clone()],
@@ -397,37 +630,16 @@ pub async fn run_continuity_scenario(
                         })
                         .await?;
                     increment(&mut run.operation_counts, "prepare");
-                    let validations = runtime.adapter().validate_plan(&plan).await?;
-                    increment(&mut run.operation_counts, "validate_plan");
-                    if validations
-                        .iter()
-                        .any(|validation| validation.status == CandidateValidationStatus::Invalid)
-                    {
-                        bail!(
-                            "scenario {:?} event {event_id:?} produced an invalid write plan: {validations:?}",
-                            scenario.fixture_id
-                        );
-                    }
-                    plan.plan.validations = validations;
-                    let commit = runtime
-                        .adapter()
-                        .commit(plan, CommitWriteOptions::default())
-                        .await?;
-                    increment(&mut run.operation_counts, "commit");
-                    if !commit.repair_needed.is_empty() {
-                        bail!(
-                            "scenario {:?} event {event_id:?} committed with repair-needed markers: {:?}",
-                            scenario.fixture_id,
-                            commit.repair_needed
-                        );
-                    }
-                    if commit.vector_indexed_object_refs.is_empty() {
-                        bail!(
-                            "scenario {:?} event {event_id:?} committed without vector-indexed objects",
-                            scenario.fixture_id
-                        );
-                    }
-                    write_outcomes.push(commit.outcome);
+                    write_outcomes.push(
+                        commit_validated_plan(
+                            runtime.adapter(),
+                            scenario,
+                            event_id,
+                            plan,
+                            &mut run.operation_counts,
+                        )
+                        .await?,
+                    );
                 }
                 admitted.insert(
                     external_id.clone(),
@@ -539,6 +751,7 @@ pub async fn run_continuity_scenario(
                             namespace: scenario.namespace.clone(),
                             threads,
                             derived_memories: vec![DerivedMemoryInput {
+                                created_at: None,
                                 external_id: derived_external_id.clone(),
                                 derived_type: DerivedType::Reflection,
                                 text: derived_text.to_string(),
@@ -561,7 +774,9 @@ pub async fn run_continuity_scenario(
                             links: association_links,
                             ..GraphEnrichmentInput::default()
                         })
-                        .await?,
+                        .await?
+                        .map(|outcome| checked_write_outcome(scenario, event_id, outcome))
+                        .transpose()?,
                 );
                 for _ in 0..association_count {
                     increment(&mut run.operation_counts, "link");
@@ -617,6 +832,7 @@ pub async fn run_continuity_scenario(
                         targets: vec![target],
                         replacements: vec![ReplacementDerivedMemoryInput {
                             memory: DerivedMemoryInput {
+                                created_at: None,
                                 external_id: replacement_external_id.clone(),
                                 derived_type: DerivedType::Reflection,
                                 text: replacement_text.clone(),
@@ -803,6 +1019,7 @@ pub async fn run_continuity_scenario(
                 )
                 .await?;
                 let before_restart = restart_probe_snapshot(&before_pack, probe_expected);
+                run.outcome.record_retrieval(&before_pack);
                 let lifecycle = runtime.restart(scenario).await?;
                 let after_pack = retrieve_query(
                     runtime.adapter(),
@@ -813,6 +1030,7 @@ pub async fn run_continuity_scenario(
                 )
                 .await?;
                 let after_restart = restart_probe_snapshot(&after_pack, probe_expected);
+                run.outcome.record_retrieval(&after_pack);
                 let delta = restart_probe_delta(&before_restart, &after_restart);
                 run.restart_observations.push(RestartObservation {
                     event_id: event_id.clone(),
@@ -842,6 +1060,7 @@ pub async fn run_continuity_scenario(
                 let pack =
                     retrieve_query(runtime.adapter(), scenario, retrieval, timestamp, text).await?;
                 let latency_ms = query_started_at.elapsed().as_millis();
+                run.outcome.record_retrieval(&pack);
                 increment(&mut run.operation_counts, "retrieve");
                 run.query_latencies_ms.insert(query_id.clone(), latency_ms);
                 run.traces.push(ContinuityQueryObservation {
@@ -864,6 +1083,58 @@ pub async fn run_continuity_scenario(
     }
 
     Ok(run)
+}
+
+async fn commit_validated_plan(
+    adapter: &CharacterMemoryAdapter,
+    scenario: &ContinuityScenario,
+    event_id: &str,
+    mut plan: PreparedWritePlan,
+    operation_counts: &mut BTreeMap<String, usize>,
+) -> Result<cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>> {
+    let validations = adapter.validate_plan(&plan).await?;
+    increment(operation_counts, "validate_plan");
+    if validations
+        .iter()
+        .any(|validation| validation.status == CandidateValidationStatus::Invalid)
+    {
+        bail!(
+            "scenario {:?} event {event_id:?} produced an invalid write plan: {validations:?}",
+            scenario.fixture_id
+        );
+    }
+    plan.plan.validations = validations;
+    let commit = adapter.commit(plan, CommitWriteOptions::default()).await?;
+    increment(operation_counts, "commit");
+    checked_write_outcome(scenario, event_id, commit.outcome)
+}
+
+fn checked_write_outcome(
+    scenario: &ContinuityScenario,
+    event_id: &str,
+    recorded: cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>,
+) -> Result<cmem_eval::RecordedOutcome<cmem_eval::RememberOutcome>> {
+    let outcome = &recorded.outcome;
+    if !outcome.repair_needed.is_empty() {
+        bail!(
+            "scenario {:?} event {event_id:?} committed with repair-needed markers: {:?}",
+            scenario.fixture_id,
+            outcome.repair_needed
+        );
+    }
+    if let Some(failure) = &outcome.vector_indexing_failure {
+        bail!(
+            "scenario {:?} event {event_id:?} committed with vector-indexing failure: {failure:?}",
+            scenario.fixture_id
+        );
+    }
+    if outcome.vector_indexed_object_ids.is_empty() {
+        bail!(
+            "scenario {:?} event {event_id:?} committed without vector-indexed objects",
+            scenario.fixture_id
+        );
+    }
+    Ok(recorded)
 }
 
 async fn retrieve_query(
@@ -1086,7 +1357,7 @@ fn adapter_entity_type(fixture_entity_type: ContinuityEntityKind) -> EntityType 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fs;
 
     use super::*;
@@ -1185,6 +1456,319 @@ mod tests {
         );
         fs::write(&round_trip, serde_json::to_vec(&additive).unwrap()).unwrap();
         assert_eq!(read_traces(&round_trip), traces[..1]);
+    }
+
+    pub(crate) fn situated_scenario() -> ContinuityScenario {
+        crate::parse_fixture_bytes(&serde_json::to_vec(&serde_json::json!({
+            "schema_version": 3, "seed": 7,
+            "scenarios": [{
+                "fixture_id": "situated-control", "namespace": "situated-control", "pattern": "situated",
+                "catalog_situations": ["D4"], "character_entity": "self",
+                "entities": [
+                    {"external_id":"self", "label":"Character", "entity_type":"person", "is_hub":false},
+                    {"external_id":"ada", "label":"Ada", "entity_type":"person", "is_hub":false}
+                ],
+                "scenes": {"pair":{"who":[{"reference":{"by":"key","key":"self"}},{"reference":{"by":"key","key":"ada"}}]}},
+                "embedding": {"provider":"controllable_similarity", "own_concept":true, "seed":7, "vector_size":16, "noise_magnitude":0.01, "clusters":{}, "concepts":{}},
+                "events": [
+                    {"kind":"experience", "event_id":"visit", "timestamp":"2024-01-01T09:00:00.123456789Z", "text":"Garden", "scene":{"kind":"named","name":"pair"}, "speaker":"ada"},
+                    {"kind":"experience", "event_id":"noise", "timestamp":"2024-01-02T09:00:00Z", "text":"Weather", "scene":{"kind":"named","name":"pair"}},
+                    {"kind":"derive", "event_id":"promise", "timestamp":"2024-01-03T09:00:00.987654321Z", "memory":{"subtype":"commitment", "text":"Garden commitment", "experiences":["visit"], "about":["ada"]}},
+                    {"kind":"query", "event_id":"ask", "query_id":"ask", "timestamp":"2024-01-04T09:00:00Z", "text":"Garden", "expected":{"relevant_external_ids":["visit","promise"], "irrelevant_external_ids":[]}}
+                ]
+            }]
+        })).unwrap()).unwrap().scenarios.remove(0)
+    }
+
+    #[tokio::test]
+    async fn situated_writes_reject_degraded_native_outcomes() {
+        for missing_input in ["Garden", "Garden commitment"] {
+            let mut scenario = situated_scenario();
+            let mut query = scenario.events.pop().unwrap();
+            let InteractionEvent::Query { text, expected, .. } = &mut query else {
+                unreachable!()
+            };
+            *text = "Weather".into();
+            expected.relevant_external_ids = vec!["visit".into()];
+            scenario.events.push(query);
+            scenario.analyze().unwrap();
+            let mut fixture = scenario
+                .embedding
+                .controllable_similarity()
+                .unwrap()
+                .clone();
+            // A valid provider that cannot embed this write produces a native
+            // repair-needed outcome after persisting the graph.
+            fixture
+                .concepts
+                .retain(|_, concept| !concept.inputs.iter().any(|input| input == missing_input));
+            let mut config = BenchmarkRunConfig {
+                run_id: "degraded-write".into(),
+                dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
+                backend: Default::default(),
+                retrieval: retrieval(),
+                ingest: Default::default(),
+                metrics: Default::default(),
+            };
+            config.backend.embedding.vector_size = Some(fixture.vector_size);
+            let directory = tempfile::tempdir().unwrap();
+            let mut runtime = ContinuityRuntime::new(
+                directory.path(),
+                &config,
+                EmbeddingRuntimeBinding::Controllable {
+                    dimension_policy: cmem_eval::ControllableDimensionPolicy::FixtureDeclared,
+                    fixture,
+                },
+            )
+            .await
+            .unwrap();
+            let result = run_continuity_scenario(&mut runtime, &scenario, &config.retrieval).await;
+            runtime.cleanup(&scenario.namespace).await.unwrap();
+            assert!(
+                result.is_err(),
+                "a write with an unavailable embedding for {missing_input:?} must not pass"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn situated_control_forwards_authored_fields_into_native_memories() {
+        let scenario = situated_scenario();
+        assert!(scenario_missing_features(&scenario).unwrap().is_empty());
+        let run = run_embedded(&scenario).await;
+        assert_eq!(run.outcome.status, crate::ScenarioStatus::Passed);
+        assert_eq!(run.operation_counts.get("validate_plan"), Some(&2));
+        let pack = &run.traces[0].retrieval;
+        let native = &pack.outcomes()[0].pack;
+        let external = |id: cmem_eval::character_memory::MemoryId| {
+            pack.object_refs()[&id.to_string()].external_id.clone()
+        };
+        let visit = native
+            .relevant_episodes
+            .iter()
+            .find(|episode| episode.source_conversation_id.as_deref() == Some("visit"))
+            .unwrap();
+        assert_eq!(
+            visit
+                .participant_entity_ids
+                .iter()
+                .map(|id| external(*id))
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from(["self".to_string(), "ada".to_string()])
+        );
+        assert_eq!(visit.started_at, Some(scenario.events[0].timestamp()));
+        assert_eq!(visit.created_at, scenario.events[0].timestamp());
+        let observation = native
+            .salient_observations
+            .iter()
+            .find(|observation| observation.episode_id == visit.id)
+            .unwrap();
+        assert_eq!(external(observation.speaker_entity_id.unwrap()), "ada");
+        assert_eq!(
+            observation.observed_at,
+            Some(scenario.events[0].timestamp())
+        );
+        let promise = native
+            .commitments
+            .iter()
+            .find(|memory| external(memory.memory.id) == "promise")
+            .unwrap();
+        assert_eq!(promise.memory.derived_type, DerivedType::Commitment);
+        assert_eq!(promise.memory.derived_from_episode_ids, [visit.id]);
+        assert_eq!(
+            promise
+                .memory
+                .entity_ids
+                .iter()
+                .map(|id| external(*id))
+                .collect::<Vec<_>>(),
+            ["ada"]
+        );
+        assert_eq!(promise.memory.created_at, scenario.events[2].timestamp());
+        assert_eq!(run.operation_counts["experience"], 2);
+        assert_eq!(run.operation_counts["derive"], 1);
+        // Each supported write feature has a faithful core-contract mapping;
+        // section and ordering features are exercised against native packs in metrics tests.
+        assert_eq!(
+            SUPPORTED_SCENARIO_FEATURES,
+            [
+                ScenarioFeature::WriteScene,
+                ScenarioFeature::AuthoredDerivedMemory,
+                ScenarioFeature::PackSections,
+                ScenarioFeature::PackOrder
+            ]
+        );
+        for (subtype, expected) in [
+            (AuthoredMemoryKind::Reflection, DerivedType::Reflection),
+            (
+                AuthoredMemoryKind::RelationshipNote,
+                DerivedType::RelationshipNote,
+            ),
+            (AuthoredMemoryKind::OpenLoop, DerivedType::OpenLoop),
+            (
+                AuthoredMemoryKind::CharacterSignal,
+                DerivedType::CharacterSignal,
+            ),
+        ] {
+            let Some(SituatedInput::Derive {
+                external_id,
+                mut memory,
+            }) = scenario.situated_input(&scenario.events[2]).unwrap()
+            else {
+                panic!("derive");
+            };
+            memory.subtype = subtype;
+            let MappedSituatedInput::Derive(mapped) = map_situated_input(
+                &scenario.namespace,
+                scenario.events[2].timestamp(),
+                SituatedInput::Derive {
+                    external_id,
+                    memory,
+                },
+            )
+            .unwrap() else {
+                panic!("derive mapping");
+            };
+            assert_eq!(mapped.derived_memories[0].derived_type, expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn unsupported_scenario_does_not_even_access_an_adapter() {
+        for (subtype, feature) in [
+            (
+                AuthoredMemoryKind::Intention,
+                ScenarioFeature::IntentionMemory,
+            ),
+            (
+                AuthoredMemoryKind::Thread,
+                ScenarioFeature::ThreadProvenance,
+            ),
+        ] {
+            let mut scenario = situated_scenario();
+            let InteractionEvent::Derive { memory, .. } = &mut scenario.events[2] else {
+                panic!("derive");
+            };
+            memory.subtype = subtype;
+            if subtype == AuthoredMemoryKind::Thread {
+                let mut replacement = scenario.events[2].clone();
+                let InteractionEvent::Derive {
+                    event_id,
+                    timestamp,
+                    memory,
+                    ..
+                } = &mut replacement
+                else {
+                    unreachable!()
+                };
+                *event_id = "replacement".into();
+                *timestamp += chrono::Duration::minutes(1);
+                memory.subtype = AuthoredMemoryKind::Commitment;
+                memory.supersedes = vec!["promise".into()];
+                scenario.events.insert(3, replacement);
+            }
+            let directory = tempfile::tempdir().unwrap();
+            let mut runtime = ContinuityRuntime {
+                active: None,
+                config: Box::new(BenchmarkRunConfig {
+                    run_id: "not-run".into(),
+                    dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
+                    backend: Default::default(),
+                    retrieval: retrieval(),
+                    ingest: Default::default(),
+                    metrics: Default::default(),
+                }),
+                embedding_binding: EmbeddingRuntimeBinding::Controllable {
+                    fixture: scenario
+                        .embedding
+                        .controllable_similarity()
+                        .unwrap()
+                        .clone(),
+                    dimension_policy: cmem_eval::ControllableDimensionPolicy::FixtureDeclared,
+                },
+                run_root: directory.path().to_path_buf(),
+            };
+            let run = run_continuity_scenario(&mut runtime, &scenario, &retrieval())
+                .await
+                .unwrap();
+            assert_eq!(run.outcome.status, crate::ScenarioStatus::NotRun);
+            assert_eq!(run.outcome.missing_features, [feature]);
+            assert!(run.operation_counts.is_empty());
+            assert!(run.traces.is_empty());
+            assert!(runtime.active.is_none());
+            assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
+    }
+
+    #[test]
+    fn unsupported_write_details_are_distinct_static_requirements() {
+        for (subtype, feature) in [
+            (
+                AuthoredMemoryKind::Intention,
+                ScenarioFeature::IntentionMemory,
+            ),
+            (
+                AuthoredMemoryKind::Preference,
+                ScenarioFeature::PreferenceMemory,
+            ),
+            (
+                AuthoredMemoryKind::Thread,
+                ScenarioFeature::ThreadProvenance,
+            ),
+        ] {
+            let mut scenario = situated_scenario();
+            let InteractionEvent::Derive { memory, .. } = &mut scenario.events[2] else {
+                unreachable!()
+            };
+            memory.subtype = subtype;
+            assert_eq!(scenario_missing_features(&scenario).unwrap(), [feature]);
+        }
+        for feature in [
+            ScenarioFeature::WriteSceneWhere,
+            ScenarioFeature::WriteSceneWhat,
+            ScenarioFeature::WriteSceneCustom,
+        ] {
+            let mut scenario = situated_scenario();
+            let scene = scenario.scenes.get_mut("pair").unwrap();
+            match feature {
+                ScenarioFeature::WriteSceneWhere => {
+                    scene.place = Some(PerceivedReference::Setting {
+                        key: "workshop".into(),
+                    })
+                }
+                ScenarioFeature::WriteSceneWhat => {
+                    let mut activity_scene = scene.clone();
+                    activity_scene.what = Some(PerceivedReference::Key {
+                        key: "gardening".into(),
+                    });
+                    let InteractionEvent::Experience { scene, .. } = &mut scenario.events[1] else {
+                        unreachable!()
+                    };
+                    *scene = crate::SceneSelection::Inline {
+                        scene: activity_scene,
+                    };
+                    let mut activity = scenario.events[2].clone();
+                    let InteractionEvent::Derive {
+                        event_id,
+                        timestamp,
+                        memory,
+                        ..
+                    } = &mut activity
+                    else {
+                        unreachable!()
+                    };
+                    *event_id = "gardening".into();
+                    *timestamp = scenario.events[0].timestamp() + chrono::Duration::minutes(1);
+                    memory.subtype = AuthoredMemoryKind::OpenLoop;
+                    scenario.events.insert(1, activity);
+                }
+                ScenarioFeature::WriteSceneCustom => {
+                    scene.custom.insert("project".into(), "garden".into());
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(scenario_missing_features(&scenario).unwrap(), [feature]);
+        }
     }
 
     async fn run_embedded(scenario: &ContinuityScenario) -> ContinuityScenarioRun {

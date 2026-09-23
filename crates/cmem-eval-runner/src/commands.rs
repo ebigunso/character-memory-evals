@@ -21,6 +21,17 @@ impl Cli {
             Command::Run(run) => run.run().await,
             Command::Embeddings(args) => args.run().await,
             Command::Diff(args) => crate::diff::run(args),
+            Command::CompareContinuity { before, after } => {
+                let before = cmem_eval_continuity::read_continuity_report(&before)?;
+                let after = cmem_eval_continuity::read_continuity_report(&after)?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &cmem_eval_continuity::compare_continuity_reports(&before, &after)
+                    )?
+                );
+                Ok(())
+            }
             Command::Seal { run_dir } => {
                 let evidence_root =
                     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evidence");
@@ -38,6 +49,11 @@ enum Command {
     Run(RunCommand),
     Embeddings(crate::frozen_embeddings::EmbeddingsCommand),
     Diff(crate::diff::DiffArgs),
+    /// Compare scenario outcomes, assertion identities/results/reasons, and the invariant.
+    CompareContinuity {
+        before: PathBuf,
+        after: PathBuf,
+    },
     /// Preserve a finished run as immutable evidence in this checkout.
     Seal {
         run_dir: PathBuf,
