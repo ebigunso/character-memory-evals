@@ -4470,7 +4470,7 @@ mod tests {
                 namespace: namespace.to_string(),
                 topic: Some("What is the restart-safe drink?".to_string()),
                 scene: crate::MemorySceneInput {
-                    time: None,
+                    time: Some("2025-01-02T00:00:00Z".to_string()),
                     ..Default::default()
                 },
                 surface_policy: retrieval_surface_policy(8, 8, false, false, false, true),
