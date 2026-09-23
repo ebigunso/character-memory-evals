@@ -82,13 +82,13 @@ Every event has a nonblank `event_id` and an RFC 3339 `timestamp`. Timestamps ma
 |---|---|---|
 | `experience` | `text`, `scene`; its event ID becomes the experience's memory ID | `speaker` (declared entity), `salience` (finite number in `[0,1]`) |
 | `derive` | `memory` | `expected_warning` |
-| `probe` | `query_id`, `scene` | `topic`, `partition`, `assertions`, `measures` |
+| `probe` | `query_id`, `scene` | `topic`, `assertions`, `measures` |
 
 An experience creates an episode and an observation. An explicit salience value reaches both native drafts; absence preserves native defaults and is omitted from serialized input. Speaker is forwarded to the observation. Neither value is an unsupported feature.
 
 An authored `memory` requires `subtype`, nonblank `text`, nonempty distinct `experiences` naming earlier experiences, and `about` containing distinct declared entities (possibly empty). Subtypes are `reflection`, `preference`, `relationship_note`, `open_loop`, `commitment`, `intention`, `character_signal` and `thread`. Optional `supersedes` names distinct earlier authored derived memories; thread targets are rejected at load. Optional `actor` and `counterpart` must appear together and name declared entities. Optional `due` is an RFC 3339 timestamp. Optional `trigger` is `{kind = "participant", entity = "jo"}` or `{kind = "topic", text = "Thursday dinner"}`. Supersession is forwarded as authored input; it is not an additional feature gate. `expected_warning` is scoring-only and accepts `near_verbatim_restatement` or `churning_chain`.
 
-A probe may omit its topic entirely. A present topic must be nonblank; its embedding lookup uses trimmed text. A partition is `{by = "participants"}`, `{by = "setting"}` or `{by = "custom", key = "project"}`; a custom key must exist in that probe's scene. Partition is an explicit caller control, not a reason to infer that any other scene is irrelevant.
+A probe may omit its topic entirely. A present topic must be nonblank; its embedding lookup uses trimmed text.
 
 Lifecycle events use the same event identity and timestamp: `link` supplies `external_id`, `from_external_id`, `relation` and `to_external_id`; `forget` supplies `target_external_ids`, `suppress_derived_from_target` and `apply_to_derived_from_target`; `correct` supplies `target_external_id`, `replacement_external_id` and `replacement_text`; `restart` supplies `reopen_graph` and `reopen_stats`. At least one store must reopen and a later query or probe must follow a restart. For the `remember` and `query` shapes, see [fixture.rs](src/fixture.rs).
 
@@ -102,7 +102,7 @@ For deterministic authoring, use `provider = "controllable_similarity"` with `se
 |---|---|---|
 | `carried` | `{memory = "m", reason = "pair", section = "episodes"}`; section optional | Memory ID; admitted in a native pack, in the requested section if supplied. One carried entry per memory. |
 | `in_order` | `["first", "second"]` | Full ordered sequence; at least two distinct carried memories in relative native pack order. Distinct sequences can share members. |
-| `omitted` | `{memory = "m", reason = "resolution"}` | Memory ID; absent with the specified native omission reason. Cannot also be carried. Reasons: `partition`, `resolution`, `supersession`, `suppression`; partition omission requires a probe partition. |
+| `omitted` | `{memory = "m", reason = "resolution"}` | Memory ID; absent with the specified native omission reason. Cannot also be carried. Reasons: `resolution`, `supersession`, `suppression`. |
 | `cued` | `{memory = "m", cue = "due"}` | `(memory, cue)`; that named cue occurred for that memory. |
 | `not_cued` | `{memory = "m", cue = "date"}` | `(memory, cue)`; available native cue facts show that named cue did not occur. It does not assert omission. |
 | `references` | `{participant = {by = "name", text = "Jo"}, resolution = {status = "resolved", entity = "jo"}}` | Full perceived participant reference, which must appear in this probe's `who`; compares native resolution. |
@@ -110,7 +110,7 @@ For deterministic authoring, use `provider = "controllable_similarity"` with `se
 | `elapsed_since_met` | `"jo"` | Counterpart entity ID; elapsed time from the most recent earlier authored experience containing both character and counterpart. Requires such a meeting. |
 | `staleness` | `"m"` | Carried memory ID; age from its most recent supporting experience, not its derivation time. |
 
-A probe partition adds a `partition` assertion with no subject. A derive's `expected_warning` adds a `write_warning` assertion whose subject is the warning kind. Duplicate subjects reject. The loader computes elapsed time, staleness and partition expectation; authors do not supply numerical answers. A scene assertion must match the experience's provenance. A derive inherits a single source scene only when all supporting experiences have the same perceived participants, place, activity and custom values; mixed-scene derivations cannot carry a scene assertion.
+A derive's `expected_warning` adds a `write_warning` assertion whose subject is the warning kind. Duplicate subjects reject. The loader computes elapsed time and staleness; authors do not supply numerical answers. A scene assertion must match the experience's provenance. A derive inherits a single source scene only when all supporting experiences have the same perceived participants, place, activity and custom values; mixed-scene derivations cannot carry a scene assertion.
 
 Reference resolution also accepts `{status = "ambiguous", candidates = ["jo-a", "jo-b"]}` (at least two distinct declared candidates, including any annotated gold entity) or `{status = "unknown"}`. A keyed participant can only resolve to its key. A resolved result must agree with any `gold_entity`; unknown means the native resolver did not establish identity, even if the author knows it.
 
@@ -158,7 +158,6 @@ The loader derives needed features from actual fields and assertions; authors ca
 | Probe textual references | Role-specific `participant_name`, `participant_description`, `place_name`, `place_description`, `activity_name`, `activity_description` |
 | Derive | `authored_derived_memory`; intention/preference add `intention_memory`/`preference_memory`; thread support/about/supersession adds `thread_provenance` |
 | Direction, due, trigger | `direction`, `due_date`, `trigger` respectively |
-| Partition | `partition`, `partition_trace` |
 | `cued` or `not_cued` | `cue_trace` |
 | Reference, scene, elapsed, staleness assertions | `reference_trace`, `memory_scene_trace`, `elapsed_since_met`, `staleness` respectively |
 | Omission, warning, section, order expectations | `omission_reasons`, `write_warnings`, `pack_sections`, `pack_order` respectively |
