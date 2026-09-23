@@ -422,6 +422,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                 let input = RetrieveInput {
                     activity: None,
                     cue_floors: None,
+                    lifecycle_policy: None,
                     time_range: None,
                     mode: config.retrieval.mode,
                     namespace: namespace.clone(),
@@ -1761,6 +1762,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                lifecycle_policy: None,
                 time_range: None,
                 namespace: "stale".into(),
                 topic: Some("stale durable state".into()),

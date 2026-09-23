@@ -272,6 +272,7 @@ mod tests {
         let mut input = RetrieveInput {
             activity: None,
             cue_floors: None,
+            lifecycle_policy: None,
             time_range: None,
             mode: crate::RetrievalMode::Bm25Only,
             namespace: "lexical".into(),

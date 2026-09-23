@@ -179,6 +179,7 @@ fn generated(config: &BenchmarkRunConfig) -> Result<(ContinuityScenario, Vec<Pro
         },
         activity: None,
         cue_floors: None,
+        lifecycle_policy: None,
         time_range: None,
         surface_policy: config.retrieval.surface_policy.clone(),
     };
@@ -429,6 +430,7 @@ fn generated_overlap(
                 },
                 activity: None,
                 cue_floors: None,
+                lifecycle_policy: None,
                 time_range: None,
                 surface_policy: config.retrieval.surface_policy.clone(),
             };
@@ -564,7 +566,10 @@ fn snapshot(pack: &RetrievedContextPack, input: &RetrieveInput) -> Result<Value>
     Ok(json!({"selected":selected, "floor_admissions":admissions,
         "roots":roots.iter().map(|r| { let mut v=describe(&r["root"]); v["source"]=r["source"].clone(); v["outcome"]=r["outcome"].clone(); v }).collect::<Vec<_>>(),
         "candidates":candidates.iter().map(|c| describe(&c["object"])).collect::<Vec<_>>(),
-        "activity":outcome.activity, "scene_references":outcome.scene_references,"telemetry":outcome.rationale.telemetry,"trace":trace}))
+        "activity":outcome.activity, "scene_references":outcome.scene_references,"telemetry":outcome.rationale.telemetry,"trace":trace,
+        "admission_paths":outcome.memory_scenes.iter().map(|memory| json!({"object":memory.memory,
+            "external_id":pack.object_refs().get(&memory.memory.id.to_string()).map(|r| &r.external_id),
+            "admitted_by":memory.admitted_by})).collect::<Vec<_>>()}))
 }
 
 fn stage_key(stage: &Value) -> String {
@@ -812,15 +817,22 @@ async fn run_calibration() -> Result<()> {
     let mut slices_only = false;
     let mut consolidation_only = false;
     let mut residuals_only = false;
+    let mut obligations_only = false;
     let mut anniversary_required = false;
     let mut timing_output = None;
     while let Some(flag) = args.next() {
         match flag.to_str() {
-            Some("--slices-only" | "--consolidation-only" | "--residuals-only") => {
+            Some(
+                "--slices-only"
+                | "--consolidation-only"
+                | "--residuals-only"
+                | "--obligations-only",
+            ) => {
                 ensure!(!slices_only, "choose one measurement subset");
                 slices_only = true;
                 consolidation_only = flag == "--consolidation-only";
                 residuals_only = flag == "--residuals-only";
+                obligations_only = flag == "--obligations-only";
             }
             Some("--require-anniversary") => anniversary_required = true,
             Some("--timings") => {
@@ -831,12 +843,12 @@ async fn run_calibration() -> Result<()> {
                 );
             }
             _ => anyhow::bail!(
-                "expected --slices-only, --consolidation-only, --residuals-only, --require-anniversary or --timings <new.json>"
+                "expected --slices-only, --consolidation-only, --residuals-only, --obligations-only, --require-anniversary or --timings <new.json>"
             ),
         }
     }
     ensure!(
-        !(consolidation_only || residuals_only) || !anniversary_required,
+        !(consolidation_only || residuals_only || obligations_only) || !anniversary_required,
         "--require-anniversary needs the time families"
     );
     let output = Path::new(&output);
@@ -877,7 +889,19 @@ async fn run_calibration() -> Result<()> {
     let mut opposed_inputs = Vec::new();
     let mut consolidation = Value::Null;
     let mut residuals = Value::Null;
+    let mut obligations = Value::Null;
     let result = async {
+        if obligations_only || !slices_only {
+            obligations = Box::pin(time_and_obligations::run_obligations(
+                &stores,
+                &config,
+                &mut timings,
+            ))
+            .await?;
+        }
+        if obligations_only {
+            return Ok(vec![Value::Null; 8]);
+        }
         if residuals_only {
             residuals = Box::pin(time_and_obligations::run_residuals(
                 &stores,
@@ -1061,7 +1085,7 @@ async fn run_calibration() -> Result<()> {
         "opposed_input_sha256":text_sha256(&serde_json::to_string(&opposed_inputs)?),
         "time_prospective_input_sha256":text_sha256(&serde_json::to_string(&measurements[7]["inputs"])?),
         "consolidation_input_sha256":text_sha256(&serde_json::to_string(&consolidation["inputs"])?),
-        "generator_source_sha256":text_sha256(concat!(include_str!("calibrate_cue_floors.rs"), include_str!("calibrate_cue_floors/descriptions.rs"), include_str!("calibrate_cue_floors/time_and_obligations.rs"), include_str!("calibrate_cue_floors/consolidation.rs"), include_str!("calibrate_cue_floors/residuals.rs"), include_str!("calibrate_cue_floors/timing.rs"))),
+        "generator_source_sha256":text_sha256(concat!(include_str!("calibrate_cue_floors.rs"), include_str!("calibrate_cue_floors/descriptions.rs"), include_str!("calibrate_cue_floors/time_and_obligations.rs"), include_str!("calibrate_cue_floors/consolidation.rs"), include_str!("calibrate_cue_floors/residuals.rs"), include_str!("calibrate_cue_floors/timing.rs"), include_str!("calibrate_cue_floors/obligations.rs"))),
         "config":config,"native_candidate_limits":native::RetrievalCandidateLimits::default(),"native_graph_limits":native::RetrievalGraphLimits::default(),
         "native_section_limits":native::ContinuitySectionLimits::default(),"native_default_floors":native::RetrievalCueFloors::default(),"sweep":FLOORS,"stores_cleaned":true},
         "method":{
@@ -1090,6 +1114,10 @@ async fn run_calibration() -> Result<()> {
     report["header"]["residual_input_sha256"] =
         json!(text_sha256(&serde_json::to_string(&residuals["inputs"])?));
     report["consolidation_residuals"] = residuals;
+    report["header"]["obligations_only"] = json!(obligations_only);
+    report["header"]["obligations_input_sha256"] =
+        json!(text_sha256(&serde_json::to_string(&obligations["inputs"])?));
+    report["obligations"] = obligations;
     serde_json::to_writer_pretty(&mut file, &report)?;
     file.write_all(b"\n")?;
     file.flush()?;

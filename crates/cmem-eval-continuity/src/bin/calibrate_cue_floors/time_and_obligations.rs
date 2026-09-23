@@ -10,8 +10,28 @@ use cmem_eval::{
 
 #[path = "consolidation.rs"]
 mod consolidation;
+#[path = "obligations.rs"]
+mod obligations;
 #[path = "residuals.rs"]
 mod residuals;
+
+pub(super) async fn run_obligations(
+    stores: &Path,
+    config: &BenchmarkRunConfig,
+    timings: &mut timing::Timings,
+) -> Result<Value> {
+    let mut result = run_families(
+        stores,
+        config,
+        &[obligations::meeting, obligations::daily],
+        false,
+        timings,
+    )
+    .await?;
+    result["method"] = json!(obligations::METHOD);
+    result["falsifiers"] = obligations::falsifiers();
+    Ok(result)
+}
 
 pub(super) async fn run_residuals(
     stores: &Path,
@@ -44,6 +64,8 @@ struct PlannedProbe {
     name: String,
     supported_input: RetrieveInput,
     recency_floor: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trigger_floor: Option<usize>,
     time_range: Option<TimeRange>,
     required_routes: Vec<String>,
 }
@@ -99,6 +121,7 @@ fn input(
         },
         activity: None,
         cue_floors: None,
+        lifecycle_policy: None,
         time_range: None,
         surface_policy: config.retrieval.surface_policy.clone(),
     }
@@ -109,6 +132,7 @@ fn probe(name: &str, input: RetrieveInput, required: &[&str]) -> PlannedProbe {
         name: name.into(),
         supported_input: input,
         recency_floor: None,
+        trigger_floor: None,
         time_range: None,
         required_routes: required.iter().map(|s| (*s).into()).collect(),
     }
@@ -1043,6 +1067,9 @@ fn opposed(original: &Family, ids: &BTreeMap<String, String>) -> Result<(Family,
         for source in &mut memory.source_episode_external_ids {
             *source = permutation[source].clone();
         }
+        for predecessor in &mut memory.supersedes_external_ids {
+            *predecessor = permutation[predecessor].clone();
+        }
     }
     for link in &mut family.graph.links {
         for endpoint in [&mut link.from, &mut link.to] {
@@ -1246,6 +1273,18 @@ fn supported_probe_input(
 ) -> Result<(RetrieveInput, Vec<String>)> {
     let mut input = probe.supported_input.clone();
     let mut missing = probe.required_routes.clone();
+    if let Some(floor) = probe.trigger_floor {
+        let mut floors = serde_json::to_value(input.cue_floors.unwrap_or_default())?;
+        if let Some(trigger) = floors.get_mut("trigger") {
+            *trigger = json!(floor);
+            input.cue_floors = Some(serde_json::from_value(floors)?);
+            ensure!(
+                serde_json::to_value(input.cue_floors)?["trigger"] == floor,
+                "native trigger floor did not survive round-trip"
+            );
+            missing.retain(|route| route != "trigger_floor");
+        }
+    }
     if let Some(floor) = probe.recency_floor {
         let mut floors = serde_json::to_value(input.cue_floors.unwrap_or_default())?;
         // Older pins must remain not_run, never silently ignore an unknown key.
@@ -1292,6 +1331,10 @@ async fn retrieve_reading(
         "activity_sources":activity_reading(&pack,&observed,family,input),"observed":observed});
     if let Some(composition) = falsifier_reading(family, input, &observed)? {
         reading["falsifier"] = composition;
+    }
+    if obligations::is_family(family) {
+        reading["prospective"] =
+            obligations::reading(family, input, &pack, &reading["observed"], control)?;
     }
     Ok(reading)
 }
@@ -1406,7 +1449,10 @@ async fn measure(
     config: &BenchmarkRunConfig,
     anniversary_available: bool,
 ) -> Result<Value> {
-    let topic = input(config, &family.namespace, false, Some(TOPIC));
+    let mut topic = input(config, &family.namespace, false, Some(TOPIC));
+    if obligations::is_family(family) {
+        topic.scene.time = family.probes[0].supported_input.scene.time.clone();
+    }
     let pack = runtime.adapter().retrieve(topic.clone()).await?;
     let control = snapshot(&pack, &topic)?;
     let mut rows = Vec::new();

@@ -2108,6 +2108,7 @@ fn resolve_retrieval_context(
         scene: resolve_scene(&input.scene, state)?,
         activity: resolve_activity(input.activity.as_ref(), state)?,
         cue_floors: input.cue_floors.unwrap_or_default(),
+        lifecycle_policy: input.lifecycle_policy.unwrap_or_default(),
         ..Default::default()
     };
     let Some(range) = &input.time_range else {
@@ -2875,6 +2876,7 @@ mod tests {
         let mut query = RetrieveInput {
             activity: None,
             cue_floors: None,
+            lifecycle_policy: None,
             time_range: None,
             mode: RetrievalMode::VectorOnly,
             namespace: "n".into(),
@@ -2971,6 +2973,7 @@ mod tests {
         let query = RetrieveInput {
             activity: None,
             cue_floors: None,
+            lifecycle_policy: None,
             time_range: None,
             mode: RetrievalMode::Hybrid,
             namespace: "b".into(),
@@ -3219,6 +3222,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                lifecycle_policy: None,
                 time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: "names".into(),
@@ -3322,6 +3326,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                lifecycle_policy: None,
                 time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.into(),
@@ -3483,6 +3488,7 @@ mod tests {
                 ..Default::default()
             },
             activity: Some(crate::ActivityInput::Thread("work".into())),
+            lifecycle_policy: None,
             time_range: None,
             cue_floors: None,
             surface_policy: RetrievalSurfacePolicy::default(),
@@ -3568,6 +3574,43 @@ mod tests {
         input.time_range = None;
         input.scene.time = Some("2025-09-09".into());
         assert!(resolve_retrieval_context(&input, &state).is_err());
+    }
+
+    #[test]
+    fn lifecycle_policy_reaches_the_native_context_without_other_drift() {
+        let state = ExternalIdRegistry::new("lifecycle-policy-drift");
+        let mut input = RetrieveInput {
+            mode: RetrievalMode::Hybrid,
+            namespace: state.namespace.clone(),
+            topic: Some("A promise".into()),
+            scene: crate::MemorySceneInput {
+                time: Some("2025-09-09T08:00:00.123456789+09:00".into()),
+                ..Default::default()
+            },
+            activity: None,
+            cue_floors: None,
+            lifecycle_policy: None,
+            time_range: None,
+            surface_policy: RetrievalSurfacePolicy::default(),
+        };
+        let before = serde_json::to_value(&input).unwrap();
+        assert!(before.get("lifecycle_policy").is_none());
+        let baseline =
+            serde_json::to_value(resolve_retrieval_context(&input, &state).unwrap()).unwrap();
+        for include_superseded in [false, true] {
+            let policy = character_memory::api::types::RetrievalLifecyclePolicy {
+                include_superseded,
+                ..Default::default()
+            };
+            input.lifecycle_policy = Some(policy);
+            let actual =
+                serde_json::to_value(resolve_retrieval_context(&input, &state).unwrap()).unwrap();
+            let mut expected = baseline.clone();
+            expected["lifecycle_policy"] = serde_json::to_value(policy).unwrap();
+            assert_eq!(actual, expected);
+        }
+        input.lifecycle_policy = None;
+        assert_eq!(serde_json::to_value(input).unwrap(), before);
     }
 
     #[test]
@@ -4095,6 +4138,7 @@ mod tests {
                     .retrieve(RetrieveInput {
                         activity: None,
                         cue_floors: None,
+                        lifecycle_policy: None,
                         time_range: None,
                         mode,
                         namespace: namespace.to_string(),
@@ -4465,6 +4509,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                lifecycle_policy: None,
                 time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.to_string(),
@@ -4656,6 +4701,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                lifecycle_policy: None,
                 time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace.to_string(),
@@ -4833,6 +4879,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                lifecycle_policy: None,
                 time_range: None,
                 mode: RetrievalMode::Hybrid,
                 namespace: namespace_b.to_string(),
@@ -4890,6 +4937,7 @@ mod tests {
             .retrieve(RetrieveInput {
                 activity: None,
                 cue_floors: None,
+                lifecycle_policy: None,
                 time_range: None,
                 namespace: "b".into(),
                 topic: Some("The notebook is blue.".into()),
