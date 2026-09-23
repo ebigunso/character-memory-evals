@@ -20,3 +20,8 @@ __pycache__/
 
 # Agent task artifacts (repo-local scratch; disposition owned by the producing agent)
 .agent-work/
+
+# Recoverable raw evidence stays ignored; only readings and manifests belong on main.
+/docs/evidence/**
+!/docs/evidence/**/
+!/docs/evidence/**/*.md
