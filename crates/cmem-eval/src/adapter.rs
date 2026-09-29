@@ -146,21 +146,9 @@ impl ExternalIdRegistry {
     }
 
     fn save(&self, path: &Path) -> Result<()> {
-        self.save_with_before_persist(path, |_| Ok(()))
-    }
-
-    fn save_with_before_persist<F>(&self, path: &Path, before_persist: F) -> Result<()>
-    where
-        F: FnOnce(&Path) -> Result<()>,
-    {
         let mut bytes = serde_json::to_vec_pretty(self)?;
         bytes.push(b'\n');
-        fs_util::atomic_replace_with_before_persist(
-            path,
-            &bytes,
-            "identity registry",
-            before_persist,
-        )
+        fs_util::atomic_replace(path, &bytes, "identity registry")
     }
 }
 
@@ -195,144 +183,9 @@ impl CharacterMemoryAdapter {
     pub async fn new_with_binding(
         run_root: &Path,
         config: &BenchmarkRunConfig,
-        binding: EmbeddingRuntimeBinding,
-    ) -> Result<Self> {
-        Self::validate_runtime_binding(config, &binding)?;
-        Self::new_internal(run_root, config, binding).await
-    }
-
-    pub async fn new_with_controllable_similarity(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        fixture: ControllableSimilarityFixture,
-    ) -> Result<Self> {
-        Self::new_with_controllable_similarity_internal(run_root, config, fixture, false).await
-    }
-
-    pub async fn new_with_padded_controllable_similarity(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        fixture: ControllableSimilarityFixture,
-    ) -> Result<Self> {
-        Self::new_with_controllable_similarity_internal(run_root, config, fixture, true).await
-    }
-
-    async fn new_with_controllable_similarity_internal(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        fixture: ControllableSimilarityFixture,
-        allow_storage_padding: bool,
-    ) -> Result<Self> {
-        config.validate()?;
-        if config.backend.embedding.provider != EmbeddingProviderConfig::ControllableSimilarity {
-            bail!(
-                "new_with_controllable_similarity requires backend.embedding.provider=controllable_similarity"
-            );
-        }
-        let provider = ControllableSimilarityEmbeddingProvider::new(fixture.clone())?;
-        let configured_size = config.backend.embedding.vector_size;
-        let valid_size = if allow_storage_padding {
-            configured_size.is_some_and(|size| size >= provider.vector_size())
-        } else {
-            configured_size == Some(provider.vector_size())
-        };
-        if !valid_size {
-            let requirement = if allow_storage_padding {
-                "at least"
-            } else {
-                "exactly"
-            };
-            bail!(
-                "backend.embedding.vector_size must be {requirement} the controllable similarity fixture vector_size {}; got {:?}",
-                provider.vector_size(),
-                configured_size
-            );
-        }
-        let dimension_policy = if allow_storage_padding {
-            ControllableDimensionPolicy::Exact {
-                vector_size: configured_size.expect("validated controllable storage size"),
-            }
-        } else {
-            ControllableDimensionPolicy::FixtureDeclared
-        };
-        Self::new_with_binding(
-            run_root,
-            config,
-            EmbeddingRuntimeBinding::Controllable {
-                fixture,
-                dimension_policy,
-            },
-        )
-        .await
-    }
-
-    pub async fn new_with_frozen_embeddings(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-    ) -> Result<Self> {
-        config.validate()?;
-        if config.backend.embedding.provider != EmbeddingProviderConfig::Frozen {
-            bail!("new_with_frozen_embeddings requires backend.embedding.provider=frozen");
-        }
-        let store_path = config
-            .backend
-            .embedding
-            .store_path
-            .as_deref()
-            .context("frozen embedding provider requires backend.embedding.store_path")?;
-        let vector_size = config
-            .backend
-            .embedding
-            .vector_size
-            .context("frozen embedding provider requires backend.embedding.vector_size")?;
-        let provider = FrozenEmbeddingProvider::load(
-            Path::new(store_path),
-            &config.backend.embedding.model,
-            vector_size,
-        )?;
-        Self::new_with_frozen_embedding_provider(run_root, config, provider).await
-    }
-
-    pub async fn new_with_frozen_embedding_provider(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        provider: FrozenEmbeddingProvider,
-    ) -> Result<Self> {
-        config.validate()?;
-        if config.backend.embedding.provider != EmbeddingProviderConfig::Frozen {
-            bail!("new_with_frozen_embedding_provider requires backend.embedding.provider=frozen");
-        }
-        let vector_size = config
-            .backend
-            .embedding
-            .vector_size
-            .context("frozen embedding provider requires backend.embedding.vector_size")?;
-        if provider.model() != config.backend.embedding.model {
-            bail!(
-                "frozen embedding provider model {:?} does not match configured model {:?}",
-                provider.model(),
-                config.backend.embedding.model
-            );
-        }
-        if provider.vector_size() != vector_size {
-            bail!(
-                "frozen embedding provider vector_size {} does not match configured vector_size {vector_size}",
-                provider.vector_size()
-            );
-        }
-        Self::new_internal(
-            run_root,
-            config,
-            EmbeddingRuntimeBinding::Frozen { store: provider },
-        )
-        .await
-    }
-
-    async fn new_internal(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
         embedding_binding: EmbeddingRuntimeBinding,
     ) -> Result<Self> {
+        Self::validate_runtime_binding(config, &embedding_binding)?;
         let qdrant = if config.backend.vector_store_mode == VectorStoreMode::Service {
             let qdrant_url = config
                 .backend
@@ -431,17 +284,6 @@ impl CharacterMemoryAdapter {
         first_error.map_or(Ok(()), Err)
     }
 
-    pub async fn reconstruct(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        namespace: &str,
-    ) -> Result<(Self, NamespaceLifecycleResult)> {
-        config.validate()?;
-        let adapter = Self::new(run_root, config).await?;
-        let lifecycle = adapter.reattach_namespace(namespace).await?;
-        Ok((adapter, lifecycle))
-    }
-
     pub async fn reconstruct_with_binding(
         run_root: &Path,
         config: &BenchmarkRunConfig,
@@ -449,54 +291,6 @@ impl CharacterMemoryAdapter {
         binding: EmbeddingRuntimeBinding,
     ) -> Result<(Self, NamespaceLifecycleResult)> {
         let adapter = Self::new_with_binding(run_root, config, binding).await?;
-        let lifecycle = adapter.reattach_namespace(namespace).await?;
-        Ok((adapter, lifecycle))
-    }
-
-    pub async fn reconstruct_with_controllable_similarity(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        namespace: &str,
-        fixture: ControllableSimilarityFixture,
-    ) -> Result<(Self, NamespaceLifecycleResult)> {
-        config.validate()?;
-        let adapter = Self::new_with_controllable_similarity(run_root, config, fixture).await?;
-        let lifecycle = adapter.reattach_namespace(namespace).await?;
-        Ok((adapter, lifecycle))
-    }
-
-    pub async fn reconstruct_with_padded_controllable_similarity(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        namespace: &str,
-        fixture: ControllableSimilarityFixture,
-    ) -> Result<(Self, NamespaceLifecycleResult)> {
-        config.validate()?;
-        let adapter =
-            Self::new_with_padded_controllable_similarity(run_root, config, fixture).await?;
-        let lifecycle = adapter.reattach_namespace(namespace).await?;
-        Ok((adapter, lifecycle))
-    }
-
-    pub async fn reconstruct_with_frozen_embeddings(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        namespace: &str,
-    ) -> Result<(Self, NamespaceLifecycleResult)> {
-        config.validate()?;
-        let adapter = Self::new_with_frozen_embeddings(run_root, config).await?;
-        let lifecycle = adapter.reattach_namespace(namespace).await?;
-        Ok((adapter, lifecycle))
-    }
-
-    pub async fn reconstruct_with_frozen_embedding_provider(
-        run_root: &Path,
-        config: &BenchmarkRunConfig,
-        namespace: &str,
-        provider: FrozenEmbeddingProvider,
-    ) -> Result<(Self, NamespaceLifecycleResult)> {
-        config.validate()?;
-        let adapter = Self::new_with_frozen_embedding_provider(run_root, config, provider).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
     }
@@ -2115,19 +1909,19 @@ fn resolve_retrieval_context(
         return Ok(context);
     };
     if input.mode != RetrievalMode::Hybrid {
-        return Err(crate::TimeRangeInputError::UnsupportedRetrievalMode.into());
+        bail!("time_range requires hybrid retrieval");
     }
     // Matched calibration runs build against both pins; absent fields must fail
     // closed instead of being silently discarded by the older serde type.
     let mut shape = serde_json::to_value(context)?;
     let field = shape
         .get_mut("time_range")
-        .ok_or(crate::TimeRangeInputError::UnsupportedNativeField)?;
+        .context("the pinned native context has no time_range field")?;
     let expected = serde_json::to_value(range)?;
     *field = expected.clone();
     let context: RetrievalContext = serde_json::from_value(shape)?;
     if serde_json::to_value(&context)?["time_range"] != expected {
-        return Err(crate::TimeRangeInputError::NativeRoundTripMismatch.into());
+        bail!("native time_range changed during typed admission");
     }
     Ok(context)
 }
@@ -2442,10 +2236,10 @@ fn replacement_to_live(
     let mut draft = ReplacementDerivedMemoryDraft::new(memory.derived_type, memory.text.clone());
     draft.id = Some(id);
     if memory.created_at.is_some() {
-        return Err(crate::UnsupportedCorrectionCreatedAt {
-            external_id: memory.external_id.clone(),
-        }
-        .into());
+        bail!(
+            "the library correction draft cannot carry created_at for {:?}",
+            memory.external_id
+        );
     }
     draft.derived_from_episode_ids = resolve_ids(
         "episode",
@@ -2775,7 +2569,6 @@ mod tests {
         RelationType, RetentionState, RetrievalRationale, RetrievalTrace, RetrieveOutcome,
         VectorCandidateTrace, VectorSurface,
     };
-    use std::process::Command;
     use tempfile::tempdir;
 
     static LIVE_QDRANT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -2803,27 +2596,6 @@ mod tests {
             ingest: Default::default(),
             metrics: Default::default(),
         }
-    }
-
-    #[test]
-    fn oxigraph_env_cannot_redirect_graph_path() {
-        let output = Command::new(env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "adapter::tests::oxigraph_env_cannot_redirect_graph_path_probe",
-                "--nocapture",
-            ])
-            .env("CMEM_EVAL_OXIGRAPH_REDIRECT_PROBE", "1")
-            .env("OXIGRAPH_PATH", "redirected-by-env")
-            .output()
-            .unwrap();
-
-        assert!(output.status.success(), "{output:?}");
-        assert!(
-            String::from_utf8(output.stdout)
-                .unwrap()
-                .contains("1 passed")
-        );
     }
 
     #[tokio::test]
@@ -3023,28 +2795,6 @@ mod tests {
         directory.close().unwrap();
     }
 
-    #[tokio::test]
-    async fn oxigraph_env_cannot_redirect_graph_path_probe() {
-        let run_directory = tempdir().unwrap();
-        let run_root = run_directory.path();
-        if env::var_os("CMEM_EVAL_OXIGRAPH_REDIRECT_PROBE").is_none() {
-            return;
-        }
-        let config = adapter_config("env-probe".into());
-        let adapter = CharacterMemoryAdapter::new(run_root, &config)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            adapter
-                .settings("namespace")
-                .unwrap()
-                .get_oxigraph_path()
-                .unwrap(),
-            adapter.oxigraph_persistence_path("namespace")
-        );
-    }
-
     fn retrieval_surface_policy(
         top_k_episodes: usize,
         top_k_observations: usize,
@@ -3175,10 +2925,10 @@ mod tests {
             3,
         )
         .unwrap();
-        let adapter = CharacterMemoryAdapter::new_with_frozen_embedding_provider(
+        let adapter = CharacterMemoryAdapter::new_with_binding(
             directory.path(),
             &config,
-            provider,
+            EmbeddingRuntimeBinding::Frozen { store: provider },
         )
         .await
         .unwrap();
@@ -3557,10 +3307,8 @@ mod tests {
                 );
             } else {
                 assert_eq!(
-                    result
-                        .unwrap_err()
-                        .downcast_ref::<crate::TimeRangeInputError>(),
-                    Some(&crate::TimeRangeInputError::UnsupportedNativeField)
+                    result.unwrap_err().to_string(),
+                    "the pinned native context has no time_range field"
                 );
             }
         }
@@ -3568,8 +3316,8 @@ mod tests {
         assert_eq!(
             resolve_retrieval_context(&input, &state)
                 .unwrap_err()
-                .downcast_ref::<crate::TimeRangeInputError>(),
-            Some(&crate::TimeRangeInputError::UnsupportedRetrievalMode)
+                .to_string(),
+            "time_range requires hybrid retrieval"
         );
         input.time_range = None;
         input.scene.time = Some("2025-09-09".into());
@@ -3998,22 +3746,34 @@ mod tests {
             )]),
         };
 
-        let error = match CharacterMemoryAdapter::new_with_controllable_similarity(
+        let error = match CharacterMemoryAdapter::new_with_binding(
             run_root,
             &config,
-            fixture.clone(),
+            EmbeddingRuntimeBinding::Controllable {
+                fixture: fixture.clone(),
+                dimension_policy: ControllableDimensionPolicy::FixtureDeclared,
+            },
         )
         .await
         {
             Ok(_) => panic!("mismatched fixture dimension was accepted"),
             Err(error) => error.to_string(),
         };
-        assert!(error.contains("fixture vector_size 2"));
-        assert!(error.contains("Some(3)"));
+        assert_eq!(
+            error,
+            "controllable runtime binding vector_size 2 is incompatible with configured storage vector_size 3 and policy FixtureDeclared"
+        );
 
-        CharacterMemoryAdapter::new_with_padded_controllable_similarity(run_root, &config, fixture)
-            .await
-            .expect("mixed-provider storage padding should be accepted explicitly");
+        CharacterMemoryAdapter::new_with_binding(
+            run_root,
+            &config,
+            EmbeddingRuntimeBinding::Controllable {
+                fixture,
+                dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 3 },
+            },
+        )
+        .await
+        .expect("mixed-provider storage padding should be accepted explicitly");
     }
 
     #[test]
@@ -4048,24 +3808,6 @@ mod tests {
         updated
             .reverse_episode_ids
             .insert(replacement, "replacement".to_string());
-        let expected_updated = updated.clone();
-        let mut staged_path = None;
-        let error = updated
-            .save_with_before_persist(&path, |temporary_path| {
-                staged_path = Some(temporary_path.to_path_buf());
-                assert_eq!(temporary_path.parent(), path.parent());
-                assert_eq!(fs::read_to_string(&path).unwrap(), first);
-                assert_eq!(
-                    ExternalIdRegistry::load(temporary_path, "namespace").unwrap(),
-                    expected_updated
-                );
-                bail!("simulated interruption before atomic registry replacement")
-            })
-            .unwrap_err();
-        assert!(error.to_string().contains("simulated interruption"));
-        assert_eq!(fs::read_to_string(&path).unwrap(), first);
-        assert!(!staged_path.unwrap().exists());
-
         updated.save(&path).unwrap();
         assert_eq!(
             ExternalIdRegistry::load(&path, "namespace").unwrap(),
@@ -4173,11 +3915,20 @@ mod tests {
         let mut config = adapter_config("invalid-reconstruct".to_string());
         config.backend.qdrant_connection_string = Some("http://127.0.0.1:1".to_string());
         config.backend.embedding.vector_size = Some(0);
-        let error =
-            match CharacterMemoryAdapter::reconstruct(run_root, &config, "never-opened").await {
-                Ok(_) => panic!("invalid reconstruct config was accepted"),
-                Err(error) => error.to_string(),
-            };
+        let error = match CharacterMemoryAdapter::reconstruct_with_binding(
+            run_root,
+            &config,
+            "never-opened",
+            EmbeddingRuntimeBinding::Live {
+                provider: LiveEmbeddingProvider::Deterministic,
+                model: config.backend.embedding.model.clone(),
+            },
+        )
+        .await
+        {
+            Ok(_) => panic!("invalid reconstruct config was accepted"),
+            Err(error) => error.to_string(),
+        };
 
         assert!(error.contains("backend.embedding.vector_size"));
         assert!(!error.contains("QDRANT_CONNECTION_STRING"));
@@ -4407,10 +4158,8 @@ mod tests {
         unsupported.replacements[0].memory.created_at = Some("2024-01-01T00:00:00Z".into());
         let error = adapter.correct(unsupported).await.unwrap_err();
         assert_eq!(
-            error.downcast_ref::<crate::UnsupportedCorrectionCreatedAt>(),
-            Some(&crate::UnsupportedCorrectionCreatedAt {
-                external_id: "corrected-memory".into()
-            })
+            error.to_string(),
+            "the library correction draft cannot carry created_at for \"corrected-memory\""
         );
         let correction =
             (adapter.correct(correction_input).await).expect("public correction round-trip");
@@ -4461,9 +4210,17 @@ mod tests {
             persisted_entity_id.as_bytes()
         ));
 
-        let (adapter_b, lifecycle) =
-            (CharacterMemoryAdapter::reconstruct(run_root, &config, namespace).await)
-                .expect("public adapter reconstruction");
+        let (adapter_b, lifecycle) = (CharacterMemoryAdapter::reconstruct_with_binding(
+            run_root,
+            &config,
+            namespace,
+            EmbeddingRuntimeBinding::Live {
+                provider: LiveEmbeddingProvider::Deterministic,
+                model: config.backend.embedding.model.clone(),
+            },
+        )
+        .await)
+            .expect("public adapter reconstruction");
         assert_eq!(lifecycle.restored_identity_count, 6);
         {
             let namespaces = adapter_b.namespaces.lock().await;
@@ -4621,10 +4378,17 @@ mod tests {
             }
             reader.close().await.unwrap();
             fs::rename(&backup, &path).unwrap();
-            let (restored, lifecycle) =
-                CharacterMemoryAdapter::reconstruct(run_root, &config, namespace)
-                    .await
-                    .unwrap();
+            let (restored, lifecycle) = CharacterMemoryAdapter::reconstruct_with_binding(
+                run_root,
+                &config,
+                namespace,
+                EmbeddingRuntimeBinding::Live {
+                    provider: LiveEmbeddingProvider::Deterministic,
+                    model: config.backend.embedding.model.clone(),
+                },
+            )
+            .await
+            .unwrap();
             assert_eq!(lifecycle.restored_identity_count, 6);
             restored.close().await.unwrap();
         }

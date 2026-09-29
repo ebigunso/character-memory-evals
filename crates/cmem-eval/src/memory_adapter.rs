@@ -123,23 +123,6 @@ pub struct BeliefAssertionInput {
     pub predicate: BeliefPredicate,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnsupportedCorrectionCreatedAt {
-    pub external_id: String,
-}
-
-impl std::fmt::Display for UnsupportedCorrectionCreatedAt {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "the library correction draft cannot carry created_at for {:?}",
-            self.external_id
-        )
-    }
-}
-
-impl std::error::Error for UnsupportedCorrectionCreatedAt {}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MemoryLinkInput {
     pub external_id: String,
@@ -168,25 +151,6 @@ pub struct TimeRangeInput {
     pub start: chrono::DateTime<chrono::Utc>,
     pub end: chrono::DateTime<chrono::Utc>,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TimeRangeInputError {
-    UnsupportedNativeField,
-    UnsupportedRetrievalMode,
-    NativeRoundTripMismatch,
-}
-
-impl std::fmt::Display for TimeRangeInputError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::UnsupportedNativeField => "the pinned native context has no time_range field",
-            Self::UnsupportedRetrievalMode => "time_range requires hybrid retrieval",
-            Self::NativeRoundTripMismatch => "native time_range changed during typed admission",
-        })
-    }
-}
-
-impl std::error::Error for TimeRangeInputError {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetrieveInput {
@@ -308,20 +272,6 @@ impl RetrievedContextPack {
             self.outcomes,
         )
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct IngestedObjectRefs {
-    pub episode_internal_ids: Vec<String>,
-    pub observation_internal_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RetrievedExternalRef {
-    pub kind: ObjectType,
-    pub external_id: Option<String>,
-    pub episode_external_id: Option<String>,
-    pub rank: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
