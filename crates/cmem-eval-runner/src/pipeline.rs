@@ -23,7 +23,7 @@ use cmem_eval_continuity::{
     write_continuity_traces,
 };
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -1101,6 +1101,7 @@ fn write_run_header(artifact: &Path, header: &cmem_eval::RunHeader) -> Result<()
 mod tests {
     use super::*;
     use cmem_eval_continuity::parse_fixture_bytes;
+    use std::collections::BTreeSet;
     use std::path::PathBuf;
 
     fn run_args(dataset: PathBuf, config: PathBuf, directory: &Path) -> RunArgs {
