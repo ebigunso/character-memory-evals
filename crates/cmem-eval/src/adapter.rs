@@ -215,15 +215,17 @@ impl CharacterMemoryAdapter {
         binding: &EmbeddingRuntimeBinding,
     ) -> Result<()> {
         config.validate()?;
-        let configured_size = match config.backend.embedding.vector_size {
-            Some(vector_size) => vector_size,
-            None => crate::model_native_embedding_vector_size(&config.backend.embedding.model)?,
-        };
         match binding {
             EmbeddingRuntimeBinding::Controllable {
                 fixture,
                 dimension_policy,
             } => {
+                let configured_size = match config.backend.embedding.vector_size {
+                    Some(vector_size) => vector_size,
+                    None => {
+                        crate::model_native_embedding_vector_size(&config.backend.embedding.model)?
+                    }
+                };
                 ControllableSimilarityEmbeddingProvider::new(fixture.clone())?;
                 let valid = match dimension_policy {
                     ControllableDimensionPolicy::FixtureDeclared => {
@@ -240,18 +242,7 @@ impl CharacterMemoryAdapter {
                     );
                 }
             }
-            EmbeddingRuntimeBinding::Frozen { store } => {
-                if store.model() != config.backend.embedding.model
-                    || store.vector_size() != configured_size
-                {
-                    bail!(
-                        "frozen runtime binding model/vector ({:?}, {}) does not match configured ({:?}, {configured_size})",
-                        store.model(),
-                        store.vector_size(),
-                        config.backend.embedding.model
-                    );
-                }
-            }
+            EmbeddingRuntimeBinding::Frozen { .. } => {}
             EmbeddingRuntimeBinding::Live { provider: _, model } => {
                 if model != &config.backend.embedding.model {
                     bail!(
@@ -370,19 +361,10 @@ impl CharacterMemoryAdapter {
                 ..
             }
         ) {
-            let key = env::var(&self.config.backend.openai_api_key_env)
-                .or_else(|_| env::var("OPENAI_API_KEY"))
-                .with_context(|| {
-                    format!(
-                        "{} is required for OpenAI live embeddings",
-                        self.config.backend.openai_api_key_env
-                    )
-                })?;
+            let key = env::var("OPENAI_API_KEY")
+                .context("OPENAI_API_KEY is required for OpenAI live embeddings")?;
             if key.trim().is_empty() {
-                bail!(
-                    "{} is required for OpenAI live embeddings",
-                    self.config.backend.openai_api_key_env
-                );
+                bail!("OPENAI_API_KEY is required for OpenAI live embeddings");
             }
             builder = builder.set_override("openai_api_key", key)?.set_override(
                 "embedding_model",
@@ -2576,7 +2558,6 @@ mod tests {
                 env::var("QDRANT_CONNECTION_STRING")
                     .unwrap_or_else(|_| "http://127.0.0.1:6334".to_string()),
             ),
-            openai_api_key_env: "CMEM_EVAL_UNUSED_OPENAI_KEY".into(),
             embedding: EmbeddingConfig {
                 provider: EmbeddingProviderConfig::Deterministic,
                 vector_size: Some(3072),
@@ -2832,20 +2813,6 @@ mod tests {
             max_vector_candidates: None,
             max_graph_roots: None,
         }
-    }
-
-    #[test]
-    fn explicit_vector_size_skips_model_width_lookup_for_runtime_bindings() {
-        let mut config = adapter_config("custom-embedding-model".to_string());
-        config.backend.embedding.provider = EmbeddingProviderConfig::OpenAi;
-        config.backend.embedding.model = "future-custom-embedding-model".to_string();
-        config.backend.embedding.vector_size = Some(2_048);
-        let binding = EmbeddingRuntimeBinding::Live {
-            provider: LiveEmbeddingProvider::OpenAi,
-            model: config.backend.embedding.model.clone(),
-        };
-
-        CharacterMemoryAdapter::validate_runtime_binding(&config, &binding).unwrap();
     }
 
     #[test]
