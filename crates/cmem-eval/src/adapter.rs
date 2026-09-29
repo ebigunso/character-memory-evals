@@ -2543,9 +2543,9 @@ mod tests {
     };
     use crate::{DerivedType, RetrievalSectionBudgets};
     use character_memory::{
-        CURRENT_SCHEMA_VERSION, ContinuityContextPack, Episode, MemoryObjectRef, Modality,
-        RelationType, RetentionState, RetrievalRationale, RetrievalTrace, RetrieveOutcome,
-        VectorCandidateTrace, VectorSurface,
+        ConfigValidationError, ConfigValidationReason, ContinuityContextPack, CustomError, Episode,
+        MemoryObjectRef, Modality, RelationType, RetentionState, RetrievalRationale,
+        RetrievalTrace, RetrieveOutcome, VectorCandidateTrace, VectorSurface,
     };
     use tempfile::tempdir;
 
@@ -2648,9 +2648,21 @@ mod tests {
             result
                 .outcomes()
                 .iter()
-                .map(|outcome| outcome.rationale.telemetry.configured_object_types.clone())
+                .map(|outcome| {
+                    outcome
+                        .trace
+                        .as_ref()
+                        .unwrap()
+                        .vector_candidates
+                        .iter()
+                        .map(|candidate| candidate.object.object_type)
+                        .collect::<HashSet<_>>()
+                })
                 .collect::<Vec<_>>(),
-            vec![vec![ObjectType::Episode], vec![ObjectType::Observation]]
+            vec![
+                HashSet::from([ObjectType::Episode]),
+                HashSet::from([ObjectType::Observation]),
+            ]
         );
         assert!(
             result
@@ -2931,31 +2943,22 @@ mod tests {
             [deterministic_id("names", "derived_memory", "ada-name")]
         );
         assert_eq!(outcome.persisted_link_ids.len(), 1);
-        let pack = adapter
-            .retrieve(RetrieveInput {
-                activity: None,
-                cue_floors: None,
-                lifecycle_policy: None,
-                time_range: None,
-                mode: RetrievalMode::Hybrid,
-                namespace: "names".into(),
-                topic: Some("Ada".into()),
-                scene: crate::MemorySceneInput {
-                    time: None,
-                    ..Default::default()
-                },
-                surface_policy: RetrievalSurfacePolicy::default(),
-            })
-            .await
-            .unwrap();
+        let mut query = RetrieveInput {
+            activity: None,
+            cue_floors: None,
+            lifecycle_policy: None,
+            time_range: None,
+            mode: RetrievalMode::Hybrid,
+            namespace: "names".into(),
+            topic: Some("Ada".into()),
+            scene: crate::MemorySceneInput {
+                time: None,
+                ..Default::default()
+            },
+            surface_policy: RetrievalSurfacePolicy::default(),
+        };
+        let pack = adapter.retrieve(query.clone()).await.unwrap();
         let belief = &pack.outcomes()[0].pack.derived_memories[0].memory;
-        assert!(
-            !pack.outcomes()[0]
-                .rationale
-                .telemetry
-                .configured_object_types
-                .contains(&ObjectType::Entity)
-        );
         assert_eq!(belief.text, "Ada");
         assert!(belief.given_by_application);
         assert_eq!(
@@ -2967,6 +2970,16 @@ mod tests {
             belief.assertions[0].predicate,
             crate::BeliefPredicate::KnownAs { name: "Ada".into() }
         );
+        // Filtering the sole Entity selection must leave an empty vector scope.
+        query.surface_policy.object_types = vec![ObjectType::Entity];
+        let error = adapter.retrieve(query).await.unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<CustomError>(),
+            Some(CustomError::ConfigValidation(ConfigValidationError {
+                keys,
+                reason: ConfigValidationReason::OutOfDomain { actual, .. },
+            })) if keys == &["object_type_defaults"] && actual == "[]"
+        ));
         adapter.cleanup_namespace("names").await.unwrap();
     }
 
@@ -5126,7 +5139,7 @@ mod tests {
             salience_score: 0.5,
             retention_state: RetentionState::Active,
             created_at: now,
-            schema_version: CURRENT_SCHEMA_VERSION.to_string(),
+            schema_version: DEFAULT_SCHEMA_VERSION.to_string(),
         }
     }
 }
