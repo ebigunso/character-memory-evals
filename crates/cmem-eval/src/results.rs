@@ -106,7 +106,6 @@ pub struct ResultIntegrityDetails {
     pub suppressed_memory_leakage_rate: Option<f64>,
     pub orphan_vector_leakage_rate: Option<f64>,
     pub superseded_current_leakage_rate: Option<f64>,
-    pub cross_store_id_validation_pass_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -127,15 +126,6 @@ impl RunAdapterMetadata {
         Self {
             adapter: "bm25".to_string(),
             mode: "lexical".to_string(),
-        }
-    }
-}
-
-impl Default for RunAdapterMetadata {
-    fn default() -> Self {
-        Self {
-            adapter: "unknown".to_string(),
-            mode: "unknown".to_string(),
         }
     }
 }

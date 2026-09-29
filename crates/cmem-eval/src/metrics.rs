@@ -84,10 +84,6 @@ impl<'de> Deserialize<'de> for MetricValue {
 pub struct MetricsRecord(BTreeMap<String, MetricValue>);
 
 impl MetricsRecord {
-    pub fn new(values: BTreeMap<String, MetricValue>) -> Self {
-        Self(values)
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = (&String, &MetricValue)> {
         self.0.iter()
     }
@@ -152,12 +148,6 @@ const CORE_BASE_METRICS: &[&str] = &[
     "suppressed_memory_leakage_rate",
     "orphan_vector_leakage_rate",
     "superseded_current_leakage_rate",
-    "cross_store_id_validation_pass_rate",
-    "qa_accuracy",
-    "qa_f1",
-    "qa_exact_match",
-    "abstention_accuracy",
-    "unsupported_answer_rate",
 ];
 
 const RANKING_METRIC_NAMES: &[&str] =
@@ -356,18 +346,10 @@ pub fn metric_support_summary(rows: &[Map<String, Value>]) -> MetricSupportSumma
     out
 }
 
-pub fn initialize_registry_metrics(out: &mut Map<String, Value>) {
-    initialize_registry_metrics_for(out, &[]);
-}
-
 pub fn initialize_registry_metrics_for(out: &mut Map<String, Value>, families: &[MetricFamily]) {
     for key in required_metric_set(families) {
         out.entry(key).or_insert(Value::Null);
     }
-}
-
-pub fn registry_coverage_summary(rows: &[Map<String, Value>]) -> RegistryCoverageSummary {
-    registry_coverage_summary_for(rows, &[])
 }
 
 pub fn registry_coverage_summary_for(
@@ -465,66 +447,10 @@ pub fn insert_composition_metrics(
     );
 }
 
-pub fn insert_integrity_metrics(out: &mut Map<String, Value>, retrieved: &[crate::RetrievedItem]) {
-    let without_external_id = retrieved
-        .iter()
-        .filter(|item| item.external_id.is_none())
-        .count();
-    let derived_without_provenance = retrieved
-        .iter()
-        .filter(|item| {
-            item.kind == crate::ObjectType::DerivedMemory && item.episode_external_id.is_none()
-        })
-        .count();
-
-    out.insert(
-        "returned_items_without_external_id".to_string(),
-        Value::from(without_external_id),
-    );
-    out.insert(
-        "returned_derived_memories_without_provenance".to_string(),
-        Value::from(derived_without_provenance),
-    );
-    let derived_count = retrieved
-        .iter()
-        .filter(|item| item.kind == crate::ObjectType::DerivedMemory)
-        .count();
-    let provenance_coverage = if derived_count == 0 {
-        Some(1.0)
-    } else {
-        Some((derived_count - derived_without_provenance) as f64 / derived_count as f64)
-    };
-    out.insert(
-        "provenance_coverage".to_string(),
-        option_f64(provenance_coverage),
-    );
-    out.insert("context_validation_pass_rate".to_string(), Value::Null);
-    out.insert("suppressed_memory_leakage_rate".to_string(), Value::Null);
-    out.insert("orphan_vector_leakage_rate".to_string(), Value::Null);
-    out.insert("superseded_current_leakage_rate".to_string(), Value::Null);
-    out.insert(
-        "cross_store_id_validation_pass_rate".to_string(),
-        Value::Null,
-    );
-    out.insert(
-        "returned_items_with_authoritative_validation".to_string(),
-        Value::Null,
-    );
-    out.insert("suppressed_items_returned".to_string(), Value::Null);
-    out.insert(
-        "superseded_items_returned_as_current".to_string(),
-        Value::Null,
-    );
-}
-
 pub fn insert_integrity_detail_metrics(
     out: &mut Map<String, Value>,
     integrity: &crate::ResultIntegrityDetails,
 ) {
-    out.insert(
-        "returned_items_without_external_ids".to_string(),
-        Value::from(integrity.returned_items_without_external_id),
-    );
     out.insert(
         "returned_items_without_external_id".to_string(),
         Value::from(integrity.returned_items_without_external_id),
@@ -561,14 +487,6 @@ pub fn insert_integrity_detail_metrics(
         "superseded_items_returned_as_current".to_string(),
         option_usize(integrity.superseded_current_returned_count),
     );
-    out.insert(
-        "returned_items_with_authoritative_validation".to_string(),
-        Value::Null,
-    );
-    out.insert(
-        "cross_store_id_validation_pass_rate".to_string(),
-        option_f64(integrity.cross_store_id_validation_pass_rate),
-    );
 }
 
 pub fn integrity_details(retrieved: &[crate::RetrievedItem]) -> crate::ResultIntegrityDetails {
@@ -600,7 +518,6 @@ pub fn integrity_details(retrieved: &[crate::RetrievedItem]) -> crate::ResultInt
         suppressed_memory_leakage_rate: None,
         orphan_vector_leakage_rate: None,
         superseded_current_leakage_rate: None,
-        cross_store_id_validation_pass_rate: None,
     }
 }
 
@@ -953,27 +870,6 @@ mod tests {
     }
 
     #[test]
-    fn inserts_integrity_metrics_with_nulls_for_unsupported_states() {
-        let mut out = Map::new();
-        insert_integrity_metrics(
-            &mut out,
-            &[crate::RetrievedItem {
-                kind: crate::ObjectType::Observation,
-                internal_id: "i".to_string(),
-                external_id: None,
-                episode_external_id: Some("e".to_string()),
-                score: None,
-                rank: 1,
-                rationale: vec![],
-                text: None,
-            }],
-        );
-
-        assert_eq!(out["returned_items_without_external_id"], 1);
-        assert!(out["suppressed_items_returned"].is_null());
-    }
-
-    #[test]
     fn telemetry_leakage_counts_only_unique_final_returned_items() {
         let returned_id = uuid::Uuid::from_u128(1);
         let omitted_id = uuid::Uuid::from_u128(2);
@@ -1069,7 +965,6 @@ mod tests {
         assert_eq!(out["orphan_vector_leakage_rate"], 0.0);
         assert_eq!(out["suppressed_items_returned"], 0);
         assert_eq!(out["superseded_items_returned_as_current"], 0);
-        assert!(out["cross_store_id_validation_pass_rate"].is_null());
     }
 
     #[test]
