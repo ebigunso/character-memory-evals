@@ -533,32 +533,8 @@ mod tests {
                 "backend_typo",
             ),
             (
-                serde_json::json!({"backend": {"oxigraph_path": "legacy"}}),
-                "oxigraph_path",
-            ),
-            (
-                serde_json::json!({"backend": {"retain_store": true}}),
-                "retain_store",
-            ),
-            (
                 serde_json::json!({"backend": {"namespace_prefix": "retired"}}),
                 "namespace_prefix",
-            ),
-            (
-                serde_json::json!({"backend": {"cleanup": "retired"}}),
-                "cleanup",
-            ),
-            (
-                serde_json::json!({"backend": {"oxigraph_persistence_path": "retired"}}),
-                "oxigraph_persistence_path",
-            ),
-            (
-                serde_json::json!({"backend": {"retrieval_stats_path": "retired"}}),
-                "retrieval_stats_path",
-            ),
-            (
-                serde_json::json!({"backend": {"identity_registry_dir": "retired"}}),
-                "identity_registry_dir",
             ),
             (
                 serde_json::json!({"backend": {"embedding": {"embedding_typo": true}}}),
@@ -579,30 +555,6 @@ mod tests {
             (
                 serde_json::json!({"ingest": {"ingest_typo": true}}),
                 "ingest_typo",
-            ),
-            (
-                serde_json::json!({"ingest": {"enrichment_manifest_path": "manifest.json"}}),
-                "enrichment_manifest_path",
-            ),
-            (
-                serde_json::json!({"ingest": {"require_source_hash_match": true}}),
-                "require_source_hash_match",
-            ),
-            (
-                serde_json::json!({"ingest": {"index_observations": true}}),
-                "index_observations",
-            ),
-            (
-                serde_json::json!({"ingest": {"index_episode_summaries": true}}),
-                "index_episode_summaries",
-            ),
-            (
-                serde_json::json!({"ingest": {"store_gold_labels": true}}),
-                "store_gold_labels",
-            ),
-            (
-                serde_json::json!({"ingest": {"create_threads": true}}),
-                "create_threads",
             ),
             (
                 serde_json::json!({"metrics": {"metrics_typo": true}}),

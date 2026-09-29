@@ -127,7 +127,7 @@ cargo run -p cmem-eval-runner -- embeddings generate \
   --out ./crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json
 ```
 
-Generation requests every unique manifest text in one batch. Optional `--dimensions` is sent directly to the provider; otherwise the provider chooses its default width. New stores describe this as `requested_dimensions=<width>` or `provider_default`. The cache width must match the configured index width; provenance labels do not restrict runtime use.
+Generation requests every unique manifest text in one batch at the provider's default width. New stores record `dimension_policy = "provider_default"`. The cache width must match the configured index width; provenance labels do not restrict runtime use.
 
 Recheck store integrity, coverage, and semantic orderings without a key or network:
 
@@ -202,7 +202,7 @@ cargo run -p cmem-eval-runner -- seal ./runs/continuity/candidate
 cargo run -p cmem-eval-runner -- verify ./evidence/<run-id>
 ```
 
-The run ID must be one filename component. An existing evidence destination or source seal is never overwritten; every file is created atomically. If sealing fails after creating the destination, the command reports the written files and the failed operation and leaves all files in place for inspection. Inspect a partial destination before deliberately removing it; `seal` never removes files. Commit completed evidence and cite the SHA-256 of its `seal.json` in the findings register. Never edit sealed evidence; changed measurements require a new run and seal. `verify` checks the listed file hashes without parsing the artifacts and exits non-zero on missing or changed bytes. Compare the seal's own hash with the register citation as well.
+An existing evidence destination or source seal is never overwritten; every file is created atomically. If sealing fails after creating the destination, the command reports the written files and the failed operation and leaves all files in place for inspection. Inspect a partial destination before deliberately removing it; `seal` never removes files. Commit completed evidence and cite the SHA-256 of its `seal.json` in the findings register. Never edit sealed evidence; changed measurements require a new run and seal. `verify` checks the listed file hashes without parsing the artifacts and exits non-zero on missing or changed bytes. Compare the seal's own hash with the register citation as well.
 
 The historical round-9 reference pair is preserved in `evidence/pr13r9ba/` and `evidence/pr13r9bb/`. Its promotion seals describe the existing files without inventing a header or changing their old shape. `pwsh -NoProfile -File evidence/derive-round9.ps1` (PowerShell 7.2+) reproduces the cited normalized-row and report-content hashes and the short-gap recall@5 mean from those tracked bytes alone.
 

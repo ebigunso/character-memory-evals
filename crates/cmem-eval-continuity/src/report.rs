@@ -651,10 +651,8 @@ mod tests {
 
     #[test]
     fn report_writer_preserves_existing_bytes() {
-        let path = std::env::temp_dir().join(format!(
-            "cmem-continuity-report-shape-drift-{}.json",
-            Uuid::new_v4()
-        ));
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("report.json");
         let report = assemble_continuity_report(ContinuityReportInput {
             config: serde_json::json!({}),
             traces: &[hub_trace(Some((21, 12, 9)))],
@@ -673,7 +671,6 @@ mod tests {
         let existing = std::fs::read(&path).unwrap();
         assert!(write_continuity_report(&path, &report).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), existing);
-        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
