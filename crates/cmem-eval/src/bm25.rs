@@ -131,10 +131,6 @@ struct IndexedDocument {
     len: usize,
 }
 
-pub fn rank_documents(query: &str, documents: &[Bm25Document]) -> Vec<Bm25Score> {
-    Bm25Index::new(documents).rank(query)
-}
-
 impl Bm25Index {
     pub fn new(documents: &[Bm25Document]) -> Self {
         let indexed_documents = documents
@@ -255,6 +251,10 @@ fn document_frequencies(documents: &[IndexedDocument]) -> BTreeMap<String, usize
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rank_documents(query: &str, documents: &[Bm25Document]) -> Vec<Bm25Score> {
+        Bm25Index::new(documents).rank(query)
+    }
 
     #[test]
     fn lexical_baseline_keeps_ingest_text_and_each_selected_surface_quota() {

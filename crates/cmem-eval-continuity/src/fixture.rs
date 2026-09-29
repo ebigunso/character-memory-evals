@@ -4590,7 +4590,16 @@ bystanders = ["distractor"]
             ingest: Default::default(),
             metrics: Default::default(),
         };
-        let adapter = (CharacterMemoryAdapter::new_with_frozen_embeddings(run_root, &config).await)
+        let binding = cmem_eval::EmbeddingRuntimeBinding::Frozen {
+            store: cmem_eval::FrozenEmbeddingProvider::load(
+                &store_path,
+                &config.backend.embedding.model,
+                config.backend.embedding.vector_size.unwrap(),
+            )
+            .expect("frozen drift-guard embedding store"),
+        };
+        let adapter = CharacterMemoryAdapter::new_with_binding(run_root, &config, binding)
+            .await
             .expect("frozen drift-guard adapter construction");
         (adapter.open_namespace(namespace).await).expect("frozen drift-guard namespace open");
         let plan = (adapter
