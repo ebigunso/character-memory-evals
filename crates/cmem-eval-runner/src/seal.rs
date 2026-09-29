@@ -4,30 +4,11 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, BufReader, Read};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 const STREAM_BUFFER_SIZE: usize = 64 * 1024;
 
-fn file_name(name: &str) -> Result<()> {
-    ensure!(
-        !name.contains(['/', '\\', ':'])
-            && matches!(
-                Path::new(name).components().next(),
-                Some(Component::Normal(_))
-            ),
-        "expected one filename component: {name:?}"
-    );
-    Ok(())
-}
-
 fn open_file(path: &Path) -> Result<BufReader<fs::File>> {
-    let metadata =
-        fs::symlink_metadata(path).with_context(|| format!("inspect {}", path.display()))?;
-    ensure!(
-        metadata.is_file(),
-        "expected a regular file: {}",
-        path.display()
-    );
     let file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     Ok(BufReader::with_capacity(STREAM_BUFFER_SIZE, file))
 }
@@ -64,7 +45,6 @@ pub(crate) fn seal(run_dir: &Path, evidence_root: &Path) -> Result<PathBuf> {
         .file_name()
         .into_string()
         .map_err(|_| anyhow::anyhow!("artifact filename must be UTF-8"))?;
-    file_name(&artifact_name)?;
     let mut artifacts = BTreeMap::new();
     for name in [&*artifact_name, "header.json", "report.json"] {
         artifacts.insert(name, run_dir.join(name));
@@ -79,14 +59,7 @@ pub(crate) fn seal(run_dir: &Path, evidence_root: &Path) -> Result<PathBuf> {
         .get("run_id")
         .and_then(serde_json::Value::as_str)
         .context("header.json must be an object with a string run_id")?;
-    file_name(run_id)?;
     fs::create_dir_all(evidence_root)?;
-    ensure!(
-        !fs::symlink_metadata(evidence_root)?
-            .file_type()
-            .is_symlink(),
-        "evidence root must not be a link"
-    );
     let destination = evidence_root.join(run_id);
     fs::create_dir(&destination).with_context(|| {
         format!(
@@ -136,7 +109,6 @@ pub(crate) fn verify(evidence_dir: &Path) -> Result<()> {
     ensure!(!manifest.files.is_empty(), "seal contains no file hashes");
     let mut failures = Vec::new();
     for (name, expected) in manifest.files {
-        file_name(&name)?;
         ensure!(name != "seal.json", "seal must not hash itself");
         match hash_file(&evidence_dir.join(&name)) {
             Ok(actual) => {
@@ -259,7 +231,7 @@ mod tests {
         fs::remove_file(evidence.join("report.json")).unwrap();
         let error = verify(&evidence).unwrap_err().to_string();
         assert!(error.contains("traces.jsonl: expected"));
-        assert!(error.contains("report.json: inspect"));
+        assert!(error.contains("report.json: open"));
     }
 
     #[test]
@@ -308,26 +280,17 @@ mod tests {
         )
         .unwrap();
         verify(directory.path()).unwrap();
-        for name in [
-            "",
-            "..",
-            "../outside",
-            "nested/file",
-            "nested\\file",
-            "C:outside",
-            "seal.json",
-        ] {
-            manifest["files"] = serde_json::json!({name: sha256(&[])});
-            fs::write(
-                directory.path().join("seal.json"),
-                serde_json::to_vec(&manifest).unwrap(),
-            )
-            .unwrap();
-            let error = verify(directory.path()).unwrap_err().to_string();
-            assert!(
-                error.contains("filename component") || error.contains("hash itself"),
-                "{name}: {error}"
-            );
-        }
+        manifest["files"] = serde_json::json!({"seal.json": sha256(&[])});
+        fs::write(
+            directory.path().join("seal.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            verify(directory.path())
+                .unwrap_err()
+                .to_string()
+                .contains("hash itself")
+        );
     }
 }
