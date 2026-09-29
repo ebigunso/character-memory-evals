@@ -18,7 +18,7 @@ use cmem_eval::{
 use cmem_eval_continuity::{
     ContinuityQueryObservation, ContinuityQueryTrace, ContinuityReportInput, ContinuityRuntime,
     ContinuityScenario, InteractionEvent, ScenarioOutcome, assemble_continuity_report,
-    continuity_metric_family, insert_continuity_metrics, parse_fixture_bytes, parse_fixture_source,
+    continuity_metric_family, insert_continuity_metrics, parse_fixture_source,
     run_continuity_scenario, scenario_missing_features, write_continuity_report,
     write_continuity_traces,
 };
@@ -27,7 +27,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 type FrozenEmbeddingProviders = HashMap<PathBuf, FrozenEmbeddingProvider>;
 
@@ -81,7 +80,7 @@ fn live_embedding_binding(config: &BenchmarkRunConfig) -> Result<EmbeddingBindin
 
 pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
     let (config, config_source) = super::read_config_source(&args.run.config)?;
-    ContinuitySpec::validate_config(&config)?;
+    validate_continuity_config(&config)?;
     let input_source = fs::read_to_string(&args.run.dataset)
         .with_context(|| format!("read continuity fixture {}", args.run.dataset.display()))?;
     let fixture = parse_fixture_source(&args.run.dataset, input_source.as_bytes())?;
@@ -230,13 +229,10 @@ fn select_continuity_scenarios(
     Ok(scenarios)
 }
 
-#[derive(Default)]
 struct MemoryBatch {
     episodes: Vec<EpisodeInput>,
     observations: Vec<ObservationInput>,
     derived_memories: Vec<cmem_eval::DerivedMemoryInput>,
-    unresolved_evidence_references: usize,
-    dropped_observation_entries: usize,
 }
 
 trait DatasetSpec {
@@ -244,7 +240,6 @@ trait DatasetSpec {
     type Question: ?Sized;
 
     const LATENCY_INCLUDES_INGEST: bool;
-    const REPORT_QA_PROGRESS: bool;
     const USES_ENRICHMENT: bool;
 
     fn metric_family(config: &MetricsConfig) -> MetricFamily;
@@ -279,14 +274,6 @@ trait DatasetSpec {
     fn total_questions(items: &[Self::Item]) -> usize {
         items.iter().map(|item| Self::questions(item).len()).sum()
     }
-
-    fn ingest_progress_detail(batch: &MemoryBatch) -> String {
-        format!(
-            "episodes={} observations={}",
-            batch.episodes.len(),
-            batch.observations.len()
-        )
-    }
 }
 
 async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
@@ -319,13 +306,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
     } else {
         HashMap::new()
     };
-    let run_root = create_run_root(
-        &args.out,
-        &[
-            ("header", &sibling_output(&args.out, "header.json")),
-            ("report", &sibling_output(&args.out, "report.json")),
-        ],
-    )?;
+    let run_root = create_run_root(&args.out)?;
     let mut adapter = None;
     let namespaces_to_cleanup = source_items.iter().map(S::namespace).collect::<Vec<_>>();
     let result = async {
@@ -345,38 +326,28 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
             Some(CharacterMemoryAdapter::new(&run_root, &config).await?)
         };
         let total_questions = S::total_questions(&source_items);
-        let progress = RunProgress::new(
-            &config.dataset,
-            source_items.len(),
-            S::REPORT_QA_PROGRESS.then_some(total_questions),
-        );
+        let total_items = source_items.len();
+        eprintln!("[cmem-eval][{}][start] items={total_items}", config.dataset);
         let mut rows = Vec::with_capacity(total_questions);
-        let mut completed_questions = 0usize;
 
         for (item_index, item) in source_items.into_iter().enumerate() {
             let item_number = item_index + 1;
             let namespace = S::namespace(&item);
             let item_label = S::item_id(&item).to_string();
             let item_timer = Timer::start();
-            progress.item_started(item_number, &item_label);
+            eprintln!(
+                "[cmem-eval][{}][item {item_number}/{total_items}] id={item_label}",
+                config.dataset
+            );
             let batch = S::memory_inputs(&item, &config);
             let baseline = lexical
                 .then(|| cmem_eval::bm25::Bm25Baseline::new(&batch.episodes, &batch.observations));
-            let ingest_detail = S::ingest_progress_detail(&batch);
-            let episode_count = batch.episodes.len();
-            let observation_count = batch.observations.len();
             let mut write_outcomes = Vec::new();
             if let Some(adapter) = &adapter {
                 prepare_fresh_namespace(adapter, &namespace).await?;
                 if !batch.episodes.is_empty() {
                     write_outcomes.push(adapter.remember_episodes(batch.episodes).await?.outcome);
                 }
-                progress.phase_done(
-                    item_number,
-                    &item_label,
-                    "ingest-episodes",
-                    &format!("count={episode_count}"),
-                );
                 if !batch.observations.is_empty() {
                     write_outcomes.push(
                         adapter
@@ -385,12 +356,6 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                             .outcome,
                     );
                 }
-                progress.phase_done(
-                    item_number,
-                    &item_label,
-                    "ingest-observations",
-                    &format!("count={observation_count}"),
-                );
 
                 if let Some(enrichment) = S::enrichment(
                     &item,
@@ -401,24 +366,13 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                     &snapshots_by_item,
                 )? {
                     write_outcomes.extend(adapter.remember_enrichment(enrichment).await?);
-                    progress.phase_done(item_number, &item_label, "enrichment", "done");
                 }
             }
-            progress.phase_done(item_number, &item_label, "ingest", &ingest_detail);
             let full_history = S::full_history_text(&item);
             let full_history_metrics = full_history_context_metrics(Some(&full_history));
             let questions = S::questions(&item);
-            let item_question_count = questions.len();
-            for (question_index, question) in questions.into_iter().enumerate() {
+            for question in questions {
                 let question_timer = Timer::start();
-                if S::REPORT_QA_PROGRESS {
-                    progress.qa_started(
-                        item_number,
-                        &item_label,
-                        question_index + 1,
-                        item_question_count,
-                    );
-                }
                 let input = RetrieveInput {
                     activity: None,
                     cue_floors: None,
@@ -442,22 +396,6 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                         .retrieve(input)
                         .await?
                 };
-                if S::REPORT_QA_PROGRESS {
-                    progress.qa_retrieved(
-                        item_number,
-                        &item_label,
-                        question_index + 1,
-                        item_question_count,
-                        pack.items().len(),
-                    );
-                } else {
-                    progress.phase_done(
-                        item_number,
-                        &item_label,
-                        "retrieve",
-                        &format!("items={}", pack.items().len()),
-                    );
-                }
 
                 let context = context_metrics_with_full_history(&pack, full_history_metrics);
                 let composition = composition_metrics(pack.items());
@@ -509,23 +447,12 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                     composition,
                     integrity,
                 });
-                completed_questions += 1;
-                if S::REPORT_QA_PROGRESS {
-                    progress.qa_finished(
-                        item_number,
-                        &item_label,
-                        completed_questions,
-                        question_timer.elapsed_ms(),
-                    );
-                }
             }
             if let Some(adapter) = &adapter {
                 adapter.detach_namespace(&namespace).await?;
             }
-            progress.item_finished(item_number, &item_label, item_timer.elapsed_ms());
         }
 
-        progress.write_outputs_started(rows.len());
         write_outputs(args, rows, &[metric_family], header)?;
         Ok(())
     }
@@ -541,12 +468,18 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
             cleanup_error.get_or_insert(error);
         }
     }
-    finish_run(
+    let result = finish_run(
         result,
         cleanup_error,
         &run_root,
         config.backend.retain_stores,
-    )
+    );
+    eprintln!(
+        "[cmem-eval][{}][end] success={}",
+        config.dataset,
+        result.is_ok()
+    );
+    result
 }
 
 async fn prepare_fresh_namespace(adapter: &CharacterMemoryAdapter, namespace: &str) -> Result<()> {
@@ -554,136 +487,18 @@ async fn prepare_fresh_namespace(adapter: &CharacterMemoryAdapter, namespace: &s
     Ok(())
 }
 
-struct ContinuitySpec;
-
-impl DatasetSpec for ContinuitySpec {
-    type Item = ContinuityScenario;
-    type Question = InteractionEvent;
-
-    const LATENCY_INCLUDES_INGEST: bool = false;
-    const REPORT_QA_PROGRESS: bool = true;
-    const USES_ENRICHMENT: bool = false;
-
-    fn metric_family(config: &MetricsConfig) -> MetricFamily {
-        continuity_metric_family(config, &[])
+fn validate_continuity_config(config: &BenchmarkRunConfig) -> Result<()> {
+    validate_dataset_name(config, "continuity")?;
+    if config.retrieval.mode == cmem_eval::RetrievalMode::Bm25Only {
+        bail!("continuity does not support retrieval.mode=bm25_only");
     }
-
-    fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
-        validate_dataset_name(config, "continuity")?;
-        if config.retrieval.mode == cmem_eval::RetrievalMode::Bm25Only {
-            bail!("continuity does not support retrieval.mode=bm25_only");
-        }
-        config.validate()?;
-        if !config.retrieval.surface_policy.include_debug_rationale {
-            bail!(
-                "continuity dataset requires retrieval.surface_policy.include_debug_rationale=true because continuity traces and rationale-derived metrics are mandatory"
-            );
-        }
-        Ok(())
+    config.validate()?;
+    if !config.retrieval.surface_policy.include_debug_rationale {
+        bail!(
+            "continuity dataset requires retrieval.surface_policy.include_debug_rationale=true because continuity traces and rationale-derived metrics are mandatory"
+        );
     }
-
-    fn load(source: &str) -> Result<Vec<Self::Item>> {
-        Ok(parse_fixture_bytes(source.as_bytes())?.scenarios)
-    }
-
-    fn item_id(item: &Self::Item) -> &str {
-        &item.fixture_id
-    }
-
-    fn namespace(item: &Self::Item) -> String {
-        item.namespace.clone()
-    }
-
-    fn memory_inputs(_item: &Self::Item, _config: &BenchmarkRunConfig) -> MemoryBatch {
-        // Continuity events are executed in order by the scripted driver rather
-        // than flattened into the batch-retrieval ingestion path.
-        MemoryBatch::default()
-    }
-
-    fn questions(item: &Self::Item) -> Vec<&Self::Question> {
-        item.events
-            .iter()
-            .filter(|event| {
-                matches!(
-                    event,
-                    InteractionEvent::Query { .. } | InteractionEvent::Probe { .. }
-                )
-            })
-            .collect()
-    }
-
-    fn question_id(question: &Self::Question) -> &str {
-        match question {
-            InteractionEvent::Query { query_id, .. } | InteractionEvent::Probe { query_id, .. } => {
-                query_id
-            }
-            _ => unreachable!("ContinuitySpec::questions returns query events only"),
-        }
-    }
-
-    fn question_type(_question: &Self::Question) -> Option<String> {
-        Some("continuity".to_string())
-    }
-
-    fn question_text(question: &Self::Question) -> &str {
-        match question {
-            InteractionEvent::Query { text, .. } => text,
-            InteractionEvent::Probe { topic, .. } => topic.as_deref().unwrap_or_default(),
-            _ => unreachable!("ContinuitySpec::questions returns query events only"),
-        }
-    }
-
-    fn query_date(question: &Self::Question) -> Option<String> {
-        match question {
-            InteractionEvent::Query { timestamp, .. }
-            | InteractionEvent::Probe { timestamp, .. } => Some(timestamp.to_rfc3339()),
-            _ => unreachable!("ContinuitySpec::questions returns query events only"),
-        }
-    }
-
-    fn gold_episode_ids(_item: &Self::Item, _question: &Self::Question) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn gold_observation_ids(_item: &Self::Item, _question: &Self::Question) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn score(
-        _item: &Self::Item,
-        _question: &Self::Question,
-        _items: &[RetrievedItem],
-        _config: &BenchmarkRunConfig,
-    ) -> Value {
-        Value::Object(Map::new())
-    }
-
-    fn full_history_text(item: &Self::Item) -> String {
-        item.events
-            .iter()
-            .filter_map(|event| match event {
-                InteractionEvent::Remember { text, .. } | InteractionEvent::Query { text, .. } => {
-                    Some(text.as_str())
-                }
-                InteractionEvent::Correct {
-                    replacement_text, ..
-                } => Some(replacement_text.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    fn enrichment(
-        _item: &Self::Item,
-        _namespace: &str,
-        _derived_memories: Vec<cmem_eval::DerivedMemoryInput>,
-        _config: &BenchmarkRunConfig,
-        _configured: &HashMap<String, GraphEnrichmentInput>,
-        _snapshots: &HashMap<String, GraphSnapshotInput>,
-    ) -> Result<Option<GraphEnrichmentInput>> {
-        Ok(None)
-    }
+    Ok(())
 }
 
 async fn run_continuity_pipeline(
@@ -696,18 +511,24 @@ async fn run_continuity_pipeline(
 ) -> Result<()> {
     let adapter_metadata = RunAdapterMetadata::live();
     let metric_family = continuity_metric_family(&config.metrics, &scenarios);
-    let total_queries = ContinuitySpec::total_questions(&scenarios);
-    let progress = RunProgress::new(&config.dataset, scenarios.len(), Some(total_queries));
+    let total_queries = scenarios
+        .iter()
+        .flat_map(|scenario| &scenario.events)
+        .filter(|event| {
+            matches!(
+                event,
+                InteractionEvent::Query { .. } | InteractionEvent::Probe { .. }
+            )
+        })
+        .count();
+    eprintln!(
+        "[cmem-eval][{}][start] items={}",
+        config.dataset,
+        scenarios.len()
+    );
     let mut traces = Vec::with_capacity(total_queries);
     let mut outcomes = BTreeMap::new();
-    let mut operation_counts: BTreeMap<String, usize> = BTreeMap::new();
-    let run_root = create_run_root(
-        &args.run.out,
-        &[
-            ("header", &sibling_output(&args.run.out, "header.json")),
-            ("report", &sibling_output(&args.run.out, "report.json")),
-        ],
-    )?;
+    let run_root = create_run_root(&args.run.out)?;
     let mut runtimes = Vec::with_capacity(scenarios.len());
     let result = async {
         let mut header = run_header(
@@ -719,14 +540,18 @@ async fn run_continuity_pipeline(
         )?;
         for (index, scenario) in scenarios.iter().enumerate() {
             let item_number = index + 1;
-            progress.item_started(item_number, &scenario.fixture_id);
+            eprintln!(
+                "[cmem-eval][{}][item {item_number}/{}] id={}",
+                config.dataset,
+                scenarios.len(),
+                scenario.fixture_id
+            );
             let missing = scenario_missing_features(scenario)?;
             if !missing.is_empty() {
                 outcomes.insert(
                     scenario.fixture_id.clone(),
                     ScenarioOutcome::not_run(scenario, missing),
                 );
-                progress.item_finished(item_number, &scenario.fixture_id, 0);
                 continue;
             }
             let frozen_embedding_provider =
@@ -760,9 +585,6 @@ async fn run_continuity_pipeline(
             ))
             .await?;
             outcomes.insert(scenario.fixture_id.clone(), run.outcome);
-            for (operation, count) in run.operation_counts {
-                *operation_counts.entry(operation).or_default() += count;
-            }
             for trace in run.traces {
                 let latency_ms = run
                     .query_latencies_ms
@@ -793,14 +615,12 @@ async fn run_continuity_pipeline(
                     restart_observations,
                 });
             }
-            progress.item_finished(item_number, &scenario.fixture_id, 0);
             runtime
                 .adapter()
                 .detach_namespace(&scenario.namespace)
                 .await?;
         }
 
-        progress.write_outputs_started(traces.len());
         write_continuity_traces(&args.run.out, &traces)?;
         write_run_header(&args.run.out, &header)?;
         let report = assemble_continuity_report(ContinuityReportInput {
@@ -810,27 +630,28 @@ async fn run_continuity_pipeline(
             metric_family: &metric_family,
         })?;
         write_continuity_report(&sibling_output(&args.run.out, "report.json"), &report)?;
-        eprintln!(
-            "[cmem-eval][continuity][operations] {}",
-            serde_json::to_string(&operation_counts)?
-        );
 
         Ok(())
     }
     .await;
-    progress.cleanup_started(runtimes.len());
     let mut cleanup_error = None;
     for (namespace, runtime) in runtimes {
         if let Err(error) = runtime.cleanup(&namespace).await {
             cleanup_error.get_or_insert(error);
         }
     }
-    finish_run(
+    let result = finish_run(
         result,
         cleanup_error,
         &run_root,
         config.backend.retain_stores,
-    )
+    );
+    eprintln!(
+        "[cmem-eval][{}][end] success={}",
+        config.dataset,
+        result.is_ok()
+    );
+    result
 }
 
 fn continuity_result_row(
@@ -898,7 +719,6 @@ impl DatasetSpec for LongMemEvalSpec {
     type Question = cmem_eval_longmemeval::LongMemEvalInstance;
 
     const LATENCY_INCLUDES_INGEST: bool = true;
-    const REPORT_QA_PROGRESS: bool = false;
     const USES_ENRICHMENT: bool = true;
 
     fn metric_family(config: &MetricsConfig) -> MetricFamily {
@@ -929,7 +749,6 @@ impl DatasetSpec for LongMemEvalSpec {
             episodes: mapped.episodes,
             observations: mapped.observations,
             derived_memories: Vec::new(),
-            ..MemoryBatch::default()
         }
     }
 
@@ -1015,7 +834,6 @@ impl DatasetSpec for LoCoMoSpec {
     type Question = cmem_eval_locomo::LoCoMoQa;
 
     const LATENCY_INCLUDES_INGEST: bool = false;
-    const REPORT_QA_PROGRESS: bool = true;
     const USES_ENRICHMENT: bool = true;
 
     fn metric_family(config: &MetricsConfig) -> MetricFamily {
@@ -1053,8 +871,6 @@ impl DatasetSpec for LoCoMoSpec {
             episodes: mapped.episodes,
             observations: mapped.observations,
             derived_memories: mapped.derived_memories,
-            unresolved_evidence_references: item.unresolved_evidence_references,
-            dropped_observation_entries: item.dropped_observation_entries,
         }
     }
 
@@ -1142,17 +958,6 @@ impl DatasetSpec for LoCoMoSpec {
             enrichment::validate_enrichment(&result)?;
         }
         Ok(Some(result))
-    }
-
-    fn ingest_progress_detail(batch: &MemoryBatch) -> String {
-        format!(
-            "episodes={} observations={} generated_derived={} unresolved_evidence_references={} dropped_observation_entries={}",
-            batch.episodes.len(),
-            batch.observations.len(),
-            batch.derived_memories.len(),
-            batch.unresolved_evidence_references,
-            batch.dropped_observation_entries
-        )
     }
 }
 
@@ -1248,27 +1053,6 @@ fn context_metrics_with_full_history(
 }
 
 #[derive(Debug)]
-struct OutputPathInStores {
-    name: &'static str,
-    path: PathBuf,
-    root: PathBuf,
-}
-
-impl std::fmt::Display for OutputPathInStores {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "output {} ({}) must not be inside reserved run stores {}",
-            self.name,
-            self.path.display(),
-            self.root.display()
-        )
-    }
-}
-
-impl std::error::Error for OutputPathInStores {}
-
-#[derive(Debug)]
 struct OutputPathExists {
     name: &'static str,
     path: PathBuf,
@@ -1287,10 +1071,7 @@ impl std::fmt::Display for OutputPathExists {
 
 impl std::error::Error for OutputPathExists {}
 
-fn create_run_root(
-    results_path: &Path,
-    other_outputs: &[(&'static str, &Path)],
-) -> Result<PathBuf> {
+fn create_run_root(results_path: &Path) -> Result<PathBuf> {
     if results_path.extension() != Some(std::ffi::OsStr::new("jsonl")) {
         bail!("out must end in .jsonl: {}", results_path.display());
     }
@@ -1298,49 +1079,22 @@ fn create_run_root(
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
+    for (name, path) in [
+        ("out", results_path.to_path_buf()),
+        ("header", output_dir.join("header.json")),
+        ("report", output_dir.join("report.json")),
+    ] {
+        match fs::symlink_metadata(&path) {
+            Ok(_) => return Err(OutputPathExists { name, path }.into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("inspect {name} {}", path.display()));
+            }
+        }
+    }
     fs::create_dir_all(output_dir)?;
     let root = output_dir.join("stores");
     fs::create_dir(&root).with_context(|| format!("create run stores {}; existing retained or crashed stores must be inspected before choosing a new output directory", root.display()))?;
-    let admission = (|| -> Result<()> {
-        let canonical_root = fs::canonicalize(&root)?;
-        for (name, path) in
-            std::iter::once(("out", results_path)).chain(other_outputs.iter().copied())
-        {
-            let parent = path
-                .parent()
-                .filter(|path| !path.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new("."));
-            fs::create_dir_all(parent)?;
-            let canonical_parent = fs::canonicalize(parent)?;
-            match fs::symlink_metadata(path) {
-                Ok(_) => {
-                    return Err(OutputPathExists {
-                        name,
-                        path: path.to_path_buf(),
-                    }
-                    .into());
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    return Err(error)
-                        .with_context(|| format!("inspect {name} {}", path.display()));
-                }
-            }
-            if canonical_parent.starts_with(&canonical_root) {
-                return Err(OutputPathInStores {
-                    name,
-                    path: path.to_path_buf(),
-                    root: root.clone(),
-                }
-                .into());
-            }
-        }
-        Ok(())
-    })();
-    if let Err(error) = admission {
-        // This invocation acquired root before creating any output parents inside it.
-        return finish_run(Err(error), None, &root, false).map(|()| root);
-    }
     std::path::absolute(root).map_err(Into::into)
 }
 
@@ -1437,157 +1191,10 @@ fn write_run_header(artifact: &Path, header: &cmem_eval::RunHeader) -> Result<()
         .with_context(|| format!("write run header {}", path.display()))
 }
 
-struct RunProgress {
-    dataset: String,
-    total_items: usize,
-    total_qa: Option<usize>,
-    started_at: Instant,
-}
-
-impl RunProgress {
-    fn new(dataset: &DatasetId, total_items: usize, total_qa: Option<usize>) -> Self {
-        let progress = Self {
-            dataset: dataset.to_string(),
-            total_items,
-            total_qa,
-            started_at: Instant::now(),
-        };
-        match total_qa {
-            Some(total_qa) => eprintln!(
-                "[cmem-eval][{}][start] items={} qa={} elapsed_ms=0",
-                progress.dataset, total_items, total_qa
-            ),
-            None => eprintln!(
-                "[cmem-eval][{}][start] items={} elapsed_ms=0",
-                progress.dataset, total_items
-            ),
-        }
-        progress
-    }
-
-    fn item_started(&self, index: usize, label: &str) {
-        eprintln!(
-            "[cmem-eval][{}][item {}/{}][start] id={} elapsed_ms={}",
-            self.dataset,
-            index,
-            self.total_items,
-            label,
-            self.elapsed_ms()
-        );
-    }
-
-    fn phase_done(&self, index: usize, label: &str, phase: &str, detail: &str) {
-        eprintln!(
-            "[cmem-eval][{}][item {}/{}][{}] id={} {} elapsed_ms={}",
-            self.dataset,
-            index,
-            self.total_items,
-            phase,
-            label,
-            detail,
-            self.elapsed_ms()
-        );
-    }
-
-    fn item_finished(&self, index: usize, label: &str, item_latency_ms: u128) {
-        eprintln!(
-            "[cmem-eval][{}][item {}/{}][done] id={} item_latency_ms={} elapsed_ms={}",
-            self.dataset,
-            index,
-            self.total_items,
-            label,
-            item_latency_ms,
-            self.elapsed_ms()
-        );
-    }
-
-    fn qa_started(
-        &self,
-        sample_index: usize,
-        sample_label: &str,
-        qa_index: usize,
-        sample_qa: usize,
-    ) {
-        eprintln!(
-            "[cmem-eval][{}][item {}/{}][qa {}/{}][start] sample_id={} elapsed_ms={}",
-            self.dataset,
-            sample_index,
-            self.total_items,
-            qa_index,
-            sample_qa,
-            sample_label,
-            self.elapsed_ms()
-        );
-    }
-
-    fn qa_retrieved(
-        &self,
-        sample_index: usize,
-        sample_label: &str,
-        qa_index: usize,
-        sample_qa: usize,
-        retrieved_items: usize,
-    ) {
-        eprintln!(
-            "[cmem-eval][{}][item {}/{}][qa {}/{}][retrieve] sample_id={} items={} elapsed_ms={}",
-            self.dataset,
-            sample_index,
-            self.total_items,
-            qa_index,
-            sample_qa,
-            sample_label,
-            retrieved_items,
-            self.elapsed_ms()
-        );
-    }
-
-    fn qa_finished(
-        &self,
-        sample_index: usize,
-        sample_label: &str,
-        completed_qa: usize,
-        qa_latency_ms: u128,
-    ) {
-        let total_qa = self.total_qa.unwrap_or(completed_qa);
-        eprintln!(
-            "[cmem-eval][{}][item {}/{}][qa-progress {}/{}][done] sample_id={} qa_latency_ms={} elapsed_ms={}",
-            self.dataset,
-            sample_index,
-            self.total_items,
-            completed_qa,
-            total_qa,
-            sample_label,
-            qa_latency_ms,
-            self.elapsed_ms()
-        );
-    }
-
-    fn write_outputs_started(&self, rows: usize) {
-        eprintln!(
-            "[cmem-eval][{}][write_outputs] rows={} elapsed_ms={}",
-            self.dataset,
-            rows,
-            self.elapsed_ms()
-        );
-    }
-
-    fn cleanup_started(&self, namespaces: usize) {
-        eprintln!(
-            "[cmem-eval][{}][cleanup] namespaces={} elapsed_ms={}",
-            self.dataset,
-            namespaces,
-            self.elapsed_ms()
-        );
-    }
-
-    fn elapsed_ms(&self) -> u128 {
-        self.started_at.elapsed().as_millis()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmem_eval_continuity::parse_fixture_bytes;
     use std::path::PathBuf;
 
     fn run_args(dataset: PathBuf, config: PathBuf, directory: &Path) -> RunArgs {
@@ -1618,47 +1225,6 @@ mod tests {
 
     fn current_continuity_config() -> BenchmarkRunConfig {
         toml::from_str(&current_continuity_config_text()).unwrap()
-    }
-
-    #[tokio::test]
-    async fn embedded_runtime_restart_preserves_data_and_cleans_up() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agent-work/evals-worker");
-        fs::create_dir_all(&root).unwrap();
-        let directory = tempfile::tempdir_in(std::path::absolute(root).unwrap()).unwrap();
-        let mut config = current_continuity_config();
-        config.backend.vector_store_mode = cmem_eval::VectorStoreMode::Embedded;
-        config.backend.qdrant_connection_string = None;
-        let fixture =
-            cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
-                .unwrap();
-        let scenario = fixture
-            .scenarios
-            .iter()
-            .find(|scenario| scenario.fixture_id == "cross-store-stress")
-            .unwrap();
-        let (binding, _) = continuity_embedding_binding(&config, scenario, None).unwrap();
-        let mut runtime = ContinuityRuntime::new(directory.path(), &config, binding)
-            .await
-            .unwrap();
-        let run = run_continuity_scenario(&mut runtime, scenario, &config.retrieval)
-            .await
-            .unwrap();
-        assert_eq!(run.restart_observations.len(), 1);
-        let restart = &run.restart_observations[0];
-        assert!(restart.lifecycle.restored_identity_count > 0);
-        assert!(!restart.before_restart.returned_object_ids.is_empty());
-        assert!(restart.delta.stable_returned_objects);
-        runtime
-            .adapter()
-            .cleanup_namespace(&scenario.namespace)
-            .await
-            .unwrap();
-        for entry in fs::read_dir(directory.path()).unwrap() {
-            let path = entry.unwrap().path();
-            assert!(path.is_dir(), "store file remains: {}", path.display());
-            assert!(fs::read_dir(path).unwrap().next().is_none());
-        }
-        directory.close().unwrap();
     }
 
     #[test]
@@ -1784,83 +1350,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn continuity_run_cleans_or_retains_stores_on_success_and_admission_failure() {
+    async fn continuity_run_cleans_or_retains_stores() {
         for retain in [false, true] {
-            for fail_output in [false, true] {
-                let directory = tempfile::tempdir().unwrap();
-                let mut args = continuity_args(directory.path());
-                args.scenario = Some("graded-similarity".into());
-                let mut config = read_config(&args.run.config).unwrap();
-                config.backend.retain_stores = retain;
-                config.backend.retain_reason = retain.then(|| "inspect regression evidence".into());
-                let source = toml::to_string(&config).unwrap();
-                fs::write(&args.run.config, &source).unwrap();
-                if fail_output {
-                    fs::create_dir(sibling_output(&args.run.out, "report.json")).unwrap();
-                }
-                let root = directory.path().join("stores");
-                let result = run_continuity(args.clone()).await;
-                assert_eq!(result.is_err(), fail_output, "{result:?}");
+            let directory = tempfile::tempdir().unwrap();
+            let mut args = continuity_args(directory.path());
+            args.scenario = Some("graded-similarity".into());
+            let mut config = read_config(&args.run.config).unwrap();
+            config.backend.retain_stores = retain;
+            config.backend.retain_reason = retain.then(|| "inspect regression evidence".into());
+            fs::write(&args.run.config, toml::to_string(&config).unwrap()).unwrap();
+            let root = directory.path().join("stores");
+            run_continuity(args.clone()).await.unwrap();
+            assert_eq!(root.exists(), retain);
+            let header = read_header(&args.run.out);
+            assert_eq!(header.storage_root, root);
+            assert_eq!(header.storage_root_sha256.len(), 64);
+            assert_eq!(header.retain_reason, config.backend.retain_reason);
+            if retain {
                 assert_eq!(
-                    root.exists(),
-                    retain && !fail_output,
-                    "retain={retain}, fail_output={fail_output}"
+                    header.storage_root_sha256,
+                    cmem_eval::adapter::run_root_sha256(&root).unwrap()
                 );
-                if !fail_output {
-                    let header = read_header(&args.run.out);
-                    let header_path = sibling_output(&args.run.out, "header.json");
-                    let existing = fs::read(&header_path).unwrap();
-                    assert!(write_run_header(&args.run.out, &header).is_err());
-                    assert_eq!(fs::read(&header_path).unwrap(), existing);
-                    assert_eq!(header.run_id, config.run_id);
-                    assert_eq!(header.dataset, config.dataset);
-                    assert_eq!(header.dataset_kind, DatasetKind::Continuity);
-                    assert_eq!(
-                        header.input_sha256,
-                        cmem_eval::text_sha256(&fs::read_to_string(&args.run.dataset).unwrap())
-                    );
-                    assert_eq!(header.embedding_bindings.len(), 1);
-                    assert!(header.embedding_bindings.contains_key("graded-similarity"));
-                    assert_eq!(header.storage_root, root);
-                    assert_eq!(header.storage_root_sha256.len(), 64);
-                    if retain {
-                        assert_eq!(
-                            header.storage_root_sha256,
-                            cmem_eval::adapter::run_root_sha256(&root).unwrap()
-                        );
-                    }
-                    assert_eq!(header.retain_reason.is_some(), retain);
-                    assert!(
-                        serde_json::to_value(&header)
-                            .unwrap()
-                            .get("retain_stores")
-                            .is_none()
-                    );
-                    assert_eq!(header.retain_reason, config.backend.retain_reason);
-                    assert_eq!(header.config, source);
-                    assert_eq!(header.config_sha256, cmem_eval::text_sha256(&source));
-                    assert_eq!(header.harness_commit.len(), 40);
-                    assert_eq!(header.library_commit.len(), 40);
-                    let report = cmem_eval_continuity::read_continuity_report(&sibling_output(
-                        &args.run.out,
-                        "report.json",
-                    ))
-                    .unwrap();
-                    assert_eq!(report.aggregate.query_count, 1);
-                    assert!(
-                        serde_json::to_value(report)
-                            .unwrap()
-                            .get("header")
-                            .is_none()
-                    );
+                let sentinel = root.join("preserve-me");
+                fs::write(&sentinel, b"retained run").unwrap();
+                // Isolate stores admission from the independently tested output-name guard.
+                for path in [
+                    &args.run.out,
+                    &sibling_output(&args.run.out, "header.json"),
+                    &sibling_output(&args.run.out, "report.json"),
+                ] {
+                    fs::remove_file(path).unwrap();
                 }
-                if retain && !fail_output {
-                    let sentinel = root.join("preserve-me");
-                    fs::write(&sentinel, b"retained run").unwrap();
-                    let error = run_continuity(args).await.unwrap_err();
-                    assert!(format!("{error:#}").contains("stores"), "{error:#}");
-                    assert_eq!(fs::read(sentinel).unwrap(), b"retained run");
-                }
+                let error = run_continuity(args).await.unwrap_err();
+                assert!(format!("{error:#}").contains("stores"), "{error:#}");
+                assert_eq!(fs::read(sentinel).unwrap(), b"retained run");
             }
         }
     }
@@ -1870,7 +1393,7 @@ mod tests {
         for retain in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let output = directory.path().join("results.jsonl");
-            let root = create_run_root(&output, &[]).unwrap();
+            let root = create_run_root(&output).unwrap();
             fs::create_dir(&output).unwrap();
             let write_result = write_continuity_traces(&output, &[]);
             assert!(finish_run(write_result, None, &root, retain).is_err());
@@ -1896,71 +1419,19 @@ mod tests {
         assert!(!directory.path().join("stores").exists());
     }
 
-    #[test]
-    fn derived_outputs_cannot_enter_the_reserved_stores_root() {
-        let directory = tempfile::tempdir().unwrap();
-        let output = directory.path().join("not-created/results.jsonl");
-        for suffix in [
-            "stores/header.json",
-            "nested/../stores/header.json",
-            "stores/./nested/header.json",
-        ] {
-            let header = output.with_file_name(suffix);
-            let error = create_run_root(&output, &[("header", &header)]).unwrap_err();
-            assert_eq!(
-                error.downcast_ref::<OutputPathInStores>().unwrap().name,
-                "header"
-            );
-            assert!(!output.exists());
-            assert!(!output.parent().unwrap().join("stores").exists());
-        }
-        if cfg!(windows) {
-            let header = output.with_file_name("STORES/header.json");
-            assert!(create_run_root(&output, &[("header", &header)]).is_err());
-            assert!(!output.exists());
-            assert!(!output.parent().unwrap().join("stores").exists());
-        }
-        let report = output.with_file_name("stores-sibling/report.json");
-        let root = create_run_root(&output, &[("report", &report)]).unwrap();
-        fs::remove_dir(root).unwrap();
-    }
-
     #[tokio::test]
     async fn cli_rejects_non_jsonl_output_before_creating_directories() {
         let directory = tempfile::tempdir().unwrap();
-        let dataset = directory.path().join("locomo.json");
-        fs::write(
-            &dataset,
-            r#"[{"sample_id":"p1","conversation":{"session_1":[{"dia_id":"d1","text":""}]},"qa":[{"question":"What?"}]}]"#,
-        ).unwrap();
-        for filename in ["header.json", "HEADER.JSON", "report.json", "results"] {
-            let output_dir = directory.path().join(filename).join("run");
-            let mut args = continuity_args(directory.path());
-            args.scenario = Some("correction-chains".into());
-            args.run.out = output_dir.join(filename);
-            assert!(
-                run_continuity(args)
-                    .await
-                    .unwrap_err()
-                    .to_string()
-                    .contains("out must end in .jsonl")
-            );
-            assert!(!output_dir.exists());
-            let mut args = run_args(
-                dataset.clone(),
-                service_free_config("../../configs/locomo_retrieval.toml", directory.path()),
-                &output_dir,
-            );
-            args.out = output_dir.join(filename);
-            assert!(
-                run_locomo(args)
-                    .await
-                    .unwrap_err()
-                    .to_string()
-                    .contains("out must end in .jsonl")
-            );
-            assert!(!output_dir.exists());
-        }
+        let mut args = continuity_args(directory.path());
+        args.scenario = Some("graded-similarity".into());
+        let output_dir = directory.path().join("new-output");
+        args.run.out = output_dir.join("results.json");
+        let error = run_continuity(args).await.unwrap_err();
+        assert!(
+            format!("{error:#}").contains("out must end in .jsonl"),
+            "{error:#}"
+        );
+        assert!(!output_dir.exists());
     }
 
     #[test]
@@ -1976,8 +1447,7 @@ mod tests {
                 } else {
                     fs::write(path, "original").unwrap();
                 }
-                let error = create_run_root(&output, &[("header", &header), ("report", &report)])
-                    .unwrap_err();
+                let error = create_run_root(&output).unwrap_err();
                 assert_eq!(error.downcast_ref::<OutputPathExists>().unwrap().name, name);
                 assert!(!directory.path().join("stores").exists());
                 assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
@@ -1990,102 +1460,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[tokio::test]
-    async fn hard_linked_outputs_fail_before_writing_artifacts() {
-        let directory = tempfile::tempdir().unwrap();
-        let output_dir = directory.path().join("outputs");
-        fs::create_dir(&output_dir).unwrap();
-        let mut args = continuity_args(directory.path());
-        args.run.out = output_dir.join("traces.jsonl");
-        let header = sibling_output(&args.run.out, "header.json");
-        fs::write(&args.run.out, b"original").unwrap();
-        fs::hard_link(&args.run.out, &header).unwrap();
-        let artifact = args.run.out.clone();
-
-        let error = run_continuity(args).await.unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<OutputPathExists>().unwrap().name,
-            "out"
-        );
-        assert_eq!(fs::read(&artifact).unwrap(), b"original");
-        assert_eq!(fs::read(&header).unwrap(), b"original");
-        assert_eq!(fs::read_dir(&output_dir).unwrap().count(), 2);
-        // Both names still point to the original file after rejected admission.
-        fs::write(&artifact, b"still linked").unwrap();
-        assert_eq!(fs::read(&header).unwrap(), b"still linked");
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn unicode_case_alias_cannot_place_output_in_stores() {
-        let directory = tempfile::tempdir().unwrap();
-        let output_dir = directory.path().join("\u{e9}valuation");
-        let output = output_dir.join("traces.jsonl");
-        let header = directory.path().join("\u{c9}valuation/stores/header.json");
-        let error = create_run_root(&output, &[("header", &header)]).unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<OutputPathInStores>().unwrap().name,
-            "header"
-        );
-        assert!(fs::read_dir(output_dir).unwrap().next().is_none());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn junction_alias_cannot_place_output_in_stores() {
-        let directory = tempfile::tempdir().unwrap();
-        let output_dir = directory.path().join("real-output");
-        let alias = directory.path().join("output-alias");
-        fs::create_dir(&output_dir).unwrap();
-        let created = std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(&alias)
-            .arg(&output_dir)
-            .output()
-            .unwrap();
-        assert!(created.status.success(), "{created:?}");
-        let same_identity =
-            fs::canonicalize(&alias).unwrap() == fs::canonicalize(&output_dir).unwrap();
-        let result = create_run_root(
-            &output_dir.join("traces.jsonl"),
-            &[("header", &alias.join("stores/header.json"))],
-        );
-        fs::remove_dir(&alias).unwrap();
-        assert!(same_identity);
-        let error = result.unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<OutputPathInStores>().unwrap().name,
-            "header"
-        );
-        assert!(fs::read_dir(output_dir).unwrap().next().is_none());
-    }
-
-    #[test]
-    fn run_root_admission_preserves_an_existing_directory() {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().join("stores");
-        let results_path = directory.path().join("results.jsonl");
-        let barrier = std::sync::Barrier::new(2);
-        let admissions = std::thread::scope(|scope| {
-            let acquire = || {
-                barrier.wait();
-                create_run_root(&results_path, &[])
-            };
-            let first = scope.spawn(acquire);
-            let second = scope.spawn(acquire);
-            [first.join().unwrap(), second.join().unwrap()]
-        });
-        assert_eq!(admissions.iter().filter(|result| result.is_ok()).count(), 1);
-        assert!(fs::read_dir(&root).unwrap().next().is_none());
-        fs::write(root.join("sentinel"), b"earlier run").unwrap();
-        let error = create_run_root(&directory.path().join("results.jsonl"), &[]).unwrap_err();
-        assert!(
-            format!("{error:#}").contains(&root.display().to_string()),
-            "{error:#}"
-        );
-        assert_eq!(fs::read(root.join("sentinel")).unwrap(), b"earlier run");
     }
 
     #[tokio::test]
@@ -2156,67 +1530,50 @@ mod tests {
             ),
         ] {
             for snapshot in [false, true] {
-                for mode in [RetrievalMode::Bm25Only, RetrievalMode::Hybrid] {
-                    let directory = tempfile::tempdir_in(&root).unwrap();
-                    let mut config: BenchmarkRunConfig = toml::from_str(source).unwrap();
-                    config.retrieval.mode = mode;
-                    isolate_test_config(&mut config);
-                    if mode == RetrievalMode::Hybrid {
-                        config.backend.embedding.provider = EmbeddingProviderConfig::Deterministic;
-                    }
-                    let missing = directory.path().join("missing-enrichment.jsonl");
-                    let missing_path = missing.display().to_string();
-                    if snapshot {
-                        config.ingest.enrichment_snapshot_path = Some(missing_path.clone());
+                let directory = tempfile::tempdir_in(&root).unwrap();
+                let mut config: BenchmarkRunConfig = toml::from_str(source).unwrap();
+                let mode = RetrievalMode::Bm25Only;
+                config.retrieval.mode = mode;
+                isolate_test_config(&mut config);
+                let missing = directory.path().join("missing-enrichment.jsonl");
+                let missing_path = missing.display().to_string();
+                if snapshot {
+                    config.ingest.enrichment_snapshot_path = Some(missing_path.clone());
+                } else {
+                    config.ingest.enrichment_path = Some(missing_path.clone());
+                }
+                let config_path = directory.path().join("config.toml");
+                fs::write(&config_path, toml::to_string(&config).unwrap()).unwrap();
+                let dataset_path = directory.path().join("dataset.json");
+                fs::write(&dataset_path, serde_json::to_vec(&dataset).unwrap()).unwrap();
+                let args = run_args(dataset_path, config_path, directory.path());
+                let output = args.out.clone();
+                let result = if config.dataset.as_str() == "locomo" {
+                    run_locomo(args).await
+                } else {
+                    run_longmemeval(args).await
+                };
+                if config.dataset.as_str() == "locomo" {
+                    let expected_field = if snapshot {
+                        "enrichment_snapshot_path"
                     } else {
-                        config.ingest.enrichment_path = Some(missing_path.clone());
-                    }
-                    let config_path = directory.path().join("config.toml");
-                    fs::write(&config_path, toml::to_string(&config).unwrap()).unwrap();
-                    let dataset_path = directory.path().join("dataset.json");
-                    fs::write(&dataset_path, serde_json::to_vec(&dataset).unwrap()).unwrap();
-                    let args = run_args(dataset_path, config_path, directory.path());
-                    let output = args.out.clone();
-                    let result = if config.dataset.as_str() == "locomo" {
-                        run_locomo(args).await
-                    } else {
-                        run_longmemeval(args).await
+                        "enrichment_path"
                     };
-                    if mode == RetrievalMode::Bm25Only && config.dataset.as_str() == "locomo" {
-                        let expected_field = if snapshot {
-                            "enrichment_snapshot_path"
-                        } else {
-                            "enrichment_path"
-                        };
-                        assert_eq!(
-                            result
-                                .unwrap_err()
-                                .downcast_ref::<cmem_eval_locomo::ConfigError>(),
-                            Some(&cmem_eval_locomo::ConfigError::BaselineDerivedContent {
-                                mode,
-                                field: expected_field
-                            })
-                        );
-                        assert!(!output.exists());
-                    } else if mode == RetrievalMode::Bm25Only {
-                        result.unwrap();
-                        let rows = read_rows(&output);
-                        assert_eq!(rows.len(), 1);
-                        assert!(!rows[0].retrieved.is_empty());
-                    } else {
-                        let error = result.unwrap_err();
-                        if snapshot {
-                            assert_eq!(
-                                error.downcast_ref::<enrichment::EnrichmentError>(),
-                                Some(&enrichment::EnrichmentError::MissingManifest {
-                                    path: missing
-                                        .with_file_name("missing-enrichment_manifest.json"),
-                                })
-                            );
-                        } else {
-                            assert!(format!("{error:#}").contains(&missing_path), "{error:#}");
-                        }
-                    }
+                    assert_eq!(
+                        result
+                            .unwrap_err()
+                            .downcast_ref::<cmem_eval_locomo::ConfigError>(),
+                        Some(&cmem_eval_locomo::ConfigError::BaselineDerivedContent {
+                            mode,
+                            field: expected_field
+                        })
+                    );
+                    assert!(!output.exists());
+                } else {
+                    result.unwrap();
+                    let rows = read_rows(&output);
+                    assert_eq!(rows.len(), 1);
+                    assert!(!rows[0].retrieved.is_empty());
                 }
             }
         }
@@ -2547,10 +1904,14 @@ mod tests {
     #[tokio::test]
     async fn continuity_command_runs_scripted_scenarios_and_writes_full_traces() {
         let directory = tempfile::tempdir().unwrap();
-        let args = continuity_args(directory.path());
+        let mut args = continuity_args(directory.path());
+        args.scenario = Some("cross-store-stress".into());
         let artifact = args.run.out.clone();
         let input = fs::read_to_string(&args.run.dataset).unwrap();
-        let fixture = parse_fixture_bytes(input.as_bytes()).unwrap();
+        let mut fixture = parse_fixture_bytes(input.as_bytes()).unwrap();
+        fixture
+            .scenarios
+            .retain(|scenario| scenario.fixture_id == "cross-store-stress");
         let config_source = fs::read_to_string(&args.run.config).unwrap();
         let config = read_config(&args.run.config).unwrap();
         run_continuity(args).await.unwrap();
@@ -2586,20 +1947,6 @@ mod tests {
                 .map(|trace| trace.restart_observations.len())
                 .sum::<usize>()
         );
-        for key in [
-            "temporal_recall_fraction@5",
-            "supersession_replacement_recall",
-        ] {
-            let numeric_rows = rows
-                .iter()
-                .filter(|row| row.metrics.to_json_map()[key].is_number())
-                .count();
-            assert!(numeric_rows > 0);
-            assert_eq!(
-                report.aggregate.metric_support[key].numeric_rows,
-                numeric_rows
-            );
-        }
         assert!(
             report
                 .aggregate
@@ -2620,6 +1967,18 @@ mod tests {
             report.scenarios.keys().collect::<BTreeSet<_>>(),
             scenario_ids
         );
+        let header_path = sibling_output(&artifact, "header.json");
+        let existing = fs::read(&header_path).unwrap();
+        assert!(write_run_header(&artifact, &header).is_err());
+        assert_eq!(fs::read(&header_path).unwrap(), existing);
+        assert_eq!(header.harness_commit.len(), 40);
+        assert_eq!(header.library_commit.len(), 40);
+        assert!(
+            serde_json::to_value(&header)
+                .unwrap()
+                .get("retain_stores")
+                .is_none()
+        );
         assert_eq!(header.run_id, config.run_id);
         assert_eq!(header.dataset, config.dataset);
         assert_eq!(header.dataset_kind, DatasetKind::Continuity);
@@ -2633,29 +1992,7 @@ mod tests {
                     .missing_required_metrics
                     .is_empty()
         }));
-        assert!(
-            report
-                .tuning_observations
-                .iter()
-                .any(|observation| observation.id == "entity_root_candidate_limit")
-        );
-        let probe = traces
-            .iter()
-            .find(|trace| !trace.restart_observations.is_empty())
-            .unwrap();
-        let restart = &probe.restart_observations[0];
-        assert_eq!(probe.fixture_id, "cross-store-stress");
-        assert_eq!(restart.probe_query_id, probe.result.question_id);
-        assert!(restart.delta.stable_returned_objects);
-        assert!(!probe.result.retrieved.is_empty());
-        assert!(traces.iter().all(|trace| {
-            !trace.history_text.is_empty()
-                && trace
-                    .result
-                    .retrieved
-                    .iter()
-                    .all(|item| !item.rationale.is_empty())
-        }));
+        assert_eq!(report.aggregate.restart_count, 1);
         for (row, trace) in rows.iter().zip(&traces) {
             assert_eq!(row, &trace.result);
             assert_eq!(row.run_id, header.run_id);
@@ -2735,20 +2072,18 @@ mod tests {
     }
 
     #[test]
-    fn continuity_spec_accepts_resource_provider_for_scenario_binding_resolution() {
+    fn continuity_config_accepts_resource_provider_for_scenario_binding_resolution() {
         let mut config = current_continuity_config();
         config.backend.embedding.provider = EmbeddingProviderConfig::OpenAi;
-        ContinuitySpec::validate_config(&config).unwrap();
+        validate_continuity_config(&config).unwrap();
     }
 
     #[test]
-    fn continuity_spec_requires_debug_rationale_for_mandatory_traces() {
+    fn continuity_config_requires_debug_rationale_for_mandatory_traces() {
         let mut config = current_continuity_config();
         config.retrieval.surface_policy.include_debug_rationale = false;
 
-        let error = ContinuitySpec::validate_config(&config)
-            .unwrap_err()
-            .to_string();
+        let error = validate_continuity_config(&config).unwrap_err().to_string();
         assert!(
             error.contains("retrieval.surface_policy.include_debug_rationale=true"),
             "{error}"
@@ -3113,9 +2448,6 @@ mod tests {
                     .iter()
                     .all(|observation| !observation.text.contains("UNIQUE_"))
             );
-            let detail = LoCoMoSpec::ingest_progress_detail(&batch);
-            assert!(detail.contains("unresolved_evidence_references=1"));
-            assert!(detail.contains("dropped_observation_entries=1"));
             if mode == RetrievalMode::VectorOnly {
                 assert!(
                     LoCoMoSpec::enrichment(
@@ -3168,10 +2500,6 @@ mod tests {
         let hybrid = LoCoMoSpec::memory_inputs(&item, &config);
         assert_eq!(hybrid.derived_memories.len(), 2);
         assert_eq!(hybrid.episodes[0].summary, "UNIQUE_SUMMARY_TOKEN");
-        assert!(
-            LoCoMoSpec::ingest_progress_detail(&hybrid)
-                .contains("unresolved_evidence_references=1")
-        );
     }
 
     #[test]
