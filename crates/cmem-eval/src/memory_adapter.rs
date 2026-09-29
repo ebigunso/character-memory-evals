@@ -197,6 +197,8 @@ pub struct RetrieveInput {
     pub activity: Option<ActivityInput>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_range: Option<TimeRangeInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_policy: Option<character_memory::api::types::RetrievalLifecyclePolicy>,
     pub cue_floors: Option<character_memory::api::types::RetrievalCueFloors>,
     pub surface_policy: RetrievalSurfacePolicy,
 }

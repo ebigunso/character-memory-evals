@@ -28,7 +28,13 @@ pub(super) fn vector(axis: usize, cosine: f32) -> Vec<f32> {
     value
 }
 
-fn link(family: &mut Family, from: &str, relation: RelationType, kind: ObjectType, to: &str) {
+pub(super) fn link(
+    family: &mut Family,
+    from: &str,
+    relation: RelationType,
+    kind: ObjectType,
+    to: &str,
+) {
     family.graph.links.push(MemoryLinkInput {
         external_id: format!("link-{:03}", family.graph.links.len()),
         from: MemoryEndpointInput {

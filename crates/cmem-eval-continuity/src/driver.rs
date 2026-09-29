@@ -198,6 +198,7 @@ fn map_situated_input(
             MappedSituatedInput::Probe(RetrieveInput {
                 activity,
                 cue_floors: None,
+                lifecycle_policy: None,
                 time_range: None,
                 mode: cmem_eval::RetrievalMode::Hybrid,
                 namespace: namespace.into(),
@@ -1221,6 +1222,7 @@ async fn retrieve_query(
         .retrieve(RetrieveInput {
             activity: None,
             cue_floors: None,
+            lifecycle_policy: None,
             time_range: None,
             mode: retrieval.mode,
             namespace: scenario.namespace.clone(),

@@ -66,6 +66,7 @@ fn probe(config: &BenchmarkRunConfig, person: bool, topic: Option<&str>) -> Retr
         activity: None,
         cue_floors: None,
         time_range: None,
+        lifecycle_policy: None,
         surface_policy: config.retrieval.surface_policy.clone(),
     }
 }
