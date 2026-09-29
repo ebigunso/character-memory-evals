@@ -1101,7 +1101,7 @@ fn write_run_header(artifact: &Path, header: &cmem_eval::RunHeader) -> Result<()
 mod tests {
     use super::*;
     use cmem_eval_continuity::parse_fixture_bytes;
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeSet, HashSet};
     use std::path::PathBuf;
 
     fn run_args(dataset: PathBuf, config: PathBuf, directory: &Path) -> RunArgs {
@@ -1742,9 +1742,21 @@ mod tests {
         assert_eq!(
             outcomes
                 .iter()
-                .map(|outcome| outcome.rationale.telemetry.configured_object_types.clone())
+                .map(|outcome| {
+                    outcome
+                        .trace
+                        .as_ref()
+                        .unwrap()
+                        .vector_candidates
+                        .iter()
+                        .map(|candidate| candidate.object.object_type)
+                        .collect::<HashSet<_>>()
+                })
                 .collect::<Vec<_>>(),
-            vec![vec![ObjectType::Episode], vec![ObjectType::Observation]]
+            vec![
+                HashSet::from([ObjectType::Episode]),
+                HashSet::from([ObjectType::Observation]),
+            ]
         );
         let native = outcomes
             .iter()
