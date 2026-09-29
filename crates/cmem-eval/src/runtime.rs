@@ -1,62 +1,6 @@
 use crate::{ControllableSimilarityFixture, FrozenEmbeddingProvider, ObjectType};
 use anyhow::{Result, bail};
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
-use std::fmt;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DatasetId(String);
-
-impl DatasetId {
-    pub fn new(value: impl Into<String>) -> Result<Self> {
-        let value = value.into();
-        if value.is_empty()
-            || !value.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
-            })
-        {
-            bail!(
-                "dataset ID must use non-empty lowercase ASCII letters, digits, '_' or '-': {value:?}"
-            );
-        }
-        Ok(Self(value))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for DatasetId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-impl Serialize for DatasetId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.0)
-    }
-}
-
-impl<'de> Deserialize<'de> for DatasetId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Self::new(String::deserialize(deserializer)?).map_err(D::Error::custom)
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "snake_case")]
-pub enum DatasetKind {
-    LongMemEvalS,
-    LoCoMo,
-    Continuity,
-}
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -153,47 +97,6 @@ pub struct RetrievalSurfacePolicy {
     pub max_graph_roots: Option<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BaselineSurfacePolicyError {
-    UnsupportedObjectTypes {
-        mode: crate::RetrievalMode,
-        object_types: Vec<ObjectType>,
-    },
-    ZeroSelectedSurfaceBudget {
-        mode: crate::RetrievalMode,
-        object_type: ObjectType,
-    },
-}
-
-impl fmt::Display for BaselineSurfacePolicyError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mode_name = |mode: &crate::RetrievalMode| match mode {
-            crate::RetrievalMode::VectorOnly => "vector_only",
-            crate::RetrievalMode::Bm25Only => "bm25_only",
-            crate::RetrievalMode::Hybrid => "hybrid",
-        };
-        match self {
-            Self::UnsupportedObjectTypes { mode, object_types } => write!(
-                formatter,
-                "retrieval.mode={} supports only episode and observation object_types; unsupported selections: {}",
-                mode_name(mode),
-                object_types
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            Self::ZeroSelectedSurfaceBudget { mode, object_type } => write!(
-                formatter,
-                "retrieval.mode={} selected {object_type} with a zero section budget",
-                mode_name(mode)
-            ),
-        }
-    }
-}
-
-impl std::error::Error for BaselineSurfacePolicyError {}
-
 impl RetrievalSurfacePolicy {
     pub fn validate(&self) -> Result<()> {
         if self.object_types.is_empty() {
@@ -211,14 +114,14 @@ impl RetrievalSurfacePolicy {
     }
 
     pub fn validate_for_vector_only(&self) -> Result<()> {
-        self.validate_for_text_baseline(crate::RetrievalMode::VectorOnly)
+        self.validate_for_text_baseline("vector_only")
     }
 
     pub fn validate_for_bm25_only(&self) -> Result<()> {
-        self.validate_for_text_baseline(crate::RetrievalMode::Bm25Only)
+        self.validate_for_text_baseline("bm25_only")
     }
 
-    fn validate_for_text_baseline(&self, mode: crate::RetrievalMode) -> Result<()> {
+    fn validate_for_text_baseline(&self, mode: &str) -> Result<()> {
         self.validate()?;
         let unsupported = self
             .object_types
@@ -229,22 +132,21 @@ impl RetrievalSurfacePolicy {
             })
             .collect::<Vec<_>>();
         if !unsupported.is_empty() {
-            return Err(BaselineSurfacePolicyError::UnsupportedObjectTypes {
-                mode,
-                object_types: unsupported,
-            }
-            .into());
+            bail!(
+                "retrieval.mode={mode} supports only episode and observation object_types; unsupported selections: {}",
+                unsupported
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
         }
         for (object_type, budget) in [
             (ObjectType::Episode, self.sections.relevant_episodes),
             (ObjectType::Observation, self.sections.salient_observations),
         ] {
             if self.object_types.contains(&object_type) && budget == 0 {
-                return Err(BaselineSurfacePolicyError::ZeroSelectedSurfaceBudget {
-                    mode,
-                    object_type,
-                }
-                .into());
+                bail!("retrieval.mode={mode} selected {object_type} with a zero section budget");
             }
         }
         Ok(())
@@ -265,21 +167,6 @@ impl Default for RetrievalSurfacePolicy {
             include_debug_rationale: false,
             max_vector_candidates: None,
             max_graph_roots: None,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dataset_ids_reject_unsafe_names_and_preserve_admitted_ids() {
-        for invalid in ["../escape", "Upper", "", "a/b", "a\\b", "a b", "非ascii"] {
-            assert!(DatasetId::new(invalid).is_err(), "accepted {invalid:?}");
-        }
-        for valid in ["locomo", "longmemeval_s", "dataset-2"] {
-            assert_eq!(DatasetId::new(valid).unwrap().as_str(), valid);
         }
     }
 }

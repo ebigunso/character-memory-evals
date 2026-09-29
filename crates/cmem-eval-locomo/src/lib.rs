@@ -43,48 +43,17 @@ pub use error::{AdmissionLocation, LoadError};
 pub use loader::{load_path, load_value};
 pub use types::*;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use cmem_eval::{
     BenchmarkRunConfig, MetricFamily, MetricsConfig, RetrievalMode, retrieval_metric_family,
 };
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum ConfigError {
-    DatasetMismatch {
-        expected: &'static str,
-        found: String,
-    },
-    BaselineDerivedContent {
-        mode: RetrievalMode,
-        field: &'static str,
-    },
-}
-
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::DatasetMismatch { expected, found } => {
-                write!(
-                    f,
-                    "config dataset {found:?} does not match selected {expected} pipeline"
-                )
-            }
-            Self::BaselineDerivedContent { mode, field } => {
-                write!(f, "LoCoMo baseline {mode:?} forbids ingest.{field}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for ConfigError {}
-
 pub fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
-    if config.dataset.as_str() != "locomo" {
-        return Err(ConfigError::DatasetMismatch {
-            expected: "locomo",
-            found: config.dataset.to_string(),
-        }
-        .into());
+    if config.dataset != "locomo" {
+        bail!(
+            "config dataset {:?} does not match selected locomo pipeline",
+            config.dataset
+        );
     }
     if matches!(
         config.retrieval.mode,
@@ -99,18 +68,16 @@ pub fn validate_config(config: &BenchmarkRunConfig) -> Result<()> {
                 "index_generated_observations",
                 config.ingest.index_generated_observations,
             ),
-            ("enrichment_path", config.ingest.enrichment_path.is_some()),
             (
                 "enrichment_snapshot_path",
                 config.ingest.enrichment_snapshot_path.is_some(),
             ),
         ] {
             if enabled {
-                return Err(ConfigError::BaselineDerivedContent {
-                    mode: config.retrieval.mode,
-                    field,
-                }
-                .into());
+                bail!(
+                    "LoCoMo baseline {:?} forbids ingest.{field}",
+                    config.retrieval.mode
+                );
             }
         }
     }
@@ -175,16 +142,9 @@ mod dataset_spec_tests {
             "dataset": "longmemeval_s"
         }))
         .unwrap();
-        let error = validate_config(&invalid)
-            .unwrap_err()
-            .downcast::<ConfigError>()
-            .unwrap();
         assert_eq!(
-            error,
-            ConfigError::DatasetMismatch {
-                expected: "locomo",
-                found: "longmemeval_s".to_string(),
-            }
+            validate_config(&invalid).unwrap_err().to_string(),
+            "config dataset \"longmemeval_s\" does not match selected locomo pipeline"
         );
     }
 }

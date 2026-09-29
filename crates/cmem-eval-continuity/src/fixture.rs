@@ -2948,7 +2948,7 @@ fn require_unit_interval(
 #[cfg(test)]
 mod tests {
     use cmem_eval::{
-        BackendConfig, BenchmarkRunConfig, CharacterMemoryAdapter, CommitWriteOptions, DatasetId,
+        BackendConfig, BenchmarkRunConfig, CharacterMemoryAdapter, CommitWriteOptions,
         EmbeddingConfig, EmbeddingProviderConfig, FrozenEmbeddingStore, PrepareWriteInput,
         VectorStoreMode,
     };
@@ -4575,7 +4575,7 @@ bystanders = ["distractor"]
 
         let config = BenchmarkRunConfig {
             run_id: format!("frozen-drift-{token}"),
-            dataset: DatasetId::new("locomo").unwrap(),
+            dataset: "locomo".into(),
             backend: BackendConfig {
                 vector_store_mode: VectorStoreMode::Embedded,
                 embedding: EmbeddingConfig {
@@ -4759,7 +4759,7 @@ bystanders = ["distractor"]
                 .clone();
             let mut config = BenchmarkRunConfig {
                 run_id: "query-trim-drift".into(),
-                dataset: DatasetId::new("continuity").unwrap(),
+                dataset: "continuity".into(),
                 backend: Default::default(),
                 retrieval: Default::default(),
                 ingest: Default::default(),

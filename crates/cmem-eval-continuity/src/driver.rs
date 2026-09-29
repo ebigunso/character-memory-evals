@@ -1817,7 +1817,7 @@ pub(crate) mod tests {
                 active: None,
                 config: Box::new(BenchmarkRunConfig {
                     run_id: "not-run".into(),
-                    dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
+                    dataset: "continuity".into(),
                     backend: Default::default(),
                     retrieval: retrieval(),
                     ingest: Default::default(),
@@ -2370,7 +2370,7 @@ pub(crate) mod tests {
         let directory = tempfile::tempdir().unwrap();
         let mut config = BenchmarkRunConfig {
             run_id: "driver-test".into(),
-            dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
+            dataset: "continuity".into(),
             backend: Default::default(),
             retrieval: retrieval(),
             ingest: Default::default(),

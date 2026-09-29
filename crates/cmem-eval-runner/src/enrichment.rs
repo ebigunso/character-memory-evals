@@ -8,66 +8,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek};
-use std::path::{Path, PathBuf};
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum EnrichmentError {
-    MissingManifest {
-        path: PathBuf,
-    },
-    WrongWorkflow {
-        expected: &'static str,
-        actual: Option<String>,
-    },
-    WrongDataset {
-        expected: &'static str,
-        actual: Option<String>,
-    },
-    ArtifactHashMismatch {
-        expected: Option<String>,
-        actual: String,
-    },
-    MissingDatasetHash,
-    DatasetHashMismatch {
-        expected: String,
-        actual: String,
-    },
-    DuplicateExternalId {
-        kind: &'static str,
-        external_id: String,
-    },
-}
-
-impl std::fmt::Display for EnrichmentError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MissingManifest { path } => {
-                write!(f, "missing snapshot manifest {}", path.display())
-            }
-            Self::WrongWorkflow { expected, actual } => {
-                write!(f, "snapshot workflow must be {expected}, got {actual:?}")
-            }
-            Self::WrongDataset { expected, actual } => {
-                write!(f, "snapshot dataset must be {expected}, got {actual:?}")
-            }
-            Self::ArtifactHashMismatch { expected, actual } => write!(
-                f,
-                "snapshot artifact hash mismatch: expected {expected:?}, got {actual}"
-            ),
-            Self::MissingDatasetHash => write!(f, "v2 snapshot manifest requires dataset.sha256"),
-            Self::DatasetHashMismatch { expected, actual } => write!(
-                f,
-                "snapshot dataset hash mismatch: expected {expected}, got {actual}"
-            ),
-            Self::DuplicateExternalId { kind, external_id } => write!(
-                f,
-                "duplicate enrichment external_id {external_id} for {kind}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for EnrichmentError {}
+use std::path::Path;
 
 fn admitted_snapshot_file(path: &Path, dataset: &str, input_sha256: &str) -> Result<File> {
     let (expected_workflow, expected_dataset) = match dataset {
@@ -83,9 +24,7 @@ fn admitted_snapshot_file(path: &Path, dataset: &str, input_sha256: &str) -> Res
     let manifest_path = path.with_file_name(name);
     let manifest_file = File::open(&manifest_path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
-            anyhow::Error::from(EnrichmentError::MissingManifest {
-                path: manifest_path.clone(),
-            })
+            anyhow!("missing snapshot manifest {}", manifest_path.display())
         } else {
             anyhow::Error::from(error).context(format!("open {}", manifest_path.display()))
         }
@@ -94,21 +33,11 @@ fn admitted_snapshot_file(path: &Path, dataset: &str, input_sha256: &str) -> Res
         .with_context(|| format!("parse {}", manifest_path.display()))?;
     let workflow = manifest["workflow_id"].as_str();
     if workflow != Some(expected_workflow) {
-        return Err(EnrichmentError::WrongWorkflow {
-            expected: expected_workflow,
-            actual: workflow.map(ToOwned::to_owned),
-        }
-        .into());
+        bail!("snapshot workflow must be {expected_workflow}, got {workflow:?}");
     }
-    let manifest_dataset = manifest["dataset"]
-        .as_str()
-        .or_else(|| manifest["dataset"]["name"].as_str());
+    let manifest_dataset = manifest["dataset"]["name"].as_str();
     if manifest_dataset != Some(expected_dataset) {
-        return Err(EnrichmentError::WrongDataset {
-            expected: expected_dataset,
-            actual: manifest_dataset.map(ToOwned::to_owned),
-        }
-        .into());
+        bail!("snapshot dataset must be {expected_dataset}, got {manifest_dataset:?}");
     }
     match manifest["dataset"].get("sha256") {
         Some(expected)
@@ -116,18 +45,15 @@ fn admitted_snapshot_file(path: &Path, dataset: &str, input_sha256: &str) -> Res
                 .as_str()
                 .is_none_or(|hash| !hash.eq_ignore_ascii_case(input_sha256)) =>
         {
-            return Err(EnrichmentError::DatasetHashMismatch {
-                expected: expected
+            bail!(
+                "snapshot dataset hash mismatch: expected {}, got {input_sha256}",
+                expected
                     .as_str()
                     .map(ToOwned::to_owned)
-                    .unwrap_or_else(|| expected.to_string()),
-                actual: input_sha256.to_string(),
-            }
-            .into());
+                    .unwrap_or_else(|| expected.to_string())
+            );
         }
-        None if dataset == "longmemeval_s" => {
-            return Err(EnrichmentError::MissingDatasetHash.into());
-        }
+        None => bail!("v2 snapshot manifest requires dataset.sha256"),
         _ => {}
     }
     let mut file = File::open(path).with_context(|| format!("open {}", path.display()))?;
@@ -136,11 +62,7 @@ fn admitted_snapshot_file(path: &Path, dataset: &str, input_sha256: &str) -> Res
     let actual = format!("{:x}", hash.finalize());
     let expected = manifest["artifact"]["sha256"].as_str();
     if expected.is_none_or(|expected| !expected.eq_ignore_ascii_case(&actual)) {
-        return Err(EnrichmentError::ArtifactHashMismatch {
-            expected: expected.map(ToOwned::to_owned),
-            actual,
-        }
-        .into());
+        bail!("snapshot artifact hash mismatch: expected {expected:?}, got {actual}");
     }
     file.rewind()?;
     Ok(file)
@@ -159,41 +81,6 @@ const FORBIDDEN_KEYS: &[&str] = &[
     "label",
     "labels",
 ];
-
-pub fn load_enrichment_path(path: &Path) -> Result<HashMap<String, GraphEnrichmentInput>> {
-    let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
-    let reader = BufReader::new(file);
-    let mut by_namespace: HashMap<String, GraphEnrichmentInput> = HashMap::new();
-    for (line_idx, line) in reader.lines().enumerate() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let value: Value = serde_json::from_str(&line)
-            .with_context(|| format!("parse enrichment JSONL line {}", line_idx + 1))?;
-        reject_forbidden_keys(&value)
-            .with_context(|| format!("validate enrichment JSONL line {}", line_idx + 1))?;
-        let input: GraphEnrichmentInput = serde_json::from_value(value)
-            .with_context(|| format!("decode enrichment JSONL line {}", line_idx + 1))?;
-        validate_enrichment(&input)
-            .with_context(|| format!("validate enrichment JSONL line {}", line_idx + 1))?;
-        let entry = by_namespace
-            .entry(input.namespace.clone())
-            .or_insert_with(|| GraphEnrichmentInput {
-                namespace: input.namespace.clone(),
-                ..GraphEnrichmentInput::default()
-            });
-        entry.entities.extend(input.entities);
-        entry.threads.extend(input.threads);
-        entry.derived_memories.extend(input.derived_memories);
-        entry.links.extend(input.links);
-    }
-    for input in by_namespace.values() {
-        validate_enrichment(input)
-            .with_context(|| format!("validate merged enrichment namespace {}", input.namespace))?;
-    }
-    Ok(by_namespace)
-}
 
 pub fn load_snapshot_path(
     path: &Path,
@@ -307,11 +194,7 @@ fn insert_id(ids: &mut HashSet<String>, kind: &'static str, external_id: &str) -
     require_non_empty("external_id", external_id)?;
     let key = format!("{kind}\0{external_id}");
     if !ids.insert(key) {
-        return Err(EnrichmentError::DuplicateExternalId {
-            kind,
-            external_id: external_id.to_string(),
-        }
-        .into());
+        bail!("duplicate enrichment external_id {external_id} for {kind}");
     }
     Ok(())
 }
@@ -370,6 +253,7 @@ pub fn empty_namespace(namespace: String) -> GraphEnrichmentInput {
 mod tests {
     use super::*;
     use cmem_eval::DerivedType;
+    use std::path::PathBuf;
 
     #[test]
     fn rejects_derived_memory_without_provenance() {
@@ -416,34 +300,6 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("forbidden"));
-    }
-
-    #[test]
-    fn loads_and_groups_jsonl() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("enrichment.jsonl");
-        let rows =
-            [("n", "dm1"), ("other", "dm2"), ("n", "dm3")].map(|(namespace, external_id)| {
-                serde_json::json!({"namespace": namespace, "derived_memories": [{
-                    "external_id": external_id, "derived_type": "reflection",
-                    "text": "User prefers concise answers.", "source_episode_external_ids": ["s1"]
-                }]})
-                .to_string()
-            });
-        std::fs::write(&path, rows.join("\n")).unwrap();
-        let loaded = load_enrichment_path(&path).unwrap();
-        assert_eq!(loaded.len(), 2);
-        for (namespace, expected) in [("n", vec!["dm1", "dm3"]), ("other", vec!["dm2"])] {
-            assert_eq!(loaded[namespace].namespace, namespace);
-            assert_eq!(
-                loaded[namespace]
-                    .derived_memories
-                    .iter()
-                    .map(|memory| memory.external_id.as_str())
-                    .collect::<Vec<_>>(),
-                expected
-            );
-        }
     }
 
     const SNAPSHOT_DATASETS: [(&str, &str, &str); 2] = [
@@ -493,10 +349,11 @@ mod tests {
                 load_snapshot_path(&path, dataset, &cmem_eval::text_sha256(SNAPSHOT_SOURCE))
                     .unwrap_err();
             assert_eq!(
-                error.downcast_ref::<EnrichmentError>(),
-                Some(&EnrichmentError::MissingManifest {
-                    path: path.with_file_name("snapshot_manifest.json"),
-                })
+                error.to_string(),
+                format!(
+                    "missing snapshot manifest {}",
+                    path.with_file_name("snapshot_manifest.json").display()
+                )
             );
         }
     }
@@ -509,11 +366,11 @@ mod tests {
             manifest["dataset"]["name"] = serde_json::json!("wrong");
             let error = load_with_manifest(&path, dataset, &manifest).unwrap_err();
             assert_eq!(
-                error.downcast_ref::<EnrichmentError>(),
-                Some(&EnrichmentError::WrongWorkflow {
-                    expected: workflow,
-                    actual: Some("wrong".into()),
-                })
+                error.to_string(),
+                format!(
+                    "snapshot workflow must be {workflow}, got {:?}",
+                    Some("wrong")
+                )
             );
         }
     }
@@ -527,7 +384,7 @@ mod tests {
                 "locomo"
             };
             for (value, actual) in [
-                (Some(serde_json::json!(other)), Some(other)),
+                (Some(serde_json::json!(other)), None),
                 (
                     Some(
                         serde_json::json!({"name": other, "sha256": cmem_eval::text_sha256(SNAPSHOT_SOURCE)}),
@@ -563,11 +420,8 @@ mod tests {
                 }
                 let error = load_with_manifest(&path, dataset, &manifest).unwrap_err();
                 assert_eq!(
-                    error.downcast_ref::<EnrichmentError>(),
-                    Some(&EnrichmentError::WrongDataset {
-                        expected: name,
-                        actual: actual.map(str::to_string),
-                    })
+                    error.to_string(),
+                    format!("snapshot dataset must be {name}, got {actual:?}")
                 );
             }
         }
@@ -581,25 +435,35 @@ mod tests {
             manifest["artifact"]["sha256"] = serde_json::json!("stale");
             let error = load_with_manifest(&path, dataset, &manifest).unwrap_err();
             assert_eq!(
-                error.downcast_ref::<EnrichmentError>(),
-                Some(&EnrichmentError::ArtifactHashMismatch {
-                    expected: Some("stale".into()),
-                    actual,
-                })
+                error.to_string(),
+                format!(
+                    "snapshot artifact hash mismatch: expected {:?}, got {actual}",
+                    Some("stale")
+                )
             );
         }
     }
 
     #[test]
-    fn snapshot_loader_requires_dataset_hash_for_v2() {
-        let (_directory, path, mut manifest) =
-            snapshot_fixture("longmemeval-s", "deterministic-exact-source-replay-v2");
-        manifest["dataset"] = serde_json::json!("longmemeval-s");
-        let error = load_with_manifest(&path, "longmemeval_s", &manifest).unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<EnrichmentError>(),
-            Some(&EnrichmentError::MissingDatasetHash)
-        );
+    fn snapshot_loader_requires_dataset_object_and_hash() {
+        for (dataset, name, workflow) in SNAPSHOT_DATASETS {
+            let (_directory, path, mut manifest) = snapshot_fixture(name, workflow);
+            manifest["dataset"]
+                .as_object_mut()
+                .unwrap()
+                .remove("sha256");
+            let error = load_with_manifest(&path, dataset, &manifest).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "v2 snapshot manifest requires dataset.sha256"
+            );
+            manifest["dataset"] = serde_json::json!(name);
+            let error = load_with_manifest(&path, dataset, &manifest).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("snapshot dataset must be {name}, got None")
+            );
+        }
     }
 
     #[test]
@@ -614,29 +478,23 @@ mod tests {
                 manifest["dataset"]["sha256"] = value;
                 let error = load_with_manifest(&path, dataset, &manifest).unwrap_err();
                 assert_eq!(
-                    error.downcast_ref::<EnrichmentError>(),
-                    Some(&EnrichmentError::DatasetHashMismatch {
-                        expected: expected.into(),
-                        actual: cmem_eval::text_sha256(SNAPSHOT_SOURCE),
-                    })
+                    error.to_string(),
+                    format!(
+                        "snapshot dataset hash mismatch: expected {expected}, got {}",
+                        cmem_eval::text_sha256(SNAPSHOT_SOURCE)
+                    )
                 );
             }
         }
     }
 
     #[test]
-    fn snapshot_loader_accepts_valid_manifests_and_legacy_dataset_name() {
+    fn snapshot_loader_accepts_valid_manifests() {
         for (dataset, name, workflow) in SNAPSHOT_DATASETS {
-            let (_directory, path, mut manifest) = snapshot_fixture(name, workflow);
+            let (_directory, path, manifest) = snapshot_fixture(name, workflow);
             let loaded = load_with_manifest(&path, dataset, &manifest).unwrap();
             assert_eq!(loaded.len(), 1);
             assert_eq!(loaded["item"].snapshot_id, "snapshot");
-            if dataset == "locomo" {
-                manifest["dataset"] = serde_json::json!(name);
-                let loaded = load_with_manifest(&path, dataset, &manifest).unwrap();
-                assert_eq!(loaded.len(), 1);
-                assert_eq!(loaded["item"].snapshot_id, "snapshot");
-            }
         }
     }
 }

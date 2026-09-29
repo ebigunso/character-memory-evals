@@ -2560,8 +2560,8 @@ impl EmbeddingProvider for CharacterMemoryFrozenEmbeddingProvider {
 mod tests {
     use super::*;
     use crate::{
-        DatasetId, DerivedMemoryInput, EmbeddingConfig, EntityInput, FrozenEmbeddingStore,
-        MemoryLinkInput, RetrievalSurfacePolicy,
+        DerivedMemoryInput, EmbeddingConfig, EntityInput, FrozenEmbeddingStore, MemoryLinkInput,
+        RetrievalSurfacePolicy,
     };
     use crate::{DerivedType, RetrievalSectionBudgets};
     use character_memory::{
@@ -2590,7 +2590,7 @@ mod tests {
         };
         BenchmarkRunConfig {
             run_id,
-            dataset: DatasetId::new("locomo").unwrap(),
+            dataset: "locomo".into(),
             backend,
             retrieval: Default::default(),
             ingest: Default::default(),

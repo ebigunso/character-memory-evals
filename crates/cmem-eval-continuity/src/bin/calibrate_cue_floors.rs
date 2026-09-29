@@ -5,7 +5,7 @@ use anyhow::{Context, Result, ensure};
 use chrono::{Duration, TimeZone, Utc};
 use cmem_eval::{
     ActivityInput, BenchmarkRunConfig, ControllableDimensionPolicy, ControllableSimilarityFixture,
-    DatasetId, EmbeddingProviderConfig, EmbeddingRuntimeBinding, MemorySceneInput, RetrieveInput,
+    EmbeddingProviderConfig, EmbeddingRuntimeBinding, MemorySceneInput, RetrieveInput,
     RetrievedContextPack, SceneParticipantInput, SimilarityConceptFixture,
     character_memory::api::types as native, text_sha256,
 };
@@ -42,7 +42,7 @@ struct Probe {
 fn config() -> BenchmarkRunConfig {
     let mut config = BenchmarkRunConfig {
         run_id: "cue-floor-calibration".into(),
-        dataset: DatasetId::new("continuity").unwrap(),
+        dataset: "continuity".into(),
         backend: Default::default(),
         retrieval: Default::default(),
         ingest: Default::default(),
