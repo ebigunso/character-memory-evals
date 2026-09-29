@@ -192,9 +192,7 @@ pub fn check_probe_assertions(
     pack: &cmem_eval::RetrievedContextPack,
 ) -> Vec<crate::AssertionResult> {
     use crate::{AssertionSubject, CheckResult, OmissionReason};
-    use cmem_eval::character_memory::{
-        LifecycleFilterAction, LifecycleFilterReason, StaleCandidateReason,
-    };
+    use cmem_eval::character_memory::{LifecycleFilterReason, StaleCandidateReason};
     let InteractionEvent::Probe {
         assertions,
         query_id,
@@ -267,7 +265,6 @@ pub fn check_probe_assertions(
                         .any(|trace| {
                             trace.lifecycle_filter_decisions.iter().any(|decision| {
                                 ids.contains(decision.object.id.to_string().as_str())
-                                    && decision.action == LifecycleFilterAction::Omitted
                                     && matches!(
                                         (expected.reason, decision.reason),
                                         (
@@ -922,9 +919,9 @@ mod tests {
     use crate::{ContinuityScenarioEmbedding, EntityDeclaration, ExpectedRelevanceRecord};
     use chrono::{TimeZone, Utc};
     use cmem_eval::character_memory::{
-        ContextPackSection, ContinuityContextPack, LifecycleFilterAction, LifecycleFilterDecision,
-        LifecycleFilterReason, MemoryObjectRef, RetentionState, RetrievalRationale, RetrievalTrace,
-        RetrieveOutcome, SectionAssignment, SectionAssignmentReason, SectionScoreComponents,
+        ContextPackSection, ContinuityContextPack, LifecycleFilterDecision, LifecycleFilterReason,
+        MemoryObjectRef, RetrievalRationale, RetrievalTrace, RetrieveOutcome, SectionAssignment,
+        SectionAssignmentReason, SectionScoreComponents,
     };
     use cmem_eval::{ContextRenderer, ObjectType, RetrievedContextPack};
 
@@ -953,10 +950,8 @@ mod tests {
     fn unsafe_decision(id: &str) -> LifecycleFilterDecision {
         LifecycleFilterDecision {
             object: object(id),
-            retention_state: Some(RetentionState::Suppressed),
             superseded_by: Vec::new(),
-            action: LifecycleFilterAction::Included,
-            reason: LifecycleFilterReason::SuppressedIncludedByPolicy,
+            reason: LifecycleFilterReason::SuppressedOmitted,
         }
     }
 
@@ -1073,9 +1068,8 @@ mod tests {
             ProbeMeasures, RecallReason, ScenarioStatus, SceneSelection,
         };
         use cmem_eval::character_memory::{
-            DerivedMemoryDraft, EpisodeDraft, LifecycleFilterAction, LifecycleFilterDecision,
-            LifecycleFilterReason, LifecycleOmissionSummary, MemoryObjectRef, MemoryThreadDraft,
-            ObservationDraft,
+            DerivedMemoryDraft, EpisodeDraft, LifecycleFilterDecision, LifecycleFilterReason,
+            LifecycleOmissionSummary, MemoryObjectRef, MemoryThreadDraft, ObservationDraft,
         };
         let mut scenario = crate::driver::tests::situated_scenario();
         let mut authored_thread = scenario.events[2].clone();
@@ -1293,9 +1287,7 @@ mod tests {
             .lifecycle_filter_decisions
             .push(LifecycleFilterDecision {
                 object: MemoryObjectRef::new(ObjectType::Observation, noise_observation.id),
-                retention_state: Some(cmem_eval::RetentionState::Suppressed),
                 superseded_by: Vec::new(),
-                action: LifecycleFilterAction::Omitted,
                 reason: LifecycleFilterReason::SuppressedOmitted,
             });
         outcome.rationale.lifecycle_omission_count = 1;
@@ -1323,9 +1315,7 @@ mod tests {
                 .into_iter()
                 .map(|reason| LifecycleFilterDecision {
                     object: MemoryObjectRef::new(ObjectType::DerivedMemory, id),
-                    retention_state: Some(cmem_eval::RetentionState::Active),
                     superseded_by: Vec::new(),
-                    action: LifecycleFilterAction::Omitted,
                     reason,
                 })
                 .collect();

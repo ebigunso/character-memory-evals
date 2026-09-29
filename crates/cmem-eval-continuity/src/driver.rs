@@ -2194,7 +2194,7 @@ pub(crate) mod tests {
                 );
                 assert!(native.scene_references.iter().any(|fact| fact.reference
                     == SceneReference::ParticipantDescription { index: 3 }
-                    && fact.resolution == SceneReferenceResolution::ContentCue));
+                    && fact.resolution == SceneReferenceResolution::Reminder));
                 let interactions = native
                     .scene_references
                     .iter()
