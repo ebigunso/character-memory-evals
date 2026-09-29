@@ -1894,7 +1894,7 @@ mod tests {
     async fn anniversary_capability_uses_the_native_road_and_required_absence_fails() {
         let root = std::env::temp_dir().join(format!("anniversary-witness-{}", std::process::id()));
         fs::create_dir(&root).unwrap();
-        let result = Box::pin(anniversary_capability(&root, &config())).await;
+        let result = Box::pin(anniversary_capability(&root, &config(), &mut BTreeMap::new())).await;
         fs::remove_dir_all(&root).unwrap();
         let capability = result.unwrap();
         let available = capability["available"] == true;
