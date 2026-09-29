@@ -152,6 +152,7 @@ fn map_situated_input(
                 _ => bail!("unsupported derived subtype passed the feature gate"),
             };
             input.derived_memories.push(DerivedMemoryInput {
+                due_at: None,
                 external_id,
                 created_at: Some(timestamp),
                 derived_type,
@@ -432,6 +433,7 @@ pub async fn run_continuity_scenario(
         .entities
         .iter()
         .map(|entity| DerivedMemoryInput {
+            due_at: None,
             external_id: naming_belief_external_id(&entity.external_id),
             created_at: None,
             derived_type: DerivedType::Claim,
@@ -799,6 +801,7 @@ pub async fn run_continuity_scenario(
                             namespace: scenario.namespace.clone(),
                             threads,
                             derived_memories: vec![DerivedMemoryInput {
+                                due_at: None,
                                 created_at: None,
                                 external_id: derived_external_id.clone(),
                                 derived_type: DerivedType::Reflection,
@@ -876,6 +879,7 @@ pub async fn run_continuity_scenario(
                         targets: vec![target],
                         replacements: vec![ReplacementDerivedMemoryInput {
                             memory: DerivedMemoryInput {
+                                due_at: None,
                                 created_at: None,
                                 external_id: replacement_external_id.clone(),
                                 derived_type: DerivedType::Reflection,

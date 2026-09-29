@@ -260,6 +260,7 @@ mod tests {
         let input = GraphEnrichmentInput {
             namespace: "n".into(),
             derived_memories: vec![DerivedMemoryInput {
+                due_at: None,
                 created_at: None,
                 external_id: "dm1".into(),
                 derived_type: DerivedType::Reflection,

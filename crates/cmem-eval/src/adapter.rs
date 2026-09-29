@@ -981,6 +981,7 @@ impl CharacterMemoryAdapter {
             let mut draft = DerivedMemoryDraft::new(memory.derived_type, memory.text);
             draft.id = Some(id);
             draft.created_at = parse_timestamp(memory.created_at.as_deref())?;
+            draft.due_at = memory.due_at;
             draft.derived_from_episode_ids = resolve_ids(
                 "episode",
                 &memory.source_episode_external_ids,
@@ -2233,6 +2234,7 @@ fn replacement_to_live(
     let memory = &input.memory;
     let mut draft = ReplacementDerivedMemoryDraft::new(memory.derived_type, memory.text.clone());
     draft.id = Some(id);
+    draft.due_at = memory.due_at;
     if memory.created_at.is_some() {
         bail!(
             "the library correction draft cannot carry created_at for {:?}",
@@ -3015,6 +3017,7 @@ mod tests {
                     external_id: "ada".into(),
                 }],
                 derived_memories: vec![DerivedMemoryInput {
+                    due_at: None,
                     external_id: "ada-name".into(),
                     created_at: None,
                     derived_type: DerivedType::Claim,
@@ -3084,6 +3087,135 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn obligation_roles_and_due_survive_public_write_and_correction() {
+        let directory = tempdir().unwrap();
+        let namespace = "obligation-fields";
+        let config = adapter_config(namespace.into());
+        let adapter = CharacterMemoryAdapter::new_with_binding(
+            directory.path(),
+            &config,
+            EmbeddingRuntimeBinding::Live {
+                provider: LiveEmbeddingProvider::Deterministic,
+                model: config.backend.embedding.model.clone(),
+            },
+            Some("alice-entity"),
+        )
+        .await
+        .unwrap();
+        seed_restart_namespace(&adapter, namespace).await;
+        let mut memory = restart_correction(namespace).replacements.remove(0).memory;
+        assert!(
+            serde_json::to_value(&memory)
+                .unwrap()
+                .get("due_at")
+                .is_none()
+        );
+        memory.external_id = "promise".into();
+        memory.derived_type = DerivedType::Commitment;
+        memory.text = "I promised Bob a sketch of the harbor.".into();
+        memory.created_at = Some("2025-01-02T00:00:00Z".into());
+        memory.due_at = Some("2099-09-09T13:00:00Z".parse().unwrap());
+        memory.supersedes_external_ids.clear();
+        memory.entity_external_ids.push("bob".into());
+        memory.assertions = vec![
+            crate::BeliefAssertionInput {
+                subject_external_id: "alice-entity".into(),
+                predicate: crate::BeliefPredicate::Actor,
+            },
+            crate::BeliefAssertionInput {
+                subject_external_id: "bob".into(),
+                predicate: crate::BeliefPredicate::Counterpart,
+            },
+        ];
+        let write = adapter
+            .remember_enrichment(GraphEnrichmentInput {
+                namespace: namespace.into(),
+                entities: vec![EntityInput {
+                    external_id: "bob".into(),
+                }],
+                derived_memories: vec![memory.clone()],
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(write.vector_indexing_failure.is_none());
+        assert!(write.stats_update_status.failure.is_none());
+        let query = RetrieveInput {
+            mode: RetrievalMode::Hybrid,
+            namespace: namespace.into(),
+            topic: None,
+            scene: crate::MemorySceneInput {
+                time: Some("2099-09-09T08:00:00+09:00".into()),
+                participants: vec![crate::SceneParticipantInput {
+                    key: Some("bob".into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            activity: None,
+            time_range: None,
+            lifecycle_policy: None,
+            cue_floors: None,
+            surface_policy: RetrievalSurfacePolicy::default(),
+        };
+        for (id, expected_due_state) in [
+            ("promise", character_memory::api::types::DueState::DueToday),
+            (
+                "revised-promise",
+                character_memory::api::types::DueState::NotYetDue,
+            ),
+        ] {
+            if id == "revised-promise" {
+                memory.external_id = id.into();
+                memory.created_at = None;
+                memory.text = "I promised Bob the revised harbor sketch tomorrow.".into();
+                memory.due_at = Some("2099-09-10T00:00:00Z".parse().unwrap());
+                memory.supersedes_external_ids = vec!["promise".into()];
+                let mut correction = restart_correction(namespace);
+                correction.targets = vec![CorrectionTargetInput::DerivedMemory {
+                    external_id: "promise".into(),
+                }];
+                correction.superseded_derived_memory_external_ids = vec!["promise".into()];
+                correction.replacements[0].memory = memory.clone();
+                let write = adapter.correct(correction).await.unwrap();
+                assert!(write.outcome.vector_maintenance_failure.is_none());
+                assert!(write.outcome.stats_update_status.failure.is_none());
+            }
+            let pack = adapter.retrieve(query.clone()).await.unwrap();
+            let included = pack.outcomes()[0]
+                .pack
+                .commitments
+                .iter()
+                .find(|row| row.memory.id == deterministic_id(namespace, "derived_memory", id))
+                .unwrap();
+            assert_eq!(included.memory.due_at, memory.due_at);
+            assert_eq!(
+                included.direction,
+                Some(character_memory::api::types::ObligationDirection::OwedByCharacter)
+            );
+            assert_eq!(included.due_state, Some(expected_due_state));
+            let expected_assertions = [
+                character_memory::BeliefAssertion {
+                    subject: adapter.self_notion_id(namespace),
+                    predicate: crate::BeliefPredicate::Actor,
+                },
+                character_memory::BeliefAssertion {
+                    subject: deterministic_id(namespace, "entity", "bob"),
+                    predicate: crate::BeliefPredicate::Counterpart,
+                },
+            ];
+            assert_eq!(included.memory.assertions.len(), expected_assertions.len());
+            assert!(
+                expected_assertions
+                    .iter()
+                    .all(|assertion| included.memory.assertions.contains(assertion))
+            );
+        }
+        adapter.cleanup_namespace(namespace).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn remembered_metadata_and_speaker_never_reach_stores_or_context() {
         let directory = tempdir().unwrap();
         let config = adapter_config("metadata-isolation".into());
@@ -3129,6 +3261,7 @@ mod tests {
             .remember_enrichment(GraphEnrichmentInput {
                 namespace: namespace.into(),
                 derived_memories: vec![DerivedMemoryInput {
+                    due_at: None,
                     created_at: None,
                     external_id: "derived".into(),
                     derived_type: DerivedType::Reflection,
@@ -4143,6 +4276,7 @@ mod tests {
                     external_id: "alice-entity".to_string(),
                 }],
                 derived_memories: vec![DerivedMemoryInput {
+                    due_at: None,
                     created_at: None,
                     external_id: "pre-correction-memory".to_string(),
                     derived_type: DerivedType::Reflection,
@@ -4197,6 +4331,7 @@ mod tests {
             }],
             replacements: vec![ReplacementDerivedMemoryInput {
                 memory: DerivedMemoryInput {
+                    due_at: None,
                     created_at: None,
                     external_id: "corrected-memory".to_string(),
                     derived_type: DerivedType::Reflection,

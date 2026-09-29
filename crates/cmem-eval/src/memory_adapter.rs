@@ -94,6 +94,8 @@ pub struct DerivedMemoryInput {
     pub external_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
     pub derived_type: DerivedType,
     pub text: String,
     #[serde(default)]
