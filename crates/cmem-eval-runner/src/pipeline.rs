@@ -28,8 +28,6 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-type FrozenEmbeddingProviders = HashMap<PathBuf, FrozenEmbeddingProvider>;
-
 fn live_embedding_binding(config: &BenchmarkRunConfig) -> Result<EmbeddingBindingRecord> {
     let provider = match config.backend.embedding.provider {
         EmbeddingProviderConfig::Deterministic => LiveEmbeddingProvider::Deterministic,
@@ -63,8 +61,8 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
             executable.push(scenario.clone());
         }
     }
-    let frozen_embedding_providers = if executable.is_empty() {
-        HashMap::new()
+    let frozen_embedding_provider = if executable.is_empty() {
+        None
     } else {
         validate_continuity_embedding_sizes(&config, &executable)?
     };
@@ -74,7 +72,7 @@ pub(crate) async fn run_continuity(args: ContinuityRunArgs) -> Result<()> {
         config_source,
         input_sha256,
         scenarios,
-        frozen_embedding_providers,
+        frozen_embedding_provider,
     )
     .await
 }
@@ -90,16 +88,10 @@ pub(crate) async fn run_locomo(args: RunArgs) -> Result<()> {
 fn validate_continuity_embedding_sizes(
     config: &BenchmarkRunConfig,
     scenarios: &[ContinuityScenario],
-) -> Result<FrozenEmbeddingProviders> {
-    let mut frozen_embedding_providers = HashMap::new();
+) -> Result<Option<FrozenEmbeddingProvider>> {
     let configured_size = config.backend.embedding.vector_size.context(
         "continuity dataset requires backend.embedding.vector_size to match every selected fixture scenario",
     )?;
-    let scenario_providers = scenarios
-        .iter()
-        .map(|scenario| scenario.embedding.provider_name())
-        .collect::<BTreeSet<_>>();
-
     for scenario in scenarios {
         if let Some(fixture_size) = scenario.embedding.vector_size()
             && fixture_size > configured_size
@@ -111,7 +103,10 @@ fn validate_continuity_embedding_sizes(
         }
     }
 
-    if scenario_providers.contains("frozen") {
+    if scenarios
+        .iter()
+        .any(|scenario| scenario.embedding.provider_name() == "frozen")
+    {
         let store_path = PathBuf::from(
             config
                 .backend
@@ -138,9 +133,9 @@ fn validate_continuity_embedding_sizes(
                 })?;
             }
         }
-        frozen_embedding_providers.insert(store_path, provider);
+        return Ok(Some(provider));
     }
-    Ok(frozen_embedding_providers)
+    Ok(None)
 }
 
 fn continuity_embedding_binding(
@@ -152,7 +147,7 @@ fn continuity_embedding_binding(
         .backend
         .embedding
         .vector_size
-        .context("continuity runtime requires backend.embedding.vector_size")?;
+        .expect("preflight checked continuity storage size");
     if let Some(fixture) = scenario.embedding.controllable_similarity() {
         let dimension_policy = if fixture.vector_size == configured_size {
             ControllableDimensionPolicy::FixtureDeclared
@@ -175,10 +170,10 @@ fn continuity_embedding_binding(
         ));
     }
 
-    let store = frozen_store.context("frozen continuity runtime is missing its preflight store")?;
+    let store = frozen_store.expect("preflight loaded the frozen store");
     let dimension_policy = store.dimension_policy().to_string();
     let record = EmbeddingBindingRecord::Frozen {
-        store_sha256: store.store_sha256()?,
+        store_sha256: store.store_sha256().to_string(),
         source: store.source().to_string(),
         model: store.model().to_string(),
         vector_size: store.vector_size(),
@@ -480,7 +475,7 @@ async fn run_continuity_pipeline(
     config_source: String,
     input_sha256: String,
     scenarios: Vec<ContinuityScenario>,
-    frozen_embedding_providers: FrozenEmbeddingProviders,
+    frozen_embedding_provider: Option<FrozenEmbeddingProvider>,
 ) -> Result<()> {
     let adapter_metadata = RunAdapterMetadata::live();
     let metric_family = continuity_metric_family(&config.metrics, &scenarios);
@@ -527,23 +522,8 @@ async fn run_continuity_pipeline(
                 );
                 continue;
             }
-            let frozen_embedding_provider =
-                if scenario.embedding.provider_name() == "frozen" {
-                    let store_path = config.backend.embedding.store_path.as_deref().context(
-                        "frozen continuity runtime requires backend.embedding.store_path",
-                    )?;
-                    let provider = frozen_embedding_providers
-                .get(Path::new(store_path))
-                .cloned()
-                .with_context(|| {
-                    format!("frozen continuity runtime has no preflight provider for {store_path}")
-                })?;
-                    Some(provider)
-                } else {
-                    None
-                };
             let (embedding_binding, embedding_binding_record) =
-                continuity_embedding_binding(&config, scenario, frozen_embedding_provider)?;
+                continuity_embedding_binding(&config, scenario, frozen_embedding_provider.clone())?;
             header
                 .embedding_bindings
                 .insert(scenario.fixture_id.clone(), embedding_binding_record);
@@ -2019,7 +1999,7 @@ mod tests {
     }
 
     #[test]
-    fn frozen_preflight_accepts_matching_width_and_descriptive_provenance() {
+    fn frozen_preflight_checks_model_and_width_with_descriptive_provenance() {
         let fixture =
             cmem_eval_continuity::generate_fixture_set(cmem_eval_continuity::CHECKED_FIXTURE_SEED)
                 .unwrap();
@@ -2043,15 +2023,25 @@ mod tests {
         config.backend.embedding.vector_size = Some(1_024);
         config.backend.embedding.store_path = Some(store_path.display().to_string());
 
-        let providers = validate_continuity_embedding_sizes(&config, &[scenario.clone()]).unwrap();
-        assert_eq!(providers[&store_path].vector_size(), 1_024);
-        assert_eq!(providers[&store_path].source(), "test_fixture");
+        let provider = validate_continuity_embedding_sizes(&config, &[scenario.clone()])
+            .unwrap()
+            .unwrap();
+        assert_eq!(provider.vector_size(), 1_024);
+        assert_eq!(provider.source(), "test_fixture");
         config.backend.embedding.vector_size = Some(512);
+        assert!(
+            validate_continuity_embedding_sizes(&config, &[scenario.clone()])
+                .unwrap_err()
+                .to_string()
+                .contains("vector_size")
+        );
+        config.backend.embedding.vector_size = Some(1_024);
+        config.backend.embedding.model = "different-model".into();
         assert!(
             validate_continuity_embedding_sizes(&config, &[scenario])
                 .unwrap_err()
                 .to_string()
-                .contains("vector_size")
+                .contains("does not match configured model")
         );
     }
 
@@ -2140,16 +2130,14 @@ mod tests {
             .join("../..")
             .join(configured_store);
         config.backend.embedding.store_path = Some(store_path.display().to_string());
-        let frozen_stores =
+        let frozen_store =
             validate_continuity_embedding_sizes(&config, &fixture.scenarios).unwrap();
         let mut saw_controllable = false;
         let mut saw_frozen = false;
 
         for scenario in &fixture.scenarios {
-            let frozen_store = (scenario.embedding.provider_name() == "frozen")
-                .then(|| frozen_stores.get(&store_path).unwrap().clone());
             let (runtime, record) =
-                continuity_embedding_binding(&config, scenario, frozen_store).unwrap();
+                continuity_embedding_binding(&config, scenario, frozen_store.clone()).unwrap();
             match (runtime, record) {
                 (
                     EmbeddingRuntimeBinding::Controllable { .. },
@@ -2163,7 +2151,7 @@ mod tests {
                         ..
                     },
                 ) => {
-                    assert_eq!(store_sha256, store.store_sha256().unwrap());
+                    assert_eq!(store_sha256, store.store_sha256());
                     assert_eq!(source, store.source());
                     saw_frozen = true;
                 }

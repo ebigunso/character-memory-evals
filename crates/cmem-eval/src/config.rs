@@ -50,8 +50,6 @@ pub struct BackendConfig {
     pub vector_store_mode: VectorStoreMode,
     #[serde(default)]
     pub qdrant_connection_string: Option<String>,
-    #[serde(default = "default_openai_api_key_env")]
-    pub openai_api_key_env: String,
     #[serde(default)]
     pub retain_stores: bool,
     #[serde(default)]
@@ -67,7 +65,6 @@ impl Default for BackendConfig {
         Self {
             vector_store_mode: VectorStoreMode::default(),
             qdrant_connection_string: None,
-            openai_api_key_env: default_openai_api_key_env(),
             retain_stores: false,
             retain_reason: None,
             embedding: EmbeddingConfig::default(),
@@ -453,10 +450,6 @@ fn default_embedding_model() -> String {
 
 fn embedding_model_vector_size(model: &str) -> Result<usize> {
     crate::frozen_embedding::model_native_embedding_vector_size(model)
-}
-
-fn default_openai_api_key_env() -> String {
-    "OPENAI_API_KEY".to_string()
 }
 
 fn default_ks_session() -> Vec<usize> {

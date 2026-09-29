@@ -134,7 +134,6 @@ impl FrozenEmbeddingStore {
     }
 
     pub fn canonical_bytes(&self) -> Result<Vec<u8>> {
-        self.validate()?;
         let mut bytes = serde_json::to_vec_pretty(self)?;
         bytes.push(b'\n');
         Ok(bytes)
@@ -159,6 +158,7 @@ pub struct FrozenEmbeddingProvider {
 #[derive(Debug)]
 struct FrozenEmbeddingProviderInner {
     store: FrozenEmbeddingStore,
+    store_sha256: String,
     entries_by_hash: BTreeMap<String, usize>,
     store_path: PathBuf,
 }
@@ -169,13 +169,13 @@ impl FrozenEmbeddingProvider {
         Self::from_store(store, path, expected_model, expected_vector_size)
     }
 
+    /// Uses a store already admitted by `FrozenEmbeddingStore::new` or `load`.
     pub fn from_store(
         store: FrozenEmbeddingStore,
         store_path: impl Into<PathBuf>,
         expected_model: &str,
         expected_vector_size: usize,
     ) -> Result<Self> {
-        store.validate()?;
         if store.model != expected_model {
             bail!(
                 "frozen embedding store model {:?} does not match configured model {expected_model:?}",
@@ -188,6 +188,7 @@ impl FrozenEmbeddingProvider {
                 store.vector_size
             );
         }
+        let store_sha256 = format!("{:x}", Sha256::digest(store.canonical_bytes()?));
         let entries_by_hash = store
             .entries
             .iter()
@@ -197,6 +198,7 @@ impl FrozenEmbeddingProvider {
         Ok(Self {
             inner: Arc::new(FrozenEmbeddingProviderInner {
                 store,
+                store_sha256,
                 entries_by_hash,
                 store_path: store_path.into(),
             }),
@@ -219,9 +221,8 @@ impl FrozenEmbeddingProvider {
         &self.inner.store.dimension_policy
     }
 
-    pub fn store_sha256(&self) -> Result<String> {
-        let bytes = self.inner.store.canonical_bytes()?;
-        Ok(format!("{:x}", Sha256::digest(bytes)))
+    pub fn store_sha256(&self) -> &str {
+        &self.inner.store_sha256
     }
 
     pub fn vector_for_text(&self, text: &str) -> Result<Vec<f32>> {
