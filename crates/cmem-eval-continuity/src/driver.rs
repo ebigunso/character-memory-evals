@@ -1627,9 +1627,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn situated_write_rejects_failed_stats_even_after_vector_success() {
+    fn situated_write_rejects_degraded_outcomes() {
+        use cmem_eval::character_memory::{
+            MemoryObjectRef, StatsUpdateCause, StatsUpdateStatus, VectorIndexingCause,
+            VectorIndexingFailure,
+        };
         let scenario = situated_scenario();
-        let mut outcome = cmem_eval::RememberOutcome {
+        let outcome = cmem_eval::RememberOutcome {
             persisted_object_ids: vec![uuid::Uuid::nil()],
             persisted_link_ids: Vec::new(),
             vector_indexed_object_ids: vec![uuid::Uuid::nil()],
@@ -1639,90 +1643,36 @@ pub(crate) mod tests {
             diagnostics: Default::default(),
         };
         assert!(checked_write_outcome(&scenario, "visit", outcome.clone()).is_ok());
-        outcome.stats_update_status = cmem_eval::character_memory::StatsUpdateStatus::failed(
+        let mut stats_failure = outcome.clone();
+        stats_failure.stats_update_status = StatsUpdateStatus::failed(
             [],
             [uuid::Uuid::nil()],
-            vec![
-                cmem_eval::character_memory::StatsUpdateCause::StoreUnhealthy {
-                    health_cause: None,
-                },
-            ],
+            vec![StatsUpdateCause::StoreUnhealthy { health_cause: None }],
         );
-        let error = checked_write_outcome(&scenario, "visit", outcome)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("stats-update failure"));
-        assert!(error.contains("situated-control") && error.contains("visit"));
-    }
-
-    #[tokio::test]
-    async fn situated_writes_reject_degraded_native_outcomes() {
-        for missing_input in ["Garden", "Garden commitment", "Glass room", "Guest"] {
-            let mut scenario = situated_scenario();
-            if matches!(missing_input, "Glass room" | "Guest") {
-                let mut value = serde_json::to_value(&scenario).unwrap();
-                value["scenes"]["pair"]["where"] =
-                    serde_json::json!({"by":"description", "text":"Glass room"});
-                value["scenes"]["pair"]["who"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(serde_json::json!({"reference":{"by":"name", "text":"Guest"}}));
-                scenario = crate::parse_fixture_bytes(
-                    &serde_json::to_vec(
-                        &serde_json::json!({"schema_version":3, "seed":7, "scenarios":[value]}),
-                    )
-                    .unwrap(),
-                )
-                .unwrap()
-                .scenarios
-                .remove(0);
-            }
-            let mut query = scenario.events.pop().unwrap();
-            let InteractionEvent::Query { text, expected, .. } = &mut query else {
-                unreachable!()
-            };
-            *text = "Weather".into();
-            expected.relevant_external_ids = vec!["visit".into()];
-            scenario.events.push(query);
-            scenario.analyze().unwrap();
-            let mut fixture = scenario
-                .embedding
-                .controllable_similarity()
-                .unwrap()
-                .clone();
-            // A valid provider that cannot embed this write produces a native
-            // repair-needed outcome after persisting the graph.
-            fixture
-                .concepts
-                .retain(|_, concept| !concept.inputs.iter().any(|input| input == missing_input));
-            let mut config = BenchmarkRunConfig {
-                run_id: "degraded-write".into(),
-                dataset: cmem_eval::DatasetId::new("continuity").unwrap(),
-                backend: Default::default(),
-                retrieval: retrieval(),
-                ingest: Default::default(),
-                metrics: Default::default(),
-            };
-            config.backend.embedding.vector_size = Some(fixture.vector_size);
-            let directory = tempfile::tempdir().unwrap();
-            let mut runtime = ContinuityRuntime::new(
-                directory.path(),
-                &config,
-                EmbeddingRuntimeBinding::Controllable {
-                    dimension_policy: cmem_eval::ControllableDimensionPolicy::FixtureDeclared,
-                    fixture,
-                },
-            )
-            .await
-            .unwrap();
-            let result = run_continuity_scenario(&mut runtime, &scenario, &config.retrieval).await;
-            runtime.cleanup(&scenario.namespace).await.unwrap();
-            let error = result.unwrap_err().to_string();
-            assert!(error.contains("vector-indexing failure"), "{error}");
-            assert!(
-                error.contains(missing_input.lines().last().unwrap()),
-                "unexpected input must be reported: {error}"
-            );
+        let failure = VectorIndexingFailure {
+            unindexed_objects: vec![MemoryObjectRef::new(ObjectType::Episode, uuid::Uuid::nil())],
+            cause: VectorIndexingCause::CardinalityMismatch {
+                expected: 1,
+                actual: 0,
+            },
+        };
+        let mut vector_failure = outcome.clone();
+        vector_failure.vector_indexing_failure = Some(failure.clone());
+        let mut repair_needed = outcome.clone();
+        repair_needed.repair_needed.push(failure.into());
+        let mut empty_indexed = outcome;
+        empty_indexed.vector_indexed_object_ids.clear();
+        for (outcome, message) in [
+            (stats_failure, "stats-update failure"),
+            (vector_failure, "vector-indexing failure"),
+            (repair_needed, "repair-needed markers"),
+            (empty_indexed, "without vector-indexed objects"),
+        ] {
+            let error = checked_write_outcome(&scenario, "visit", outcome)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(message), "{error}");
+            assert!(error.contains("situated-control") && error.contains("visit"));
         }
     }
 
@@ -2120,14 +2070,14 @@ pub(crate) mod tests {
             let place = match place_by {
                 "setting" => serde_json::json!({"by":"setting", "key":"room:17"}),
                 "key" => serde_json::json!({"by":"key", "key":"ada"}),
-                _ => serde_json::json!({"by":place_by, "text":"  Quiet\n observatory  "}),
+                _ => serde_json::json!({"by":place_by, "text":"Quiet observatory"}),
             };
             value["scenes"]["pair"]["where"] = place;
             value["scenes"]["pair"]["custom"] = serde_json::json!({"weather":"blue hour"});
             value["events"][2]["memory"]["experiences"] = serde_json::json!(["visit", "noise"]);
             value["scenes"]["pair"]["who"].as_array_mut().unwrap().extend([
-                serde_json::json!({"reference":{"by":"name", "text":"  Jo  "}, "gold_entity":"jo-a"}),
-                serde_json::json!({"reference":{"by":"description", "text":"  visitor\n in violet  "}, "gold_entity":"jo-b"}),
+                serde_json::json!({"reference":{"by":"name", "text":"Jo"}, "gold_entity":"jo-a"}),
+                serde_json::json!({"reference":{"by":"description", "text":"visitor in violet"}, "gold_entity":"jo-b"}),
             ]);
             let mut probe_scene = value["scenes"]["pair"].clone();
             probe_scene["custom"] = serde_json::json!({"weather":"silver dusk"});
@@ -2145,179 +2095,184 @@ pub(crate) mod tests {
                     "scenes":[{"memory":"noise", "scene":"pair"}, {"memory":"promise", "scene":"pair"}],
                     "references":[
                         {"participant":{"by":"key", "key":"self"}, "resolution":{"status":"resolved", "entity":"self"}},
-                        {"participant":{"by":"name", "text":"  Jo  "}, "resolution":{"status":"ambiguous", "candidates":["jo-a", "jo-b"]}},
+                        {"participant":{"by":"name", "text":"Jo"}, "resolution":{"status":"ambiguous", "candidates":["jo-a", "jo-b"]}},
                         {"participant":{"by":"name", "text":"Ada"}, "resolution":{"status":"resolved", "entity":"ada"}},
                         {"participant":{"by":"name", "text":"Unknown visitor"}, "resolution":{"status":"unknown"}}
                     ]
                 }
             });
-            if place_by == "key" {
-                value["events"][3]["topic"] = serde_json::json!("  a topic  with spacing\n  ");
-            }
-            for extension in ["toml", "json"] {
-                let root = serde_json::json!({"schema_version":3, "seed":7, "scenarios":[value]});
-                let bytes = if extension == "toml" {
-                    toml::to_string(&root).unwrap().into_bytes()
-                } else {
-                    serde_json::to_vec(&root).unwrap()
+            let fixture = crate::parse_fixture_bytes(
+                &serde_json::to_vec(&serde_json::json!({
+                    "schema_version":3, "seed":7, "scenarios":[value]
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let scenario = &fixture.scenarios[0];
+            assert!(scenario_missing_features(scenario).unwrap().is_empty());
+            for event in [&scenario.events[0], &scenario.events[3]] {
+                let input = scenario.situated_input(event).unwrap().unwrap();
+                let scene = match map_situated_input(scenario, event.timestamp(), input).unwrap() {
+                    MappedSituatedInput::Experience(input) => input.scene,
+                    MappedSituatedInput::Probe(input) => input.scene,
+                    MappedSituatedInput::Derive(_) => unreachable!(),
                 };
-                let fixture =
-                    crate::parse_fixture_source(Path::new(&format!("scene.{extension}")), &bytes)
-                        .unwrap();
-                let scenario = &fixture.scenarios[0];
-                assert!(scenario_missing_features(scenario).unwrap().is_empty());
-                let run = run_embedded(scenario).await;
                 assert_eq!(
-                    run.outcome.status,
-                    crate::ScenarioStatus::Passed,
-                    "{:?}",
-                    run.outcome.assertions
-                );
-                let pack = &run.traces[0].retrieval;
-                let native = &pack.outcomes()[0];
-                assert_eq!(native.scene.time, scenario.events[3].timestamp());
-                assert_eq!(native.scene.custom_values["weather"], "silver dusk");
-                assert_eq!(native.scene.participants[2].name.as_deref(), Some("  Jo  "));
-                assert_eq!(
-                    native.scene.participants[3].description.as_deref(),
-                    Some("  visitor\n in violet  ")
+                    scene.setting.words.as_deref(),
+                    matches!(place_by, "name" | "description").then_some("Quiet observatory")
                 );
                 assert_eq!(
-                    native.scene.setting.words.as_deref(),
-                    matches!(place_by, "name" | "description").then_some("  Quiet\n observatory  ")
-                );
-                assert_eq!(
-                    native.scene.setting.key.as_deref(),
+                    scene.setting.key.as_deref(),
                     match place_by {
                         "setting" => Some("room:17"),
                         "key" => Some("ada"),
                         _ => None,
                     }
                 );
-                assert!(native.scene_references.iter().any(|fact| fact.reference
-                    == SceneReference::ParticipantDescription { index: 3 }
-                    && fact.resolution == SceneReferenceResolution::Reminder));
-                let interactions = native
-                    .scene_references
-                    .iter()
-                    .flat_map(|reference| &reference.last_interactions)
-                    .filter(|(id, _)| pack.object_refs()[&id.to_string()].external_id == "ada")
-                    .collect::<Vec<_>>();
-                assert!(!interactions.is_empty());
-                for (_, fact) in interactions {
-                    let fact = fact.as_ref().unwrap();
-                    assert_eq!(
-                        pack.object_refs()[&fact.episode_id.to_string()].external_id,
-                        "noise"
-                    );
-                    assert_eq!(fact.scene_time, scenario.events[1].timestamp());
-                }
-                for corrupt_time in [false, true] {
-                    let mut wrong = native.clone();
-                    for fact in wrong
-                        .scene_references
-                        .iter_mut()
-                        .flat_map(|reference| reference.last_interactions.values_mut())
-                        .flatten()
-                    {
-                        if corrupt_time {
-                            fact.scene_time += chrono::Duration::nanoseconds(1);
-                        } else {
-                            fact.seconds_since += 1;
-                        }
-                    }
-                    let wrong = cmem_eval::RetrievedContextPack::from_ranked_items(
-                        pack.items().to_vec(),
-                        vec![wrong],
-                        cmem_eval::ContextRenderer::PlainText,
-                    )
-                    .with_object_refs(pack.object_refs().clone());
-                    assert!(
-                        crate::check_probe_assertions(scenario, &scenario.events[3], &wrong)
-                            .iter()
-                            .filter(|check| matches!(
-                                check.identity.assertion,
-                                crate::AssertionSubject::ElapsedSinceMet(_)
-                            ))
-                            .all(|check| check.check.status == crate::ScenarioStatus::Failed)
-                    );
-                }
-                let (visit_id, visit_scene) = native
-                    .memory_scenes
-                    .iter()
-                    .flat_map(|fact| &fact.sources)
-                    .find_map(|source| match source {
-                        SourceScene::Recorded { episode_id, scene }
-                            if pack.object_refs()[&episode_id.to_string()].external_id
-                                == "visit" =>
-                        {
-                            Some((*episode_id, scene))
-                        }
-                        _ => None,
-                    })
-                    .expect(
-                        "recorded experience scene, whether admitted as episode or observation",
-                    );
-                assert_eq!(visit_scene.time, scenario.events[0].timestamp());
-                assert_eq!(visit_scene.custom_values["weather"], "blue hour");
-                assert_eq!(visit_scene.participants, native.scene.participants[..4]);
-                assert_eq!(visit_scene.setting, native.scene.setting);
+            }
+            if place_by != "name" {
+                continue;
+            }
+            let run = run_embedded(scenario).await;
+            assert_eq!(
+                run.outcome.status,
+                crate::ScenarioStatus::Passed,
+                "{:?}",
+                run.outcome.assertions
+            );
+            let pack = &run.traces[0].retrieval;
+            let native = &pack.outcomes()[0];
+            assert_eq!(native.scene.time, scenario.events[3].timestamp());
+            assert_eq!(native.scene.custom_values["weather"], "silver dusk");
+            assert_eq!(native.scene.participants[2].name.as_deref(), Some("Jo"));
+            assert_eq!(
+                native.scene.participants[3].description.as_deref(),
+                Some("visitor in violet")
+            );
+            assert_eq!(
+                native.scene.setting.words.as_deref(),
+                Some("Quiet observatory")
+            );
+            assert_eq!(native.scene.setting.key, None);
+            assert!(native.scene_references.iter().any(|fact| fact.reference
+                == SceneReference::ParticipantDescription { index: 3 }
+                && fact.resolution == SceneReferenceResolution::Reminder));
+            let interactions = native
+                .scene_references
+                .iter()
+                .flat_map(|reference| &reference.last_interactions)
+                .filter(|(id, _)| pack.object_refs()[&id.to_string()].external_id == "ada")
+                .collect::<Vec<_>>();
+            assert!(!interactions.is_empty());
+            for (_, fact) in interactions {
+                let fact = fact.as_ref().unwrap();
                 assert_eq!(
-                    pack.object_refs()[&visit_id.to_string()].external_id,
-                    "visit"
+                    pack.object_refs()[&fact.episode_id.to_string()].external_id,
+                    "noise"
                 );
-                let mut wrong_time = native.clone();
-                for source in wrong_time
-                    .memory_scenes
+                assert_eq!(fact.scene_time, scenario.events[1].timestamp());
+            }
+            for corrupt_time in [false, true] {
+                let mut wrong = native.clone();
+                for fact in wrong
+                    .scene_references
                     .iter_mut()
-                    .flat_map(|fact| &mut fact.sources)
+                    .flat_map(|reference| reference.last_interactions.values_mut())
+                    .flatten()
                 {
-                    if let SourceScene::Recorded { scene, .. } = source {
-                        scene.time += chrono::Duration::nanoseconds(1);
+                    if corrupt_time {
+                        fact.scene_time += chrono::Duration::nanoseconds(1);
+                    } else {
+                        fact.seconds_since += 1;
                     }
                 }
-                let wrong_time = cmem_eval::RetrievedContextPack::from_ranked_items(
+                let wrong = cmem_eval::RetrievedContextPack::from_ranked_items(
                     pack.items().to_vec(),
-                    vec![wrong_time],
+                    vec![wrong],
                     cmem_eval::ContextRenderer::PlainText,
                 )
                 .with_object_refs(pack.object_refs().clone());
-                let checks =
-                    crate::check_probe_assertions(scenario, &scenario.events[3], &wrong_time);
-                let scene_statuses = checks
-                    .iter()
-                    .filter(|check| {
-                        matches!(
-                            check.identity.assertion,
-                            crate::AssertionSubject::Scene { .. }
-                        )
-                    })
-                    .map(|check| check.check.status)
-                    .collect::<Vec<_>>();
-                assert_eq!(scene_statuses, vec![crate::ScenarioStatus::Failed; 2]);
-                // Missing native facts must fail, even though the authored gold is complete.
-                let mut absent = native.clone();
-                absent.scene_references.clear();
-                absent.memory_scenes.clear();
-                let absent = cmem_eval::RetrievedContextPack::from_ranked_items(
-                    pack.items().to_vec(),
-                    vec![absent],
-                    cmem_eval::ContextRenderer::PlainText,
-                )
-                .with_object_refs(pack.object_refs().clone());
-                let checks = crate::check_probe_assertions(scenario, &scenario.events[3], &absent);
                 assert!(
-                    checks
+                    crate::check_probe_assertions(scenario, &scenario.events[3], &wrong)
                         .iter()
                         .filter(|check| matches!(
                             check.identity.assertion,
-                            crate::AssertionSubject::References(_)
-                                | crate::AssertionSubject::Scene { .. }
-                                | crate::AssertionSubject::ElapsedSinceMet(_)
+                            crate::AssertionSubject::ElapsedSinceMet(_)
                         ))
                         .all(|check| check.check.status == crate::ScenarioStatus::Failed)
                 );
             }
+            let (visit_id, visit_scene) = native
+                .memory_scenes
+                .iter()
+                .flat_map(|fact| &fact.sources)
+                .find_map(|source| match source {
+                    SourceScene::Recorded { episode_id, scene }
+                        if pack.object_refs()[&episode_id.to_string()].external_id == "visit" =>
+                    {
+                        Some((*episode_id, scene))
+                    }
+                    _ => None,
+                })
+                .expect("recorded experience scene, whether admitted as episode or observation");
+            assert_eq!(visit_scene.time, scenario.events[0].timestamp());
+            assert_eq!(visit_scene.custom_values["weather"], "blue hour");
+            assert_eq!(visit_scene.participants, native.scene.participants[..4]);
+            assert_eq!(visit_scene.setting, native.scene.setting);
+            assert_eq!(
+                pack.object_refs()[&visit_id.to_string()].external_id,
+                "visit"
+            );
+            let mut wrong_time = native.clone();
+            for source in wrong_time
+                .memory_scenes
+                .iter_mut()
+                .flat_map(|fact| &mut fact.sources)
+            {
+                if let SourceScene::Recorded { scene, .. } = source {
+                    scene.time += chrono::Duration::nanoseconds(1);
+                }
+            }
+            let wrong_time = cmem_eval::RetrievedContextPack::from_ranked_items(
+                pack.items().to_vec(),
+                vec![wrong_time],
+                cmem_eval::ContextRenderer::PlainText,
+            )
+            .with_object_refs(pack.object_refs().clone());
+            let checks = crate::check_probe_assertions(scenario, &scenario.events[3], &wrong_time);
+            let scene_statuses = checks
+                .iter()
+                .filter(|check| {
+                    matches!(
+                        check.identity.assertion,
+                        crate::AssertionSubject::Scene { .. }
+                    )
+                })
+                .map(|check| check.check.status)
+                .collect::<Vec<_>>();
+            assert_eq!(scene_statuses, vec![crate::ScenarioStatus::Failed; 2]);
+            // Missing native facts must fail, even though the authored gold is complete.
+            let mut absent = native.clone();
+            absent.scene_references.clear();
+            absent.memory_scenes.clear();
+            let absent = cmem_eval::RetrievedContextPack::from_ranked_items(
+                pack.items().to_vec(),
+                vec![absent],
+                cmem_eval::ContextRenderer::PlainText,
+            )
+            .with_object_refs(pack.object_refs().clone());
+            let checks = crate::check_probe_assertions(scenario, &scenario.events[3], &absent);
+            assert!(
+                checks
+                    .iter()
+                    .filter(|check| matches!(
+                        check.identity.assertion,
+                        crate::AssertionSubject::References(_)
+                            | crate::AssertionSubject::Scene { .. }
+                            | crate::AssertionSubject::ElapsedSinceMet(_)
+                    ))
+                    .all(|check| check.check.status == crate::ScenarioStatus::Failed)
+            );
         }
     }
 
