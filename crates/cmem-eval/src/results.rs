@@ -49,6 +49,8 @@ pub struct RunHeader {
     pub input_sha256: String,
     /// Scenario id (continuity) or dataset id maps to the embedding used at runtime.
     pub embedding_bindings: BTreeMap<String, EmbeddingBindingRecord>,
+    /// Executed native namespace maps to the self notion passed to its stores.
+    pub self_notion_ids: BTreeMap<String, uuid::Uuid>,
     pub harness_commit: String,
     pub library_commit: String,
     pub generated_at: chrono::DateTime<chrono::Utc>,
@@ -220,6 +222,7 @@ mod tests {
             dataset: "locomo".into(),
             input_sha256: crate::text_sha256("input"),
             embedding_bindings: BTreeMap::new(),
+            self_notion_ids: BTreeMap::new(),
             harness_commit: "test".into(),
             library_commit: "test".into(),
             generated_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,

@@ -398,6 +398,7 @@ pub(super) async fn run(
     stores: &Path,
     config: &BenchmarkRunConfig,
     timings: &mut timing::Timings,
+    self_notion_ids: &mut BTreeMap<String, MemoryId>,
 ) -> Result<Value> {
     let mut inputs = Vec::new();
     let mut measurements = Vec::new();
@@ -416,11 +417,16 @@ pub(super) async fn run(
                     fixture: next.family.embedding.clone(),
                     dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
                 },
+                next.family.character_entity.as_deref(),
             )
             .await?;
             let result = async {
                 let (ids, mut observation_ids) =
                     Box::pin(ingest_all(&runtime, &next.family)).await?;
+                self_notion_ids.insert(
+                    next.family.namespace.clone(),
+                    runtime.adapter().self_notion_id(&next.family.namespace),
+                );
                 observation_ids.extend(ingest_extra(&runtime, &next).await?);
                 if opposed_ids {
                     for (rows, ids) in [(&order, &ids), (&observation_order, &observation_ids)] {
@@ -468,10 +474,15 @@ pub(super) async fn run(
                         fixture: control.family.embedding.clone(),
                         dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
                     },
+                    control.family.character_entity.as_deref(),
                 )
                 .await?;
                 let result = async {
                     let control_ids = Box::pin(ingest(&runtime, &control.family)).await?;
+                    self_notion_ids.insert(
+                        control.family.namespace.clone(),
+                        runtime.adapter().self_notion_id(&control.family.namespace),
+                    );
                     ensure!(
                         control_ids
                             .iter()

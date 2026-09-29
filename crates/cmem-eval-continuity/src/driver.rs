@@ -302,6 +302,7 @@ pub struct ContinuityRuntime {
     active: Option<Box<CharacterMemoryAdapter>>,
     config: Box<BenchmarkRunConfig>,
     embedding_binding: EmbeddingRuntimeBinding,
+    character_entity: Option<String>,
     run_root: std::path::PathBuf,
 }
 
@@ -310,14 +311,20 @@ impl ContinuityRuntime {
         run_root: &Path,
         config: &BenchmarkRunConfig,
         embedding_binding: EmbeddingRuntimeBinding,
+        character_entity: Option<&str>,
     ) -> Result<Self> {
-        let adapter =
-            CharacterMemoryAdapter::new_with_binding(run_root, config, embedding_binding.clone())
-                .await?;
+        let adapter = CharacterMemoryAdapter::new_with_binding(
+            run_root,
+            config,
+            embedding_binding.clone(),
+            character_entity,
+        )
+        .await?;
         Ok(Self {
             active: Some(Box::new(adapter)),
             config: Box::new(config.clone()),
             embedding_binding,
+            character_entity: character_entity.map(str::to_owned),
             run_root: run_root.to_path_buf(),
         })
     }
@@ -343,6 +350,7 @@ impl ContinuityRuntime {
             self.config.as_ref(),
             &scenario.namespace,
             self.embedding_binding.clone(),
+            self.character_entity.as_deref(),
         )
         .await?;
         self.active = Some(Box::new(replacement));
@@ -359,6 +367,7 @@ impl ContinuityRuntime {
                 &self.run_root,
                 &self.config,
                 self.embedding_binding.clone(),
+                self.character_entity.as_deref(),
             )
             .await?
             .cleanup_namespace(namespace)
@@ -2231,6 +2240,52 @@ pub(crate) mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn runtime_restart_keeps_the_authored_self_choice() {
+        let mut scenario = situated_scenario();
+        let directory = tempfile::tempdir().unwrap();
+        let config = BenchmarkRunConfig {
+            run_id: "self-restart".into(),
+            dataset: "continuity".into(),
+            backend: Default::default(),
+            retrieval: retrieval(),
+            ingest: Default::default(),
+            metrics: Default::default(),
+        };
+        let mut runtime = ContinuityRuntime::new(
+            directory.path(),
+            &config,
+            EmbeddingRuntimeBinding::Live {
+                provider: cmem_eval::LiveEmbeddingProvider::Deterministic,
+                model: config.backend.embedding.model.clone(),
+            },
+            scenario.character_entity.as_deref(),
+        )
+        .await
+        .unwrap();
+        let adapter = runtime.adapter();
+        let self_id = adapter.self_notion_id(&scenario.namespace);
+        adapter.open_namespace(&scenario.namespace).await.unwrap();
+        adapter
+            .remember_enrichment(GraphEnrichmentInput {
+                namespace: scenario.namespace.clone(),
+                entities: vec![EntityInput {
+                    external_id: "self".into(),
+                }],
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        // Reopening uses the original runtime choice, not a mutable fixture view.
+        scenario.character_entity = Some("ada".into());
+        runtime.restart(&scenario).await.unwrap();
+        assert_eq!(
+            runtime.adapter().self_notion_id(&scenario.namespace),
+            self_id
+        );
+        runtime.cleanup(&scenario.namespace).await.unwrap();
+    }
+
     async fn run_embedded(scenario: &ContinuityScenario) -> ContinuityScenarioRun {
         let directory = tempfile::tempdir().unwrap();
         let mut config = BenchmarkRunConfig {
@@ -2265,9 +2320,14 @@ pub(crate) mod tests {
             config.backend.embedding.store_path = Some(store_path.display().to_string());
             EmbeddingRuntimeBinding::Frozen { store }
         };
-        let mut runtime = ContinuityRuntime::new(directory.path(), &config, binding)
-            .await
-            .unwrap();
+        let mut runtime = ContinuityRuntime::new(
+            directory.path(),
+            &config,
+            binding,
+            scenario.character_entity.as_deref(),
+        )
+        .await
+        .unwrap();
         let run = run_continuity_scenario(&mut runtime, scenario, &config.retrieval)
             .await
             .unwrap();

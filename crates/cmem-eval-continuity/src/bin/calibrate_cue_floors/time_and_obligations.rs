@@ -19,6 +19,7 @@ pub(super) async fn run_obligations(
     stores: &Path,
     config: &BenchmarkRunConfig,
     timings: &mut timing::Timings,
+    self_notion_ids: &mut BTreeMap<String, MemoryId>,
 ) -> Result<Value> {
     let mut result = run_families(
         stores,
@@ -26,6 +27,7 @@ pub(super) async fn run_obligations(
         &[obligations::meeting, obligations::daily],
         false,
         timings,
+        self_notion_ids,
     )
     .await?;
     result["method"] = json!(obligations::METHOD);
@@ -37,8 +39,9 @@ pub(super) async fn run_residuals(
     stores: &Path,
     config: &BenchmarkRunConfig,
     timings: &mut timing::Timings,
+    self_notion_ids: &mut BTreeMap<String, MemoryId>,
 ) -> Result<Value> {
-    residuals::run(stores, config, timings).await
+    residuals::run(stores, config, timings, self_notion_ids).await
 }
 
 const EVENING: &str = "2025-09-09T20:00:00+09:00";
@@ -1551,7 +1554,11 @@ fn require_anniversary(available: bool, required: bool) -> Result<()> {
     Ok(())
 }
 
-async fn anniversary_capability(stores: &Path, config: &BenchmarkRunConfig) -> Result<Value> {
+async fn anniversary_capability(
+    stores: &Path,
+    config: &BenchmarkRunConfig,
+    self_notion_ids: &mut BTreeMap<String, MemoryId>,
+) -> Result<Value> {
     let mut family = empty("anniversary-capability");
     experience(
         &mut family,
@@ -1583,10 +1590,12 @@ async fn anniversary_capability(stores: &Path, config: &BenchmarkRunConfig) -> R
             fixture: family.embedding.clone(),
             dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
         },
+        family.character_entity.as_deref(),
     )
     .await?;
     let result = async {
         let ids = Box::pin(ingest(&runtime, &family)).await?;
+        self_notion_ids.insert(family.namespace.clone(), runtime.adapter().self_notion_id(&family.namespace));
         let pack = runtime.adapter().retrieve(query.clone()).await?;
         let observed = snapshot(&pack, &query)?;
         ensure!(observed["telemetry"]["graph_expansion"]["bounded_failure_count"] == 0, "anniversary capability retrieval was degraded");
@@ -1611,8 +1620,9 @@ pub(super) async fn run(
     config: &BenchmarkRunConfig,
     anniversary_required: bool,
     timings: &mut timing::Timings,
+    self_notion_ids: &mut BTreeMap<String, MemoryId>,
 ) -> Result<Value> {
-    let capability = Box::pin(anniversary_capability(stores, config)).await?;
+    let capability = Box::pin(anniversary_capability(stores, config, self_notion_ids)).await?;
     let available = capability["available"] == true;
     require_anniversary(available, anniversary_required)?;
     let builders: [fn(&BenchmarkRunConfig) -> Family; 6] = [
@@ -1623,7 +1633,15 @@ pub(super) async fn run(
         |config| daily_anniversary_family(config, false),
         |config| daily_anniversary_family(config, true),
     ];
-    let mut result = run_families(stores, config, &builders, available, timings).await?;
+    let mut result = run_families(
+        stores,
+        config,
+        &builders,
+        available,
+        timings,
+        self_notion_ids,
+    )
+    .await?;
     result["anniversary_capability"] = capability;
     Ok(result)
 }
@@ -1632,6 +1650,7 @@ pub(super) async fn run_consolidation(
     stores: &Path,
     config: &BenchmarkRunConfig,
     timings: &mut timing::Timings,
+    self_notion_ids: &mut BTreeMap<String, MemoryId>,
 ) -> Result<Value> {
     let mut result = run_families(
         stores,
@@ -1643,6 +1662,7 @@ pub(super) async fn run_consolidation(
         ],
         false,
         timings,
+        self_notion_ids,
     )
     .await?;
     result["method"] = json!(consolidation::METHOD);
@@ -1701,6 +1721,7 @@ async fn run_families(
     builders: &[fn(&BenchmarkRunConfig) -> Family],
     anniversary_available: bool,
     timings: &mut timing::Timings,
+    self_notion_ids: &mut BTreeMap<String, MemoryId>,
 ) -> Result<Value> {
     let mut inputs = Vec::new();
     let mut measurements = Vec::new();
@@ -1722,10 +1743,15 @@ async fn run_families(
                     fixture: next.embedding.clone(),
                     dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
                 },
+                next.character_entity.as_deref(),
             )
             .await?;
             let result = async {
                 let ids = Box::pin(ingest(&runtime, &next)).await?;
+                self_notion_ids.insert(
+                    next.namespace.clone(),
+                    runtime.adapter().self_notion_id(&next.namespace),
+                );
                 if opposed_order {
                     for row in order.as_array().unwrap() {
                         ensure!(
