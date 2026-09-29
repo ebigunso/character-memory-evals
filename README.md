@@ -127,7 +127,7 @@ cargo run -p cmem-eval-runner -- embeddings generate \
   --out ./crates/cmem-eval-continuity/fixtures/embeddings/task22_real_store.json
 ```
 
-Generation requests every unique manifest text in one batch. Optional `--dimensions` is sent directly to the provider; otherwise the provider chooses its default width. New stores describe this as `requested_dimensions=<width>` or `provider_default`. The cache width must match the configured index width; provenance labels do not restrict runtime use.
+Generation requests every unique manifest text in one batch at the provider's default width. New stores record `dimension_policy = "provider_default"`. The cache width must match the configured index width; provenance labels do not restrict runtime use.
 
 Recheck store integrity, coverage, and semantic orderings without a key or network:
 
