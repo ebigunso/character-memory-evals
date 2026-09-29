@@ -43,7 +43,7 @@ impl BenchmarkRunConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct BackendConfig {
     #[serde(default)]
@@ -58,19 +58,6 @@ pub struct BackendConfig {
     pub embedding: EmbeddingConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub character_memory: Option<CharacterMemoryConfig>,
-}
-
-impl Default for BackendConfig {
-    fn default() -> Self {
-        Self {
-            vector_store_mode: VectorStoreMode::default(),
-            qdrant_connection_string: None,
-            retain_stores: false,
-            retain_reason: None,
-            embedding: EmbeddingConfig::default(),
-            character_memory: None,
-        }
-    }
 }
 
 impl BackendConfig {
