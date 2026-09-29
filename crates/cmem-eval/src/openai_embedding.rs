@@ -1,30 +1,13 @@
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::time::Duration;
 
 const OPENAI_EMBEDDINGS_ENDPOINT: &str = "https://api.openai.com/v1/embeddings";
 const OPENAI_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EmbeddingRetryPolicy {
-    pub max_attempts: usize,
-    pub initial_backoff: Duration,
-}
-
-impl EmbeddingRetryPolicy {
-    pub const fn no_retry() -> Self {
-        Self {
-            max_attempts: 1,
-            initial_backoff: Duration::ZERO,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct OpenAiEmbeddingClient {
     http: reqwest::Client,
-    endpoint: String,
 }
 
 impl Default for OpenAiEmbeddingClient {
@@ -34,7 +17,6 @@ impl Default for OpenAiEmbeddingClient {
                 .timeout(OPENAI_REQUEST_TIMEOUT)
                 .build()
                 .expect("the static OpenAI embedding HTTP client configuration is valid"),
-            endpoint: OPENAI_EMBEDDINGS_ENDPOINT.to_string(),
         }
     }
 }
@@ -46,13 +28,9 @@ impl OpenAiEmbeddingClient {
         model: &str,
         inputs: &[String],
         dimensions: Option<usize>,
-        retry: EmbeddingRetryPolicy,
     ) -> Result<Vec<Vec<f32>>> {
         if inputs.is_empty() {
             return Ok(Vec::new());
-        }
-        if retry.max_attempts == 0 {
-            bail!("embedding retry policy max_attempts must be greater than zero");
         }
         if inputs.iter().any(|input| input.trim().is_empty()) {
             bail!("embedding inputs must not be blank");
@@ -63,40 +41,24 @@ impl OpenAiEmbeddingClient {
             input: inputs,
             dimensions,
         };
-        for attempt in 1..=retry.max_attempts {
-            let response = self
-                .http
-                .post(&self.endpoint)
-                .bearer_auth(api_key)
-                .json(&request)
-                .send()
-                .await;
-            match response {
-                Ok(response) => {
-                    let status = response.status();
-                    if status.is_success() {
-                        let body = response
-                            .json::<OpenAiEmbeddingResponse>()
-                            .await
-                            .context("parse OpenAI embedding response")?;
-                        return Ok(ordered_embeddings(model, inputs.len(), dimensions, body)?);
-                    }
-                    let retryable = status.as_u16() == 429 || status.is_server_error();
-                    let body = response.text().await.unwrap_or_default();
-                    if !retryable || attempt == retry.max_attempts {
-                        bail!("OpenAI embedding request failed with {status}: {body}");
-                    }
-                }
-                Err(error) => {
-                    if attempt == retry.max_attempts || !(error.is_timeout() || error.is_connect())
-                    {
-                        return Err(error).context("request OpenAI embeddings");
-                    }
-                }
-            }
-            tokio::time::sleep(retry.initial_backoff.saturating_mul(attempt as u32)).await;
+        let response = self
+            .http
+            .post(OPENAI_EMBEDDINGS_ENDPOINT)
+            .bearer_auth(api_key)
+            .json(&request)
+            .send()
+            .await
+            .context("request OpenAI embeddings")?;
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            bail!("OpenAI embedding request failed with {status}: {body}");
         }
-        unreachable!("embedding retry loop always returns")
+        let body = response
+            .json::<OpenAiEmbeddingResponse>()
+            .await
+            .context("parse OpenAI embedding response")?;
+        ordered_embeddings(model, inputs.len(), dimensions, body)
     }
 }
 
@@ -120,88 +82,17 @@ struct OpenAiEmbeddingData {
     embedding: Vec<f32>,
 }
 
-/// Why an OpenAI embedding response was refused; one variant per validation branch.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ResponseError {
-    ModelMismatch {
-        requested: String,
-        returned: String,
-    },
-    CardinalityMismatch {
-        expected: usize,
-        returned: usize,
-        missing_indices: Vec<usize>,
-    },
-    IndexOutOfRange {
-        index: usize,
-        expected_count: usize,
-    },
-    DuplicateIndex {
-        index: usize,
-    },
-    DimensionMismatch {
-        index: usize,
-        expected: usize,
-        returned: usize,
-    },
-}
-
-impl fmt::Display for ResponseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::ModelMismatch {
-                requested,
-                returned,
-            } => write!(
-                f,
-                "OpenAI embedding response model {returned:?} does not match requested model {requested:?}"
-            ),
-            Self::CardinalityMismatch {
-                expected,
-                returned,
-                missing_indices,
-            } => write!(
-                f,
-                "OpenAI embedding response returned {returned} vectors for {expected} inputs; missing indices: {missing_indices:?}"
-            ),
-            Self::IndexOutOfRange {
-                index,
-                expected_count,
-            } => write!(
-                f,
-                "OpenAI embedding response index {index} is outside expected range 0..{expected_count}"
-            ),
-            Self::DuplicateIndex { index } => {
-                write!(
-                    f,
-                    "OpenAI embedding response contains duplicate index {index}"
-                )
-            }
-            Self::DimensionMismatch {
-                index,
-                expected,
-                returned,
-            } => write!(
-                f,
-                "OpenAI embedding response index {index} has vector size {returned}, expected {expected}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for ResponseError {}
-
 fn ordered_embeddings(
     requested_model: &str,
     expected_count: usize,
     expected_dimensions: Option<usize>,
     response: OpenAiEmbeddingResponse,
-) -> std::result::Result<Vec<Vec<f32>>, ResponseError> {
+) -> Result<Vec<Vec<f32>>> {
     if response.model != requested_model {
-        return Err(ResponseError::ModelMismatch {
-            requested: requested_model.to_string(),
-            returned: response.model,
-        });
+        bail!(
+            "OpenAI embedding response model {:?} does not match requested model {requested_model:?}",
+            response.model
+        );
     }
     if response.data.len() != expected_count {
         let mut present = vec![false; expected_count];
@@ -215,31 +106,33 @@ fn ordered_embeddings(
             .enumerate()
             .filter_map(|(index, present)| (!present).then_some(index))
             .collect::<Vec<_>>();
-        return Err(ResponseError::CardinalityMismatch {
-            expected: expected_count,
-            returned: response.data.len(),
-            missing_indices,
-        });
+        bail!(
+            "OpenAI embedding response returned {} vectors for {expected_count} inputs; missing indices: {missing_indices:?}",
+            response.data.len()
+        );
     }
     let mut ordered = vec![None; expected_count];
     for item in response.data {
         if item.index >= expected_count {
-            return Err(ResponseError::IndexOutOfRange {
-                index: item.index,
-                expected_count,
-            });
+            bail!(
+                "OpenAI embedding response index {} is outside expected range 0..{expected_count}",
+                item.index
+            );
         }
         if ordered[item.index].is_some() {
-            return Err(ResponseError::DuplicateIndex { index: item.index });
+            bail!(
+                "OpenAI embedding response contains duplicate index {}",
+                item.index
+            );
         }
         if let Some(expected) = expected_dimensions
             && item.embedding.len() != expected
         {
-            return Err(ResponseError::DimensionMismatch {
-                index: item.index,
-                expected,
-                returned: item.embedding.len(),
-            });
+            bail!(
+                "OpenAI embedding response index {} has vector size {}, expected {expected}",
+                item.index,
+                item.embedding.len()
+            );
         }
         ordered[item.index] = Some(item.embedding);
     }
@@ -293,7 +186,10 @@ mod tests {
         )
         .unwrap_err();
 
-        assert_eq!(error, ResponseError::DuplicateIndex { index: 0 });
+        assert_eq!(
+            error.to_string(),
+            "OpenAI embedding response contains duplicate index 0"
+        );
     }
 
     #[test]
@@ -307,12 +203,8 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(
-            error,
-            ResponseError::CardinalityMismatch {
-                expected: 2,
-                returned: 1,
-                missing_indices: vec![1],
-            }
+            error.to_string(),
+            "OpenAI embedding response returned 1 vectors for 2 inputs; missing indices: [1]"
         );
     }
 
@@ -327,11 +219,8 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(
-            error,
-            ResponseError::IndexOutOfRange {
-                index: 2,
-                expected_count: 2,
-            }
+            error.to_string(),
+            "OpenAI embedding response index 2 is outside expected range 0..2"
         );
     }
 
@@ -346,11 +235,8 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(
-            error,
-            ResponseError::ModelMismatch {
-                requested: "requested-model".to_string(),
-                returned: "different-model".to_string(),
-            }
+            error.to_string(),
+            "OpenAI embedding response model \"different-model\" does not match requested model \"requested-model\""
         );
     }
 
@@ -360,12 +246,8 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(
-            error,
-            ResponseError::DimensionMismatch {
-                index: 0,
-                expected: 2,
-                returned: 1,
-            }
+            error.to_string(),
+            "OpenAI embedding response index 0 has vector size 1, expected 2"
         );
     }
 }

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 use cmem_eval::fs_util::atomic_replace;
-use cmem_eval::openai_embedding::{EmbeddingRetryPolicy, OpenAiEmbeddingClient};
+use cmem_eval::openai_embedding::OpenAiEmbeddingClient;
 use cmem_eval::{FrozenEmbeddingManifest, FrozenEmbeddingProvider, FrozenEmbeddingStore};
 
 const MAX_EMBEDDING_INPUTS_PER_REQUEST: usize = 2_048;
@@ -30,11 +30,7 @@ struct GenerateArgs {
     #[arg(long, default_value = "text-embedding-3-large")]
     model: String,
     #[arg(long)]
-    dimensions: Option<usize>,
-    #[arg(long)]
     out: PathBuf,
-    #[arg(long, default_value = "OPENAI_API_KEY")]
-    api_key_env: String,
 }
 
 #[derive(Debug, Args)]
@@ -59,12 +55,6 @@ async fn generate(args: GenerateArgs) -> Result<()> {
     if model.is_empty() {
         bail!("--model must not be empty");
     }
-    if args.dimensions == Some(0) {
-        bail!("--dimensions must be greater than zero when set");
-    }
-    if args.api_key_env.trim().is_empty() {
-        bail!("--api-key-env must not be empty");
-    }
     let manifest = FrozenEmbeddingManifest::load(&args.manifest)?;
     let unique_texts = manifest.unique_texts()?;
     if unique_texts.len() > MAX_EMBEDDING_INPUTS_PER_REQUEST {
@@ -73,27 +63,14 @@ async fn generate(args: GenerateArgs) -> Result<()> {
             unique_texts.len()
         );
     }
-    let api_key = env::var(&args.api_key_env).with_context(|| {
-        format!(
-            "{} is required for offline embedding generation",
-            args.api_key_env
-        )
-    })?;
+    let api_key = env::var("OPENAI_API_KEY")
+        .context("OPENAI_API_KEY is required for offline embedding generation")?;
     if api_key.trim().is_empty() {
-        bail!(
-            "{} is required for offline embedding generation",
-            args.api_key_env
-        );
+        bail!("OPENAI_API_KEY is required for offline embedding generation");
     }
     // One request; an ambiguous failure must not trigger duplicate billable calls.
     let embeddings = OpenAiEmbeddingClient::default()
-        .embed_batch(
-            &api_key,
-            model,
-            &unique_texts,
-            args.dimensions,
-            EmbeddingRetryPolicy::no_retry(),
-        )
+        .embed_batch(&api_key, model, &unique_texts, None)
         .await
         .context("request offline OpenAI embeddings")?;
     let mut store = FrozenEmbeddingStore::new(
@@ -101,11 +78,7 @@ async fn generate(args: GenerateArgs) -> Result<()> {
         "open_ai_api",
         unique_texts.into_iter().zip(embeddings),
     )?;
-    if let Some(dimensions) = args.dimensions {
-        store.dimension_policy = format!("requested_dimensions={dimensions}");
-    } else {
-        store.dimension_policy = "provider_default".into();
-    }
+    store.dimension_policy = "provider_default".into();
     let store_bytes = store.canonical_bytes()?;
     let store_entry_count = store.entries.len();
     let store_vector_size = store.vector_size;
