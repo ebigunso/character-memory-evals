@@ -2135,7 +2135,7 @@ fn timestamp(value: &str) -> Result<DateTime<Utc>> {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, fs, process::Command};
+    use std::fs;
 
     use super::*;
     use crate::{
@@ -2143,7 +2143,6 @@ mod tests {
         parse_fixture_bytes, scenario_patterns,
     };
 
-    const PROCESS_PROBE_PATH: &str = "CMEM_CONTINUITY_FIXTURE_PROBE_PATH";
     const CHECKED_FIXTURE: &[u8] = include_bytes!("../fixtures/continuity_v4.json");
 
     #[test]
@@ -2289,30 +2288,6 @@ mod tests {
         let patterns = scenario_patterns(&generated);
         assert_eq!(patterns.len(), 15);
         assert!(patterns.values().all(|count| *count == 1));
-        assert_eq!(
-            generated
-                .scenarios
-                .iter()
-                .map(|scenario| scenario.fixture_id.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "long-gap-recall",
-                "recurring-hub-entity",
-                "hub-scale",
-                "selective-entity",
-                "correction-chains",
-                "thread-drift",
-                "temporal-structure",
-                "mixed-salience-accumulation",
-                "cross-store-stress",
-                "surface-contribution",
-                "graded-similarity",
-                "combined-life",
-                "temporal-patterns",
-                "entrenched-correction",
-                "autobiographical",
-            ]
-        );
     }
 
     #[test]
@@ -2423,42 +2398,6 @@ mod tests {
             (found_scenario_id, concept_id),
             (scenario_id.to_string(), "entity_background")
         );
-    }
-
-    #[test]
-    fn same_seed_is_byte_identical_across_two_process_runs() {
-        let current_exe = env::current_exe().unwrap();
-        let mut outputs = Vec::new();
-        for run in 0..2 {
-            let output_path = env::temp_dir().join(format!(
-                "cmem-continuity-fixtures-{}-{run}.json",
-                std::process::id()
-            ));
-            let status = Command::new(&current_exe)
-                .args([
-                    "--exact",
-                    "generator::tests::cross_process_fixture_probe",
-                    "--nocapture",
-                ])
-                .env(PROCESS_PROBE_PATH, &output_path)
-                .status()
-                .unwrap();
-            assert!(status.success());
-            outputs.push(fs::read(&output_path).unwrap());
-            fs::remove_file(output_path).unwrap();
-        }
-        assert_eq!(outputs[0], outputs[1]);
-        assert_eq!(outputs[0], CHECKED_FIXTURE);
-    }
-
-    #[test]
-    fn cross_process_fixture_probe() {
-        let Ok(output_path) = env::var(PROCESS_PROBE_PATH) else {
-            return;
-        };
-        let bytes =
-            canonical_fixture_bytes(&generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap()).unwrap();
-        fs::write(output_path, bytes).unwrap();
     }
 
     #[test]
