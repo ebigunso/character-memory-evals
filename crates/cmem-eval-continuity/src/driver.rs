@@ -1689,6 +1689,7 @@ pub(crate) mod tests {
             let directory = tempfile::tempdir().unwrap();
             let mut runtime = ContinuityRuntime {
                 active: None,
+                character_entity: scenario.character_entity.clone(),
                 config: Box::new(BenchmarkRunConfig {
                     run_id: "not-run".into(),
                     dataset: "continuity".into(),
