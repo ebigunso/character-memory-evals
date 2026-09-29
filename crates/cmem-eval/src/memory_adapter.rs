@@ -323,19 +323,6 @@ pub struct ReplacementDerivedMemoryInput {
     pub correction_origin_provenance: SourceProvenanceInput,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CorrectionCascadePolicyInput {
-    pub apply_to_provenanced_derived_memories: bool,
-}
-
-impl Default for CorrectionCascadePolicyInput {
-    fn default() -> Self {
-        Self {
-            apply_to_provenanced_derived_memories: true,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CorrectMemoryInput {
     pub namespace: String,
@@ -346,8 +333,6 @@ pub struct CorrectMemoryInput {
     pub superseded_derived_memory_external_ids: Vec<String>,
     pub correction_origin: SourceProvenanceInput,
     pub rationale: String,
-    #[serde(default)]
-    pub cascade_policy: CorrectionCascadePolicyInput,
     #[serde(default)]
     pub include_trace: bool,
 }

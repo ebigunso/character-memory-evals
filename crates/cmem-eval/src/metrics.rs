@@ -394,14 +394,19 @@ pub fn registry_coverage_summary_for(
     }
 }
 
-pub fn insert_context_metrics(out: &mut Map<String, Value>, context: &crate::ResultContextMetrics) {
+pub fn insert_context_metrics(
+    out: &mut Map<String, Value>,
+    context: &crate::ResultContextMetrics,
+    retrieved_context_tokens: usize,
+    full_history_tokens: Option<usize>,
+) {
     out.insert(
         "retrieved_context_tokens".to_string(),
-        Value::from(context.retrieved_context_tokens),
+        Value::from(retrieved_context_tokens),
     );
     out.insert(
         "full_history_tokens".to_string(),
-        option_usize(context.full_history_tokens),
+        option_usize(full_history_tokens),
     );
     out.insert(
         "context_compression_ratio".to_string(),

@@ -26,8 +26,6 @@ pub struct PerQuestionResult {
     pub lifecycle_outcomes: Vec<crate::LifecycleMutationOutcome>,
     pub metrics: MetricsRecord,
     pub latency_ms: u64,
-    pub context_char_count: usize,
-    pub context_word_count: usize,
     pub context: ResultContextMetrics,
     pub retrieval_outcomes: Vec<crate::RetrieveOutcome>,
     pub composition: ResultCompositionMetrics,
@@ -73,10 +71,6 @@ pub struct LatencySummary {
 pub struct ResultContextMetrics {
     pub retrieved_context_chars: usize,
     pub retrieved_context_words: usize,
-    pub retrieved_context_tokens: usize,
-    pub full_history_chars: Option<usize>,
-    pub full_history_words: Option<usize>,
-    pub full_history_tokens: Option<usize>,
     pub compression_ratio: Option<f64>,
     pub reduction_rate: Option<f64>,
 }
@@ -142,12 +136,6 @@ pub fn write_summary(path: &Path, summary: &RunSummary) -> Result<()> {
     serde_json::to_writer_pretty(&mut file, summary)?;
     file.write_all(b"\n")?;
     Ok(())
-}
-
-pub fn read_summary(path: &Path) -> Result<RunSummary> {
-    let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("deserialize summary {}", path.display()))?;
-    serde_json::from_str(&raw).with_context(|| format!("decode summary {}", path.display()))
 }
 
 /// A run that produced no rows is a failed or missing evaluation, not an
@@ -280,8 +268,6 @@ mod tests {
             lifecycle_outcomes: Vec::new(),
             metrics: metrics(metric_values),
             latency_ms: 1,
-            context_char_count: 0,
-            context_word_count: 0,
             context: ResultContextMetrics::default(),
             retrieval_outcomes: Vec::new(),
             composition: ResultCompositionMetrics::default(),
@@ -453,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn read_summary_round_trips_summary() {
+    fn summary_round_trips_without_overwrite() {
         let path = temp_path("summary", "json");
         let summary =
             summarize_rows(&[row(serde_json::json!({"fixed_metric": 1.0}))], &[]).unwrap();
@@ -462,7 +448,7 @@ mod tests {
         assert!(write_summary(&path, &summary).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), existing);
         assert_eq!(
-            serde_json::to_value(read_summary(&path).unwrap()).unwrap(),
+            serde_json::from_slice::<serde_json::Value>(&existing).unwrap(),
             serde_json::to_value(summary).unwrap()
         );
         std::fs::remove_file(path).unwrap();

@@ -16,16 +16,16 @@ use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use character_memory::{
     BeliefAssertion, CandidateProvenance, CandidateValidation, CandidateValidationStatus,
-    CharacterMemory, CommitOptions, ContinuitySectionLimits, CorrectMemoryDraft,
-    CorrectionCascadePolicy, CorrectionTarget, DEFAULT_SCHEMA_VERSION, DerivedMemoryCandidate,
-    DerivedMemoryDraft, EmbeddingProvider, EntityCandidate, EntityDraft, EpisodeCandidate,
-    EpisodeDraft, ExternalSourceReference, ForgetCascadePolicy, ForgetLifecyclePolicy,
-    ForgetMemoryDraft, LifecycleMutationOutcome, LifecycleTargetRef, MemoryCandidate, MemoryId,
-    MemoryLinkCandidate, MemoryLinkDraft, MemoryObjectDraft, MemoryObjectRef,
-    MemoryThreadCandidate, MemoryThreadDraft, ObjectType, ObservationCandidate, ObservationDraft,
-    RememberInput, RememberOutcome, RememberPlanDefaults, RememberWritePlan,
-    ReplacementDerivedMemoryDraft, RetrievalContext, Settings, SourceObjectCorrectionTarget,
-    SourceProvenanceReference, SuppressionPolicy, VectorIndexCandidate,
+    CharacterMemory, CommitOptions, ContinuitySectionLimits, CorrectMemoryDraft, CorrectionTarget,
+    DEFAULT_SCHEMA_VERSION, DerivedMemoryCandidate, DerivedMemoryDraft, EmbeddingProvider,
+    EntityCandidate, EntityDraft, EpisodeCandidate, EpisodeDraft, ExternalSourceReference,
+    ForgetCascadePolicy, ForgetLifecyclePolicy, ForgetMemoryDraft, LifecycleMutationOutcome,
+    LifecycleTargetRef, MemoryCandidate, MemoryId, MemoryLinkCandidate, MemoryLinkDraft,
+    MemoryObjectDraft, MemoryObjectRef, MemoryThreadCandidate, MemoryThreadDraft, ObjectType,
+    ObservationCandidate, ObservationDraft, RememberInput, RememberOutcome, RememberPlanDefaults,
+    RememberWritePlan, ReplacementDerivedMemoryDraft, RetrievalContext, Settings,
+    SourceObjectCorrectionTarget, SourceProvenanceReference, SuppressionPolicy,
+    VectorIndexCandidate,
 };
 use chrono::{DateTime, Utc};
 use qdrant_client::{Qdrant, config::QdrantConfig};
@@ -1142,11 +1142,7 @@ impl CharacterMemoryAdapter {
             superseded_derived_memory_ids,
             correction_origin,
             rationale: input.rationale,
-            cascade_policy: CorrectionCascadePolicy {
-                apply_to_provenanced_derived_memories: input
-                    .cascade_policy
-                    .apply_to_provenanced_derived_memories,
-            },
+            cascade_policy: Default::default(),
             include_trace: input.include_trace,
         };
         let outcome = state.memory.correct(draft).await?;
@@ -4138,7 +4134,6 @@ mod tests {
             superseded_derived_memory_external_ids: vec!["pre-correction-memory".to_string()],
             correction_origin: origin,
             rationale: "The fixture scripted a correction.".to_string(),
-            cascade_policy: Default::default(),
             include_trace: true,
         }
     }
