@@ -560,6 +560,23 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
 
 - None yet.
 
+- 2026-09-30 Plan complete. Tasks 1 to 12 are approved and stacked (PRs 72 to 83); every Definition of Done item is met.
+  - The workspace runs with no exclusions: 372 top-level tests at the final tip, against both library c0ed9e21 and the library cleanup's final tip 9c885e14.
+  - Every task that changed runner or continuity output passed its behavior-free proof: raw structured comparison, CLI `diff` and `compare-continuity`, with the empty-run ruling for the loud pair.
+  - Completion value audit (orchestrator):
+    - EARNS ITS PLACE: green with no exclusions, and roughly 3,500 fewer lines of harness code and tests that nothing ran, read or needed.
+    - OVERSIZED: none.
+    - DELETE: none left in scope.
+  - Kept on purpose, or carried forward:
+    - typed fixture admission errors, the calibrator's partial-run flags, the deterministic embedding provider and the benchmark-converted fixtures (their runs are deferred to the library's v0.2 closeout);
+    - the canonical LoCoMo `question_id`, absent from the official file, for a later audit;
+    - the situated D13 order failure and the unsupported loud-topic scenario, which belong to the situated scenarios plan.
+  - Operational lessons:
+    - keep proof inputs until the reviewer's verdict;
+    - use a separate build target per pin;
+    - match the line-ending setting in private clones;
+    - pin the working directory explicitly with `git -C`.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-24 Decision: the evals value-audit cleanup is planned from ruling 77 (value-audit cleanup, 2026-09-24).
