@@ -1,8 +1,7 @@
 use crate::{
-    DatasetId, DatasetKind, DegradationSummary, EmbeddingBindingRecord, MetricFamily,
-    MetricSupportSummary, MetricsRecord, NumericMetricAggregate, NumericMetricSummary,
-    RegistryCoverageSummary, RetrievedItem, aggregate_numeric_metrics, metric_support_summary,
-    registry_coverage_summary_for,
+    DegradationSummary, EmbeddingBindingRecord, MetricFamily, MetricSupportSummary, MetricsRecord,
+    NumericMetricAggregate, NumericMetricSummary, RegistryCoverageSummary, RetrievedItem,
+    aggregate_numeric_metrics, metric_support_summary, registry_coverage_summary_for,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -48,8 +47,7 @@ pub struct RunSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RunHeader {
     pub run_id: String,
-    pub dataset: DatasetId,
-    pub dataset_kind: DatasetKind,
+    pub dataset: String,
     pub input_sha256: String,
     /// Scenario id (continuity) or dataset id maps to the embedding used at runtime.
     pub embedding_bindings: BTreeMap<String, EmbeddingBindingRecord>,
@@ -231,8 +229,7 @@ mod tests {
     fn header_accepts_additive_controllable_policy_fields() {
         let mut header = RunHeader {
             run_id: "r".into(),
-            dataset: DatasetId::new("locomo").unwrap(),
-            dataset_kind: DatasetKind::LoCoMo,
+            dataset: "locomo".into(),
             input_sha256: crate::text_sha256("input"),
             embedding_bindings: BTreeMap::new(),
             harness_commit: "test".into(),

@@ -1,7 +1,5 @@
 use cmem_eval::{DerivedType, RetrievalMode};
-use cmem_eval_locomo::{
-    ConfigError, LoCoMoSample, ingest::to_memory_inputs, load_value, validate_config,
-};
+use cmem_eval_locomo::{LoCoMoSample, ingest::to_memory_inputs, load_value, validate_config};
 use serde_json::{Value, json};
 
 fn fixture() -> Value {
@@ -124,7 +122,7 @@ fn malformed_annotations_are_nonfatal_and_drops_are_counted() {
 }
 
 #[test]
-fn baseline_config_rejects_each_derived_input_with_a_typed_error() {
+fn baseline_config_rejects_each_derived_input() {
     let mut config: cmem_eval::BenchmarkRunConfig =
         serde_json::from_value(json!({"run_id": "test", "dataset": "locomo"})).unwrap();
     for mode in [RetrievalMode::Bm25Only, RetrievalMode::VectorOnly] {
@@ -133,7 +131,6 @@ fn baseline_config_rejects_each_derived_input_with_a_typed_error() {
         for field in [
             "index_session_summaries",
             "index_generated_observations",
-            "enrichment_path",
             "enrichment_snapshot_path",
         ] {
             let mut invalid = config.clone();
@@ -142,14 +139,11 @@ fn baseline_config_rejects_each_derived_input_with_a_typed_error() {
                 "index_generated_observations" => {
                     invalid.ingest.index_generated_observations = true
                 }
-                "enrichment_path" => invalid.ingest.enrichment_path = Some("missing.jsonl".into()),
                 _ => invalid.ingest.enrichment_snapshot_path = Some("missing.jsonl".into()),
             }
             assert_eq!(
-                validate_config(&invalid)
-                    .unwrap_err()
-                    .downcast_ref::<ConfigError>(),
-                Some(&ConfigError::BaselineDerivedContent { mode, field })
+                validate_config(&invalid).unwrap_err().to_string(),
+                format!("LoCoMo baseline {mode:?} forbids ingest.{field}")
             );
         }
     }

@@ -1,4 +1,4 @@
-use crate::{DatasetId, RetrievalSurfacePolicy};
+use crate::RetrievalSurfacePolicy;
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +23,7 @@ pub enum VectorStoreMode {
 #[serde(deny_unknown_fields)]
 pub struct BenchmarkRunConfig {
     pub run_id: String,
-    pub dataset: DatasetId,
+    pub dataset: String,
     #[serde(default)]
     pub backend: BackendConfig,
     #[serde(default)]
@@ -37,7 +37,6 @@ pub struct BenchmarkRunConfig {
 impl BenchmarkRunConfig {
     pub fn validate(&self) -> Result<()> {
         self.metrics.validate()?;
-        self.ingest.validate()?;
         self.retrieval.validate()?;
         self.backend.validate()?;
         Ok(())
@@ -411,20 +410,7 @@ pub struct IngestConfig {
     #[serde(default)]
     pub include_image_captions: bool,
     #[serde(default)]
-    pub enrichment_path: Option<String>,
-    #[serde(default)]
     pub enrichment_snapshot_path: Option<String>,
-}
-
-impl IngestConfig {
-    pub fn validate(&self) -> Result<()> {
-        if self.enrichment_path.is_some() && self.enrichment_snapshot_path.is_some() {
-            bail!(
-                "ingest.enrichment_path and ingest.enrichment_snapshot_path are mutually exclusive"
-            );
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -972,15 +958,11 @@ mod tests {
 
             let error = retrieval.validate().unwrap_err();
             assert_eq!(
-                error.downcast_ref::<crate::BaselineSurfacePolicyError>(),
-                Some(&crate::BaselineSurfacePolicyError::UnsupportedObjectTypes {
-                    mode,
-                    object_types: vec![
-                        crate::ObjectType::DerivedMemory,
-                        crate::ObjectType::Entity,
-                        crate::ObjectType::MemoryThread
-                    ],
-                })
+                error.to_string(),
+                format!(
+                    "retrieval.mode={} supports only episode and observation object_types; unsupported selections: derived_memory, entity, memory_thread",
+                    serde_json::to_value(mode).unwrap().as_str().unwrap()
+                )
             );
 
             retrieval.surface_policy.object_types = vec![crate::ObjectType::Observation];
@@ -1010,12 +992,10 @@ mod tests {
 
                 let error = retrieval.validate().unwrap_err();
                 assert_eq!(
-                    error.downcast_ref::<crate::BaselineSurfacePolicyError>(),
-                    Some(
-                        &crate::BaselineSurfacePolicyError::ZeroSelectedSurfaceBudget {
-                            mode,
-                            object_type,
-                        }
+                    error.to_string(),
+                    format!(
+                        "retrieval.mode={} selected {object_type} with a zero section budget",
+                        serde_json::to_value(mode).unwrap().as_str().unwrap()
                     )
                 );
 

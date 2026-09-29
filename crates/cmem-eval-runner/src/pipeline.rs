@@ -6,14 +6,14 @@ use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use cmem_eval::CharacterMemoryAdapter;
 use cmem_eval::{
-    BenchmarkRunConfig, ControllableDimensionPolicy, DatasetId, DatasetKind,
-    EmbeddingBindingRecord, EmbeddingProviderConfig, EmbeddingRuntimeBinding, EpisodeInput,
-    FrozenEmbeddingProvider, GraphEnrichmentInput, GraphSnapshotInput, LiveEmbeddingProvider,
-    MetricFamily, MetricsConfig, MetricsRecord, ObservationInput, PerQuestionResult,
-    ResultContextMetrics, RetrieveInput, RetrievedContextPack, RetrievedItem, RunAdapterMetadata,
-    Timer, composition_metrics, count_tokens, estimate_word_count, initialize_registry_metrics_for,
-    insert_composition_metrics, insert_context_metrics, insert_integrity_detail_metrics,
-    integrity_details_from_outcomes, summarize_rows, write_jsonl, write_summary,
+    BenchmarkRunConfig, ControllableDimensionPolicy, EmbeddingBindingRecord,
+    EmbeddingProviderConfig, EmbeddingRuntimeBinding, EpisodeInput, FrozenEmbeddingProvider,
+    GraphEnrichmentInput, GraphSnapshotInput, LiveEmbeddingProvider, MetricFamily, MetricsConfig,
+    MetricsRecord, ObservationInput, PerQuestionResult, ResultContextMetrics, RetrieveInput,
+    RetrievedContextPack, RetrievedItem, RunAdapterMetadata, Timer, composition_metrics,
+    count_tokens, estimate_word_count, initialize_registry_metrics_for, insert_composition_metrics,
+    insert_context_metrics, insert_integrity_detail_metrics, integrity_details_from_outcomes,
+    summarize_rows, write_jsonl, write_summary,
 };
 use cmem_eval_continuity::{
     ContinuityQueryObservation, ContinuityQueryTrace, ContinuityReportInput, ContinuityRuntime,
@@ -29,35 +29,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 type FrozenEmbeddingProviders = HashMap<PathBuf, FrozenEmbeddingProvider>;
-
-#[derive(Debug, Clone, Copy)]
-struct DatasetDescriptor {
-    id: &'static str,
-    kind: DatasetKind,
-}
-
-const DATASET_REGISTRY: &[DatasetDescriptor] = &[
-    DatasetDescriptor {
-        id: "continuity",
-        kind: DatasetKind::Continuity,
-    },
-    DatasetDescriptor {
-        id: "longmemeval_s",
-        kind: DatasetKind::LongMemEvalS,
-    },
-    DatasetDescriptor {
-        id: "locomo",
-        kind: DatasetKind::LoCoMo,
-    },
-];
-
-fn dataset_descriptor(dataset: &DatasetId) -> Result<DatasetDescriptor> {
-    DATASET_REGISTRY
-        .iter()
-        .copied()
-        .find(|descriptor| descriptor.id == dataset.as_str())
-        .with_context(|| format!("unsupported dataset {:?}", dataset.as_str()))
-}
 
 fn live_embedding_binding(config: &BenchmarkRunConfig) -> Result<EmbeddingBindingRecord> {
     let provider = match config.backend.embedding.provider {
@@ -267,7 +238,6 @@ trait DatasetSpec {
         namespace: &str,
         derived_memories: Vec<cmem_eval::DerivedMemoryInput>,
         config: &BenchmarkRunConfig,
-        configured: &HashMap<String, GraphEnrichmentInput>,
         snapshots: &HashMap<String, GraphSnapshotInput>,
     ) -> Result<Option<GraphEnrichmentInput>>;
 
@@ -295,11 +265,6 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
         RunAdapterMetadata::bm25()
     } else {
         RunAdapterMetadata::live()
-    };
-    let enrichment_by_namespace = if S::USES_ENRICHMENT && !lexical {
-        load_enrichment_by_namespace(&config)?
-    } else {
-        HashMap::new()
     };
     let snapshots_by_item = if S::USES_ENRICHMENT && !lexical {
         load_snapshots_by_dataset_item(&config, &input_sha256)?
@@ -362,7 +327,6 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                     &namespace,
                     batch.derived_memories,
                     &config,
-                    &enrichment_by_namespace,
                     &snapshots_by_item,
                 )? {
                     write_outcomes.extend(adapter.remember_enrichment(enrichment).await?);
@@ -488,7 +452,12 @@ async fn prepare_fresh_namespace(adapter: &CharacterMemoryAdapter, namespace: &s
 }
 
 fn validate_continuity_config(config: &BenchmarkRunConfig) -> Result<()> {
-    validate_dataset_name(config, "continuity")?;
+    if config.dataset != "continuity" {
+        bail!(
+            "config dataset {:?} does not match selected continuity pipeline",
+            config.dataset
+        );
+    }
     if config.retrieval.mode == cmem_eval::RetrievalMode::Bm25Only {
         bail!("continuity does not support retrieval.mode=bm25_only");
     }
@@ -803,7 +772,6 @@ impl DatasetSpec for LongMemEvalSpec {
         namespace: &str,
         _derived_memories: Vec<cmem_eval::DerivedMemoryInput>,
         config: &BenchmarkRunConfig,
-        configured: &HashMap<String, GraphEnrichmentInput>,
         snapshots: &HashMap<String, GraphSnapshotInput>,
     ) -> Result<Option<GraphEnrichmentInput>> {
         if let Some(snapshot) = snapshots.get(&item.question_id) {
@@ -822,7 +790,7 @@ impl DatasetSpec for LongMemEvalSpec {
                 item.question_id
             )
         } else {
-            Ok(configured.get(namespace).cloned())
+            Ok(None)
         }
     }
 }
@@ -926,7 +894,6 @@ impl DatasetSpec for LoCoMoSpec {
         namespace: &str,
         derived_memories: Vec<cmem_eval::DerivedMemoryInput>,
         config: &BenchmarkRunConfig,
-        configured: &HashMap<String, GraphEnrichmentInput>,
         snapshots: &HashMap<String, GraphSnapshotInput>,
     ) -> Result<Option<GraphEnrichmentInput>> {
         if config.retrieval.mode == cmem_eval::RetrievalMode::VectorOnly {
@@ -952,36 +919,9 @@ impl DatasetSpec for LoCoMoSpec {
                 item.sample_id
             );
         }
-        if let Some(configured) = configured.get(namespace).cloned() {
-            enrichment::merge_enrichment(&mut result, configured)?;
-        } else {
-            enrichment::validate_enrichment(&result)?;
-        }
+        enrichment::validate_enrichment(&result)?;
         Ok(Some(result))
     }
-}
-
-fn validate_dataset_name(config: &BenchmarkRunConfig, expected: &str) -> Result<()> {
-    let descriptor = dataset_descriptor(&config.dataset)?;
-    if descriptor.id != expected {
-        bail!(
-            "config dataset {:?} does not match selected {expected} pipeline",
-            config.dataset
-        );
-    }
-    Ok(())
-}
-
-fn load_enrichment_by_namespace(
-    config: &BenchmarkRunConfig,
-) -> Result<HashMap<String, GraphEnrichmentInput>> {
-    config
-        .ingest
-        .enrichment_path
-        .as_ref()
-        .map(|path| enrichment::load_enrichment_path(Path::new(path)))
-        .transpose()
-        .map(|value| value.unwrap_or_default())
 }
 
 fn load_snapshots_by_dataset_item(
@@ -1149,7 +1089,6 @@ fn run_header(
     Ok(cmem_eval::RunHeader {
         run_id: config.run_id.clone(),
         dataset: config.dataset.clone(),
-        dataset_kind: dataset_descriptor(&config.dataset)?.kind,
         input_sha256,
         embedding_bindings: BTreeMap::new(),
         harness_commit: commit(&workspace)?,
@@ -1529,52 +1468,36 @@ mod tests {
                 }]),
             ),
         ] {
-            for snapshot in [false, true] {
-                let directory = tempfile::tempdir_in(&root).unwrap();
-                let mut config: BenchmarkRunConfig = toml::from_str(source).unwrap();
-                let mode = RetrievalMode::Bm25Only;
-                config.retrieval.mode = mode;
-                isolate_test_config(&mut config);
-                let missing = directory.path().join("missing-enrichment.jsonl");
-                let missing_path = missing.display().to_string();
-                if snapshot {
-                    config.ingest.enrichment_snapshot_path = Some(missing_path.clone());
-                } else {
-                    config.ingest.enrichment_path = Some(missing_path.clone());
-                }
-                let config_path = directory.path().join("config.toml");
-                fs::write(&config_path, toml::to_string(&config).unwrap()).unwrap();
-                let dataset_path = directory.path().join("dataset.json");
-                fs::write(&dataset_path, serde_json::to_vec(&dataset).unwrap()).unwrap();
-                let args = run_args(dataset_path, config_path, directory.path());
-                let output = args.out.clone();
-                let result = if config.dataset.as_str() == "locomo" {
-                    run_locomo(args).await
-                } else {
-                    run_longmemeval(args).await
-                };
-                if config.dataset.as_str() == "locomo" {
-                    let expected_field = if snapshot {
-                        "enrichment_snapshot_path"
-                    } else {
-                        "enrichment_path"
-                    };
-                    assert_eq!(
-                        result
-                            .unwrap_err()
-                            .downcast_ref::<cmem_eval_locomo::ConfigError>(),
-                        Some(&cmem_eval_locomo::ConfigError::BaselineDerivedContent {
-                            mode,
-                            field: expected_field
-                        })
-                    );
-                    assert!(!output.exists());
-                } else {
-                    result.unwrap();
-                    let rows = read_rows(&output);
-                    assert_eq!(rows.len(), 1);
-                    assert!(!rows[0].retrieved.is_empty());
-                }
+            let directory = tempfile::tempdir_in(&root).unwrap();
+            let mut config: BenchmarkRunConfig = toml::from_str(source).unwrap();
+            let mode = RetrievalMode::Bm25Only;
+            config.retrieval.mode = mode;
+            isolate_test_config(&mut config);
+            let missing = directory.path().join("missing-enrichment.jsonl");
+            let missing_path = missing.display().to_string();
+            config.ingest.enrichment_snapshot_path = Some(missing_path);
+            let config_path = directory.path().join("config.toml");
+            fs::write(&config_path, toml::to_string(&config).unwrap()).unwrap();
+            let dataset_path = directory.path().join("dataset.json");
+            fs::write(&dataset_path, serde_json::to_vec(&dataset).unwrap()).unwrap();
+            let args = run_args(dataset_path, config_path, directory.path());
+            let output = args.out.clone();
+            let result = if config.dataset.as_str() == "locomo" {
+                run_locomo(args).await
+            } else {
+                run_longmemeval(args).await
+            };
+            if config.dataset.as_str() == "locomo" {
+                assert_eq!(
+                    result.unwrap_err().to_string(),
+                    format!("LoCoMo baseline {mode:?} forbids ingest.enrichment_snapshot_path")
+                );
+                assert!(!output.exists());
+            } else {
+                result.unwrap();
+                let rows = read_rows(&output);
+                assert_eq!(rows.len(), 1);
+                assert!(!rows[0].retrieved.is_empty());
             }
         }
     }
@@ -1646,7 +1569,6 @@ mod tests {
         assert!(!summary.degradation.any_degradation);
         let header = read_header(&output);
         assert_eq!(header.input_sha256, input_sha256);
-        assert_eq!(header.dataset_kind, DatasetKind::LongMemEvalS);
         assert_eq!(
             header.embedding_bindings,
             BTreeMap::from([(
@@ -1981,7 +1903,6 @@ mod tests {
         );
         assert_eq!(header.run_id, config.run_id);
         assert_eq!(header.dataset, config.dataset);
-        assert_eq!(header.dataset_kind, DatasetKind::Continuity);
         assert_eq!(header.input_sha256, cmem_eval::text_sha256(&input));
         assert_eq!(header.config, config_source);
         assert_eq!(header.config_sha256, cmem_eval::text_sha256(&config_source));
@@ -2313,12 +2234,11 @@ mod tests {
     }
 
     #[test]
-    fn locomo_merges_dataset_memories_with_snapshot_and_configured_graph() {
-        use enrichment::EnrichmentError;
+    fn locomo_merges_dataset_memories_with_snapshot() {
         let item = cmem_eval_locomo::load_value(derived_locomo_fixture())
             .unwrap()
             .remove(0);
-        let mut config: BenchmarkRunConfig =
+        let config: BenchmarkRunConfig =
             toml::from_str(include_str!("../../../configs/locomo_retrieval.toml")).unwrap();
         let memories = LoCoMoSpec::memory_inputs(&item, &config).derived_memories;
         let mut external = memories[0].clone();
@@ -2342,85 +2262,56 @@ mod tests {
             },
             graph: graph.clone(),
         };
-        let dir = derived_test_dir();
-        let path = dir.path().join("graph.jsonl");
-        fs::write(&path, serde_json::to_vec(&graph).unwrap()).unwrap();
-        for use_snapshot in [true, false] {
-            let (configured, snapshots) = if use_snapshot {
-                (
-                    HashMap::new(),
-                    HashMap::from([(item.sample_id.clone(), snapshot.clone())]),
-                )
-            } else {
-                config.ingest.enrichment_snapshot_path = None;
-                config.ingest.enrichment_path = Some(path.display().to_string());
-                (
-                    load_enrichment_by_namespace(&config).unwrap(),
-                    HashMap::new(),
-                )
-            };
-            // This is the same enrichment value passed directly to remember_enrichment.
-            let merged = LoCoMoSpec::enrichment(
-                &item,
-                &item.namespace(),
-                memories.clone(),
-                &config,
-                &configured,
-                &snapshots,
+        let snapshots = HashMap::from([(item.sample_id.clone(), snapshot.clone())]);
+        // This is the same enrichment value passed directly to remember_enrichment.
+        let merged = LoCoMoSpec::enrichment(
+            &item,
+            &item.namespace(),
+            memories.clone(),
+            &config,
+            &snapshots,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&merged.derived_memories).unwrap(),
+            serde_json::to_value(
+                memories
+                    .iter()
+                    .cloned()
+                    .chain([external.clone()])
+                    .collect::<Vec<_>>()
             )
             .unwrap()
-            .unwrap();
-            assert_eq!(
-                serde_json::to_value(&merged.derived_memories).unwrap(),
-                serde_json::to_value(
-                    memories
-                        .iter()
-                        .cloned()
-                        .chain([external.clone()])
-                        .collect::<Vec<_>>()
-                )
-                .unwrap()
-            );
-            assert_eq!(
-                serde_json::to_value(&merged.threads).unwrap(),
-                serde_json::to_value(&graph.threads).unwrap()
-            );
-            let mut duplicate = graph.clone();
-            duplicate.derived_memories = vec![memories[0].clone()];
-            let (configured, snapshots) = if use_snapshot {
-                (
-                    HashMap::new(),
-                    HashMap::from([(
-                        item.sample_id.clone(),
-                        GraphSnapshotInput {
-                            graph: duplicate,
-                            ..snapshot.clone()
-                        },
-                    )]),
-                )
-            } else {
-                (
-                    HashMap::from([(item.namespace(), duplicate)]),
-                    HashMap::new(),
-                )
-            };
-            let error = LoCoMoSpec::enrichment(
-                &item,
-                &item.namespace(),
-                memories.clone(),
-                &config,
-                &configured,
-                &snapshots,
+        );
+        assert_eq!(
+            serde_json::to_value(&merged.threads).unwrap(),
+            serde_json::to_value(&graph.threads).unwrap()
+        );
+        let mut duplicate = graph.clone();
+        duplicate.derived_memories = vec![memories[0].clone()];
+        let snapshots = HashMap::from([(
+            item.sample_id.clone(),
+            GraphSnapshotInput {
+                graph: duplicate,
+                ..snapshot.clone()
+            },
+        )]);
+        let error = LoCoMoSpec::enrichment(
+            &item,
+            &item.namespace(),
+            memories.clone(),
+            &config,
+            &snapshots,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "duplicate enrichment external_id {} for derived_memory",
+                memories[0].external_id
             )
-            .unwrap_err();
-            assert_eq!(
-                error.downcast_ref::<EnrichmentError>(),
-                Some(&EnrichmentError::DuplicateExternalId {
-                    kind: "derived_memory",
-                    external_id: memories[0].external_id.clone(),
-                })
-            );
-        }
+        );
     }
 
     #[tokio::test]
@@ -2456,7 +2347,6 @@ mod tests {
                         cmem_eval_locomo::ingest::to_memory_inputs(&item, false, true, true)
                             .derived_memories,
                         &config,
-                        &HashMap::new(),
                         &HashMap::new()
                     )
                     .unwrap()
@@ -2573,10 +2463,8 @@ mod tests {
         }
         .unwrap_err();
         assert_eq!(
-            error.downcast_ref::<enrichment::EnrichmentError>(),
-            Some(&enrichment::EnrichmentError::MissingManifest {
-                path: manifest_path
-            })
+            error.to_string(),
+            format!("missing snapshot manifest {}", manifest_path.display())
         );
         assert!(!output_dir.exists(), "snapshot admission created run state");
     }

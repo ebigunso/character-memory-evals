@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, env, fs, io::Write, path::Path, process::Comman
 use anyhow::{Context, Result, ensure};
 use chrono::{Duration, TimeZone, Utc};
 use cmem_eval::{
-    BenchmarkRunConfig, ControllableDimensionPolicy, ControllableSimilarityFixture, DatasetId,
+    BenchmarkRunConfig, ControllableDimensionPolicy, ControllableSimilarityFixture,
     DerivedMemoryInput, DerivedType, EmbeddingProviderConfig, EmbeddingRuntimeBinding, EntityInput,
     EpisodeInput, GraphEnrichmentInput, MemoryEndpointInput, MemoryLinkInput, MemorySceneInput,
     ObjectType, RelationType, RetrieveInput, RetrievedContextPack, SceneParticipantInput,
@@ -22,7 +22,7 @@ const SETTLED: &str = "I returned the borrowed blue notebook to Iris; the matter
 fn config() -> BenchmarkRunConfig {
     let mut config = BenchmarkRunConfig {
         run_id: NS.into(),
-        dataset: DatasetId::new("continuity").unwrap(),
+        dataset: "continuity".into(),
         backend: Default::default(),
         retrieval: Default::default(),
         ingest: Default::default(),
