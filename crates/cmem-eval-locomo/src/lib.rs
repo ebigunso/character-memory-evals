@@ -1,54 +1,37 @@
 //! LoCoMo loading, ingestion and scoring.
 //!
-//! [`load_value`] admits a non-empty array, either at the root or under `data`,
-//! `samples` or `items`. [`load_path`] also distinguishes I/O and JSON syntax errors
-//! from structural and identity defects through [`LoadError`]. Admission errors
-//! name the file root or the item index/available ID and the offending field.
+//! [`load_value`] admits a non-empty root array. [`load_path`] distinguishes I/O
+//! and JSON syntax errors from structural and identity defects through [`LoadError`].
+//! Admission errors name the file root or item index/available ID and field.
 //!
-//! Each sample needs a non-blank string `sample_id` (alias `id`), unique in the
-//! file, and at least one session under `conversation` (alias `conversations`):
-//! - An array contains session objects with a non-blank string `session_id`
-//!   (aliases `session`, `id`), unique within the sample, and a non-empty turn
-//!   array under `turns`, `dialog` or `conversation`. Record IDs are opaque strings;
-//!   `session_number` is not an identity source.
-//! - A keyed object contains non-empty turn arrays named `session_<N>`, where
-//!   `<N>` contains only decimal digits, with no leading zero except `0`. Sessions
-//!   are ordered numerically. Other `session_` keys are rejected unless they are
-//!   canonical `session_<N>_date_time` annotations; orphan date annotations are
-//!   ignored. This canonical-key restriction does not apply to array record IDs.
+//! Each sample needs a non-blank string `sample_id`, unique in the file, and a
+//! keyed `conversation` object with non-empty turn arrays named `session_<N>`.
+//! `<N>` contains decimal digits, with no leading zero except `0`. Sessions are
+//! ordered numerically. Other `session_` keys are rejected unless they are
+//! canonical `session_<N>_date_time` annotations; orphan dates are ignored.
+//! Every turn must have a non-blank string `dia_id`, unique within the sample,
+//! and string `text`; empty text is admitted.
 //!
-//! Every turn must be an object with a non-blank string `dia_id` (aliases
-//! `dialog_id`, `id`), unique within the sample, and string `text` (aliases
-//! `content`, `utterance`). Empty text is admitted. Each sample also needs a
-//! non-empty `qa` array of objects with non-blank string `question` (alias `q`).
-//! A non-blank string `question_id` (aliases `qid`, `id`) is retained; otherwise
-//! the loader derives `<sample_id>:qa:<one-based position>`. Effective QA IDs
-//! must be unique across the file.
+//! A non-empty `qa` array contains objects with non-blank string `question`.
+//! Optional non-blank `question_id` is retained; otherwise the loader derives
+//! `<sample_id>:qa:<one-based position>`. Effective QA IDs are unique across the file.
+//! `answer`, `category`, `speaker`, `img_url`, `blip_caption`, `query` and dates
+//! remain optional annotations. Raw dates are retained alongside normalized timestamps.
+//! QA `evidence` admits scalar references and arrays of scalars or objects with
+//! `dia_id`. References to absent turns do not reject the sample. Missing
+//! annotations do not determine abstention status.
 //!
-//! Answers (`answer`/`a`), question types (`question_type`/`category`/`type`),
-//! speakers (`speaker`/`role`), dates, images, queries, summaries and observations
-//! remain optional annotations. Record dates use `timestamp`/`date`/
-//! `session_timestamp`; their raw text is retained alongside normalized timestamps.
-//! Record summaries use `session_summary`/`summary`, and observations use
-//! `observation`/`observations`/`generated_observations`. Top-level
-//! `session_summary` and `observation` maps first look up the exact session ID,
-//! then the official `session_<N>_summary` / `session_<N>_observation` key, then
-//! the numeric key. The `session_` suffix is parsed as `usize` and rendered as
-//! decimal (so record IDs `session_01` and `session_+1` can look up key `1`). Record summaries take
-//! precedence; top-level observations append to record observations.
-//! Observation maps contain speaker-keyed lists of `[statement, evidence]` pairs;
-//! evidence is a string or string list. Exact dialog IDs resolve before comma
-//! splitting. Legacy bare statements carry no evidence. Malformed observation
-//! entries and unresolved references are counted, without rejecting the sample.
-//! Non-string summaries are ignored. Ingest emits summaries as Reflections and
-//! observations as Claims with episode and resolved observation provenance.
-//! Speaker metadata is retained in the input; the adapter does not persist it.
-//! Both baseline modes reject derived-content/enrichment configuration and use
-//! generic descriptive episode text rather than dataset summaries.
-//! QA `evidence` (alias `evidence_dialog_ids`) admits scalar references and arrays
-//! of scalars or objects using `dia_id`/`dialog_id`/`id`. References to absent
-//! turns remain annotations and do not cause rejection. Missing annotations do
-//! not determine abstention status.
+//! Top-level `session_summary` and `observation` maps use `session_<N>_summary`
+//! and `session_<N>_observation` keys. Observation maps contain speaker-keyed
+//! lists of `[statement, evidence]` pairs; evidence is a string or string list.
+//! Exact dialog IDs resolve before comma splitting. Bare statements carry no
+//! evidence. Malformed observations and unresolved references are counted
+//! without rejecting the sample. Non-string summaries are ignored.
+//! Ingest emits summaries as Reflections and observations as Claims with episode
+//! and resolved observation provenance. Speaker metadata is retained in the
+//! input; the adapter does not persist it. Both baseline modes reject
+//! derived-content/enrichment configuration and use generic descriptive episode
+//! text rather than dataset summaries.
 
 mod error;
 pub mod ingest;

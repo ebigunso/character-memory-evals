@@ -17,18 +17,8 @@ pub fn load_path(path: &Path) -> Result<Vec<LongMemEvalInstance>, LoadError> {
 }
 
 pub fn load_value(value: Value) -> Result<Vec<LongMemEvalInstance>, LoadError> {
-    let rows = if let Some(array) = value.as_array() {
-        array.clone()
-    } else {
-        ["data", "instances", "questions"]
-            .iter()
-            .find_map(|key| value.get(*key).and_then(Value::as_array).cloned())
-            .ok_or_else(|| {
-                AdmissionLocation::Root.error(
-                    "root",
-                    "expected an array or a data/instances/questions array",
-                )
-            })?
+    let Value::Array(rows) = value else {
+        return Err(AdmissionLocation::Root.error("root", "expected an array"));
     };
     if rows.is_empty() {
         return Err(AdmissionLocation::Root.error("root", "expected at least one item"));
@@ -51,22 +41,22 @@ pub fn load_value(value: Value) -> Result<Vec<LongMemEvalInstance>, LoadError> {
 }
 
 fn parse_instance(raw: Value, index: usize) -> Result<LongMemEvalInstance, LoadError> {
-    let id = nonblank_string_field(&raw, &["question_id", "id"]);
+    let id = nonblank_string_field(&raw, "question_id");
     let location = AdmissionLocation::Item {
         index,
         id: id.clone(),
     };
     let question_id =
         id.ok_or_else(|| location.error("question_id", "expected a non-blank string"))?;
-    let question = nonblank_string_field(&raw, &["question"])
+    let question = nonblank_string_field(&raw, "question")
         .ok_or_else(|| location.error("question", "expected a non-blank string"))?;
     let sessions = parse_sessions(&raw, &location)?;
     Ok(LongMemEvalInstance {
         question_id,
-        question_type: string_field(&raw, &["question_type", "type"]),
+        question_type: string_field(&raw, "question_type"),
         question,
-        answer: string_field(&raw, &["answer"]),
-        question_date: string_field(&raw, &["question_date"]),
+        answer: string_field(&raw, "answer"),
+        question_date: string_field(&raw, "question_date"),
         sessions,
         answer_session_ids: string_array(raw.get("answer_session_ids")),
     })
@@ -81,20 +71,19 @@ fn parse_sessions(
         .and_then(Value::as_array)
         .filter(|items| !items.is_empty())
         .ok_or_else(|| location.error("haystack_sessions", "expected a non-empty session array"))?;
-    if let Some(value) = raw.get("haystack_session_ids") {
-        let ids = value
-            .as_array()
-            .ok_or_else(|| location.error("haystack_session_ids", "expected an array"))?;
-        if ids.len() != items.len() {
-            return Err(location.error("haystack_session_ids", "expected one entry per session"));
-        }
-        for (idx, id) in ids.iter().enumerate() {
-            if id.as_str().is_none_or(|id| id.trim().is_empty()) {
-                return Err(location.error(
-                    format!("haystack_session_ids[{idx}]"),
-                    "expected a non-blank string",
-                ));
-            }
+    let session_ids = raw
+        .get("haystack_session_ids")
+        .and_then(Value::as_array)
+        .ok_or_else(|| location.error("haystack_session_ids", "expected an array"))?;
+    if session_ids.len() != items.len() {
+        return Err(location.error("haystack_session_ids", "expected one entry per session"));
+    }
+    for (idx, id) in session_ids.iter().enumerate() {
+        if id.as_str().is_none_or(|id| id.trim().is_empty()) {
+            return Err(location.error(
+                format!("haystack_session_ids[{idx}]"),
+                "expected a non-blank string",
+            ));
         }
     }
     let dates = match raw.get("haystack_dates") {
@@ -113,28 +102,17 @@ fn parse_sessions(
         .iter()
         .enumerate()
         .map(|(idx, item)| {
-            if !item.is_object() && !item.is_array() {
-                return Err(location.error(
-                    format!("haystack_sessions[{idx}]"),
-                    "expected a session object or turn array",
-                ));
+            if !item.is_array() {
+                return Err(
+                    location.error(format!("haystack_sessions[{idx}]"), "expected a turn array")
+                );
             }
-            let record_id = nonblank_string_field(item, &["session_id", "id"]);
-            let from_record = record_id.is_some();
-            let session_id = record_id
-                .or_else(|| {
-                    raw.get("haystack_session_ids")?
-                        .get(idx)?
-                        .as_str()
-                        .map(ToOwned::to_owned)
-                })
-                .ok_or_else(|| {
-                    location.error(
-                        format!("haystack_sessions[{idx}].session_id"),
-                        "expected a non-blank session id in the record or parallel array",
-                    )
-                })?;
-            let turns = turn_values(item)
+            let session_id = session_ids[idx]
+                .as_str()
+                .expect("session ids were validated")
+                .to_string();
+            let turns = item
+                .as_array()
                 .filter(|turns| !turns.is_empty())
                 .ok_or_else(|| {
                     location.error(
@@ -143,18 +121,17 @@ fn parse_sessions(
                     )
                 })?;
             if ids
-                .insert(session_id.clone(), (from_record, turns))
-                .is_some_and(|(previous_from_record, previous_turns)| {
-                    from_record || previous_from_record || previous_turns != turns
-                })
+                .insert(session_id.clone(), turns)
+                .is_some_and(|previous_turns| previous_turns != turns)
             {
                 return Err(location.error(
                     format!("haystack_sessions[{idx}].session_id"),
                     "repeated session id requires parallel-array ids and identical turns",
                 ));
             }
-            let raw_date = string_field(item, &["date", "timestamp"])
-                .or_else(|| dates?.get(idx)?.as_str().map(ToOwned::to_owned));
+            let raw_date = dates
+                .and_then(|dates| dates[idx].as_str())
+                .map(ToOwned::to_owned);
             Ok(LongMemEvalSession {
                 session_id,
                 date: normalize_timestamp(raw_date.as_deref()),
@@ -165,14 +142,11 @@ fn parse_sessions(
         .collect()
 }
 
-fn nonblank_string_field(value: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| {
-            value
-                .get(*key)
-                .and_then(Value::as_str)
-                .filter(|text| !text.trim().is_empty())
-        })
+fn nonblank_string_field(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
         .map(ToOwned::to_owned)
 }
 
@@ -209,15 +183,6 @@ fn parse_official_longmemeval_timestamp(value: &str) -> Option<DateTime<Utc>> {
         .map(|timestamp| DateTime::<Utc>::from_naive_utc_and_offset(timestamp, Utc))
 }
 
-fn turn_values(value: &Value) -> Option<&Vec<Value>> {
-    value
-        .get("turns")
-        .or_else(|| value.get("messages"))
-        .or_else(|| value.get("conversation"))
-        .and_then(Value::as_array)
-        .or_else(|| value.as_array())
-}
-
 fn parse_turns(
     turns: &[Value],
     location: &AdmissionLocation,
@@ -232,8 +197,8 @@ fn parse_turns(
             }
             Ok(LongMemEvalTurn {
                 index: idx + 1,
-                speaker: string_field(turn, &["role", "speaker"]),
-                text: string_field(turn, &["content", "text"]).ok_or_else(|| {
+                speaker: string_field(turn, "role"),
+                text: string_field(turn, "content").ok_or_else(|| {
                     location.error(format!("{field}[{idx}].content"), "expected a string")
                 })?,
                 has_answer: turn
@@ -245,9 +210,10 @@ fn parse_turns(
         .collect()
 }
 
-fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| value.get(*key).and_then(Value::as_str))
+fn string_field(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
         .map(ToOwned::to_owned)
 }
 
@@ -269,7 +235,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_tolerant_fixture() {
+    fn parses_official_fixture() {
         let value = serde_json::json!([{
             "question_id": "q1",
             "question": "Where is the answer?",

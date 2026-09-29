@@ -7,11 +7,11 @@ use serde_json::{Value, json};
 fn fixture() -> Value {
     json!({
         "sample_id": "p1",
-        "conversation": [{"session_id": "session_1", "turns": [
+        "conversation": {"session_1": [
             {"dia_id": "d1", "speaker": "A", "text": "tea"},
             {"dia_id": "d2", "speaker": "B", "text": "coffee"},
             {"dia_id": "opaque,id", "text": "other"}
-        ]}],
+        ]},
         "session_summary": {"session_1_summary": "UNIQUE_SUMMARY_TOKEN"},
         "observation": {"session_1_observation": {"A": [
             ["A likes tea", "d1, d2"], ["Opaque reference", "opaque,id"],
@@ -82,48 +82,6 @@ fn observations_keep_statement_speaker_and_resolved_provenance() {
         assert_eq!(
             mapped.episodes[0].summary.contains("UNIQUE_SUMMARY_TOKEN"),
             summary
-        );
-    }
-}
-
-#[test]
-fn annotation_lookup_precedence_and_record_content_are_preserved() {
-    for id in ["session_1", "session_01", "session_+1"] {
-        let mut value = fixture();
-        value["conversation"][0]["session_id"] = json!(id);
-        value["conversation"][0]["observation"] = json!("record observation");
-        value["session_summary"] =
-            json!({id: "exact", "session_1_summary": "official", "1": "numeric"});
-        value["observation"] =
-            json!({id: ["exact"], "session_1_observation": ["official"], "1": ["numeric"]});
-        for expected in ["exact", "official", "numeric"] {
-            let loaded = sample(value.clone());
-            let session = &loaded.sessions[0];
-            assert_eq!(session.summary.as_deref(), Some(expected));
-            assert_eq!(
-                session.generated_observations[0].statement,
-                "record observation"
-            );
-            assert_eq!(session.generated_observations[0].speaker, None);
-            assert_eq!(session.generated_observations[1].statement, expected);
-            if expected == "exact" {
-                value["session_summary"].as_object_mut().unwrap().remove(id);
-                value["observation"].as_object_mut().unwrap().remove(id);
-            } else {
-                value["session_summary"]
-                    .as_object_mut()
-                    .unwrap()
-                    .remove("session_1_summary");
-                value["observation"]
-                    .as_object_mut()
-                    .unwrap()
-                    .remove("session_1_observation");
-            }
-        }
-        value["conversation"][0]["summary"] = json!("record summary");
-        assert_eq!(
-            sample(value).sessions[0].summary.as_deref(),
-            Some("record summary")
         );
     }
 }

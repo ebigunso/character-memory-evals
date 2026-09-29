@@ -17,16 +17,8 @@ pub fn load_path(path: &Path) -> Result<Vec<LoCoMoSample>, LoadError> {
 }
 
 pub fn load_value(value: Value) -> Result<Vec<LoCoMoSample>, LoadError> {
-    let rows = if let Some(array) = value.as_array() {
-        array.clone()
-    } else {
-        ["data", "samples", "items"]
-            .iter()
-            .find_map(|key| value.get(*key).and_then(Value::as_array).cloned())
-            .ok_or_else(|| {
-                AdmissionLocation::Root
-                    .error("root", "expected an array or a data/samples/items array")
-            })?
+    let Value::Array(rows) = value else {
+        return Err(AdmissionLocation::Root.error("root", "expected an array"));
     };
     if rows.is_empty() {
         return Err(AdmissionLocation::Root.error("root", "expected at least one item"));
@@ -58,18 +50,15 @@ pub fn load_value(value: Value) -> Result<Vec<LoCoMoSample>, LoadError> {
 }
 
 fn parse_sample(raw: Value, index: usize) -> Result<LoCoMoSample, LoadError> {
-    let id = nonblank_string_field(&raw, &["sample_id", "id"]);
+    let id = nonblank_string_field(&raw, "sample_id");
     let location = AdmissionLocation::Item {
         index,
         id: id.clone(),
     };
     let sample_id = id.ok_or_else(|| location.error("sample_id", "expected a non-blank string"))?;
-    let conversation = raw
-        .get("conversation")
-        .or_else(|| raw.get("conversations"))
-        .unwrap_or(&Value::Null);
-    let speaker_a = string_field(conversation, &["speaker_a"]);
-    let speaker_b = string_field(conversation, &["speaker_b"]);
+    let conversation = raw.get("conversation").unwrap_or(&Value::Null);
+    let speaker_a = string_field(conversation, "speaker_a");
+    let speaker_b = string_field(conversation, "speaker_b");
     let mut sample = LoCoMoSample {
         sample_id: sample_id.clone(),
         sessions: parse_sessions(&raw, &location)?,
@@ -87,130 +76,67 @@ fn parse_sessions(
     raw: &Value,
     location: &AdmissionLocation,
 ) -> Result<Vec<LoCoMoSession>, LoadError> {
-    let source = raw
+    let map = raw
         .get("conversation")
-        .or_else(|| raw.get("conversations"))
-        .unwrap_or(&Value::Null);
-    let sessions = match source {
-        Value::Array(items) => {
-            let mut ids = HashSet::new();
-            items
-                .iter()
-                .enumerate()
-                .map(|(idx, item)| {
-                    let session = parse_session(item, idx, location)?;
-                    if !ids.insert(session.session_id.clone()) {
-                        return Err(location.error(
-                            format!("conversation[{idx}].session_id"),
-                            "duplicate session id",
-                        ));
-                    }
-                    Ok(session)
-                })
-                .collect::<Result<Vec<_>, _>>()?
+        .and_then(Value::as_object)
+        .ok_or_else(|| location.error("conversation", "expected a keyed session object"))?;
+    let mut entries = Vec::new();
+    for (key, item) in map {
+        if let Some(number) = canonical_session_number(key) {
+            entries.push((number, key, item));
+        } else if key.starts_with("session_")
+            && key
+                .strip_suffix("_date_time")
+                .and_then(canonical_session_number)
+                .is_none()
+        {
+            return Err(location.error(format!("conversation.{key}"), "unrecognized session key"));
         }
-        Value::Object(map) => {
-            let mut entries = Vec::new();
-            for (key, item) in map {
-                if let Some(number) = canonical_session_number(key) {
-                    entries.push((number, key, item));
-                } else if key.starts_with("session_")
-                    && key
-                        .strip_suffix("_date_time")
-                        .and_then(canonical_session_number)
-                        .is_none()
-                {
-                    return Err(
-                        location.error(format!("conversation.{key}"), "unrecognized session key")
-                    );
-                }
-            }
-            entries.sort_by_key(|(number, _, _)| (number.len(), *number));
-            entries
-                .into_iter()
-                .map(|(_, session_id, item)| {
-                    if item.as_array().is_none_or(Vec::is_empty) {
-                        return Err(location.error(
-                            format!("conversation.{session_id}"),
-                            "expected a non-empty turn array",
-                        ));
-                    }
-                    let timestamp = map
-                        .get(&format!("{session_id}_date_time"))
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned);
-                    parse_session_with_context(
-                        item,
-                        session_id,
-                        timestamp,
-                        None,
-                        location,
-                        &format!("conversation.{session_id}"),
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()?
-        }
-        _ => {
-            return Err(location.error(
-                "conversation",
-                "expected a session array or keyed session object",
-            ));
-        }
-    };
+    }
+    entries.sort_by_key(|(number, _, _)| (number.len(), *number));
+    let sessions = entries
+        .into_iter()
+        .map(|(_, session_id, item)| {
+            let timestamp = map
+                .get(&format!("{session_id}_date_time"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+            parse_session_with_context(
+                item,
+                session_id,
+                timestamp,
+                location,
+                &format!("conversation.{session_id}"),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     if sessions.is_empty() {
         return Err(location.error("conversation", "expected at least one session"));
     }
     let mut turn_ids = HashSet::new();
-    for (idx, session) in sessions.iter().enumerate() {
+    for session in &sessions {
         for (turn_idx, turn) in session.turns.iter().enumerate() {
             if !turn_ids.insert(&turn.dialog_id) {
-                let field = if source.is_array() {
-                    format!("conversation[{idx}].turns[{turn_idx}].dia_id")
-                } else {
-                    format!("conversation.{}[{turn_idx}].dia_id", session.session_id)
-                };
-                return Err(location.error(field, "duplicate turn id"));
+                return Err(location.error(
+                    format!("conversation.{}[{turn_idx}].dia_id", session.session_id),
+                    "duplicate turn id",
+                ));
             }
         }
     }
     Ok(sessions)
 }
 
-fn parse_session(
-    value: &Value,
-    idx: usize,
-    location: &AdmissionLocation,
-) -> Result<LoCoMoSession, LoadError> {
-    if !value.is_object() {
-        return Err(location.error(format!("conversation[{idx}]"), "expected a session object"));
-    }
-    let session_id =
-        nonblank_string_field(value, &["session_id", "session", "id"]).ok_or_else(|| {
-            location.error(
-                format!("conversation[{idx}].session_id"),
-                "expected a non-blank string",
-            )
-        })?;
-    parse_session_with_context(
-        value,
-        &session_id,
-        string_field(value, &["timestamp", "date", "session_timestamp"]),
-        string_field(value, &["session_summary", "summary"]),
-        location,
-        &format!("conversation[{idx}].turns"),
-    )
-}
-
 fn parse_session_with_context(
     value: &Value,
     session_id: &str,
     timestamp: Option<String>,
-    summary: Option<String>,
     location: &AdmissionLocation,
     field: &str,
 ) -> Result<LoCoMoSession, LoadError> {
     let raw_timestamp = timestamp;
-    let turns = turn_values(value)
+    let turns = value
+        .as_array()
         .filter(|turns| !turns.is_empty())
         .ok_or_else(|| location.error(field, "expected a non-empty turn array"))?
         .iter()
@@ -222,23 +148,19 @@ fn parse_session_with_context(
                 );
             }
             Ok(LoCoMoTurn {
-                dialog_id: nonblank_string_field(turn, &["dia_id", "dialog_id", "id"]).ok_or_else(
-                    || {
-                        location.error(
-                            format!("{field}[{turn_idx}].dia_id"),
-                            "expected a non-blank string",
-                        )
-                    },
-                )?,
-                speaker: string_field(turn, &["speaker", "role"]),
-                text: string_field(turn, &["text", "content", "utterance"]).ok_or_else(|| {
+                dialog_id: nonblank_string_field(turn, "dia_id").ok_or_else(|| {
+                    location.error(
+                        format!("{field}[{turn_idx}].dia_id"),
+                        "expected a non-blank string",
+                    )
+                })?,
+                speaker: string_field(turn, "speaker"),
+                text: string_field(turn, "text").ok_or_else(|| {
                     location.error(format!("{field}[{turn_idx}].text"), "expected a string")
                 })?,
-                image_urls: string_array_field(
-                    turn.get("img_url").or_else(|| turn.get("image_urls")),
-                ),
-                blip_caption: string_field(turn, &["blip_caption", "caption"]),
-                query: string_field(turn, &["query", "search_query"]),
+                image_urls: string_array_field(turn.get("img_url")),
+                blip_caption: string_field(turn, "blip_caption"),
+                query: string_field(turn, "query"),
             })
         })
         .collect::<Result<_, LoadError>>()?;
@@ -246,19 +168,10 @@ fn parse_session_with_context(
         session_id: session_id.to_string(),
         timestamp: normalize_timestamp(raw_timestamp.as_deref()),
         raw_timestamp,
-        summary,
+        summary: None,
         generated_observations: Vec::new(),
         turns,
     })
-}
-
-fn turn_values(value: &Value) -> Option<&Vec<Value>> {
-    value
-        .get("turns")
-        .or_else(|| value.get("dialog"))
-        .or_else(|| value.get("conversation"))
-        .or_else(|| value.as_array().map(|_| value))
-        .and_then(Value::as_array)
 }
 
 fn apply_benchmark_derived_fields(raw: &Value, sample: &mut LoCoMoSample) {
@@ -268,10 +181,6 @@ fn apply_benchmark_derived_fields(raw: &Value, sample: &mut LoCoMoSample) {
         .flat_map(|session| &session.turns)
         .map(|turn| turn.dialog_id.clone())
         .collect::<HashSet<_>>();
-    let records = raw
-        .get("conversation")
-        .or_else(|| raw.get("conversations"))
-        .and_then(Value::as_array);
     let mut parser = ObservationParser {
         turn_ids,
         unresolved: 0,
@@ -283,20 +192,10 @@ fn apply_benchmark_derived_fields(raw: &Value, sample: &mut LoCoMoSample) {
     {
         parser.dropped += 1;
     }
-    for (index, session) in sample.sessions.iter_mut().enumerate() {
-        if session.summary.is_none() {
-            session.summary =
-                annotation(raw.get("session_summary"), &session.session_id, "summary")
-                    .and_then(Value::as_str)
-                    .map(ToOwned::to_owned);
-        }
-        if let Some(record) = records.and_then(|records| records.get(index))
-            && let Some(value) = ["observation", "observations", "generated_observations"]
-                .iter()
-                .find_map(|key| record.get(*key))
-        {
-            parser.append(value, &mut session.generated_observations);
-        }
+    for session in &mut sample.sessions {
+        session.summary = annotation(raw.get("session_summary"), &session.session_id, "summary")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
         if let Some(value) = annotation(raw.get("observation"), &session.session_id, "observation")
         {
             parser.append(value, &mut session.generated_observations);
@@ -307,12 +206,7 @@ fn apply_benchmark_derived_fields(raw: &Value, sample: &mut LoCoMoSample) {
 }
 
 fn annotation<'a>(map: Option<&'a Value>, session_id: &str, suffix: &str) -> Option<&'a Value> {
-    let map = map?.as_object()?;
-    map.get(session_id).or_else(|| {
-        let number = session_number(session_id)?;
-        map.get(&format!("session_{number}_{suffix}"))
-            .or_else(|| map.get(&number.to_string()))
-    })
+    map?.as_object()?.get(&format!("{session_id}_{suffix}"))
 }
 
 struct ObservationParser {
@@ -439,32 +333,27 @@ fn parse_qa(
             if !qa.is_object() {
                 return Err(location.error(format!("qa[{idx}]"), "expected a QA object"));
             }
-            let question = nonblank_string_field(qa, &["question", "q"]).ok_or_else(|| {
+            let question = nonblank_string_field(qa, "question").ok_or_else(|| {
                 location.error(format!("qa[{idx}].question"), "expected a non-blank string")
             })?;
             Ok(LoCoMoQa {
-                question_id: nonblank_string_field(qa, &["question_id", "qid", "id"])
+                question_id: nonblank_string_field(qa, "question_id")
                     .unwrap_or_else(|| format!("{sample_id}:qa:{}", idx + 1)),
                 qa_index: idx + 1,
-                question_type: scalar_field(qa, &["question_type", "category", "type"]),
+                question_type: scalar_field(qa, "category"),
                 question,
-                answer: scalar_field(qa, &["answer", "a"]),
-                evidence_dialog_ids: evidence_ids(
-                    qa.get("evidence").or_else(|| qa.get("evidence_dialog_ids")),
-                ),
+                answer: scalar_field(qa, "answer"),
+                evidence_dialog_ids: evidence_ids(qa.get("evidence")),
             })
         })
         .collect()
 }
 
-fn nonblank_string_field(value: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| {
-            value
-                .get(*key)
-                .and_then(Value::as_str)
-                .filter(|text| !text.trim().is_empty())
-        })
+fn nonblank_string_field(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
         .map(ToOwned::to_owned)
 }
 
@@ -472,24 +361,22 @@ fn evidence_ids(value: Option<&Value>) -> Vec<String> {
     match value {
         Some(Value::Array(items)) => items
             .iter()
-            .filter_map(|item| {
-                scalar_value(item).or_else(|| string_field(item, &["dia_id", "dialog_id", "id"]))
-            })
+            .filter_map(|item| scalar_value(item).or_else(|| string_field(item, "dia_id")))
             .collect(),
         Some(value) => scalar_value(value).into_iter().collect(),
         _ => Vec::new(),
     }
 }
 
-fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| value.get(*key).and_then(Value::as_str))
+fn string_field(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
         .map(ToOwned::to_owned)
 }
 
-fn scalar_field(value: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| value.get(*key).and_then(scalar_value))
+fn scalar_field(value: &Value, key: &str) -> Option<String> {
+    value.get(key).and_then(scalar_value)
 }
 
 fn scalar_value(value: &Value) -> Option<String> {
@@ -513,10 +400,6 @@ fn string_array_field(value: Option<&Value>) -> Vec<String> {
     }
 }
 
-fn session_number(key: &str) -> Option<usize> {
-    key.strip_prefix("session_")?.parse().ok()
-}
-
 fn canonical_session_number(key: &str) -> Option<&str> {
     let number = key.strip_prefix("session_")?;
     (!number.is_empty()
@@ -528,18 +411,6 @@ fn canonical_session_number(key: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_nested_fixture() {
-        let rows = load_value(serde_json::json!([{
-            "sample_id": "p1",
-            "conversation": [{"session_id": "s1", "turns": [{"dia_id": "d1", "speaker": "A", "text": "likes tea"}]}],
-            "qa": [{"question_id": "q1", "question": "What?", "evidence": ["d1"]}]
-        }]))
-        .unwrap();
-        assert_eq!(rows[0].namespace(), "locomo:p1");
-        assert_eq!(rows[0].evidence_sessions(&rows[0].qa[0]), vec!["s1"]);
-    }
 
     #[test]
     fn parses_official_keyed_conversation_shape() {
