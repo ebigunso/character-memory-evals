@@ -172,16 +172,16 @@ Schema v3 keeps backend persistence identities derived from config, stable names
 
 Every run writes one JSONL artifact named by `--out`, plus adjacent `header.json` and `report.json`. The output filename must end in `.jsonl`. Outputs are always new files: if any of these three names already exists as a file, link or directory, admission fails before writing artifacts. Each writer also creates its file atomically and fails if a destination appears after admission. Choose a new output directory or deliberately remove the existing outputs before running again.
 
-- Continuity `traces.jsonl` carries each query's result payload once at the top level: IDs, question/type, gold labels, retrieved items, context, metrics, measured latency and native outcomes. It also records fixture/namespace/event identity, timestamp, expected labels, history text and restart observations belonging to that probe query. There is no separate rows or summary file.
-- Conventional datasets keep one result row per query in their JSONL artifact.
+- Continuity `traces.jsonl` carries each query's result payload once at the top level: IDs, question/type, gold labels, retrieved items, context, metrics, measured latency and native outcomes. It also records fixture/namespace/event identity, timestamp, expected labels, history text and restart observations belonging to that probe query. Restart probes retain returned IDs and recall before and after restart, plus the stable-returned-objects flag. There is no separate rows or summary file.
+- Conventional datasets keep one result row per query in their JSONL artifact. In both row types, retrieved-context character and word counts live in `context`; retrieved-context and full-history token counts live in `metrics` and are aggregated in the report.
 - `header.json` owns run identity, adapter, exact config and hashes, input hash, commits, storage root/retention, and scenario or dataset embedding bindings. Reports carry no second header.
-- Continuity `report.json` contains aggregate metrics, support/coverage, degradation, latency and restart count; per-scenario metrics/support/coverage; and measured tuning observations. Full rationale, fanout, health and restart payloads are read from traces. Conventional `report.json` contains the row aggregates, support/coverage, latency and degradation.
+- Continuity `report.json` contains aggregate metrics, support/coverage, degradation, latency and restart count, plus per-scenario outcomes, metrics, support and coverage. Full rationale, fanout, health and restart payloads are read from traces. Conventional `report.json` contains the row aggregates, support/coverage, latency and degradation.
 
 These artifacts use ordinary derived serde without schema dispatch. Measured latency and native timestamps can vary; use `diff` to compare runs.
 
 ### Compare runs
 
-`diff` reads conventional rows or merged continuity traces through the same derived result-row serde and compares by question after normalizing only `run_id` and `latency_ms`. A row whose required fields are missing or mistyped fails to deserialize; an artifact from a superseded shape is old and is compared with an offline tool resurrected from the commit the findings register names, never by the live command. It reports returned-identity, rank, metric, and degradation-flag changes plus a summary:
+`diff` reads conventional rows or merged continuity traces through the same derived result-row serde and compares by question. It ignores run identity and latency. A row whose required fields are missing or mistyped fails to deserialize; an artifact from a superseded shape is old and is compared with an offline tool resurrected from the commit the findings register names, never by the live command. It reports returned-identity, rank, metric, and degradation-flag changes plus a summary:
 
 ```bash
 cargo run -p cmem-eval-runner -- diff \

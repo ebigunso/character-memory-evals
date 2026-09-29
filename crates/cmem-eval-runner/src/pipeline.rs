@@ -11,7 +11,7 @@ use cmem_eval::{
     GraphEnrichmentInput, GraphSnapshotInput, LiveEmbeddingProvider, MetricFamily, MetricsConfig,
     MetricsRecord, ObservationInput, PerQuestionResult, ResultContextMetrics, RetrieveInput,
     RetrievedContextPack, RetrievedItem, RunAdapterMetadata, Timer, composition_metrics,
-    count_tokens, estimate_word_count, initialize_registry_metrics_for, insert_composition_metrics,
+    count_tokens, initialize_registry_metrics_for, insert_composition_metrics,
     insert_context_metrics, insert_integrity_detail_metrics, integrity_details_from_outcomes,
     summarize_rows, write_jsonl, write_summary,
 };
@@ -333,7 +333,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                 }
             }
             let full_history = S::full_history_text(&item);
-            let full_history_metrics = full_history_context_metrics(Some(&full_history));
+            let full_history_tokens = count_tokens(&full_history);
             let questions = S::questions(&item);
             for question in questions {
                 let question_timer = Timer::start();
@@ -361,7 +361,8 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                         .await?
                 };
 
-                let context = context_metrics_with_full_history(&pack, full_history_metrics);
+                let (context, retrieved_context_tokens) =
+                    context_metrics_with_full_history(&pack, full_history_tokens);
                 let composition = composition_metrics(pack.items());
                 let integrity = if config.retrieval.mode == cmem_eval::RetrievalMode::Hybrid {
                     integrity_details_from_outcomes(pack.items(), pack.outcomes())
@@ -379,9 +380,14 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                     .as_object()
                     .cloned()
                     .context("dataset scorer must return a JSON object before metrics admission")?;
-                insert_common_metrics(
+                insert_context_metrics(
                     &mut metrics,
                     &context,
+                    retrieved_context_tokens,
+                    Some(full_history_tokens),
+                );
+                insert_common_metrics(
+                    &mut metrics,
                     &composition,
                     &integrity,
                     std::slice::from_ref(&metric_family),
@@ -404,8 +410,6 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                     latency_ms: latency_ms
                         .try_into()
                         .context("query latency exceeds u64 milliseconds")?,
-                    context_char_count: context.retrieved_context_chars,
-                    context_word_count: context.retrieved_context_words,
                     context,
                     retrieval_outcomes,
                     composition,
@@ -593,7 +597,6 @@ async fn run_continuity_pipeline(
         write_continuity_traces(&args.run.out, &traces)?;
         write_run_header(&args.run.out, &header)?;
         let report = assemble_continuity_report(ContinuityReportInput {
-            config: serde_json::to_value(&config)?,
             traces: &traces,
             outcomes: &outcomes,
             metric_family: &metric_family,
@@ -630,8 +633,9 @@ fn continuity_result_row(
     trace: &ContinuityQueryObservation,
     latency_ms: u128,
 ) -> Result<PerQuestionResult> {
-    let full_history = full_history_context_metrics(Some(&trace.history_text));
-    let context = context_metrics_with_full_history(&trace.retrieval, full_history);
+    let full_history_tokens = count_tokens(&trace.history_text);
+    let (context, retrieved_context_tokens) =
+        context_metrics_with_full_history(&trace.retrieval, full_history_tokens);
     let composition = composition_metrics(trace.retrieval.items());
     let integrity = if config.retrieval.mode == cmem_eval::RetrievalMode::Hybrid {
         integrity_details_from_outcomes(trace.retrieval.items(), trace.retrieval.outcomes())
@@ -639,9 +643,14 @@ fn continuity_result_row(
         cmem_eval::integrity_details(trace.retrieval.items())
     };
     let mut metrics = Map::new();
-    insert_common_metrics(
+    insert_context_metrics(
         &mut metrics,
         &context,
+        retrieved_context_tokens,
+        Some(full_history_tokens),
+    );
+    insert_common_metrics(
+        &mut metrics,
         &composition,
         &integrity,
         std::slice::from_ref(metric_family),
@@ -672,8 +681,6 @@ fn continuity_result_row(
         latency_ms: latency_ms
             .try_into()
             .context("query latency exceeds u64 milliseconds")?,
-        context_char_count: context.retrieved_context_chars,
-        context_word_count: context.retrieved_context_words,
         context,
         retrieval_outcomes: trace.retrieval.outcomes().to_vec(),
         composition,
@@ -941,55 +948,35 @@ fn load_snapshots_by_dataset_item(
 
 fn insert_common_metrics(
     metrics: &mut Map<String, Value>,
-    context: &ResultContextMetrics,
     composition: &cmem_eval::ResultCompositionMetrics,
     integrity: &cmem_eval::ResultIntegrityDetails,
     metric_families: &[MetricFamily],
 ) {
     initialize_registry_metrics_for(metrics, metric_families);
-    insert_context_metrics(metrics, context);
     insert_composition_metrics(metrics, composition);
     insert_integrity_detail_metrics(metrics, integrity);
 }
 
-#[derive(Debug, Clone, Copy)]
-struct FullHistoryContextMetrics {
-    chars: Option<usize>,
-    words: Option<usize>,
-    tokens: Option<usize>,
-}
-
-fn full_history_context_metrics(full_history_text: Option<&str>) -> FullHistoryContextMetrics {
-    FullHistoryContextMetrics {
-        chars: full_history_text.map(|text| text.chars().count()),
-        words: full_history_text.map(estimate_word_count),
-        tokens: full_history_text.map(count_tokens),
-    }
-}
-
 fn context_metrics_with_full_history(
     pack: &RetrievedContextPack,
-    full_history: FullHistoryContextMetrics,
-) -> ResultContextMetrics {
+    full_history_tokens: usize,
+) -> (ResultContextMetrics, usize) {
     let retrieved_context_tokens = count_tokens(pack.context_text());
-    let compression_ratio = match (full_history.tokens, retrieved_context_tokens) {
-        (Some(full), retrieved) if retrieved > 0 => Some(full as f64 / retrieved as f64),
+    let compression_ratio = match (full_history_tokens, retrieved_context_tokens) {
+        (full, retrieved) if retrieved > 0 => Some(full as f64 / retrieved as f64),
         _ => None,
     };
-    let reduction_rate = match (full_history.tokens, retrieved_context_tokens) {
-        (Some(full), retrieved) if full > 0 => Some(1.0 - retrieved as f64 / full as f64),
+    let reduction_rate = match (full_history_tokens, retrieved_context_tokens) {
+        (full, retrieved) if full > 0 => Some(1.0 - retrieved as f64 / full as f64),
         _ => None,
     };
-    ResultContextMetrics {
+    let context = ResultContextMetrics {
         retrieved_context_chars: pack.context_char_count(),
         retrieved_context_words: pack.context_word_count(),
-        retrieved_context_tokens,
-        full_history_chars: full_history.chars,
-        full_history_words: full_history.words,
-        full_history_tokens: full_history.tokens,
         compression_ratio,
         reduction_rate,
-    }
+    };
+    (context, retrieved_context_tokens)
 }
 
 #[derive(Debug)]
@@ -1153,7 +1140,12 @@ mod tests {
     }
 
     fn read_traces(path: &Path) -> Vec<ContinuityQueryTrace> {
-        cmem_eval_continuity::read_continuity_traces(path).unwrap()
+        fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
     }
 
     fn current_continuity_config_text() -> String {
@@ -1594,7 +1586,8 @@ mod tests {
                 .count(),
             1
         );
-        let summary = cmem_eval::read_summary(&summary_output).unwrap();
+        let summary: cmem_eval::RunSummary =
+            serde_json::from_slice(&fs::read(&summary_output).unwrap()).unwrap();
         assert!(!summary.degradation.any_degradation);
         let header = read_header(&output);
         assert_eq!(header.input_sha256, input_sha256);
@@ -1781,75 +1774,12 @@ mod tests {
                 .iter()
                 .all(|trace| !trace.fanout_utilization.is_empty())
         );
-        let fanout = native
-            .iter()
-            .flat_map(|trace| &trace.fanout_utilization)
-            .cloned()
-            .collect::<Vec<_>>();
-        let decisions = native
-            .iter()
-            .flat_map(|trace| &trace.selectivity_decisions)
-            .cloned()
-            .collect::<Vec<_>>();
-        let scored = decisions
-            .iter()
-            .filter(|decision| decision.score.is_some())
-            .count();
-        let fallback = decisions
-            .iter()
-            .filter(|decision| decision.fallback)
-            .count();
         let report = cmem_eval_continuity::read_continuity_report(&report_path).unwrap();
         let restart = &traces[0].restart_observations[0];
         assert_eq!(restart.probe_query_id, traces[0].result.question_id);
-        for snapshot in [&restart.before_restart, &restart.after_restart] {
-            assert_eq!(
-                snapshot.graph_relation_count,
-                Some(native.iter().map(|trace| trace.graph_relations.len()).sum())
-            );
-            assert_eq!(
-                snapshot.graph_verified_count,
-                Some(
-                    outcomes
-                        .iter()
-                        .map(|outcome| outcome.rationale.graph_verified_count)
-                        .sum()
-                )
-            );
-            assert_eq!(snapshot.fanout_decision_count, Some(fanout.len()));
-            assert_eq!(snapshot.selectivity_decision_count, Some(decisions.len()));
-            assert_eq!(snapshot.scored_selectivity_count, Some(scored));
-            assert_eq!(snapshot.fallback_selectivity_count, Some(fallback));
-        }
-        let observed = &report.tuning_observations[0].observed;
-        assert_eq!(observed["root_counter_query_count"], 1);
-        assert_eq!(
-            observed["unique_graph_root_candidate_count"],
-            outcomes
-                .iter()
-                .map(|outcome| outcome
-                    .rationale
-                    .telemetry
-                    .unique_graph_root_candidate_count)
-                .sum::<usize>()
-        );
-        assert_eq!(
-            observed["selected_graph_root_count"],
-            outcomes
-                .iter()
-                .map(|outcome| outcome.rationale.telemetry.selected_graph_root_count)
-                .sum::<usize>()
-        );
-        assert_eq!(
-            observed["graph_root_omission_count"],
-            outcomes
-                .iter()
-                .map(|outcome| outcome.rationale.telemetry.graph_root_omission_count)
-                .sum::<usize>()
-        );
-        assert_eq!(observed["selectivity_decision_count"], decisions.len());
-        assert_eq!(observed["scored_selectivity_count"], scored);
-        assert_eq!(observed["fallback_selectivity_count"], fallback);
+        assert!(restart.delta.stable_returned_objects);
+        assert_eq!(restart.before_restart.recall, restart.after_restart.recall);
+        assert_eq!(report.aggregate.restart_count, 1);
     }
 
     #[tokio::test]
@@ -2009,7 +1939,6 @@ mod tests {
         assert!(summary.degradation.any_degradation);
 
         let report = assemble_continuity_report(ContinuityReportInput {
-            config: serde_json::to_value(&config).unwrap(),
             traces: &traces,
             outcomes: &traces
                 .iter()

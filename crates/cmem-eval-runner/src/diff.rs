@@ -12,10 +12,7 @@ pub(crate) struct DiffArgs {
 }
 
 pub(crate) fn run(args: DiffArgs) -> Result<()> {
-    let report = compare(
-        normalize(read_rows(&args.run_a)?),
-        normalize(read_rows(&args.run_b)?),
-    )?;
+    let report = compare(read_rows(&args.run_a)?, read_rows(&args.run_b)?)?;
     print!("{}", report.render());
     if report.differing_queries > 0 {
         bail!(
@@ -29,14 +26,6 @@ pub(crate) fn run(args: DiffArgs) -> Result<()> {
 
 fn read_rows(path: &Path) -> Result<Vec<PerQuestionResult>> {
     cmem_eval::read_jsonl(path)
-}
-
-fn normalize(mut rows: Vec<PerQuestionResult>) -> Vec<PerQuestionResult> {
-    for row in &mut rows {
-        row.run_id = "__RUN__".to_string();
-        row.latency_ms = 0;
-    }
-    rows
 }
 
 #[derive(Debug, Default)]
@@ -223,8 +212,6 @@ mod tests {
                 text: None,
             }],
             context_text: String::new(),
-            context_char_count: 0,
-            context_word_count: 0,
             context: Default::default(),
             composition: Default::default(),
             integrity: Default::default(),
@@ -270,12 +257,12 @@ mod tests {
         // A different object at the same rank changes the identity list and,
         // because ranks are keyed by identity, the rank list too.
         let report = compare(
-            normalize(vec![row("a", 1, 1)]),
-            normalize(vec![row_with("b", 1, 1, |value| {
+            vec![row("a", 1, 1)],
+            vec![row_with("b", 1, 1, |value| {
                 value["retrieved"][0]["internal_id"] = json!("two");
                 value["retrieved"][0]["external_id"] = json!("two");
                 value["retrieved"][0]["episode_external_id"] = json!("two");
-            })]),
+            })],
         )
         .unwrap();
         only_counter(&report, 1, 1, 0, 0);
@@ -292,10 +279,10 @@ mod tests {
     #[test]
     fn metric_only_change_is_reported_once() {
         let report = compare(
-            normalize(vec![row("a", 1, 1)]),
-            normalize(vec![row_with("b", 1, 1, |value| {
+            vec![row("a", 1, 1)],
+            vec![row_with("b", 1, 1, |value| {
                 value["metrics"] = json!({"recall_any@1": 0.0});
-            })]),
+            })],
         )
         .unwrap();
         only_counter(&report, 0, 0, 1, 0);
@@ -314,8 +301,8 @@ mod tests {
     #[test]
     fn degradation_only_change_is_reported_once() {
         let report = compare(
-            normalize(vec![row("a", 1, 1)]),
-            normalize(vec![row_with("b", 1, 1, |value| {
+            vec![row("a", 1, 1)],
+            vec![row_with("b", 1, 1, |value| {
                 value["write_outcomes"][0]["vector_indexing_failure"] =
                     serde_json::to_value(cmem_eval::character_memory::VectorIndexingFailure {
                         unindexed_objects: Vec::new(),
@@ -326,7 +313,7 @@ mod tests {
                             },
                     })
                     .unwrap();
-            })]),
+            })],
         )
         .unwrap();
         only_counter(&report, 0, 0, 0, 1);
@@ -342,12 +329,8 @@ mod tests {
     }
 
     #[test]
-    fn run_identity_and_latency_are_the_only_normalized_fields() {
-        let report = compare(
-            normalize(vec![row("a", 1, 1)]),
-            normalize(vec![row("b", 99, 1)]),
-        )
-        .unwrap();
+    fn run_identity_and_latency_do_not_affect_comparison() {
+        let report = compare(vec![row("a", 1, 1)], vec![row("b", 99, 1)]).unwrap();
         assert_eq!(report.queries, 1);
         assert_eq!(report.differing_queries, 0);
         assert_eq!(report.missing_from_a, 0);
@@ -416,11 +399,7 @@ mod tests {
 
     #[test]
     fn rank_only_change_is_reported_once() {
-        let report = compare(
-            normalize(vec![row("a", 1, 1)]),
-            normalize(vec![row("b", 2, 2)]),
-        )
-        .unwrap();
+        let report = compare(vec![row("a", 1, 1)], vec![row("b", 2, 2)]).unwrap();
         assert_eq!(report.differing_queries, 1);
         assert_eq!(report.identity_changes, 0);
         assert_eq!(report.rank_changes, 1);

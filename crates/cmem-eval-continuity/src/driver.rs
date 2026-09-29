@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
 
@@ -268,28 +268,11 @@ pub struct ContinuityScenarioRun {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RestartProbeSnapshot {
     pub returned_object_ids: Vec<String>,
-    pub relevant_returned_count: usize,
-    pub expected_relevant_count: usize,
     pub recall: Option<f64>,
-    pub graph_relation_count: Option<usize>,
-    pub graph_verified_count: Option<usize>,
-    pub fanout_decision_count: Option<usize>,
-    pub selectivity_decision_count: Option<usize>,
-    pub scored_selectivity_count: Option<usize>,
-    pub fallback_selectivity_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RestartProbeDelta {
-    pub returned_object_count: i64,
-    pub relevant_returned_count: i64,
-    pub recall: Option<f64>,
-    pub graph_relation_count: Option<i64>,
-    pub graph_verified_count: Option<i64>,
-    pub fanout_decision_count: Option<i64>,
-    pub selectivity_decision_count: Option<i64>,
-    pub scored_selectivity_count: Option<i64>,
-    pub fallback_selectivity_count: Option<i64>,
     pub stable_returned_objects: bool,
 }
 
@@ -313,31 +296,6 @@ pub fn write_continuity_traces(path: &Path, traces: &[ContinuityQueryTrace]) -> 
         file.write_all(b"\n")?;
     }
     Ok(())
-}
-
-pub fn read_continuity_traces(path: &Path) -> Result<Vec<ContinuityQueryTrace>> {
-    let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
-    let mut traces = Vec::new();
-    for (index, line) in BufReader::new(file).lines().enumerate() {
-        let line_number = index + 1;
-        let line = line.with_context(|| {
-            format!(
-                "read continuity trace line {line_number} from {}",
-                path.display()
-            )
-        })?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let trace = serde_json::from_str(&line).with_context(|| {
-            format!(
-                "parse continuity trace line {line_number} from {}",
-                path.display()
-            )
-        })?;
-        traces.push(trace);
-    }
-    Ok(traces)
 }
 
 pub struct ContinuityRuntime {
@@ -931,7 +889,6 @@ pub async fn run_continuity_scenario(
                         superseded_derived_memory_external_ids: supersedes_external_ids,
                         correction_origin: provenance,
                         rationale: format!("fixture-scripted correction {event_id}"),
-                        cascade_policy: Default::default(),
                         include_trace: true,
                     })
                     .await?;
@@ -1099,7 +1056,10 @@ pub async fn run_continuity_scenario(
                 .await?;
                 let after_restart = restart_probe_snapshot(&after_pack, probe_expected);
                 run.outcome.record_retrieval(&after_pack);
-                let delta = restart_probe_delta(&before_restart, &after_restart);
+                let delta = RestartProbeDelta {
+                    stable_returned_objects: before_restart.returned_object_ids
+                        == after_restart.returned_object_ids,
+                };
                 run.restart_observations.push(RestartObservation {
                     event_id: event_id.clone(),
                     timestamp: *timestamp,
@@ -1266,111 +1226,11 @@ fn restart_probe_snapshot(
         })
         .count();
     let expected_relevant_count = expected.relevant_external_ids.len();
-    let native_traces = pack
-        .outcomes()
-        .iter()
-        .filter_map(|outcome| outcome.trace.as_ref())
-        .collect::<Vec<_>>();
-    let has_trace = !native_traces.is_empty();
     RestartProbeSnapshot {
         returned_object_ids,
-        relevant_returned_count,
-        expected_relevant_count,
         recall: (expected_relevant_count > 0)
             .then_some(relevant_returned_count as f64 / expected_relevant_count as f64),
-        graph_relation_count: has_trace.then(|| {
-            native_traces
-                .iter()
-                .map(|trace| trace.graph_relations.len())
-                .sum()
-        }),
-        graph_verified_count: has_trace.then(|| {
-            pack.outcomes()
-                .iter()
-                .map(|outcome| outcome.rationale.graph_verified_count)
-                .sum()
-        }),
-        fanout_decision_count: has_trace.then(|| {
-            native_traces
-                .iter()
-                .map(|trace| trace.fanout_utilization.len())
-                .sum()
-        }),
-        selectivity_decision_count: has_trace.then(|| {
-            native_traces
-                .iter()
-                .map(|trace| trace.selectivity_decisions.len())
-                .sum()
-        }),
-        scored_selectivity_count: has_trace.then(|| {
-            native_traces
-                .iter()
-                .flat_map(|trace| &trace.selectivity_decisions)
-                .filter(|decision| decision.score.is_some())
-                .count()
-        }),
-        fallback_selectivity_count: has_trace.then(|| {
-            native_traces
-                .iter()
-                .flat_map(|trace| &trace.selectivity_decisions)
-                .filter(|decision| decision.fallback)
-                .count()
-        }),
     }
-}
-
-fn restart_probe_delta(
-    before: &RestartProbeSnapshot,
-    after: &RestartProbeSnapshot,
-) -> RestartProbeDelta {
-    RestartProbeDelta {
-        returned_object_count: signed_delta(
-            before.returned_object_ids.len(),
-            after.returned_object_ids.len(),
-        ),
-        relevant_returned_count: signed_delta(
-            before.relevant_returned_count,
-            after.relevant_returned_count,
-        ),
-        recall: option_f64_delta(before.recall, after.recall),
-        graph_relation_count: option_usize_delta(
-            before.graph_relation_count,
-            after.graph_relation_count,
-        ),
-        graph_verified_count: option_usize_delta(
-            before.graph_verified_count,
-            after.graph_verified_count,
-        ),
-        fanout_decision_count: option_usize_delta(
-            before.fanout_decision_count,
-            after.fanout_decision_count,
-        ),
-        selectivity_decision_count: option_usize_delta(
-            before.selectivity_decision_count,
-            after.selectivity_decision_count,
-        ),
-        scored_selectivity_count: option_usize_delta(
-            before.scored_selectivity_count,
-            after.scored_selectivity_count,
-        ),
-        fallback_selectivity_count: option_usize_delta(
-            before.fallback_selectivity_count,
-            after.fallback_selectivity_count,
-        ),
-        stable_returned_objects: before.returned_object_ids == after.returned_object_ids,
-    }
-}
-
-fn signed_delta(before: usize, after: usize) -> i64 {
-    after as i64 - before as i64
-}
-
-fn option_usize_delta(before: Option<usize>, after: Option<usize>) -> Option<i64> {
-    Some(signed_delta(before?, after?))
-}
-
-fn option_f64_delta(before: Option<f64>, after: Option<f64>) -> Option<f64> {
-    Some(after? - before?)
 }
 
 fn endpoint(
@@ -1466,8 +1326,6 @@ pub(crate) mod tests {
                 lifecycle_outcomes: Vec::new(),
                 metrics: Default::default(),
                 latency_ms: 0,
-                context_char_count: 0,
-                context_word_count: 0,
                 context: Default::default(),
                 retrieval_outcomes: vec![cmem_eval::RetrieveOutcome {
                     time_range: None,
@@ -1514,7 +1372,14 @@ pub(crate) mod tests {
     fn trace_files_preserve_canonical_records_without_overwrite() {
         let directory = tempfile::tempdir().unwrap();
         let traces = [persisted_trace()];
-        let read_traces = |path: &Path| read_continuity_traces(path).unwrap();
+        let read_traces = |path: &Path| -> Vec<ContinuityQueryTrace> {
+            fs::read_to_string(path)
+                .unwrap()
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect()
+        };
 
         // Persisted merged records keep the native event order.
         let mut reordered = traces[0].clone();
@@ -2490,6 +2355,17 @@ pub(crate) mod tests {
             assert!(counts.get(operation).is_some_and(|count| *count > 0));
         }
         assert_eq!(counts.get("link"), Some(&expected_link_count));
+        assert!(
+            traces
+                .iter()
+                .filter(|trace| trace.pattern == ScenarioPattern::CorrectionChains)
+                .flat_map(|trace| &trace.lifecycle_outcomes)
+                .any(|record| record
+                    .trace
+                    .as_ref()
+                    .is_some_and(|trace| trace.requested_targets.len() == 2))
+        );
+
         assert!(traces.iter().any(|trace| {
             trace.write_outcomes.iter().any(|outcome| {
                 !outcome.persisted_link_ids.is_empty()
@@ -2508,8 +2384,12 @@ pub(crate) mod tests {
             assert!(restart.reopen_stats);
             assert!(restart.lifecycle.restored_identity_count > 0);
             assert!(restart.delta.stable_returned_objects);
-            assert_eq!(restart.delta.returned_object_count, 0);
-            assert_eq!(restart.delta.recall, Some(0.0));
+            assert_eq!(
+                restart.before_restart.returned_object_ids,
+                restart.after_restart.returned_object_ids
+            );
+            assert!(restart.before_restart.recall.is_some());
+            assert_eq!(restart.before_restart.recall, restart.after_restart.recall);
         }
     }
 
@@ -2624,43 +2504,11 @@ pub(crate) mod tests {
 
         let snapshot = restart_probe_snapshot(&pack, &expected);
 
-        assert_eq!(snapshot.relevant_returned_count, 1);
         assert_eq!(snapshot.recall, Some(1.0));
         assert_eq!(
             snapshot.returned_object_ids,
             vec!["observation-external".to_string()]
         );
-        assert_eq!(snapshot.fanout_decision_count, None);
-        for native_trace in [None, Some(cmem_eval::RetrievalTrace::empty())] {
-            let outcome = cmem_eval::RetrieveOutcome {
-                time_range: None,
-                activity: None,
-                scene: cmem_eval::character_memory::Scene::at(
-                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.into(),
-                ),
-                scene_references: Vec::new(),
-                memory_scenes: Vec::new(),
-                pack: cmem_eval::character_memory::ContinuityContextPack::empty(),
-                rationale: cmem_eval::character_memory::RetrievalRationale::new("test"),
-                trace: None,
-            };
-            let mut second = outcome.clone();
-            second.rationale.graph_verified_count = 2;
-            second.trace = native_trace;
-            let has_trace = second.trace.is_some();
-            let pack = RetrievedContextPack::from_ranked_items(
-                Vec::new(),
-                vec![outcome, second],
-                cmem_eval::ContextRenderer::PlainText,
-            );
-            let snapshot = restart_probe_snapshot(&pack, &expected);
-            assert_eq!(snapshot.graph_verified_count, has_trace.then_some(2));
-            assert_eq!(snapshot.graph_relation_count, has_trace.then_some(0));
-            assert_eq!(snapshot.fanout_decision_count, has_trace.then_some(0));
-            assert_eq!(snapshot.selectivity_decision_count, has_trace.then_some(0));
-            assert_eq!(snapshot.scored_selectivity_count, has_trace.then_some(0));
-            assert_eq!(snapshot.fallback_selectivity_count, has_trace.then_some(0));
-        }
     }
 
     #[tokio::test]
@@ -2741,26 +2589,6 @@ pub(crate) mod tests {
                 }
             }
         }
-    }
-
-    #[tokio::test]
-    async fn correction_forget_records_explicit_native_targets() {
-        let fixtures = generate_fixture_set(CHECKED_FIXTURE_SEED).unwrap();
-        let scenario = fixtures
-            .scenarios
-            .iter()
-            .find(|scenario| scenario.pattern == ScenarioPattern::CorrectionChains)
-            .unwrap();
-        let run = run_embedded(scenario).await;
-        assert!(
-            run.traces
-                .iter()
-                .flat_map(|trace| &trace.lifecycle_outcomes)
-                .any(|record| record
-                    .trace
-                    .as_ref()
-                    .is_some_and(|trace| trace.requested_targets.len() == 2))
-        );
     }
 
     #[test]
