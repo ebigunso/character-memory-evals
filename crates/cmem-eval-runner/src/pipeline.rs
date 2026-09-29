@@ -229,7 +229,6 @@ fn select_continuity_scenarios(
     Ok(scenarios)
 }
 
-#[derive(Default)]
 struct MemoryBatch {
     episodes: Vec<EpisodeInput>,
     observations: Vec<ObservationInput>,
@@ -750,7 +749,6 @@ impl DatasetSpec for LongMemEvalSpec {
             episodes: mapped.episodes,
             observations: mapped.observations,
             derived_memories: Vec::new(),
-            ..MemoryBatch::default()
         }
     }
 
