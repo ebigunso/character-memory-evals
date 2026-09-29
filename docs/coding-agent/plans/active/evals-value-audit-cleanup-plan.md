@@ -607,6 +607,8 @@ Append-only editing rule (applies to both logs below): when appending an entry, 
   - User approval: rulings by the orchestrator on 2026-09-24. Plan approval is still pending.
   - Record proposed: none.
 
+- 2026-09-29 Ruling for every behavior-free proof: a pair that produces no rows at both pins (the loud-topic fixture, feature-gated at both) cannot pass the CLI `diff`, which rightly refuses empty runs. For such a pair the CLI diff is recorded as not applicable, with the reason and the 0/0 row counts, and the raw structured comparison plus `compare-continuity` stand as its proof. Every other pair keeps the full CLI diff. The library's wall-clock `created_at`/`updated_at` on active threads and derived memories are named exact paths under the timestamp allowance; authored scene and elapsed times stay compared.
+
 ## Notes
 - Risks:
   - The obligations family's commit or its review fixes may touch more files (Assumption A1).
