@@ -347,7 +347,7 @@ fn generated_overlap(
     }
     let start = Utc.with_ymd_and_hms(2025, 1, 1, 12, 0, 0).unwrap();
     // At least 48 actual episodes match the scene words. Their body-only
-    // observations do not; the native Setting/With write surface creates overlap.
+    // observations do not; the separate scene surfaces create overlap.
     let scene_count = native::RetrievalCandidateLimits::default().max_vector_candidates;
     for index in 0..scene_count + targets.len() {
         let strong = index >= scene_count;
@@ -390,16 +390,10 @@ fn generated_overlap(
             salience: Some(0.5),
         });
     }
-    // Use the driver's existing normalized-input inventory, including scene lines.
+    // Scene surfaces already have their controlled vectors; content stays background.
     for input in scenario.runtime_embedding_inputs() {
         if input.starts_with("Ledger entry ") {
-            let index: usize = input.lines().next().unwrap()[13..].parse()?;
-            let v = if input.contains("\nSetting:") {
-                vector(0.994 - index as f32 * 0.0001, 0.05 - index as f32 * 0.0002)
-            } else {
-                background.clone()
-            };
-            assign(&mut embedding, &input, v);
+            assign(&mut embedding, &input, background.clone());
         }
     }
     scenario.events.push(InteractionEvent::Query {
@@ -1091,7 +1085,7 @@ async fn run_calibration() -> Result<()> {
         "method":{
             "design":"One generated corpus, 17 memories (51 vector objects) per vector kind and 16 activity-thread members. Same store, same probe, one floor swept; other floors stay at native defaults. No scenario pass/fail assertions. Metadata targets are used only after native retrieval. Starvation is measured only when native isolated-cue control admits the target exclusively by that kind and removing the tested cue makes the target absent; otherwise it is null, with controls retained.",
             "geometry":"Seeded synthetic vectors: unrelated groups orthogonal; loud cue cosine about 1, quiet cue about 0.2, unlived words about 0.01 to the least-bad neighbour. Values are controlled pressure, not empirical natural-language relevance thresholds.",
-            "overlapping_pressure":"Separate generated situated corpus: 48 Experience episodes with native Setting and With words, no place key, and eight strong topic-only experiences graded from cosine 0.9 to 0.6. Body-only scene observations are background; the real normalized episode surface receives a vector with exact-match-control scene cosine about 0.99 and topic cosine about 0.05. Reworded query similarities are graded below exact match and individually audited in reworded_geometry; the authored normalized episode bases stay fixed. Place-only, participant-only and combined scene probes each sweep all four floors; activity is absent, its sweep is a control. Each cohort stage lists the surviving authored episode identities, missing identities and other scored occupants (including companion observations, never counted as authored episode survival). The native topic-only control has the same cohort census, exposing losses even without scene competition. Occupancy is not a uniquely paired causal eviction. Non-topic sweeps are target-survival measurements, not exclusively-that-kind starvation claims; the existing single-target starvation control tracks the strongest episode.",
+            "overlapping_pressure":"Separate generated situated corpus: 48 Experience episodes with separate native setting and participant surfaces, no place key, and eight strong topic-only experiences graded from cosine 0.9 to 0.6. Episode content and companion observations are background; the separate scene surfaces use the controlled scene vectors. Reworded query similarities are graded below exact match and individually audited in reworded_geometry; the episode content stays background. Place-only, participant-only and combined scene probes each sweep all four floors; activity is absent, its sweep is a control. Each cohort stage lists the surviving authored episode identities, missing identities and other scored occupants (including companion observations, never counted as authored episode survival). The native topic-only control has the same cohort census, exposing losses even without scene competition. Occupancy is not a uniquely paired causal eviction. Non-topic sweeps are target-survival measurements, not exclusively-that-kind starvation claims; the existing single-target starvation control tracks the strongest episode.",
             "displacements":"Set differences versus the identical probe at tested-kind floor zero. Floor zero does not disable a cue: spare-room policy depends on the pinned library (979643f shares turns even at zero). Native floor credits are stage events, not causal admissions. Each admission names its stage/section displacement group; multiple admissions cannot be uniquely paired to displaced objects. All available native vector and final section score components are retained; root ordering score is not exposed.",
             "origin":"Candidate-merge/root floor credits precede graph expansion and are direct. At section selection, explicit matching Participant/Activity roots are direct; activity/key-only participant descendants or objects absent from retained vector candidates are inherited. Remaining cases are unknown because vector candidates and roots omit per-kind origin; no fixture labels reconstruct it.",
             "topic_roots":"Root IDs also found in the independent topic-only native candidate control, not an exclusive attribution of a root to topic. Pack slots count native Selected assignments containing topic and may overlap other kinds.",
@@ -1140,6 +1134,7 @@ mod tests {
     use super::*;
     #[test]
     fn accepted_scene_inputs_remain_byte_identical() {
+        // Overlap and its keyless derivative use the separate surfaces from 499e87a.
         let config = config();
         let (scenario, probes) = generated(&config).unwrap();
         let (overlap, overlap_probes) = generated_overlap(&config, false).unwrap();
@@ -1152,11 +1147,11 @@ mod tests {
             ),
             (
                 json!({"scenario":overlap,"probes":overlap_probes}),
-                "bf8c0f78f624b9eb22e5d481efbda57ae3fed92cdb653719924c8a6ddeedcd66",
+                "c17712fe66a6406167165a46acf199d751b057d64cf7bd493c38bf12f4d8b043",
             ),
             (
                 json!({"scenario":reworded,"probes":reworded_probes}),
-                "69c25ae2a144c770dfb4a5ec3bc35b7c7ac439032a3d32900becc10a143316f0",
+                "d8ec3d6e6451029cb66e372a7ae14296e511c7660538cadc014962349ac6f0c4",
             ),
         ] {
             assert_eq!(
@@ -1166,7 +1161,7 @@ mod tests {
         }
         assert_eq!(
             text_sha256(&serde_json::to_string(&keyless).unwrap()),
-            "07ca4a0f709c00ede5905401b4656395481a9ffae10ca723f431baefe8bc6487"
+            "318d7f929d17c8850c466f3b00323556d7d81db6e4535d976a6bb7f8129dd94a"
         );
     }
     #[test]
@@ -1198,10 +1193,16 @@ mod tests {
         assert_eq!(
             inputs
                 .iter()
-                .filter(|s| s
-                    .contains("\nSetting: Cedar reading room\nWith: Visitor wearing a linen coat"))
+                .filter(|s| s.starts_with("Ledger entry "))
                 .count(),
             native::RetrievalCandidateLimits::default().max_vector_candidates
+        );
+        assert!(inputs.contains("Cedar reading room"));
+        assert!(inputs.contains("Visitor wearing a linen coat"));
+        assert!(
+            inputs
+                .iter()
+                .all(|s| !s.contains("\nSetting:") && !s.contains("\nWith:"))
         );
         assert_eq!(
             inputs
