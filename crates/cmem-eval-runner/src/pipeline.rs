@@ -1341,6 +1341,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dataset_mismatch_fails_before_creating_run_state() {
+        for selected in ["continuity", "locomo", "longmemeval_s"] {
+            for dataset in ["other", "", "../escape"] {
+                let directory = tempfile::tempdir().unwrap();
+                let mut args = continuity_args(directory.path());
+                let mut config = read_config(&args.run.config).unwrap();
+                config.dataset = dataset.into();
+                fs::write(&args.run.config, toml::to_string(&config).unwrap()).unwrap();
+                args.run.dataset = directory.path().join("missing-fixture.json");
+                let output = directory.path().join("uncreated-output");
+                args.run.out = output.join("results.jsonl");
+                let error = match selected {
+                    "continuity" => run_continuity(args).await,
+                    "locomo" => run_locomo(args.run).await,
+                    _ => run_longmemeval(args.run).await,
+                }
+                .unwrap_err();
+                assert_eq!(
+                    error.to_string(),
+                    format!(
+                        "config dataset {dataset:?} does not match selected {selected} pipeline"
+                    )
+                );
+                assert!(!output.exists());
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn continuity_rejects_bm25_before_fixture_or_embedding_setup() {
         let directory = tempfile::tempdir().unwrap();
         let mut args = continuity_args(directory.path());
