@@ -7,7 +7,8 @@ use cmem_eval::{
     ActivityInput, BenchmarkRunConfig, ControllableDimensionPolicy, ControllableSimilarityFixture,
     EmbeddingProviderConfig, EmbeddingRuntimeBinding, MemorySceneInput, RetrieveInput,
     RetrievedContextPack, SceneParticipantInput, SimilarityConceptFixture,
-    character_memory::api::types as native, text_sha256,
+    character_memory::{MemoryId, api::types as native},
+    text_sha256,
 };
 use cmem_eval_continuity::{
     CHECKED_FIXTURE_SEED, ContinuityRuntime, ContinuityScenario, ContinuityScenarioEmbedding,
@@ -881,6 +882,7 @@ async fn run_calibration() -> Result<()> {
     let overlap_input = json!({"scenario":overlap_scenario,"probes":overlap_probes});
     let reworded_input = json!({"scenario":reworded_scenario,"probes":reworded_probes});
     let mut opposed_inputs = Vec::new();
+    let mut self_notion_ids = BTreeMap::new();
     let mut consolidation = Value::Null;
     let mut residuals = Value::Null;
     let mut obligations = Value::Null;
@@ -890,6 +892,7 @@ async fn run_calibration() -> Result<()> {
                 &stores,
                 &config,
                 &mut timings,
+                &mut self_notion_ids,
             ))
             .await?;
         }
@@ -901,6 +904,7 @@ async fn run_calibration() -> Result<()> {
                 &stores,
                 &config,
                 &mut timings,
+                &mut self_notion_ids,
             ))
             .await?;
             return Ok(vec![Value::Null; 8]);
@@ -909,6 +913,7 @@ async fn run_calibration() -> Result<()> {
             &stores,
             &config,
             &mut timings,
+            &mut self_notion_ids,
         ))
         .await?;
         let time_and_prospective = if consolidation_only {
@@ -919,6 +924,7 @@ async fn run_calibration() -> Result<()> {
                 &config,
                 anniversary_required,
                 &mut timings,
+                &mut self_notion_ids,
             ))
             .await?
         };
@@ -942,8 +948,18 @@ async fn run_calibration() -> Result<()> {
             };
             let run_root = stores.join(name);
             fs::create_dir(&run_root)?;
-            let mut runtime = ContinuityRuntime::new(&run_root, &config, binding).await?;
+            let mut runtime = ContinuityRuntime::new(
+                &run_root,
+                &config,
+                binding,
+                scenario.character_entity.as_deref(),
+            )
+            .await?;
             let result = Box::pin(measure(&mut runtime, scenario, probes, &config)).await;
+            self_notion_ids.insert(
+                scenario.namespace.clone(),
+                runtime.adapter().self_notion_id(&scenario.namespace),
+            );
             let timed = if result.is_ok() {
                 timings
                     .record(&runtime, name, false, timing::scene_queries(probes))
@@ -963,8 +979,12 @@ async fn run_calibration() -> Result<()> {
             fixture: keyless.embedding.clone(),
             dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
         };
-        let runtime = ContinuityRuntime::new(&run_root, &config, binding).await?;
+        let runtime = ContinuityRuntime::new(&run_root, &config, binding, None).await?;
         let result = Box::pin(descriptions::measure(&runtime, &keyless)).await;
+        self_notion_ids.insert(
+            keyless.namespace.clone(),
+            runtime.adapter().self_notion_id(&keyless.namespace),
+        );
         let timed = if result.is_ok() {
             timings
                 .record(
@@ -1000,11 +1020,21 @@ async fn run_calibration() -> Result<()> {
                     .clone(),
                 dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
             };
-            let mut runtime = ContinuityRuntime::new(&run_root, &config, binding).await?;
+            let mut runtime = ContinuityRuntime::new(
+                &run_root,
+                &config,
+                binding,
+                scenario.character_entity.as_deref(),
+            )
+            .await?;
             let (opposed, ids) = descriptions::opposed_scenario(&runtime, scenario).await?;
             opposed_inputs
                 .push(json!({"family":name,"scenario":opposed,"probes":probes,"id_order":ids}));
             let result = Box::pin(measure(&mut runtime, &opposed, probes, &config)).await;
+            self_notion_ids.insert(
+                opposed.namespace.clone(),
+                runtime.adapter().self_notion_id(&opposed.namespace),
+            );
             let timed = if result.is_ok() {
                 timings
                     .record(
@@ -1033,10 +1063,14 @@ async fn run_calibration() -> Result<()> {
             fixture: keyless.embedding.clone(),
             dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
         };
-        let runtime = ContinuityRuntime::new(&run_root, &config, binding).await?;
+        let runtime = ContinuityRuntime::new(&run_root, &config, binding, None).await?;
         let (opposed, ids) = descriptions::opposed_keyless(&runtime, &keyless).await?;
         opposed_inputs.push(json!({"family":"keyless","input":opposed,"id_order":ids}));
         let result = Box::pin(descriptions::measure(&runtime, &opposed)).await;
+        self_notion_ids.insert(
+            opposed.namespace.clone(),
+            runtime.adapter().self_notion_id(&opposed.namespace),
+        );
         let timed = if result.is_ok() {
             timings
                 .record(
@@ -1059,6 +1093,7 @@ async fn run_calibration() -> Result<()> {
             &stores,
             &config,
             &mut timings,
+            &mut self_notion_ids,
         ))
         .await?;
         Ok::<_, anyhow::Error>(results)
@@ -1070,7 +1105,7 @@ async fn run_calibration() -> Result<()> {
         revision(&library)? == library_commit && revision(workspace)? == harness_commit,
         "checkout revision changed during calibration"
     );
-    let mut report = json!({"header":{
+    let mut report = json!({"header":{"self_notion_ids":self_notion_ids,
         "harness_commit":harness_commit,"library_commit":library_commit,"slices_only":slices_only,"consolidation_only":consolidation_only,"anniversary_required":anniversary_required,"profile":if cfg!(debug_assertions){"debug"}else{"release"},
         "seed":CHECKED_FIXTURE_SEED,"input_sha256":text_sha256(&serde_json::to_string(&input)?),"config_sha256":text_sha256(&serde_json::to_string(&config)?),
         "overlapping_input_sha256":text_sha256(&serde_json::to_string(&overlap_input)?),

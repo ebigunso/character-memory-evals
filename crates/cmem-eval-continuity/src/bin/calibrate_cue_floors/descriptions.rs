@@ -825,9 +825,14 @@ mod tests {
                     .clone(),
                 dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 9 },
             };
-            let runtime = ContinuityRuntime::new(root.path(), &config, binding)
-                .await
-                .unwrap();
+            let runtime = ContinuityRuntime::new(
+                root.path(),
+                &config,
+                binding,
+                scenario.character_entity.as_deref(),
+            )
+            .await
+            .unwrap();
             let (opposed, order) = opposed_scenario(&runtime, &scenario).await.unwrap();
             let mut normalized = serde_json::to_value(&opposed).unwrap();
             let original = serde_json::to_value(&scenario).unwrap();

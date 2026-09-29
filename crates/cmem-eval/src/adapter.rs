@@ -59,6 +59,7 @@ pub struct CharacterMemoryAdapter {
     run_root: PathBuf,
     run_root_sha256: String,
     embedding_binding: EmbeddingRuntimeBinding,
+    character_entity: Option<String>,
     qdrant: Option<Qdrant>,
     namespaces: Arc<Mutex<HashMap<String, NamespaceState>>>,
 }
@@ -176,6 +177,7 @@ impl CharacterMemoryAdapter {
                 provider,
                 model: config.backend.embedding.model.clone(),
             },
+            None,
         )
         .await
     }
@@ -184,6 +186,7 @@ impl CharacterMemoryAdapter {
         run_root: &Path,
         config: &BenchmarkRunConfig,
         embedding_binding: EmbeddingRuntimeBinding,
+        character_entity: Option<&str>,
     ) -> Result<Self> {
         Self::validate_runtime_binding(config, &embedding_binding)?;
         let qdrant = if config.backend.vector_store_mode == VectorStoreMode::Service {
@@ -205,9 +208,18 @@ impl CharacterMemoryAdapter {
             run_root: std::path::absolute(run_root)?,
             run_root_sha256: run_root_sha256(run_root)?,
             embedding_binding,
+            character_entity: character_entity.map(str::to_owned),
             qdrant,
             namespaces: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    /// The native self notion: an authored entity, or a separate namespace identity.
+    pub fn self_notion_id(&self, namespace: &str) -> MemoryId {
+        match &self.character_entity {
+            Some(entity) => deterministic_id(namespace, "entity", entity),
+            None => deterministic_id(namespace, "self", ""),
+        }
     }
 
     fn validate_runtime_binding(
@@ -280,8 +292,9 @@ impl CharacterMemoryAdapter {
         config: &BenchmarkRunConfig,
         namespace: &str,
         binding: EmbeddingRuntimeBinding,
+        character_entity: Option<&str>,
     ) -> Result<(Self, NamespaceLifecycleResult)> {
-        let adapter = Self::new_with_binding(run_root, config, binding).await?;
+        let adapter = Self::new_with_binding(run_root, config, binding, character_entity).await?;
         let lifecycle = adapter.reattach_namespace(namespace).await?;
         Ok((adapter, lifecycle))
     }
@@ -299,6 +312,7 @@ impl CharacterMemoryAdapter {
             VectorStoreMode::Service => &collection_name,
         };
         let settings = self.settings(namespace)?;
+        let self_notion_id = self.self_notion_id(namespace);
         let memory = match &self.embedding_binding {
             EmbeddingRuntimeBinding::Live {
                 provider: LiveEmbeddingProvider::Deterministic,
@@ -309,6 +323,7 @@ impl CharacterMemoryAdapter {
                     settings,
                     vector_collection_name.to_owned(),
                     Box::new(CharacterMemoryEmbeddingProvider::new(vector_size)?),
+                    self_notion_id,
                 )
                 .await?
             }
@@ -326,6 +341,7 @@ impl CharacterMemoryAdapter {
                         fixture.clone(),
                         storage_vector_size,
                     )?),
+                    self_notion_id,
                 )
                 .await?
             }
@@ -336,13 +352,17 @@ impl CharacterMemoryAdapter {
                     Box::new(CharacterMemoryFrozenEmbeddingProvider {
                         inner: store.clone(),
                     }),
+                    self_notion_id,
                 )
                 .await?
             }
             EmbeddingRuntimeBinding::Live {
                 provider: LiveEmbeddingProvider::OpenAi,
                 ..
-            } => CharacterMemory::new(settings, vector_collection_name.to_owned()).await?,
+            } => {
+                CharacterMemory::new(settings, vector_collection_name.to_owned(), self_notion_id)
+                    .await?
+            }
         };
 
         Ok(NamespaceState {
@@ -2576,6 +2596,85 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn self_identity_matches_authored_notion_and_survives_reattach() {
+        let namespace = "self-identity";
+        for character in [None, Some("alice")] {
+            let directory = tempdir().unwrap();
+            let config = adapter_config("self-identity".into());
+            let binding = EmbeddingRuntimeBinding::Live {
+                provider: LiveEmbeddingProvider::Deterministic,
+                model: config.backend.embedding.model.clone(),
+            };
+            let adapter = CharacterMemoryAdapter::new_with_binding(
+                directory.path(),
+                &config,
+                binding.clone(),
+                character,
+            )
+            .await
+            .unwrap();
+            let self_id = adapter.self_notion_id(namespace);
+            assert_ne!(self_id, adapter.self_notion_id("another-namespace"));
+            adapter.open_namespace(namespace).await.unwrap();
+            let outcome = adapter
+                .remember_enrichment(GraphEnrichmentInput {
+                    namespace: namespace.into(),
+                    entities: vec![EntityInput {
+                        external_id: "alice".into(),
+                    }],
+                    ..Default::default()
+                })
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(outcome.stats_update_status.failure.is_none());
+            assert_eq!(
+                outcome.persisted_object_ids.contains(&self_id),
+                character.is_some()
+            );
+            let registry_path = adapter.identity_registry_path(namespace);
+            let registry = fs::read(&registry_path).unwrap();
+            assert_eq!(
+                adapter.namespaces.lock().await[namespace].identities.len(),
+                1
+            );
+            adapter.close().await.unwrap();
+
+            let different = CharacterMemoryAdapter::new_with_binding(
+                directory.path(),
+                &config,
+                binding.clone(),
+                Some("someone-else"),
+            )
+            .await
+            .unwrap();
+            let error = different.reattach_namespace(namespace).await.unwrap_err();
+            let detail = format!("{error:#}");
+            assert!(detail.contains(&self_id.to_string()), "{detail}");
+            assert!(
+                detail.contains(&different.self_notion_id(namespace).to_string()),
+                "{detail}"
+            );
+            different.close().await.unwrap();
+            assert_eq!(fs::read(&registry_path).unwrap(), registry);
+
+            let (restored, lifecycle) = CharacterMemoryAdapter::reconstruct_with_binding(
+                directory.path(),
+                &config,
+                namespace,
+                binding,
+                character,
+            )
+            .await
+            .unwrap();
+            assert_eq!(restored.self_notion_id(namespace), self_id);
+            assert_eq!(lifecycle.restored_identity_count, 1);
+            assert_eq!(fs::read(&registry_path).unwrap(), registry);
+            restored.cleanup_namespace(namespace).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn embedded_vector_only_keeps_singleton_budgets_and_ingest_text() {
         let run_directory = tempdir().unwrap();
         let run_root = run_directory.path();
@@ -2904,6 +3003,7 @@ mod tests {
             directory.path(),
             &config,
             EmbeddingRuntimeBinding::Frozen { store: provider },
+            None,
         )
         .await
         .unwrap();
@@ -3729,6 +3829,7 @@ mod tests {
                 fixture: fixture.clone(),
                 dimension_policy: ControllableDimensionPolicy::FixtureDeclared,
             },
+            None,
         )
         .await
         {
@@ -3747,6 +3848,7 @@ mod tests {
                 fixture,
                 dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 3 },
             },
+            None,
         )
         .await
         .expect("mixed-provider storage padding should be accepted explicitly");
@@ -3899,6 +4001,7 @@ mod tests {
                 provider: LiveEmbeddingProvider::Deterministic,
                 model: config.backend.embedding.model.clone(),
             },
+            None,
         )
         .await
         {
@@ -4193,6 +4296,7 @@ mod tests {
                 provider: LiveEmbeddingProvider::Deterministic,
                 model: config.backend.embedding.model.clone(),
             },
+            None,
         )
         .await)
             .expect("public adapter reconstruction");
@@ -4361,6 +4465,7 @@ mod tests {
                     provider: LiveEmbeddingProvider::Deterministic,
                     model: config.backend.embedding.model.clone(),
                 },
+                None,
             )
             .await
             .unwrap();

@@ -305,6 +305,9 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
             let mut write_outcomes = Vec::new();
             if let Some(adapter) = &adapter {
                 prepare_fresh_namespace(adapter, &namespace).await?;
+                header
+                    .self_notion_ids
+                    .insert(namespace.clone(), adapter.self_notion_id(&namespace));
                 if !batch.episodes.is_empty() {
                     write_outcomes.push(adapter.remember_episodes(batch.episodes).await?.outcome);
                 }
@@ -527,7 +530,13 @@ async fn run_continuity_pipeline(
             header
                 .embedding_bindings
                 .insert(scenario.fixture_id.clone(), embedding_binding_record);
-            let runtime = ContinuityRuntime::new(&run_root, &config, embedding_binding).await?;
+            let runtime = ContinuityRuntime::new(
+                &run_root,
+                &config,
+                embedding_binding,
+                scenario.character_entity.as_deref(),
+            )
+            .await?;
             runtimes.push((scenario.namespace.clone(), runtime));
             let runtime = &mut runtimes.last_mut().expect("just stored runtime").1;
             // Keep the large scenario future out of the enclosing CLI futures.
@@ -537,6 +546,10 @@ async fn run_continuity_pipeline(
                 &config.retrieval,
             ))
             .await?;
+            header.self_notion_ids.insert(
+                scenario.namespace.clone(),
+                runtime.adapter().self_notion_id(&scenario.namespace),
+            );
             outcomes.insert(scenario.fixture_id.clone(), run.outcome);
             for trace in run.traces {
                 let latency_ms = run
@@ -1058,6 +1071,7 @@ fn run_header(
         dataset: config.dataset.clone(),
         input_sha256,
         embedding_bindings: BTreeMap::new(),
+        self_notion_ids: BTreeMap::new(),
         harness_commit: commit(&workspace)?,
         library_commit: commit(&workspace.join("../CharacterMemory"))?,
         generated_at: Utc::now(),
@@ -1572,6 +1586,7 @@ mod tests {
         assert!(!summary.degradation.any_degradation);
         let header = read_header(&output);
         assert_eq!(header.input_sha256, input_sha256);
+        assert_eq!(header.self_notion_ids.len(), 1);
         assert_eq!(
             header.embedding_bindings,
             BTreeMap::from([(
@@ -1836,6 +1851,14 @@ mod tests {
         assert_eq!(
             header.embedding_bindings.keys().collect::<BTreeSet<_>>(),
             scenario_ids
+        );
+        assert_eq!(
+            header.self_notion_ids.keys().collect::<BTreeSet<_>>(),
+            fixture
+                .scenarios
+                .iter()
+                .map(|scenario| &scenario.namespace)
+                .collect()
         );
         assert_eq!(
             report.scenarios.keys().collect::<BTreeSet<_>>(),

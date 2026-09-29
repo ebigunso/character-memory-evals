@@ -4598,7 +4598,7 @@ bystanders = ["distractor"]
             )
             .expect("frozen drift-guard embedding store"),
         };
-        let adapter = CharacterMemoryAdapter::new_with_binding(run_root, &config, binding)
+        let adapter = CharacterMemoryAdapter::new_with_binding(run_root, &config, binding, None)
             .await
             .expect("frozen drift-guard adapter construction");
         (adapter.open_namespace(namespace).await).expect("frozen drift-guard namespace open");
@@ -4774,9 +4774,14 @@ bystanders = ["distractor"]
                 fixture: embeddings,
             };
             let directory = tempfile::tempdir().unwrap();
-            let mut runtime = crate::ContinuityRuntime::new(directory.path(), &config, binding)
-                .await
-                .unwrap();
+            let mut runtime = crate::ContinuityRuntime::new(
+                directory.path(),
+                &config,
+                binding,
+                scenario.character_entity.as_deref(),
+            )
+            .await
+            .unwrap();
             let result =
                 crate::run_continuity_scenario(&mut runtime, scenario, &config.retrieval).await;
             runtime.cleanup(&scenario.namespace).await.unwrap();

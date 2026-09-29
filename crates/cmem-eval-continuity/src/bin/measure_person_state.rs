@@ -461,6 +461,7 @@ async fn main() -> Result<()> {
                 fixture: embedding,
                 dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 4 },
             },
+            None,
         )
         .await?;
         let measured = async {
@@ -487,7 +488,7 @@ async fn main() -> Result<()> {
             } else {
                 None
             };
-            Ok::<_, anyhow::Error>((rows, settlement, ingest_checks))
+            Ok::<_, anyhow::Error>((rows, settlement, ingest_checks, adapter.self_notion_id(NS)))
         }
         .await;
         let cleanup = runtime.cleanup(NS).await;
@@ -497,12 +498,12 @@ async fn main() -> Result<()> {
     }
     .await;
     fs::remove_dir_all(&stores).context("remove owned measurement stores")?;
-    let (measurements, settlement, ingest_checks) = result?;
+    let (measurements, settlement, ingest_checks, self_notion_id) = result?;
     ensure!(
         revision(library)? == library_commit && revision(workspace)? == harness_commit,
         "pin changed during measurement"
     );
-    let report = json!({"header": {"harness_commit":harness_commit,"library_commit":library_commit,
+    let report = json!({"header": {"self_notion_ids":{NS:self_notion_id},"harness_commit":harness_commit,"library_commit":library_commit,
         "generator_source_sha256":text_sha256(include_str!("measure_person_state.rs")),
         "input_sha256":text_sha256(&serde_json::to_string(&input)?),"config_sha256":text_sha256(&serde_json::to_string(&config)?),
         "config":config,"seed":CHECKED_FIXTURE_SEED,"native_candidate_limits":native::RetrievalCandidateLimits::default(),
@@ -532,6 +533,7 @@ mod tests {
                 fixture,
                 dimension_policy: ControllableDimensionPolicy::Exact { vector_size: 4 },
             },
+            None,
         )
         .await
         .unwrap();
