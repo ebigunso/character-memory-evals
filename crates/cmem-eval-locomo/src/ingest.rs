@@ -173,7 +173,7 @@ mod tests {
     fn qa_evidence_is_not_ingested() {
         let rows = load_value(serde_json::json!([{
             "sample_id": "p1",
-            "conversation": [{"session_id": "s1", "turns": [{"dia_id": "d1", "text": "answer"}]}],
+            "conversation": {"session_1": [{"dia_id": "d1", "text": "answer"}]},
             "qa": [{"question_id": "q1", "question": "q", "evidence": ["d1"]}]
         }]))
         .unwrap();
@@ -254,10 +254,10 @@ mod tests {
                 "session_1": [{"dia_id": "D1:1", "speaker": "A", "text": "hello"}]
             },
             "session_summary": {
-                "session_1": "They discussed a trip."
+                "session_1_summary": "They discussed a trip."
             },
             "observation": {
-                "session_1": ["A likes quiet cafes."]
+                "session_1_observation": ["A likes quiet cafes."]
             },
             "qa": [{"question": "q", "answer": "a", "evidence": ["D1:1"]}]
         }]))

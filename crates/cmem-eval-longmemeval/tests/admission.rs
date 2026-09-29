@@ -30,7 +30,7 @@ fn rejected(value: Value, field: &str, index: usize, id: Option<&str>) {
 
 #[test]
 fn rejects_unrecognized_root_shape() {
-    for value in [json!(null), json!(1), json!({}), json!({"data": {}})] {
+    for value in [json!(null), json!(1), json!({}), json!({"data": [item()]})] {
         assert!(matches!(load_value(value), Err(LoadError::Admission {
             location: AdmissionLocation::Root, field, ..
         }) if field == "root"));
@@ -39,16 +39,9 @@ fn rejects_unrecognized_root_shape() {
 
 #[test]
 fn rejects_zero_items_at_root() {
-    for value in [
-        json!([]),
-        json!({"data":[]}),
-        json!({"instances":[]}),
-        json!({"questions":[]}),
-    ] {
-        assert!(matches!(load_value(value), Err(LoadError::Admission {
-            location: AdmissionLocation::Root, field, ..
-        }) if field == "root"));
-    }
+    assert!(matches!(load_value(json!([])), Err(LoadError::Admission {
+        location: AdmissionLocation::Root, field, ..
+    }) if field == "root"));
 }
 
 #[test]
@@ -56,6 +49,7 @@ fn rejects_missing_question_id() {
     for value in [None, Some(json!(null)), Some(json!(17)), Some(json!(" \t"))] {
         let mut row = item();
         row.as_object_mut().unwrap().remove("question_id");
+        row["id"] = json!("q1");
         if let Some(value) = value {
             row["question_id"] = value;
         }
@@ -105,7 +99,13 @@ fn rejects_missing_empty_or_malformed_sessions() {
 
 #[test]
 fn rejects_scalar_session_entries() {
-    for value in [json!(null), json!(true), json!("session"), json!(1)] {
+    for value in [
+        json!(null),
+        json!(true),
+        json!("session"),
+        json!(1),
+        json!({"turns":[{"content":""}]}),
+    ] {
         let mut row = item();
         row["haystack_sessions"] = json!([value]);
         rejected(json!([row]), "haystack_sessions[0]", 0, Some("q1"));
@@ -113,99 +113,46 @@ fn rejects_scalar_session_entries() {
 }
 
 #[test]
-fn rejects_missing_empty_or_malformed_session_turns() {
+fn rejects_empty_session_turns() {
     let mut row = item();
     row["haystack_sessions"] = json!([[]]);
     rejected(json!([row]), "haystack_sessions[0].turns", 0, Some("q1"));
-    for alias in ["turns", "messages", "conversation"] {
-        for value in [
-            None,
-            Some(json!(null)),
-            Some(json!({})),
-            Some(json!("turns")),
-            Some(json!([])),
-        ] {
-            let mut row = item();
-            let mut session = json!({"session_id":"s1"});
-            if let Some(value) = value {
-                session[alias] = value;
-            }
-            row["haystack_sessions"] = json!([session]);
-            rejected(json!([row]), "haystack_sessions[0].turns", 0, Some("q1"));
-        }
-    }
 }
 
 #[test]
 fn rejects_non_object_turns_and_missing_or_non_string_text() {
-    for object_session in [false, true] {
-        for turn in [json!(null), json!(1), json!("text"), json!([])] {
-            let mut row = item();
-            row["haystack_sessions"] = if object_session {
-                json!([{"turns":[turn]}])
-            } else {
-                json!([[turn]])
-            };
-            rejected(json!([row]), "haystack_sessions[0].turns[0]", 0, Some("q1"));
-        }
-        for alias in ["content", "text"] {
-            for value in [None, Some(json!(null)), Some(json!(1)), Some(json!({}))] {
-                let mut turn = json!({});
-                if let Some(value) = value {
-                    turn[alias] = value;
-                }
-                let mut row = item();
-                row["haystack_sessions"] = if object_session {
-                    json!([{"turns":[turn]}])
-                } else {
-                    json!([[turn]])
-                };
-                rejected(
-                    json!([row]),
-                    "haystack_sessions[0].turns[0].content",
-                    0,
-                    Some("q1"),
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn admits_empty_turn_text_under_each_alias() {
-    for alias in ["content", "text"] {
+    for turn in [json!(null), json!(1), json!("text"), json!([])] {
         let mut row = item();
-        row["haystack_sessions"] = json!([[{alias:""}]]);
-        let rows = load_value(json!([row])).unwrap();
-        assert_eq!(rows[0].sessions[0].turns[0].text, "", "{alias}");
+        row["haystack_sessions"] = json!([[turn]]);
+        rejected(json!([row]), "haystack_sessions[0].turns[0]", 0, Some("q1"));
     }
-}
-
-#[test]
-fn rejects_missing_session_ids() {
-    for value in [None, Some(json!(null)), Some(json!(1)), Some(json!(" "))] {
-        let mut row = item();
-        let mut session = json!({"turns":[{"content":""}]});
+    for value in [None, Some(json!(null)), Some(json!(1)), Some(json!({}))] {
+        let mut turn = json!({});
         if let Some(value) = value {
-            session["session_id"] = value;
+            turn["content"] = value;
         }
-        row["haystack_sessions"] = json!([session]);
-        row.as_object_mut().unwrap().remove("haystack_session_ids");
+        let mut row = item();
+        row["haystack_sessions"] = json!([[turn]]);
         rejected(
             json!([row]),
-            "haystack_sessions[0].session_id",
+            "haystack_sessions[0].turns[0].content",
             0,
             Some("q1"),
         );
     }
+}
+
+#[test]
+fn admits_empty_turn_text() {
+    let rows = load_value(json!([item()])).unwrap();
+    assert_eq!(rows[0].sessions[0].turns[0].text, "");
+}
+
+#[test]
+fn rejects_missing_session_ids() {
     let mut row = item();
     row.as_object_mut().unwrap().remove("haystack_session_ids");
-    rejected(
-        json!([row]),
-        "haystack_sessions[0].session_id",
-        0,
-        Some("q1"),
-    );
+    rejected(json!([row]), "haystack_session_ids", 0, Some("q1"));
 }
 
 #[test]
@@ -219,13 +166,12 @@ fn rejects_misaligned_or_invalid_parallel_session_ids() {
     ] {
         let mut row = item();
         row["haystack_session_ids"] = ids;
-        row["haystack_sessions"] = json!([{"session_id":"s1","turns":[{"content":""}]}]);
         rejected(json!([row]), "haystack_session_ids", 0, Some("q1"));
     }
     for id in [json!(null), json!(1), json!({}), json!(false), json!(" ")] {
         for idx in 0..2 {
             let mut row = item();
-            row["haystack_sessions"] = json!([{"session_id":"s1","turns":[{"content":""}]},{"session_id":"s2","turns":[{"content":""}]}]);
+            row["haystack_sessions"] = json!([[{"content":""}],[{"content":""}]]);
             row["haystack_session_ids"] = json!(["s1", "s2"]);
             row["haystack_session_ids"][idx] = id.clone();
             rejected(
@@ -296,52 +242,10 @@ fn rejects_repeated_session_ids_with_different_turns_including_has_answer() {
 }
 
 #[test]
-fn rejects_record_session_repeats_with_identical_turns_and_different_dates() {
-    for parallel_ids in [None, Some(json!(["unused1", "unused2"]))] {
-        let mut row = item();
-        row.as_object_mut().unwrap().remove("haystack_session_ids");
-        row["haystack_sessions"] = json!([
-            {"session_id":"s1","date":"2023-01-01","turns":[{"content":"same"}]},
-            {"session_id":"s1","date":"2023-01-02","turns":[{"content":"same"}]}
-        ]);
-        if let Some(ids) = parallel_ids {
-            row["haystack_session_ids"] = ids;
-        }
-        rejected(
-            json!([row]),
-            "haystack_sessions[1].session_id",
-            0,
-            Some("q1"),
-        );
-    }
-}
-
-#[test]
-fn rejects_mixed_source_session_repeats_with_identical_turns_in_either_order() {
-    for record_first in [true, false] {
-        let record = json!({"session_id":"s1","turns":[{"content":"same"}]});
-        let parallel = json!([{"content":"same"}]);
-        let mut row = item();
-        row["haystack_sessions"] = if record_first {
-            json!([record, parallel])
-        } else {
-            json!([parallel, record])
-        };
-        row["haystack_session_ids"] = json!(["s1", "s1"]);
-        rejected(
-            json!([row]),
-            "haystack_sessions[1].session_id",
-            0,
-            Some("q1"),
-        );
-    }
-}
-
-#[test]
 fn admits_parallel_session_repeats_with_identical_turns_and_different_dates() {
     let mut row = item();
     row["haystack_sessions"] = json!([
-        {"turns":[{"content":"same","has_answer":true}]},
+        [{"content":"same","has_answer":true}],
         [{"content":"same","has_answer":true}]
     ]);
     row["haystack_session_ids"] = json!(["s1", "s1"]);
@@ -358,42 +262,6 @@ fn admits_parallel_session_repeats_with_identical_turns_and_different_dates() {
         assert_eq!(session.date.as_deref(), Some(date));
         assert_eq!(session.turns[0].text, "same");
         assert!(session.turns[0].has_answer);
-    }
-}
-
-#[test]
-fn admits_wrappers_and_key_aliases() {
-    let cases = ["data", "instances", "questions"]
-        .map(|wrapper| (wrapper, "session_id", "turns"))
-        .into_iter()
-        .chain(["session_id", "id"].map(|id| ("data", id, "turns")))
-        .chain(["turns", "messages", "conversation"].map(|turns| ("data", "session_id", turns)));
-    for (wrapper, session_id, turns) in cases {
-        let mut row = json!({"id":"q1","question":"  What?  ","type":"kind"});
-        row["haystack_sessions"] =
-            json!([{session_id:"s1",turns:[{"speaker":"A","text":"hello"}]}]);
-        let rows = load_value(json!({wrapper:[row]})).unwrap();
-        assert_eq!(rows[0].question_id, "q1");
-        assert_eq!(rows[0].question, "  What?  ");
-        assert_eq!(rows[0].question_type.as_deref(), Some("kind"));
-        assert_eq!(rows[0].sessions[0].session_id, "s1");
-        assert_eq!(rows[0].sessions[0].turns[0].text, "hello");
-        assert_eq!(rows[0].sessions[0].turns[0].speaker.as_deref(), Some("A"));
-    }
-}
-
-#[test]
-fn admits_session_date_aliases() {
-    for alias in ["date", "timestamp"] {
-        let mut row = item();
-        row["haystack_sessions"] =
-            json!([{alias:"2023-01-01T00:00:00Z", "turns":[{"content":""}]}]);
-        let rows = load_value(json!([row])).unwrap();
-        assert_eq!(
-            rows[0].sessions[0].raw_date.as_deref(),
-            Some("2023-01-01T00:00:00Z"),
-            "{alias}"
-        );
     }
 }
 
@@ -428,14 +296,6 @@ fn admits_missing_or_malformed_optional_annotations() {
         assert!(rows[0].sessions[0].raw_date.is_none());
         assert!(rows[0].sessions[0].date.is_none());
     }
-    for field in ["date", "timestamp"] {
-        let mut row = item();
-        row["haystack_sessions"] =
-            json!([{field:null,"turns":[{"content":"","role":null,"speaker":{}}]}]);
-        let rows = load_value(json!([row])).unwrap();
-        assert!(rows[0].sessions[0].raw_date.is_none());
-        assert!(rows[0].sessions[0].turns[0].speaker.is_none());
-    }
 }
 
 #[test]
@@ -443,7 +303,6 @@ fn admits_abstention_answers_and_empty_turn_text() {
     let mut row = item();
     row["question_id"] = json!("q1_abs");
     row["answer"] = json!("The information provided is not enough.");
-    row["haystack_sessions"] = json!([{"session_id":"s1","turns":[{"content":""}]}]);
     let rows = load_value(json!([row])).unwrap();
     assert_eq!(
         rows[0].answer.as_deref(),

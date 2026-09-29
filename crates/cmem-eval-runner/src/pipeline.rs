@@ -2141,7 +2141,7 @@ mod tests {
                 include_str!("../../../configs/locomo_bm25.toml"),
                 serde_json::json!([{
                     "sample_id": "p1",
-                    "conversation": [{"session_id": "s1", "turns": [{"dia_id": "d1", "text": "jasmine tea"}]}],
+                    "conversation": {"session_1": [{"dia_id": "d1", "text": "jasmine tea"}]},
                     "qa": [{"question_id": "q1", "question": "tea", "evidence": ["d1"]}]
                 }]),
             ),
@@ -2307,10 +2307,9 @@ mod tests {
             &dataset,
             serde_json::to_vec(&serde_json::json!([{
                 "sample_id": "p1",
-                "conversation": [{
-                    "session_id": "s1",
-                    "turns": [{"dia_id": "d1", "speaker": "A", "text": "likes tea"}]
-                }],
+                "conversation": {
+                    "session_1": [{"dia_id": "d1", "speaker": "A", "text": "likes tea"}]
+                },
                 "qa": [
                     {"question_id": "q1", "question": "What?", "evidence": ["d1"]},
                     {"question_id": "q2", "question": "Who?", "evidence": ["d1"]}
@@ -2332,7 +2331,7 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].question_id, "q1");
         assert_eq!(rows[1].question_id, "q2");
-        assert_eq!(rows[0].gold_episode_ids, vec!["s1"]);
+        assert_eq!(rows[0].gold_episode_ids, vec!["session_1"]);
         assert_eq!(rows[0].gold_observation_ids, vec!["d1"]);
     }
 

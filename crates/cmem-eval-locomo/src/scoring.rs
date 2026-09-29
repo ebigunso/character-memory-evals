@@ -49,15 +49,15 @@ mod tests {
     fn rank_one_hits_and_misses_have_hand_computed_dialog_and_session_scores() {
         let rows = load_value(serde_json::json!([{
             "sample_id": "p1",
-            "conversation": [
-                {"session_id": "session-alpha", "turns": [
+            "conversation": {
+                "session_1": [
                     {"dia_id": "dialog-x", "text": "first evidence"},
                     {"dia_id": "dialog-y", "text": "second evidence"}
-                ]},
-                {"session_id": "session-beta", "turns": [
+                ],
+                "session_2": [
                     {"dia_id": "dialog-z", "text": "unrelated"}
-                ]}
-            ],
+                ]
+            },
             "qa": [{"question": "Which?", "evidence": ["dialog-x", "dialog-y"]}]
         }]))
         .unwrap();
@@ -78,9 +78,9 @@ mod tests {
             qa,
             &[
                 item(ObjectType::Observation, "dialog-x", 1),
-                item(ObjectType::Episode, "session-alpha", 1),
+                item(ObjectType::Episode, "session_1", 1),
                 item(ObjectType::Observation, "dialog-z", 2),
-                item(ObjectType::Episode, "session-beta", 2),
+                item(ObjectType::Episode, "session_2", 2),
             ],
             &[2],
             &[2],
@@ -90,7 +90,7 @@ mod tests {
             qa,
             &[
                 item(ObjectType::Observation, "dialog-z", 1),
-                item(ObjectType::Episode, "session-beta", 1),
+                item(ObjectType::Episode, "session_2", 1),
             ],
             &[2],
             &[2],
@@ -119,7 +119,7 @@ mod tests {
     fn uses_configured_metric_ks() {
         let rows = load_value(serde_json::json!([{
             "sample_id": "p1",
-            "conversation": [{"session_id": "s1", "turns": [{"dia_id": "d1", "text": "answer"}]}],
+            "conversation": {"session_1": [{"dia_id": "d1", "text": "answer"}]},
             "qa": [{"question": "q", "evidence": ["d1"]}]
         }]))
         .unwrap();
@@ -131,7 +131,7 @@ mod tests {
                 kind: ObjectType::Observation,
                 internal_id: "i".to_string(),
                 external_id: Some("d1".to_string()),
-                episode_external_id: Some("s1".to_string()),
+                episode_external_id: Some("session_1".to_string()),
                 score: None,
                 rank: 1,
                 rationale: vec![],

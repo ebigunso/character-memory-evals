@@ -1,38 +1,26 @@
 //! LongMemEval-S loading, ingestion and scoring.
 //!
-//! [`load_value`] admits a non-empty array, either at the root or under `data`,
-//! `instances` or `questions`. [`load_path`] also distinguishes I/O and JSON
-//! syntax errors from structural and identity defects through [`LoadError`].
-//! Admission errors name the file root or the item index/available ID and the
-//! offending field.
+//! [`load_value`] admits a non-empty root array. [`load_path`] distinguishes I/O
+//! and JSON syntax errors from structural and identity defects through [`LoadError`].
+//! Admission errors name the file root or item index/available ID and field.
 //!
-//! Each item needs a non-blank string `question_id` (alias `id`), unique in the
-//! file, a non-blank string `question`, and a non-empty `haystack_sessions` array.
-//! A session is either a non-empty turn array or an object with a non-empty array
-//! under `turns`, `messages` or `conversation`. Every turn must be an object with
-//! string `content` (alias `text`); empty text is admitted. Turn IDs use their
-//! one-based position within the session.
-//!
-//! Session identity comes from a non-blank string `session_id` (alias `id`) in
-//! the record, falling back to the same position in `haystack_session_ids`.
-//! Whenever present, that parallel ID array must match the session count and
-//! contain a non-blank string in every slot, even for records with their own IDs.
-//! Within an item, repeated IDs are rejected unless every occurrence gets its ID
-//! from the parallel array and the raw turn arrays are identical, including
-//! `has_answer` labels. Admitted repeats retain every copy and its annotations;
-//! dates do not enter the comparison. Record/record and record/parallel collisions
-//! are rejected even when their turns are identical.
+//! Each item needs a non-blank string `question_id`, unique in the file, a
+//! non-blank string `question`, and a non-empty `haystack_sessions` array of
+//! non-empty turn arrays. Every turn must be an object with string `content`;
+//! empty text is admitted. Turn IDs use their one-based position in the session.
+//! The required `haystack_session_ids` array must match the session count and
+//! contain a non-blank string in every slot. Repeated IDs require identical raw
+//! turn arrays, including `has_answer` labels. Admitted repeats retain every
+//! copy and its annotations; dates do not enter the comparison.
 //!
 //! `haystack_dates` is optional: absent or null is admitted; otherwise it must be
 //! an array matching the session count. Each null or non-string slot means no
-//! date at that position, without shifting later dates. Record `date` (alias
-//! `timestamp`) takes precedence over a parallel date. Raw dates are retained
-//! alongside normalized timestamps. Question type (`question_type`/`type`),
-//! `answer`, `question_date`, speakers (`role`/`speaker`) and `answer_session_ids`
-//! remain optional. `has_answer` defaults to false when absent or not boolean;
-//! answer-session references to absent sessions do not cause rejection. Optional
-//! annotations do not determine abstention status.
-
+//! date at that position, without shifting later dates. Raw dates are retained
+//! alongside normalized timestamps. `question_type`, `answer`, `question_date`,
+//! `role` and `answer_session_ids` remain optional. `has_answer` defaults to false
+//! when absent or not boolean; references to absent sessions do not reject the
+//! item. Optional annotations do not determine abstention status.
+//!
 //! Ingest assigns each occurrence its own episode identity: the first keeps the
 //! raw benchmark session ID, later copies receive `#2`, `#3`, ... while skipping
 //! all raw IDs and previously assigned IDs in the item. Observation identities
