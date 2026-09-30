@@ -1,15 +1,15 @@
-//! Authored prospective stories; the base writes the same stories without roles or due instants.
+//! Authored prospective stories, forwarded through the public write adapter.
 use super::*;
 use std::collections::BTreeSet;
 
 const MORNING: &str = "2025-09-09T08:00:00+09:00";
 const OWN_TOPIC: &str = "Finishing my watercolor of the harbor";
-pub(super) const METHOD: &str = "Prospective obligations in two new stores, leaving every existing family unchanged. Meeting pressure contains both directions, resolved and fulfilled matters, a future-due trigger control, a self-only undated promise, crowded person state, two present people in both orders, and current/superseded controls. Sixty-four unrelated topic memories and their source occasions compete under native caps; two bounded shared occasions per kind make the cohort reachable within the ordinary root budget. The keyless store has 367 equal-salience daily occasions and several overdue obligations. Authored party assertions and UTC due instants are retained separately; the base writes neither. Every supported parent query executes, while future role/identity/trigger/due behavior stays not_run. After wiring those library inputs, only those role/due fields and the required self constructor argument may differ. Both native ID orders reuse the shared public-ingest census and permutation. F1-F9 are readings for cross-pin comparison, not baseline pass claims; F10 compares all existing families. Native paths, limits and floors are recorded separately from authored expectations. No dates or roles are inferred from text, no gold reaches metadata, no wall clock or behavior threshold changes retrieval.";
+pub(super) const METHOD: &str = "Prospective obligations in the existing meeting and daily stores, plus a separate due-priority store. Meeting pressure contains both directions, resolved and fulfilled matters, a future-due trigger control, a self-only undated promise, crowded person state, two present people in both orders, and current/superseded controls. Sixty-four unrelated topic memories and their source occasions compete under native caps; two bounded shared occasions per kind make the cohort reachable within the ordinary root budget. The keyless store has 367 equal-salience daily occasions and several overdue obligations. Authored party assertions and UTC due instants are forwarded through typed public writes; forwarding flags compare the emitted fields with those authored values. Full role/identity/trigger/due cases execute only after that check. A separate due-priority store places a salient stale-overdue commitment beside a less salient due-today commitment under the same loud topic, without changing the existing stores. Due-today takes precedence over overdue in the authored F3 expectation. Both native ID orders reuse the shared public-ingest census and permutation. F1-F9 are readings for cross-pin comparison, not baseline pass claims; F10 compares all existing families. Native paths, limits and floors are recorded separately from authored expectations. No dates or roles are inferred from text, no gold reaches metadata, no wall clock or behavior threshold changes retrieval.";
 
 pub(super) fn is_family(family: &Family) -> bool {
     matches!(
         family.name.as_str(),
-        "prospective-meeting" | "prospective-daily"
+        "prospective-meeting" | "prospective-daily" | "prospective-due-priority"
     )
 }
 
@@ -17,7 +17,7 @@ pub(super) fn falsifiers() -> Value {
     json!({
         "F1":"Each loud-topic retrieval retains the first present person's most salient unresolved obligation; report every other person's count separately.",
         "F2":"At trigger floor two, the first person's two most salient unresolved obligations in opposite directions both survive.",
-        "F3":"The most salient unresolved due/overdue obligation survives no-topic and loud-topic queries.",
+        "F3":"The most salient unresolved obligation due today survives no-topic and loud-topic queries; if none is due today, use the most salient overdue obligation.",
         "F4":"Due never contributes future-due obligations; Trigger/Due never contribute settled obligations; ordinary admission retains resolved_by. Future-due present-person control comes by Trigger with NotYetDue.",
         "F5":"The self-only undated promise must not appear on every retrieval.",
         "F6":"The self-only undated promise appears when its topic is asked.",
@@ -138,7 +138,11 @@ fn add_probe(
 }
 
 pub(super) fn meeting(config: &BenchmarkRunConfig) -> Family {
-    let mut family = empty("prospective-meeting");
+    meeting_named(config, "prospective-meeting")
+}
+
+fn meeting_named(config: &BenchmarkRunConfig, name: &str) -> Family {
+    let mut family = empty(name);
     family.character_entity = Some("self".into());
     for person in ["rowan", "nia", "bob", "sage"] {
         family.graph.entities.push(EntityInput {
@@ -504,6 +508,36 @@ pub(super) fn daily(config: &BenchmarkRunConfig) -> Family {
     family
 }
 
+pub(super) fn due_priority(config: &BenchmarkRunConfig) -> Family {
+    let mut family = meeting_named(config, "prospective-due-priority");
+    // A separate store preserves the existing meeting experiment. Only these two
+    // commitments have a due instant; no present person offers a trigger route.
+    for obligation in &mut family.obligations {
+        obligation.due_instant = match obligation.label.as_str() {
+            "iris-outgoing" => Some("2024-09-08T12:00:00+09:00".into()),
+            "own-due" => Some("2025-09-09T22:00:00+09:00".into()),
+            _ => None,
+        };
+    }
+    for memory in &mut family.graph.derived_memories {
+        match memory.external_id.as_str() {
+            "iris-outgoing" => memory.salience_score = 0.99,
+            "own-due" => memory.salience_score = 0.10,
+            _ => {}
+        }
+    }
+    family.probes.clear();
+    add_probe(
+        &mut family,
+        config,
+        "stale-overdue-vs-today-loud",
+        &[],
+        Some(TOPIC),
+        1,
+    );
+    family
+}
+
 fn settled_or_superseded(family: &Family, id: &str) -> (bool, bool) {
     let settled = family.graph.links.iter().any(|l| {
         l.to.external_id == id
@@ -554,8 +588,10 @@ pub(super) fn ensure_healthy(
         ),
         "incomplete obligations vector recall"
     );
-    if family.name == "prospective-meeting"
-        && input.topic.as_deref() == Some(TOPIC)
+    if matches!(
+        family.name.as_str(),
+        "prospective-meeting" | "prospective-due-priority"
+    ) && input.topic.as_deref() == Some(TOPIC)
         && input.scene.participants.is_empty()
     {
         let limits = &input.surface_policy.sections;
@@ -646,23 +682,30 @@ pub(super) fn reading(
             .then_with(|| b.1.salience_score.total_cmp(&a.1.salience_score))
             .then_with(|| b.1.created_at.cmp(&a.1.created_at))
     });
-    let person_rows = input.scene.participants.iter().filter_map(|p| p.key.as_deref()).map(|person| {
+    let person_rows = input.scene.participants.iter().filter_map(|p| p.key.as_deref()).enumerate().map(|(position, person)| {
         let expected = eligible.iter().filter(|(o, _, _)| o.actor_subjects.iter().chain(&o.counterpart_subjects).any(|p| p == person)).collect::<Vec<_>>();
-        let all = family.obligations.iter().filter(|o| o.actor_subjects.iter().chain(&o.counterpart_subjects).any(|p| p == person));
+        let selected_obligations = family.obligations.iter().filter(|o| o.actor_subjects.iter().chain(&o.counterpart_subjects).any(|p| p == person) && contains(&o.memory_external_id)).map(|o| &o.memory_external_id).collect::<Vec<_>>();
         let state = family.graph.derived_memories.iter().filter(|m| !matches!(m.derived_type, DerivedType::OpenLoop | DerivedType::Commitment) && m.entity_external_ids.iter().any(|p| p == person)).filter(|m| contains(&m.external_id)).map(|m| &m.external_id).collect::<Vec<_>>();
-        json!({"person":person,"most_salient_unresolved":expected.first().map(|(o,_,_)| &o.label),
+        json!({"person":person,"present_person_position":position+1,"most_salient_unresolved":expected.first().map(|(o,_,_)| &o.label),
             "first_two_unresolved":expected.iter().take(2).map(|(o,_,_)| json!({"label":o.label,"external_id":o.memory_external_id,"selected":contains(&o.memory_external_id)})).collect::<Vec<_>>(),
-            "selected_obligation_count":all.filter(|o| contains(&o.memory_external_id)).count(),"non_obligation_state_count":state.len(),"non_obligation_state_ids":state})
+            "selected_obligation_count":selected_obligations.len(),"selected_obligation_ids":selected_obligations,"non_obligation_state_count":state.len(),"non_obligation_state_ids":state})
     }).collect::<Vec<_>>();
-    let top_due = eligible.iter().find(|(o, _, _)| {
-        o.due_instant.as_deref().is_some_and(|due| {
+    let due_day = |o: &Obligation| {
+        o.due_instant.as_deref().map(|due| {
             timestamp(due)
                 .unwrap()
                 .with_timezone(reference.offset())
                 .date_naive()
-                <= reference.date_naive()
         })
-    });
+    };
+    let top_due = eligible
+        .iter()
+        .find(|(o, _, _)| due_day(o) == Some(reference.date_naive()))
+        .or_else(|| {
+            eligible
+                .iter()
+                .find(|(o, _, _)| due_day(o).is_some_and(|day| day < reference.date_naive()))
+        });
     let topic_ids = family
         .topic_targets
         .iter()
@@ -716,7 +759,7 @@ pub(super) fn reading(
         "native_candidate_limits":native::RetrievalCandidateLimits::default(),"native_graph_limits":native::RetrievalGraphLimits::default(),
         "native_section_limits":native::ContinuitySectionLimits::default(),"executed_floors":input.cue_floors.unwrap_or_default(),
         "executed_surface_policy":input.surface_policy,
-        "full_prospective_status":"not_run","role_and_due_fields_forwarded":false,
+        "full_prospective_status":if prospective_fields_forwarded(family) { "executed" } else { "not_run" },"role_and_due_fields_forwarded":prospective_fields_forwarded(family),
         "basis":"Counts and eligibility are authored comparison cohorts; selection, root source, admission road, scores and resolution are native observations. First-person order is the caller's order. Supersession priority describes selector/floor expectations, never a claim about final pack order."}),
     )
 }
@@ -724,6 +767,56 @@ pub(super) fn reading(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn due_priority_uses_one_due_seat_under_unchanged_topic_pressure() {
+        let family = due_priority(&config());
+        let due = family
+            .obligations
+            .iter()
+            .filter(|o| o.due_instant.is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(due.len(), 2);
+        let overdue = due.iter().find(|o| o.label == "iris-outgoing").unwrap();
+        let today = due.iter().find(|o| o.label == "own-due").unwrap();
+        let reference = timestamp(MORNING).unwrap();
+        assert!(
+            timestamp(overdue.due_instant.as_deref().unwrap()).unwrap()
+                < reference - Duration::days(365)
+        );
+        assert_eq!(
+            timestamp(today.due_instant.as_deref().unwrap())
+                .unwrap()
+                .with_timezone(reference.offset())
+                .date_naive(),
+            reference.date_naive()
+        );
+        let memory = |o: &Obligation| {
+            family
+                .graph
+                .derived_memories
+                .iter()
+                .find(|m| m.external_id == o.memory_external_id)
+                .unwrap()
+        };
+        assert_eq!(memory(overdue).derived_type, DerivedType::Commitment);
+        assert_eq!(memory(today).derived_type, DerivedType::Commitment);
+        assert!(memory(overdue).salience_score > memory(today).salience_score);
+        assert_eq!(family.probes.len(), 1);
+        assert!(
+            family.probes[0]
+                .supported_input
+                .scene
+                .participants
+                .is_empty()
+        );
+        assert_eq!(
+            family.probes[0].supported_input.topic.as_deref(),
+            Some(TOPIC)
+        );
+        assert_eq!(native::RetrievalCueFloors::default().due, 1);
+        assert_eq!(family.topic_targets, meeting(&config()).topic_targets);
+    }
 
     #[test]
     fn pressure_admission_requires_actual_section_saturation() {

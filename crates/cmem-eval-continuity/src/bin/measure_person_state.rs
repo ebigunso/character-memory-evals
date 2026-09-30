@@ -176,6 +176,7 @@ fn generated() -> (
             30 + index % 300
         };
         graph.derived_memories.push(DerivedMemoryInput {
+            due_at: None,
             external_id: id,
             created_at: Some(
                 (AT.parse::<chrono::DateTime<Utc>>().unwrap() - Duration::days(age_days))

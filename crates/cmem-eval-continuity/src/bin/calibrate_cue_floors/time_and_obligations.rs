@@ -24,7 +24,11 @@ pub(super) async fn run_obligations(
     let mut result = run_families(
         stores,
         config,
-        &[obligations::meeting, obligations::daily],
+        &[
+            obligations::meeting,
+            obligations::daily,
+            obligations::due_priority,
+        ],
         false,
         timings,
         self_notion_ids,
@@ -77,7 +81,7 @@ struct PlannedProbe {
 struct Obligation {
     label: String,
     memory_external_id: String,
-    // Planned assertion subjects, not inferred labels and not current native fields.
+    // Authored assertion subjects, never inferred from text.
     actor_subjects: Vec<String>,
     counterpart_subjects: Vec<String>,
     due_instant: Option<String>,
@@ -94,6 +98,67 @@ struct Family {
     character_entity: Option<String>,
     probes: Vec<PlannedProbe>,
     topic_targets: Vec<String>,
+}
+
+fn obligation_assertions(obligation: &Obligation) -> Vec<cmem_eval::BeliefAssertionInput> {
+    obligation
+        .actor_subjects
+        .iter()
+        .map(|subject| (subject, cmem_eval::BeliefPredicate::Actor))
+        .chain(
+            obligation
+                .counterpart_subjects
+                .iter()
+                .map(|subject| (subject, cmem_eval::BeliefPredicate::Counterpart)),
+        )
+        .map(|(subject, predicate)| cmem_eval::BeliefAssertionInput {
+            subject_external_id: subject.clone(),
+            predicate,
+        })
+        .collect()
+}
+
+fn forward_obligations(family: &mut Family) -> Result<()> {
+    for obligation in &family.obligations {
+        let memory = family
+            .graph
+            .derived_memories
+            .iter_mut()
+            .find(|memory| memory.external_id == obligation.memory_external_id)
+            .context("authored obligation has no derived write")?;
+        ensure!(
+            memory.assertions.is_empty() && memory.due_at.is_none(),
+            "prospective fields already authored on write"
+        );
+        memory.assertions = obligation_assertions(obligation);
+        memory.due_at = obligation
+            .due_instant
+            .as_deref()
+            .map(timestamp)
+            .transpose()?
+            .map(|at| at.with_timezone(&Utc));
+    }
+    Ok(())
+}
+
+fn prospective_fields_forwarded(family: &Family) -> bool {
+    !family.obligations.is_empty()
+        && family.character_entity.is_some()
+        && family.obligations.iter().all(|obligation| {
+            family
+                .graph
+                .derived_memories
+                .iter()
+                .find(|memory| memory.external_id == obligation.memory_external_id)
+                .is_some_and(|memory| {
+                    memory.assertions == obligation_assertions(obligation)
+                        && memory.due_at
+                            == obligation
+                                .due_instant
+                                .as_deref()
+                                .map(|at| timestamp(at).unwrap().with_timezone(&Utc))
+                })
+        })
 }
 
 fn timestamp(value: &str) -> Result<chrono::DateTime<chrono::FixedOffset>> {
@@ -440,6 +505,7 @@ fn derived(
     salience: f32,
 ) -> DerivedMemoryInput {
     DerivedMemoryInput {
+        due_at: None,
         external_id: id.into(),
         created_at: Some(at.into()),
         derived_type: kind,
@@ -1265,7 +1331,7 @@ fn obligation_reading(
             "native_resolved_by":resolvers,"native_direction":included.and_then(|item| item.get("direction")),
             "native_due_state":included.and_then(|item| item.get("due_state")),
             "planned_roles":obligation,"authored_due_state_if_forwarded":authored_due,
-            "role_and_due_fields_forwarded":false}));
+            "role_and_due_fields_forwarded":prospective_fields_forwarded(family)}));
     }
     Ok(json!(rows))
 }
@@ -1273,9 +1339,23 @@ fn obligation_reading(
 fn supported_probe_input(
     probe: &PlannedProbe,
     anniversary_available: bool,
+    prospective_available: bool,
 ) -> Result<(RetrieveInput, Vec<String>)> {
     let mut input = probe.supported_input.clone();
     let mut missing = probe.required_routes.clone();
+    if prospective_available {
+        missing.retain(|route| {
+            !matches!(
+                route.as_str(),
+                "actor_counterpart"
+                    | "character_identity"
+                    | "trigger"
+                    | "due_instant"
+                    | "due"
+                    | "direction"
+            )
+        });
+    }
     if let Some(floor) = probe.trigger_floor {
         let mut floors = serde_json::to_value(input.cue_floors.unwrap_or_default())?;
         if let Some(trigger) = floors.get_mut("trigger") {
@@ -1483,7 +1563,11 @@ async fn measure(
             comparison,
         ))
         .await?;
-        let (input, missing) = supported_probe_input(probe, anniversary_available)?;
+        let (input, missing) = supported_probe_input(
+            probe,
+            anniversary_available,
+            prospective_fields_forwarded(family),
+        )?;
         let executed = if probe.required_routes.is_empty() {
             projection.clone()
         } else if missing.is_empty() {
@@ -1706,7 +1790,11 @@ fn timing_queries(
             probe.supported_input.clone(),
         ));
         if !probe.required_routes.is_empty() {
-            let (input, missing) = supported_probe_input(probe, anniversary_available)?;
+            let (input, missing) = supported_probe_input(
+                probe,
+                anniversary_available,
+                prospective_fields_forwarded(family),
+            )?;
             if missing.is_empty() {
                 queries.push((format!("{}/full", probe.name), input));
             }
@@ -1726,7 +1814,8 @@ async fn run_families(
     let mut inputs = Vec::new();
     let mut measurements = Vec::new();
     for build in builders {
-        let original = build(config);
+        let mut original = build(config);
+        forward_obligations(&mut original)?;
         let mut next = original.clone();
         let mut order = Value::Null;
         for opposed_order in [false, true] {
@@ -1808,7 +1897,7 @@ async fn run_families(
     Ok(json!({"inputs":inputs,"measurements":measurements,
         "full_cases_executed":executed,"full_cases_not_run":not_run,"supported_parent_controls_executed":executed+not_run,
         "same_day_description_continuity":["/keyless_measurements","/opposed_keyless_measurements"],
-        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Each row separately executes a supported parent control with roles, due instant, range and explicit recency floor absent. executed_case records the full supported case; recency overrides and caller-given ranges run only when serialized native types advertise their fields; the adapter checks typed native range admission. Native range echo and has-more are separate from authored range membership. Anniversary support requires a range-free native sentinel to attempt the shared prior-year date_match root; --require-anniversary fails the run if that witness is absent; reference scene and date-match admissions are native, while local dates and anniversary identities are authored expectations. Missing fields remain not_run; no unavailable predicate is silently forwarded. Native resolution is reported; authored due classification is labelled hypothetical. Topic counts use eight graded episodes in each original family; added falsifiers use separate composition and spillover readings. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
+        "method":"Fixed generated intent for time/prospective plans; original and native-ID-opposed inputs. Unsupported fields are retained as typed planned intent and reported not_run. Authored roles and due instants are forwarded through typed public writes in obligation families. Each row separately executes its recorded parent request with range and explicit floor overrides absent. executed_case records the full supported case; recency overrides and caller-given ranges run only when serialized native types advertise their fields; the adapter checks typed native range admission. Native range echo and has-more are separate from authored range membership. Anniversary support requires a range-free native sentinel to attempt the shared prior-year date_match root; --require-anniversary fails the run if that witness is absent; reference scene and date-match admissions are native, while local dates and anniversary identities are authored expectations. Missing fields remain not_run; no unavailable predicate is silently forwarded. Native resolution, direction and due state are reported separately from authored due classification; forwarding flags compare the actual write fields with authored inputs. Topic counts use eight graded episodes in each original family; added falsifiers use separate composition and spillover readings. No behavioral pass/fail threshold. No clock, paid calls or fixture changes."}))
 }
 
 #[cfg(test)]
@@ -1816,6 +1905,51 @@ mod tests {
     use super::*;
     use cmem_eval::character_memory::MemoryObjectRef;
     use uuid::Uuid;
+
+    #[test]
+    fn prospective_forwarding_changes_only_authored_write_fields() {
+        for mut family in [
+            obligations_family(&config()),
+            obligations::meeting(&config()),
+            obligations::daily(&config()),
+            obligations::due_priority(&config()),
+        ] {
+            let before = serde_json::to_value(&family).unwrap();
+            assert!(!prospective_fields_forwarded(&family));
+            forward_obligations(&mut family).unwrap();
+            assert!(prospective_fields_forwarded(&family));
+            for probe in &family.probes {
+                assert!(
+                    supported_probe_input(probe, false, true)
+                        .unwrap()
+                        .1
+                        .is_empty()
+                );
+            }
+            let ids = family
+                .experiences
+                .iter()
+                .map(|e| &e.write.episode_external_id)
+                .chain(family.graph.derived_memories.iter().map(|m| &m.external_id))
+                .enumerate()
+                .map(|(n, id)| (id.clone(), format!("native-{n:04}")))
+                .collect();
+            let (opposed, _) = opposed(&family, &ids).unwrap();
+            assert!(prospective_fields_forwarded(&opposed));
+            for memory in &mut family.graph.derived_memories {
+                if family
+                    .obligations
+                    .iter()
+                    .any(|o| o.memory_external_id == memory.external_id)
+                {
+                    memory.assertions.clear();
+                    memory.due_at = None;
+                }
+            }
+            assert_eq!(serde_json::to_value(&family).unwrap(), before);
+            assert!(!prospective_fields_forwarded(&family));
+        }
+    }
 
     #[test]
     fn timed_controls_reuse_complete_recorded_requests() {
@@ -1909,7 +2043,7 @@ mod tests {
             .iter()
             .find(|p| p.name == "anniversary-local-morning")
             .unwrap();
-        let (_, missing) = supported_probe_input(anniversary, available).unwrap();
+        let (_, missing) = supported_probe_input(anniversary, available, false).unwrap();
         assert_eq!(missing.is_empty(), available);
         assert!(require_anniversary(available, false).is_ok());
         assert_eq!(require_anniversary(available, true).is_ok(), available);
@@ -1985,9 +2119,14 @@ mod tests {
             reference.date_naive(),
             reference.with_timezone(&Utc).date_naive()
         );
-        assert!(supported_probe_input(morning, true).unwrap().1.is_empty());
+        assert!(
+            supported_probe_input(morning, true, false)
+                .unwrap()
+                .1
+                .is_empty()
+        );
         assert_eq!(
-            supported_probe_input(morning, false).unwrap().1,
+            supported_probe_input(morning, false, false).unwrap().1,
             ["date_match"]
         );
         let names = time
@@ -2143,7 +2282,7 @@ mod tests {
         let family = time_family(&config());
         let defaults = serde_json::to_value(native::RetrievalCueFloors::default()).unwrap();
         for probe in family.probes.iter().filter(|p| p.recency_floor.is_some()) {
-            let (mapped, missing) = supported_probe_input(probe, false).unwrap();
+            let (mapped, missing) = supported_probe_input(probe, false, false).unwrap();
             if defaults.get("recency").is_some() {
                 assert!(missing.is_empty(), "advertised recency must execute");
                 let mut actual = serde_json::to_value(&mapped).unwrap();
