@@ -1,6 +1,8 @@
 {
   "seed": 20261016,
-  "sizes": [366, 1096, 2192],
+  "sizes": [366, 1096],
+  "uncaptured_size": 2192,
+  "uncaptured_reason": "The six-year size remains supported by the generator but is not captured in this before arm: an owner estimate of about an hour per identifier order, and a daemon restart interrupted the original attempt.",
   "start": "2019-09-10T12:00:00+09:00",
   "hub_percent": 80,
   "hub_people": 4,

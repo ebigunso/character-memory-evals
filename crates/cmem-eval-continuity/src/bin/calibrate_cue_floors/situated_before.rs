@@ -24,6 +24,8 @@ struct Control {
 struct Cost {
     seed: u64,
     sizes: Vec<usize>,
+    uncaptured_size: usize,
+    uncaptured_reason: String,
     start: String,
     hub_percent: usize,
     hub_people: usize,
@@ -364,6 +366,31 @@ async fn run_keyless(
     Ok(json!({"family":"keyless","runs":runs}))
 }
 
+fn checkpoint(
+    output: &Path,
+    timing_output: &Path,
+    header: &Value,
+    measurements: &[Value],
+    costs: &[Value],
+    timings: &timing::Timings,
+    complete: bool,
+) -> Result<()> {
+    let mut header = header.clone();
+    header["stores_cleaned"] = json!(complete);
+    header["capture_complete"] = json!(complete);
+    let mut raw = serde_json::to_vec_pretty(
+        &json!({"header":header,"controls":serde_json::from_str::<Value>(CONTROLS)?,
+        "cost_spec":serde_json::from_str::<Value>(COST)?,"measurements":measurements,"costs":costs,
+        "method":"Each parent and its single explicit-cue removal use the same store, time, floors, limits and lifecycle policy. No route ablation; zero floor is not removal. Gold is never loaded by this command. Native traces and selected projections use the existing snapshot reader; complete native DTOs and construction timestamps are not captured. Timing is separate. Both existing identifier orders run. No behavior or speed threshold."}),
+    )?;
+    raw.push(b'\n');
+    let mut timed = serde_json::to_vec_pretty(&json!({"header":header,
+        "method":"Three additional warm adapter.retrieve calls per recorded request; Instant excludes cloning, ingestion, serialization and validation. Individual samples and medians; no speed threshold. Cost family suffix gives experience count, with equal companion observation count; exact hub counts are in the deterministic report.","rows":timings.rows}))?;
+    timed.push(b'\n');
+    cmem_eval::fs_util::atomic_replace(timing_output, &timed, "situated-before timing checkpoint")?;
+    cmem_eval::fs_util::atomic_replace(output, &raw, "situated-before checkpoint")
+}
+
 pub(crate) async fn run(output: &Path, timing_output: &Path) -> Result<()> {
     let controls: Controls = serde_json::from_str(CONTROLS)?;
     let cost: Cost = serde_json::from_str(COST)?;
@@ -376,9 +403,18 @@ pub(crate) async fn run(output: &Path, timing_output: &Path) -> Result<()> {
         .unwrap();
     let library = workspace.join("../CharacterMemory");
     let pins = (revision(workspace)?, revision(&library)?);
-    let mut file = fs::File::create_new(output).context("new situated-before report required")?;
-    let mut timing_file = fs::File::create_new(timing_output)
-        .context("new situated-before timing report required")?;
+    let header = json!({"harness_commit":pins.0,"library_commit":pins.1,
+        "controls_sha256":text_sha256(CONTROLS),"cost_spec_sha256":text_sha256(COST),
+        "generator_source_sha256":text_sha256(concat!(include_str!("../calibrate_cue_floors.rs"),include_str!("descriptions.rs"),include_str!("time_and_obligations.rs"),include_str!("consolidation.rs"),include_str!("residuals.rs"),include_str!("obligations.rs"),include_str!("timing.rs"),include_str!("situated_before.rs"))),
+        "config_sha256":text_sha256(&serde_json::to_string(&config)?),"config":config,
+        "native_candidate_limits":native::RetrievalCandidateLimits::default(),
+        "native_graph_limits":native::RetrievalGraphLimits::default(),
+        "native_section_limits":native::ContinuitySectionLimits::default(),
+        "native_default_floors":native::RetrievalCueFloors::default(),
+        "profile":if cfg!(debug_assertions){"debug"}else{"release"},
+        "uncaptured_cost_size":cost.uncaptured_size,"uncaptured_cost_reason":cost.uncaptured_reason});
+    fs::File::create_new(output).context("new situated-before report required")?;
+    fs::File::create_new(timing_output).context("new situated-before timing report required")?;
     let stores = output.with_extension("stores");
     fs::create_dir(&stores).context("new owned situated-before stores required")?;
     let mut timings = timing::Timings {
@@ -387,6 +423,16 @@ pub(crate) async fn run(output: &Path, timing_output: &Path) -> Result<()> {
     };
     let result = async {
         let mut measurements = Vec::new();
+        let mut costs = Vec::new();
+        checkpoint(
+            output,
+            timing_output,
+            &header,
+            &measurements,
+            &costs,
+            &timings,
+            false,
+        )?;
         for mut family in families(&config) {
             forward_obligations(&mut family)?;
             measurements.push(
@@ -399,15 +445,41 @@ pub(crate) async fn run(output: &Path, timing_output: &Path) -> Result<()> {
                 ))
                 .await?,
             );
+            checkpoint(
+                output,
+                timing_output,
+                &header,
+                &measurements,
+                &costs,
+                &timings,
+                false,
+            )?;
         }
         measurements.push(Box::pin(run_keyless(&stores, &config, &controls, &mut timings)).await?);
-        let mut costs = Vec::new();
+        checkpoint(
+            output,
+            timing_output,
+            &header,
+            &measurements,
+            &costs,
+            &timings,
+            false,
+        )?;
         for size in &cost.sizes {
             let family = cost_family(&config, &cost, *size)?;
             let mut reading =
                 Box::pin(run_family(&stores, &config, &family, None, &mut timings)).await?;
             reading["store_size_and_skew"] = skew(&family);
             costs.push(reading);
+            checkpoint(
+                output,
+                timing_output,
+                &header,
+                &measurements,
+                &costs,
+                &timings,
+                false,
+            )?;
         }
         Ok::<_, anyhow::Error>((measurements, costs))
     }
@@ -418,28 +490,15 @@ pub(crate) async fn run(output: &Path, timing_output: &Path) -> Result<()> {
         (revision(workspace)?, revision(&library)?) == pins,
         "pins changed during situated-before run"
     );
-    let header = json!({"harness_commit":pins.0,"library_commit":pins.1,
-        "controls_sha256":text_sha256(CONTROLS),"cost_spec_sha256":text_sha256(COST),
-        "generator_source_sha256":text_sha256(concat!(include_str!("../calibrate_cue_floors.rs"),include_str!("descriptions.rs"),include_str!("time_and_obligations.rs"),include_str!("consolidation.rs"),include_str!("residuals.rs"),include_str!("obligations.rs"),include_str!("timing.rs"),include_str!("situated_before.rs"))),
-        "config_sha256":text_sha256(&serde_json::to_string(&config)?),"config":config,
-        "native_candidate_limits":native::RetrievalCandidateLimits::default(),
-        "native_graph_limits":native::RetrievalGraphLimits::default(),
-        "native_section_limits":native::ContinuitySectionLimits::default(),
-        "native_default_floors":native::RetrievalCueFloors::default(),
-        "profile":if cfg!(debug_assertions){"debug"}else{"release"},"stores_cleaned":true});
-    serde_json::to_writer_pretty(
-        &mut file,
-        &json!({"header":header,"controls":serde_json::from_str::<Value>(CONTROLS)?,
-        "cost_spec":serde_json::from_str::<Value>(COST)?,"measurements":measurements,"costs":costs,
-        "method":"Each parent and its single explicit-cue removal use the same store, time, floors, limits and lifecycle policy. No route ablation; zero floor is not removal. Gold is never loaded by this command. Native traces and selected projections use the existing snapshot reader; complete native DTOs and construction timestamps are not captured. Timing is separate. Both existing identifier orders run. No behavior or speed threshold."}),
+    checkpoint(
+        output,
+        timing_output,
+        &header,
+        &measurements,
+        &costs,
+        &timings,
+        true,
     )?;
-    file.write_all(b"\n")?;
-    serde_json::to_writer_pretty(
-        &mut timing_file,
-        &json!({"header":header,
-        "method":"Three additional warm adapter.retrieve calls per recorded request; Instant excludes cloning, ingestion, serialization and validation. Individual samples and medians; no speed threshold. Cost family suffix gives experience count, with equal companion observation count; exact hub counts are in the deterministic report.","rows":timings.rows}),
-    )?;
-    timing_file.write_all(b"\n")?;
     eprintln!("wrote situated-before {}", output.display());
     Ok(())
 }
@@ -448,6 +507,60 @@ pub(crate) async fn run(output: &Path, timing_output: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn checkpoints_keep_finished_rows_and_mark_completion_only_at_the_end() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("raw.json");
+        let timing_output = directory.path().join("timing.json");
+        let header = json!({"harness_commit":"test"});
+        let timings = timing::Timings::default();
+        let first = vec![json!({"family":"first","rows":[1]})];
+        checkpoint(
+            &output,
+            &timing_output,
+            &header,
+            &first,
+            &[],
+            &timings,
+            false,
+        )
+        .unwrap();
+        let partial: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+        assert_eq!(partial["measurements"], json!(first));
+        assert_eq!(partial["header"]["capture_complete"], false);
+        assert_eq!(partial["header"]["stores_cleaned"], false);
+        let costs = vec![json!({"family":"cost","rows":[2]})];
+        checkpoint(
+            &output,
+            &timing_output,
+            &header,
+            &first,
+            &costs,
+            &timings,
+            false,
+        )
+        .unwrap();
+        let partial: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+        assert_eq!(partial["measurements"], json!(first));
+        assert_eq!(partial["costs"], json!(costs));
+        assert_eq!(partial["header"]["capture_complete"], false);
+        checkpoint(
+            &output,
+            &timing_output,
+            &header,
+            &first,
+            &costs,
+            &timings,
+            true,
+        )
+        .unwrap();
+        let complete: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+        let timed: Value = serde_json::from_slice(&fs::read(&timing_output).unwrap()).unwrap();
+        assert_eq!(complete["header"]["capture_complete"], true);
+        assert_eq!(complete["header"]["stores_cleaned"], true);
+        assert_eq!(timed["header"], complete["header"]);
+    }
 
     #[test]
     fn controls_change_only_the_named_cue_and_keep_every_parent() {
@@ -539,9 +652,11 @@ mod tests {
     #[test]
     fn fixed_cost_store_is_deterministic_years_sized_and_skewed() {
         let cost: Cost = serde_json::from_str(COST).unwrap();
-        assert!(cost.sizes.windows(2).all(|w| w[0] < w[1]));
-        assert!(cost.sizes.last().unwrap() >= &(365 * 5));
-        let largest = cost_family(&config(), &cost, *cost.sizes.last().unwrap()).unwrap();
+        assert_eq!(cost.sizes, [366, 1096]);
+        assert_eq!(cost.uncaptured_size, 2192);
+        assert!(!cost.uncaptured_reason.is_empty());
+        let largest = cost_family(&config(), &cost, cost.uncaptured_size).unwrap();
+        assert_eq!(largest.experiences.len(), 2192);
         for size in &cost.sizes {
             let a = cost_family(&config(), &cost, *size).unwrap();
             let b = cost_family(&config(), &cost, *size).unwrap();
