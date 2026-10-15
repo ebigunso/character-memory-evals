@@ -343,6 +343,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 - owns:
   - crates/cmem-eval-continuity/fixtures/** (new fixture files only: the matched cue-removed controls, the hand-labelled situations for two families, the synthetic generator's seed; no existing fixture is edited)
   - crates/cmem-eval-continuity/src/bin/calibrate_cue_floors/** (the added control scenarios and the synthetic years-sized generator with skewed hubs, beside the existing families; no existing scenario changed)
+  - crates/cmem-eval-continuity/src/bin/calibrate_cue_floors.rs (module declarations, family registration, and the controls of the families defined in it; no existing scenario changed)
   - crates/cmem-eval-continuity/README.md
 - depends_on: []
 - description: |
@@ -511,3 +512,4 @@ Every task is one pull request, and the pull requests form one linear stack for 
   - User approval: the owner's ratified amendment sets the direction; this revision of an approved plan is reviewed before its tasks run.
   - Record proposed: none.
 - 2026-10-16 Decision: the review of d2d47d3 (CHANGES REQUESTED) applied. The added controls and the cost store get their before arm now (Task_10 at af605e09) rather than after-only; Task_9 runs at the library's Task_2 tip for candidate recall (the library's Task_2 control item), at its Task_4 tip for four measures, and at its final tip for all five, rendered behaviour measured only at the final tip and not compared; "and the rest" bounded to the gap note's matched cue removals, route ablations out; the opposed-identifier mode for authored narratives dropped (identifier-order independence is checked on the calibration families, B2 in authored order as captured); Task_6's comparability paragraph names the contract as the intentional difference; the handoff carries a reading and a verdict per measure; determinism runs show determinism only.
+- 2026-10-16 Decision: the re-review of e8e805d applied: Task_10's owns gain the binary's entry file; the controls gap note is Task_10's input, not Task_9's. Task_10 is dispatched (Wave 4a).
