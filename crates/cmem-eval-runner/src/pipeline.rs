@@ -3,7 +3,7 @@ use crate::commands::read_config;
 use crate::commands::{ContinuityRunArgs, RunArgs};
 use crate::enrichment;
 use anyhow::{Context, Result, bail};
-use chrono::Utc;
+use chrono::{DateTime, SecondsFormat, Utc};
 use cmem_eval::CharacterMemoryAdapter;
 use cmem_eval::{
     BenchmarkRunConfig, ControllableDimensionPolicy, EmbeddingBindingRecord,
@@ -218,7 +218,7 @@ trait DatasetSpec {
     fn question_id(question: &Self::Question) -> &str;
     fn question_type(question: &Self::Question) -> Option<String>;
     fn question_text(question: &Self::Question) -> &str;
-    fn query_date(question: &Self::Question) -> Option<String>;
+    fn query_date(item: &Self::Item, question: &Self::Question) -> Result<Option<String>>;
     fn gold_episode_ids(item: &Self::Item, question: &Self::Question) -> Vec<String>;
     fn gold_observation_ids(item: &Self::Item, question: &Self::Question) -> Vec<String>;
     fn score(
@@ -228,6 +228,9 @@ trait DatasetSpec {
         config: &BenchmarkRunConfig,
     ) -> Value;
     fn full_history_text(item: &Self::Item) -> String;
+    fn observation_splits(_item: &Self::Item) -> Vec<cmem_eval::ObservationSplit> {
+        Vec::new()
+    }
     fn enrichment(
         item: &Self::Item,
         namespace: &str,
@@ -280,6 +283,10 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
         header
             .embedding_bindings
             .insert(config.dataset.to_string(), embedding_binding);
+        header.observation_splits = source_items
+            .iter()
+            .flat_map(S::observation_splits)
+            .collect();
         adapter = if lexical {
             None
         } else {
@@ -344,7 +351,7 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
                     namespace: namespace.clone(),
                     topic: Some(S::question_text(question).to_string()),
                     scene: cmem_eval::MemorySceneInput {
-                        time: S::query_date(question),
+                        time: S::query_date(&item, question)?,
                         ..Default::default()
                     },
                     surface_policy: config.retrieval.surface_policy.clone(),
@@ -737,8 +744,8 @@ impl DatasetSpec for LongMemEvalSpec {
         &question.question
     }
 
-    fn query_date(question: &Self::Question) -> Option<String> {
-        question.question_date.clone()
+    fn query_date(_item: &Self::Item, question: &Self::Question) -> Result<Option<String>> {
+        Ok(question.question_date.clone())
     }
 
     fn gold_episode_ids(_item: &Self::Item, question: &Self::Question) -> Vec<String> {
@@ -765,6 +772,10 @@ impl DatasetSpec for LongMemEvalSpec {
 
     fn full_history_text(item: &Self::Item) -> String {
         cmem_eval_longmemeval::full_history_text(item)
+    }
+
+    fn observation_splits(item: &Self::Item) -> Vec<cmem_eval::ObservationSplit> {
+        item.observation_splits()
     }
 
     fn enrichment(
@@ -797,6 +808,23 @@ impl DatasetSpec for LongMemEvalSpec {
 
 struct LoCoMoSpec;
 
+#[derive(Debug)]
+struct MissingLoCoMoQueryTimestamp {
+    sample_id: String,
+}
+
+impl std::fmt::Display for MissingLoCoMoQueryTimestamp {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "LoCoMo conversation {:?} has no parseable source timestamp",
+            self.sample_id
+        )
+    }
+}
+
+impl std::error::Error for MissingLoCoMoQueryTimestamp {}
+
 impl DatasetSpec for LoCoMoSpec {
     type Item = cmem_eval_locomo::LoCoMoSample;
     type Question = cmem_eval_locomo::LoCoMoQa;
@@ -813,7 +841,12 @@ impl DatasetSpec for LoCoMoSpec {
     }
 
     fn load(source: &str) -> Result<Vec<Self::Item>> {
-        Ok(cmem_eval_locomo::load_value(serde_json::from_str(source)?)?)
+        let items = cmem_eval_locomo::load_value(serde_json::from_str(source)?)?;
+        for item in &items {
+            // The loader admits non-empty QA; reject missing time before native writes.
+            Self::query_date(item, &item.qa[0])?;
+        }
+        Ok(items)
     }
 
     fn item_id(item: &Self::Item) -> &str {
@@ -858,8 +891,21 @@ impl DatasetSpec for LoCoMoSpec {
         &question.question
     }
 
-    fn query_date(_question: &Self::Question) -> Option<String> {
-        None
+    fn query_date(item: &Self::Item, _question: &Self::Question) -> Result<Option<String>> {
+        let timestamp = item
+            .sessions
+            .iter()
+            .filter_map(|session| session.timestamp.as_deref())
+            .filter_map(|timestamp| DateTime::parse_from_rfc3339(timestamp).ok())
+            .max()
+            .ok_or_else(|| MissingLoCoMoQueryTimestamp {
+                sample_id: item.sample_id.clone(),
+            })?;
+        Ok(Some(
+            timestamp
+                .with_timezone(&Utc)
+                .to_rfc3339_opts(SecondsFormat::AutoSi, true),
+        ))
     }
 
     fn gold_episode_ids(item: &Self::Item, question: &Self::Question) -> Vec<String> {
@@ -1070,6 +1116,7 @@ fn run_header(
         run_id: config.run_id.clone(),
         dataset: config.dataset.clone(),
         input_sha256,
+        observation_splits: Vec::new(),
         embedding_bindings: BTreeMap::new(),
         self_notion_ids: BTreeMap::new(),
         harness_commit: commit(&workspace)?,
@@ -1605,6 +1652,7 @@ mod tests {
             serde_json::to_vec(&serde_json::json!([{
                 "sample_id": "p1",
                 "conversation": {
+                    "session_1_date_time": "2024-01-01T00:00:00Z",
                     "session_1": [{"dia_id": "d1", "speaker": "A", "text": "likes tea"}]
                 },
                 "qa": [
@@ -2208,7 +2256,7 @@ mod tests {
     fn derived_locomo_fixture() -> Value {
         serde_json::json!([{
             "sample_id": "p1",
-            "conversation": {"session_1": [{"dia_id": "d1", "text": "jasmine tea"}]},
+            "conversation": {"session_1_date_time": "2024-01-01T00:00:00Z", "session_1": [{"dia_id": "d1", "text": "jasmine tea"}]},
             "session_summary": {"session_1_summary": "UNIQUE_SUMMARY_TOKEN"},
             "observation": {"session_1_observation": {"A": [["UNIQUE_CLAIM_TOKEN", "d1,missing"], null]}},
             "qa": [{"question": "UNIQUE_SUMMARY_TOKEN", "evidence": ["d1"]}]

@@ -51,12 +51,30 @@ fn parse_instance(raw: Value, index: usize) -> Result<LongMemEvalInstance, LoadE
     let question = nonblank_string_field(&raw, "question")
         .ok_or_else(|| location.error("question", "expected a non-blank string"))?;
     let sessions = parse_sessions(&raw, &location)?;
+    let question_date = match raw.get("question_date") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(
+            value
+                .as_str()
+                .and_then(|value| {
+                    let value = value.trim();
+                    DateTime::parse_from_rfc3339(value)
+                        .map(|timestamp| timestamp.with_timezone(&Utc))
+                        .ok()
+                        .or_else(|| parse_official_longmemeval_timestamp(value))
+                })
+                .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::AutoSi, true))
+                .ok_or_else(|| {
+                    location.error("question_date", "expected an official timestamp or RFC3339")
+                })?,
+        ),
+    };
     Ok(LongMemEvalInstance {
         question_id,
         question_type: string_field(&raw, "question_type"),
         question,
         answer: string_field(&raw, "answer"),
-        question_date: string_field(&raw, "question_date"),
+        question_date,
         sessions,
         answer_session_ids: string_array(raw.get("answer_session_ids")),
     })
@@ -195,12 +213,20 @@ fn parse_turns(
             if !turn.is_object() {
                 return Err(location.error(format!("{field}[{idx}]"), "expected a turn object"));
             }
+            let text = string_field(turn, "content").ok_or_else(|| {
+                location.error(format!("{field}[{idx}].content"), "expected a string")
+            })?;
+            let observation_parts = split_observation(&text).ok_or_else(|| {
+                location.error(
+                    format!("{field}[{idx}].content"),
+                    "a span without a usable boundary exceeds the 8192-token observation limit",
+                )
+            })?;
             Ok(LongMemEvalTurn {
                 index: idx + 1,
                 speaker: string_field(turn, "role"),
-                text: string_field(turn, "content").ok_or_else(|| {
-                    location.error(format!("{field}[{idx}].content"), "expected a string")
-                })?,
+                text,
+                observation_parts,
                 has_answer: turn
                     .get("has_answer")
                     .and_then(Value::as_bool)
@@ -208,6 +234,78 @@ fn parse_turns(
             })
         })
         .collect()
+}
+
+pub(crate) const OBSERVATION_TOKEN_LIMIT: usize = 8192;
+
+fn observation_tokens(text: &str) -> usize {
+    // Include the native surface prefix in the provider's token limit.
+    let clean = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let surface = if clean.is_empty() {
+        "Observation excerpt".to_string()
+    } else {
+        format!("Observation excerpt: {clean}")
+    };
+    tiktoken_rs::cl100k_base_singleton()
+        .encode_ordinary(&surface)
+        .len()
+}
+
+fn split_observation(text: &str) -> Option<Vec<crate::LongMemEvalObservationPart>> {
+    use cmem_eval::ObservationBoundary::{Newline, Paragraph, Sentence, Whitespace};
+    if text.len() + "Observation excerpt: ".len() <= OBSERVATION_TOKEN_LIMIT
+        || observation_tokens(text) <= OBSERVATION_TOKEN_LIMIT
+    {
+        return Some(Vec::new());
+    }
+    let ends = text
+        .char_indices()
+        .filter_map(|(index, ch)| {
+            let end = index + ch.len_utf8();
+            let sentence = matches!(ch, '.' | '!' | '?')
+                && text[end..].chars().next().is_none_or(char::is_whitespace);
+            let kind = if ch == '\n'
+                && (text[end..].starts_with('\n') || text[end..].starts_with("\r\n"))
+            {
+                Paragraph
+            } else if sentence {
+                Sentence
+            } else if ch == '\n' {
+                Newline
+            } else if ch.is_whitespace() {
+                Whitespace
+            } else {
+                return None;
+            };
+            Some((end, kind))
+        })
+        .collect::<Vec<_>>();
+    let mut parts = Vec::new();
+    let mut start = 0;
+    while observation_tokens(&text[start..]) > OBSERVATION_TOKEN_LIMIT {
+        let last_fit = |kinds: &[cmem_eval::ObservationBoundary]| {
+            ends.iter().rev().copied().find(|(end, kind)| {
+                *end > start
+                    && kinds.contains(kind)
+                    && !text[start..*end].trim().is_empty()
+                    && observation_tokens(&text[start..*end]) <= OBSERVATION_TOKEN_LIMIT
+            })
+        };
+        let (end, boundary_kind) = last_fit(&[Paragraph, Sentence])
+            .or_else(|| last_fit(&[Newline]))
+            .or_else(|| last_fit(&[Whitespace]))?;
+        parts.push(crate::LongMemEvalObservationPart {
+            text: text[start..end].to_string(),
+            boundary_kind,
+        });
+        start = end;
+    }
+    // End of the source turn closes its final paragraph without another cut.
+    parts.push(crate::LongMemEvalObservationPart {
+        text: text[start..].to_string(),
+        boundary_kind: Paragraph,
+    });
+    Some(parts)
 }
 
 fn string_field(value: &Value, key: &str) -> Option<String> {
@@ -233,6 +331,59 @@ fn string_array(value: Option<&Value>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn records_preferred_boundary_then_newline_and_whitespace_fallbacks() {
+        use cmem_eval::ObservationBoundary::{Newline, Paragraph, Sentence, Whitespace};
+        for (separator, expected) in [
+            (". ", Sentence),
+            ("\n\n", Paragraph),
+            ("\n", Newline),
+            (" ", Whitespace),
+        ] {
+            let text = format!(
+                "{}{separator}{}",
+                "alpha ".repeat(4500),
+                "beta ".repeat(4500)
+            );
+            let parts = split_observation(&text).unwrap();
+            assert_eq!(parts[0].boundary_kind, expected);
+            assert_eq!(parts.last().unwrap().boundary_kind, Paragraph);
+            assert_eq!(
+                parts
+                    .iter()
+                    .map(|part| part.text.as_str())
+                    .collect::<String>(),
+                text
+            );
+            assert!(
+                parts
+                    .iter()
+                    .all(|part| observation_tokens(&part.text) <= OBSERVATION_TOKEN_LIMIT)
+            );
+        }
+    }
+
+    #[test]
+    fn paragraph_split_preserves_unicode_and_crlf_bytes_under_native_token_limit() {
+        let text = format!("{}\r\n\r\n{}", "猫 ".repeat(2200), "猫 ".repeat(2200));
+        assert!(observation_tokens(&text) > OBSERVATION_TOKEN_LIMIT);
+        let parts = split_observation(&text).unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(
+            parts
+                .iter()
+                .map(|part| part.text.as_str())
+                .collect::<String>(),
+            text
+        );
+        assert!(
+            parts
+                .iter()
+                .all(|part| observation_tokens(&part.text) <= OBSERVATION_TOKEN_LIMIT)
+        );
+        assert!(split_observation(&" \n".repeat(9000)).unwrap().is_empty());
+    }
 
     #[test]
     fn parses_official_fixture() {

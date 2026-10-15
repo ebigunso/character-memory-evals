@@ -16,10 +16,14 @@
 //! `haystack_dates` is optional: absent or null is admitted; otherwise it must be
 //! an array matching the session count. Each null or non-string slot means no
 //! date at that position, without shifting later dates. Raw dates are retained
-//! alongside normalized timestamps. `question_type`, `answer`, `question_date`,
-//! `role` and `answer_session_ids` remain optional. `has_answer` defaults to false
-//! when absent or not boolean; references to absent sessions do not reject the
-//! item. Optional annotations do not determine abstention status.
+//! alongside normalized timestamps. `question_date` is optional when absent or
+//! null; supplied dates must parse as an official timestamp or RFC3339 and are
+//! normalized to RFC3339 UTC, treating official timestamps without an offset as
+//! UTC. Invalid dates reject the item with its question identity.
+//! `question_type`, `answer`, `role` and `answer_session_ids` remain optional.
+//! `has_answer` defaults to false when absent or not boolean; references to absent
+//! sessions do not reject the item. Optional annotations do not determine
+//! abstention status.
 //!
 //! Ingest assigns each occurrence its own episode identity: the first keeps the
 //! raw benchmark session ID, later copies receive `#2`, `#3`, ... while skipping
@@ -28,6 +32,17 @@
 //! raw ID. Scoring recomputes the same identity tables from the item to map both
 //! session and turn rankings back to benchmark IDs, crediting each ID only at
 //! its first retrieved rank. Retrieved row IDs are assigned; gold IDs are raw.
+//!
+//! Oversized turns retain their original text/index but gain observation parts
+//! at greedy sentence/blank-paragraph boundaries, each native prefixed surface
+//! at most 8192 cl100k tokens. If none fits, use the last newline, then the last
+//! whitespace under the limit; an unbreakable oversized span is an admission
+//! error. The manifest records each part's boundary kind; source end closes its
+//! final paragraph.
+//! Ingest keeps the original ID for the first part and uses `:part:2`, ... for
+//! later parts in the same episode/speaker/time. Scoring maps every part to the
+//! original turn; full-history text and converter source text stay unchanged.
+//! Conventional run headers record affected identities and the split policy.
 
 mod error;
 mod identity;
