@@ -123,7 +123,7 @@ pub(super) struct KeylessFamily {
     pub namespace: String,
     pub embedding: ControllableSimilarityFixture,
     writes: Vec<PrepareWriteInput>,
-    probes: Vec<Probe>,
+    pub(super) probes: Vec<Probe>,
     topic_alone: RetrieveInput,
     targets: Vec<String>,
 }
@@ -413,6 +413,11 @@ fn scene_reading(observed: &Value, family: &KeylessFamily, input: &RetrieveInput
 }
 
 pub(super) async fn measure(runtime: &ContinuityRuntime, family: &KeylessFamily) -> Result<Value> {
+    ingest(runtime, family).await?;
+    measure_ingested(runtime, family).await
+}
+
+pub(super) async fn ingest(runtime: &ContinuityRuntime, family: &KeylessFamily) -> Result<()> {
     runtime.adapter().open_namespace(&family.namespace).await?;
     // Only the public write path: there is no entity registration or language-header workaround.
     for input in &family.writes {
@@ -439,6 +444,10 @@ pub(super) async fn measure(runtime: &ContinuityRuntime, family: &KeylessFamily)
             input.episode_external_id
         );
     }
+    Ok(())
+}
+
+async fn measure_ingested(runtime: &ContinuityRuntime, family: &KeylessFamily) -> Result<Value> {
     let pack = runtime
         .adapter()
         .retrieve(family.topic_alone.clone())

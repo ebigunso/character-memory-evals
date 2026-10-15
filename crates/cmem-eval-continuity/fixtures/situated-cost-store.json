@@ -1,0 +1,10 @@
+{
+  "seed": 20261016,
+  "sizes": [366, 1096, 2192],
+  "start": "2019-09-10T12:00:00+09:00",
+  "hub_percent": 80,
+  "hub_people": 4,
+  "hub_places": 2,
+  "tail_people": 32,
+  "tail_places": 24
+}

@@ -1,0 +1,22 @@
+{
+  "controls": [
+    {"family":"keyed-setting-office","parent":"six-people-with-office","remove":["topic","participants","participant:0","participant:1","participant:2","participant:3","participant:4","participant:5"]},
+    {"family":"keyed-setting-office","parent":"six-people-without-office","remove":["topic","participants","participant:0","participant:1","participant:2","participant:3","participant:4","participant:5"]},
+    {"family":"prospective-meeting","parent":"iris-rowan-loud","remove":["topic","participant:0","participant:1"]},
+    {"family":"prospective-meeting","parent":"rowan-iris-loud","remove":["topic","participant:0","participant:1"]},
+    {"family":"activity-people-pressure","parent":"people-topic-with-activity-floor-1","remove":["topic","participants","participant:0","participant:1"]},
+    {"family":"activity-people-pressure","parent":"people-topic-alone","remove":["topic","participants","participant:0","participant:1"]},
+    {"family":"familiar-salient-remarks","parent":"present-person-no-topic","remove":["participants"]},
+    {"family":"prospective-due-priority","parent":"stale-overdue-vs-today-loud","remove":["topic"]},
+    {"family":"keyed-setting-home","parent":"home-topic-0-with-key","remove":["topic"]},
+    {"family":"keyed-setting-home","parent":"home-topic-1-with-key","remove":["topic"]},
+    {"family":"keyed-setting-home","parent":"home-topic-2-with-key","remove":["topic"]},
+    {"family":"keyed-setting-home","parent":"home-topic-3-with-key","remove":["topic"]},
+    {"family":"keyed-setting-home","parent":"home-topic-4-with-key","remove":["topic"]},
+    {"family":"keyed-setting-home","parent":"home-topic-5-with-key","remove":["topic"]},
+    {"family":"keyed-setting-home","parent":"home-topic-6-with-key","remove":["topic"]},
+    {"family":"keyless","parent":"topic-and-scene","remove":["place_description","participant:0"]},
+    {"family":"keyless","parent":"scene-only","remove":["place_description","participant:0"]},
+    {"family":"keyless","parent":"same-day-by-descriptions","remove":["place_description","participant:0"]}
+  ]
+}
