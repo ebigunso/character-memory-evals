@@ -228,6 +228,9 @@ trait DatasetSpec {
         config: &BenchmarkRunConfig,
     ) -> Value;
     fn full_history_text(item: &Self::Item) -> String;
+    fn observation_splits(_item: &Self::Item) -> Vec<cmem_eval::ObservationSplit> {
+        Vec::new()
+    }
     fn enrichment(
         item: &Self::Item,
         namespace: &str,
@@ -280,6 +283,10 @@ async fn run_pipeline<S: DatasetSpec>(args: RunArgs) -> Result<()> {
         header
             .embedding_bindings
             .insert(config.dataset.to_string(), embedding_binding);
+        header.observation_splits = source_items
+            .iter()
+            .flat_map(S::observation_splits)
+            .collect();
         adapter = if lexical {
             None
         } else {
@@ -767,6 +774,10 @@ impl DatasetSpec for LongMemEvalSpec {
         cmem_eval_longmemeval::full_history_text(item)
     }
 
+    fn observation_splits(item: &Self::Item) -> Vec<cmem_eval::ObservationSplit> {
+        item.observation_splits()
+    }
+
     fn enrichment(
         item: &Self::Item,
         namespace: &str,
@@ -1105,6 +1116,7 @@ fn run_header(
         run_id: config.run_id.clone(),
         dataset: config.dataset.clone(),
         input_sha256,
+        observation_splits: Vec::new(),
         embedding_bindings: BTreeMap::new(),
         self_notion_ids: BTreeMap::new(),
         harness_commit: commit(&workspace)?,

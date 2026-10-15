@@ -38,13 +38,24 @@ impl Identities {
             *ordinal += 1;
             identities.session_ids.insert(assigned.clone(), raw.clone());
             for turn in &session.turns {
-                identities.turn_ids.insert(
-                    format!("{assigned}:turn:{}", turn.index),
-                    format!("{raw}:turn:{}", turn.index),
-                );
+                for (part, _) in turn.observation_texts().enumerate() {
+                    identities.turn_ids.insert(
+                        observation_id(&assigned, turn.index, part),
+                        format!("{raw}:turn:{}", turn.index),
+                    );
+                }
             }
             identities.episodes.push(assigned);
         }
         identities
+    }
+}
+
+pub(crate) fn observation_id(episode: &str, turn: usize, part: usize) -> String {
+    let original = format!("{episode}:turn:{turn}");
+    if part == 0 {
+        original
+    } else {
+        format!("{original}:part:{}", part + 1)
     }
 }
