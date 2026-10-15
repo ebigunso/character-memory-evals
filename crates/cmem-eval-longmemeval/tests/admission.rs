@@ -267,12 +267,7 @@ fn admits_parallel_session_repeats_with_identical_turns_and_different_dates() {
 
 #[test]
 fn admits_missing_or_malformed_optional_annotations() {
-    for field in [
-        "question_type",
-        "answer",
-        "question_date",
-        "answer_session_ids",
-    ] {
+    for field in ["question_type", "answer", "answer_session_ids"] {
         for value in [None, Some(json!(null)), Some(json!({}))] {
             let mut row = item();
             if let Some(value) = value {
@@ -295,6 +290,48 @@ fn admits_missing_or_malformed_optional_annotations() {
         let rows = load_value(json!([row])).unwrap();
         assert!(rows[0].sessions[0].raw_date.is_none());
         assert!(rows[0].sessions[0].date.is_none());
+    }
+}
+
+#[test]
+fn normalizes_question_dates_to_rfc3339_utc() {
+    for (value, expected) in [
+        (None, None),
+        (Some(json!(null)), None),
+        (
+            Some(json!("2023/05/30 (Tue) 23:40")),
+            Some("2023-05-30T23:40:00Z"),
+        ),
+        (
+            Some(json!("2023/05/30 23:40")),
+            Some("2023-05-30T23:40:00Z"),
+        ),
+        (
+            Some(json!(" 2023-05-31T08:40:00.123+09:00 ")),
+            Some("2023-05-30T23:40:00.123Z"),
+        ),
+    ] {
+        let mut row = item();
+        if let Some(value) = value {
+            row["question_date"] = value;
+        }
+        let rows = load_value(json!([row])).unwrap();
+        assert_eq!(rows[0].question_date.as_deref(), expected);
+    }
+}
+
+#[test]
+fn rejects_invalid_question_dates_with_question_identity() {
+    for value in [
+        json!("2023/02/30 (Thu) 23:40"),
+        json!("not-a-date"),
+        json!(" \t"),
+        json!({}),
+        json!(42),
+    ] {
+        let mut row = item();
+        row["question_date"] = value;
+        rejected(json!([row]), "question_date", 0, Some("q1"));
     }
 }
 

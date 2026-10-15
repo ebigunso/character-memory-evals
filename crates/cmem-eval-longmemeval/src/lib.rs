@@ -16,10 +16,14 @@
 //! `haystack_dates` is optional: absent or null is admitted; otherwise it must be
 //! an array matching the session count. Each null or non-string slot means no
 //! date at that position, without shifting later dates. Raw dates are retained
-//! alongside normalized timestamps. `question_type`, `answer`, `question_date`,
-//! `role` and `answer_session_ids` remain optional. `has_answer` defaults to false
-//! when absent or not boolean; references to absent sessions do not reject the
-//! item. Optional annotations do not determine abstention status.
+//! alongside normalized timestamps. `question_date` is optional when absent or
+//! null; supplied dates must parse as an official timestamp or RFC3339 and are
+//! normalized to RFC3339 UTC, treating official timestamps without an offset as
+//! UTC. Invalid dates reject the item with its question identity.
+//! `question_type`, `answer`, `role` and `answer_session_ids` remain optional.
+//! `has_answer` defaults to false when absent or not boolean; references to absent
+//! sessions do not reject the item. Optional annotations do not determine
+//! abstention status.
 //!
 //! Ingest assigns each occurrence its own episode identity: the first keeps the
 //! raw benchmark session ID, later copies receive `#2`, `#3`, ... while skipping

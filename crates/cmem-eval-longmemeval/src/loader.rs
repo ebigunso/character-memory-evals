@@ -51,12 +51,30 @@ fn parse_instance(raw: Value, index: usize) -> Result<LongMemEvalInstance, LoadE
     let question = nonblank_string_field(&raw, "question")
         .ok_or_else(|| location.error("question", "expected a non-blank string"))?;
     let sessions = parse_sessions(&raw, &location)?;
+    let question_date = match raw.get("question_date") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(
+            value
+                .as_str()
+                .and_then(|value| {
+                    let value = value.trim();
+                    DateTime::parse_from_rfc3339(value)
+                        .map(|timestamp| timestamp.with_timezone(&Utc))
+                        .ok()
+                        .or_else(|| parse_official_longmemeval_timestamp(value))
+                })
+                .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::AutoSi, true))
+                .ok_or_else(|| {
+                    location.error("question_date", "expected an official timestamp or RFC3339")
+                })?,
+        ),
+    };
     Ok(LongMemEvalInstance {
         question_id,
         question_type: string_field(&raw, "question_type"),
         question,
         answer: string_field(&raw, "answer"),
-        question_date: string_field(&raw, "question_date"),
+        question_date,
         sessions,
         answer_session_ids: string_array(raw.get("answer_session_ids")),
     })
