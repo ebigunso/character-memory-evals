@@ -51,6 +51,7 @@ pub struct RunHeader {
     pub dataset: DatasetId,
     pub dataset_kind: DatasetKind,
     pub input_sha256: String,
+    pub observation_splits: Vec<ObservationSplit>,
     /// Scenario id (continuity) or dataset id maps to the embedding used at runtime.
     pub embedding_bindings: BTreeMap<String, EmbeddingBindingRecord>,
     pub harness_commit: String,
@@ -64,6 +65,31 @@ pub struct RunHeader {
     pub storage_root_sha256: String,
     /// Stores are retained if and only if a reason is present.
     pub retain_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ObservationSplit {
+    pub dataset_item_id: String,
+    pub source_observation_id: String,
+    pub parts: Vec<ObservationSplitPart>,
+    pub boundary_policy: String,
+    pub tokenizer: String,
+    pub max_input_tokens: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ObservationSplitPart {
+    pub observation_id: String,
+    pub boundary_kind: ObservationBoundary,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ObservationBoundary {
+    Paragraph,
+    Sentence,
+    Newline,
+    Whitespace,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -244,6 +270,7 @@ mod tests {
             dataset: DatasetId::new("locomo").unwrap(),
             dataset_kind: DatasetKind::LoCoMo,
             input_sha256: crate::text_sha256("input"),
+            observation_splits: Vec::new(),
             embedding_bindings: BTreeMap::new(),
             harness_commit: "test".into(),
             library_commit: "test".into(),

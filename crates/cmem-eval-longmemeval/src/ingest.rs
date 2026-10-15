@@ -36,19 +36,21 @@ pub fn to_memory_inputs(instance: &LongMemEvalInstance) -> LongMemEvalMemoryInpu
             }),
         });
         for turn in &session.turns {
-            observations.push(ObservationInput {
-                external_id: format!("{}:turn:{}", assigned, turn.index),
-                episode_external_id: assigned.clone(),
-                namespace: namespace.clone(),
-                speaker: turn.speaker.clone(),
-                text: turn.text.clone(),
-                observed_at: session.date.clone(),
-                metadata: serde_json::json!({
-                    "source": "longmemeval_s",
-                    "raw_date": session.raw_date.clone(),
-                    "normalized_date": session.date.clone()
-                }),
-            });
+            for (part, text) in turn.observation_texts().enumerate() {
+                observations.push(ObservationInput {
+                    external_id: crate::identity::observation_id(assigned, turn.index, part),
+                    episode_external_id: assigned.clone(),
+                    namespace: namespace.clone(),
+                    speaker: turn.speaker.clone(),
+                    text: text.to_string(),
+                    observed_at: session.date.clone(),
+                    metadata: serde_json::json!({
+                        "source": "longmemeval_s",
+                        "raw_date": session.raw_date.clone(),
+                        "normalized_date": session.date.clone()
+                    }),
+                });
+            }
         }
     }
 
