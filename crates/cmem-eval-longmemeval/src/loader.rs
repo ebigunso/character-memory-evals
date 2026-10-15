@@ -287,6 +287,7 @@ fn split_observation(text: &str) -> Option<Vec<crate::LongMemEvalObservationPart
             ends.iter().rev().copied().find(|(end, kind)| {
                 *end > start
                     && kinds.contains(kind)
+                    && !text[start..*end].trim().is_empty()
                     && observation_tokens(&text[start..*end]) <= OBSERVATION_TOKEN_LIMIT
             })
         };

@@ -90,6 +90,53 @@ fn splits_oversized_turn_into_consecutive_observations_without_changing_source_o
 }
 
 #[test]
+fn leading_blank_lines_stay_with_the_first_content_part() {
+    for prefix in ["\n\n", "\r\n\r\n"] {
+        let text = format!("{prefix}{}", "alpha ".repeat(9000));
+        let item = load_value(serde_json::json!([{
+            "question_id": "leading-blank-lines",
+            "question": "What happened?",
+            "haystack_session_ids": ["s1"],
+            "haystack_sessions": [[
+                {"content": text, "has_answer": true},
+                {"content": "Second gold turn.", "has_answer": true}
+            ]]
+        }]))
+        .unwrap()
+        .remove(0);
+        let mapped = to_memory_inputs(&item);
+        assert!(
+            mapped
+                .observations
+                .iter()
+                .all(|o| !o.text.trim().is_empty())
+        );
+        assert_eq!(mapped.observations.len(), 3);
+        assert_eq!(mapped.observations[0].external_id, "s1:turn:1");
+        assert!(mapped.observations[0].text.starts_with(prefix));
+        assert!(mapped.observations[0].text.contains("alpha"));
+        assert_eq!(
+            mapped.observations[..2]
+                .iter()
+                .map(|o| o.text.as_str())
+                .collect::<String>(),
+            text
+        );
+        for observation in &mapped.observations[..2] {
+            let clean = observation
+                .text
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            let tokens = tiktoken_rs::cl100k_base_singleton()
+                .encode_ordinary(&format!("Observation excerpt: {clean}"))
+                .len();
+            assert!(tokens <= 8192);
+        }
+    }
+}
+
+#[test]
 fn unsplittable_oversized_turn_names_the_question_before_ingest() {
     let error = load_value(serde_json::json!([{
         "question_id": "unsplittable-turn",
