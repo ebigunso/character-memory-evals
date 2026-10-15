@@ -7,14 +7,15 @@
 
 ## Goal
 - Before the library implements situated recall, this repository can state each v0.2 catalog situation as a scenario a person can read and judge, with assertions that must hold and measures that are reported, and says of each scenario whether it passed, failed, or was not run because the pinned library cannot be asked yet. As the library's v0.2 slices land, the same scenarios start running with no re-authoring, and the pollution and context-size baselines are re-measured once.
-- Decision each part informs: the assertions inform the library's acceptance of v0.2 (draft section 6) and the shape of its scene input; recall by reason under the loud-topic set informs route-floor calibration; bystander share and context tokens inform the cost of situated recall; the re-baseline informs whether pack-admission changes cost recall or context.
+- Decision each part informs: the assertions inform the library's acceptance of v0.2 (draft section 6) and the shape of its scene input; recall by reason under the loud-topic set and the situation view inform the library's recall design (its brief's section 4a measurement: a deterministic situation view against the behaviour before it); bystander share and context tokens inform the cost of situated recall; the re-baseline informs whether the recall design's change cost recall or context.
 
 ## Definition of Done
 - Every scenario group in the library's v0.2 draft, section 4, exists as at least one scenario that names its catalog situation and states its retrieval-tier property as assertions on its probes and writes (there is no separate property field; the assertions are the property), checked with no language model.
 - A run reports each scenario as passed, failed, or not run with the missing features named, and reports recall of what the moment calls for grouped by reason, bystander share, and context tokens. A first run against library `d0fe82d` is recorded in the Progress Log as the starting point.
 - After the library's schema groundwork the workspace builds, the three validation commands pass, and the smoke recipe runs, with no register-cited byte changed.
 - After the library's scene and routes land, no scenario is "not run", and the draft's section 6 retrieval-tier criteria can be read off one run report.
-- The continuity baselines of ADR-I-0022 (pollution, context size, gap recall, the graph-only probe) are re-measured once at the library commit that closes v0.2 pack admission, with the comparability conditions from the census stated beside the numbers.
+- The continuity baselines of ADR-I-0022 (pollution, context size, gap recall, the graph-only probe) are re-measured once at the library commit that closes v0.2 recall (the situated recall plan's final tip), with the comparability conditions from the census stated beside the numbers.
+- The situation view: the library's section 4a measurement can be read off one deterministic run at a library tip against the before arm captured at `af605e09`, on the pressure families with topic-only and each-cue-removed controls, in both identifier orders, with candidate recall, situation grouping, coverage, unrelated admissions and rendered behaviour reported separately, and the cost at a years-sized synthetic store with skewed hubs.
 - README describes what ships; the plan closes in completed.
 - Before closeout, every measurement reading this plan cites is kept at a tracked or recoverable location under the repository's evidence rule, including the census report (`.agent-work/orchestrator/v0-2-eval-census-report.md`) this plan rests on; a path under `.agent-work` is not a location.
 
@@ -291,7 +292,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - crates/cmem-eval-continuity/README.md (the scenario contract, reconciled to the same rulings)
 - depends_on: [Task_4, Task_7, Task_8]
 - description: |
-  External dependency: the library slices that add the scene, the reference time, the routes and the trace facts. Each step records the exact library commit it validates against in the Decision Log and the run headers, with the sibling checkout pinned to it. Extend together, as each slice lands, the core adapter contract and its forwarding, the driver's one mapping function, and the supported feature set beside it; the reference time is forwarded (today `query_date` stops at the adapter). May land in steps; each step reduces the "not run" count and never re-authors a scenario to fit the library.
+  External dependency: the library slices that add the scene, the reference time, the routes and the trace facts, and, from 2026-10-16, the library's situated recall plan (its brief's section 4a), whose contract replaces the pack, its sections and the per-cue floors with situations under one bound. Each step records the exact library commit it validates against in the Decision Log and the run headers, with the sibling checkout pinned to it. Extend together, as each slice lands, the core adapter contract and its forwarding, the driver's one mapping function, and the supported feature set beside it; the reference time is forwarded (today `query_date` stops at the adapter). The step that follows the library's Task_2 (the contract) moves the adapter and the driver off `pack`, `section_limits` and `cue_floors` onto situations, parts, paths, ingredients, cuts and absences, and forwards the one bound; the direction, due state and due cue step (390e8694, held) is folded into it. May land in steps; each step reduces the "not run" count and never re-authors a scenario to fit the library.
 - acceptance:
   - A feature joins the supported set only together with a drift test showing a distinctive authored value reaches the library-facing input whole, so a dropped or coerced field fails in the harness and is never blamed on the library.
   - No scenario in the situated fixtures is "not run".
@@ -307,36 +308,36 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
     owner: reviewer
     detail: "Tier D diff review with the reviewer evidence clause; Tier A check that no scenario was weakened to pass"
 
-### Task_9: The library's provisional cue floors are calibrated for its cues slice
+### Task_9: The library's recall design is measured as a situation view against the behaviour before it
 - type: test
 - owns:
-  - crates/cmem-eval-continuity/fixtures/** (new calibration fixture files only; no existing fixture is edited)
-  - crates/cmem-eval-continuity/src/**
+  - crates/cmem-eval-continuity/fixtures/** (new fixture files only; no existing fixture is edited)
+  - crates/cmem-eval-continuity/src/** (the situation-view reader, the added controls, the synthetic years-sized generator; the floor sweep in `calibrate_cue_floors` is removed once the library has no floors)
   - crates/cmem-eval/src/memory_adapter.rs
   - crates/cmem-eval/src/adapter.rs
   - crates/cmem-eval-continuity/README.md
   - README.md
 - depends_on: [Task_5]
 - description: |
-  Dependency note: this task needs only Task_5's cue-forwarding step (the library's cues slice), not all of Task_5; it runs as soon as that step lands, before the remaining routes, so provisional cue floors are calibrated in time for the cues slice.
-  External dependency: the library's cues slice at a pinned commit (the activity beside the topic, cue kinds in the trace, floors per cue kind at `context.cue_floors`, provisional at 1 each). Task_5 step 2 forwards those; this task measures. A generated calibration fixture, separate from the situated scenarios and never asserted as pass or fail, puts pressure on each kind whose floor the library claims (participant, place, activity) under a loud topic and against each other, at the library's default expansion depth, and sweeps the floor values. It reports, per kind and per floor value: whether a memory reachable only through that kind is admitted (starvation), and what each floor admission displaced and at what score, including the case where the scene's words match nothing the character has lived (pollution: a floor admits the least-bad neighbour). It reads cue kinds and floor admissions from the library's trace, and derives whether a kind was found directly or inherited through expansion from the candidate, root and relation traces; if that cannot be derived, it says so and reports to the library plan's owner. Lab-notebook grade: numbers, config and input hashes and the library commit; nothing sealed; every store it creates is cleaned up. It does not replace Task_6.
+  External dependency: the library's situated recall plan at a pinned commit (its Task_2 contract for the reader; its Task_4 tip and final tip for the after arms). The before arm is already captured at library `af605e09` with the existing instrument (`.agent-work/worker/situated-recall-before-arm.md`, controls gap note beside it). This task builds the instrument the library's section 4a measurement names and runs it: a reader over the new result that reports, per probe, the situations with their anchors, parts, paths, reported ingredients, cuts and absence states; the pressure families (overlapping office and topic, two people with separate obligations, duplicated accounts, old high-salience matters, keyless scenes, empty queries) with topic-only and each-cue-removed controls, adding the isolated controls the gap note lists as missing (Rowan-only, two-person no-topic, per-description removal, and the rest); both identifier orders where the binary supports them and an opposed-identifier mode for the authored narratives; hand-labelled situations for two families, authored in the fixture as gold that never reaches the library; five measures reported separately (candidate recall against the before arm, situation grouping against the labels, coverage, unrelated admissions, rendered behaviour from the memo); and a deterministic synthetic years-sized store with skewed hubs for the cost measure, timed outside the deterministic output. Floor 0 is never read as cue removal. Lab-notebook grade: numbers, config and input hashes and the library commit; nothing sealed; every store it creates is cleaned up. It does not replace Task_6.
 - acceptance:
-  - For each of the three kinds, the report gives starvation and pollution at each swept floor value, with an executed and not-run census, at the pinned library commit recorded in the header.
-  - The report states how much floor credit came from an inherited kind, or that the trace cannot tell.
-  - Deterministic: the run repeats with zero differences. No gold reaches library input.
+  - At the library's Task_4 tip and at its final tip, one run reports the five measures per pressure family against the before arm, with the controls, both identifier orders, and the executed and not-run census, the library commit in the header.
+  - The grouping measure is scored against hand-labelled situations in two families, and the labels are in the fixture, not derived from any run.
+  - The cost measure reports retrieval time against store size at the synthetic years-sized store, with the hub skew stated.
+  - Deterministic: each run repeats with zero differences (timing outside the deterministic output). No gold reaches library input.
 - validation:
   - kind: command
     required: true
     owner: worker
-    detail: "the three repository validation commands; the calibration run twice and the repeat comparison; sha256 of the protected assets"
+    detail: "the three repository validation commands; the situation-view run twice and the repeat comparison at each library tip; sha256 of the protected assets"
   - kind: review
     required: true
     owner: reviewer
-    detail: "Tier D diff review with the reviewer evidence clause"
+    detail: "Tier D diff review with the reviewer evidence clause; Tier A check that the labels and controls test the library's design and not its implementation, and that no family was weakened"
   - kind: review
     required: true
     owner: orchestrator
-    detail: "The numbers are handed to the library plan, whose owner sets the measured floors"
+    detail: "The numbers are handed to the library's situated recall plan, whose Decision Log carries the verdict"
 
 ### Task_6: The continuity baselines are re-measured once
 - type: test
@@ -345,9 +346,9 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
   - docs/coding-agent/plans/active/v0-2-situated-recall-scenarios-plan.md
 - depends_on: [Task_5, Task_9]
 - description: |
-  At the library commit that closes v0.2 pack admission: recall by reason and cost over the loud-topic set, and one re-measurement of pollution, context size, gap recall and the graph-only probe on the canonical 15-scenario set, under the comparability conditions in the census (question 4). The canonical set reuses its existing frozen store; existing stores are never touched. Lab-notebook grade: numbers, config and input hashes, and both commits in the Decision Log; nothing sealed.
+  At the library commit that closes v0.2 recall (the situated recall plan's final tip): recall by reason and cost over the loud-topic set, and one re-measurement of pollution, context size, gap recall and the graph-only probe on the canonical 15-scenario set, under the comparability conditions in the census (question 4). The canonical set reuses its existing frozen store; existing stores are never touched. Lab-notebook grade: numbers, config and input hashes, and both commits in the Decision Log; nothing sealed.
 - acceptance:
-  - Before and after numbers sit side by side with every intentional difference (library commit, ingest shape, fixture file if regenerated, floors) named.
+  - Before and after numbers sit side by side with every intentional difference (library commit, ingest shape, fixture file if regenerated, the recall design's contract) named.
   - Deterministic: the run repeats with zero differences.
   - All run stores cleaned up.
 - validation:
@@ -368,7 +369,7 @@ Reviewer evidence, for every task below: besides the diff review, the Reviewer p
 - Wave 2c: [Task_8] (needs nothing from the library; stacks on Wave 2b)
 - Wave 3: [Task_4] (starts when the library groundwork branch exists)
 - Wave 4: [Task_5] (follows library slices; may be several steps)
-- Wave 4b: [Task_9] (after the Task_5 step that forwards the library's cues slice)
+- Wave 4b: [Task_9] (after the Task_5 step that moves the adapter onto situations; runs at the library's Task_4 tip and final tip)
 - Wave 5: [Task_6]
 
 Every task is one pull request, and the pull requests form one linear stack for review. The stack does not land level by level: the lessons file requires every level that reaches main to pass against the library revision CI resolves, and the levels below Task_4 cannot, since they were written against the library before its schema groundwork. When the decider approves the merge, the top branch lands on main as one pull request, validated at the library main revision CI resolves and with that revision recorded, and the per-task pull requests are closed as reviewed and superseded by it. Main therefore never holds a level that fails to build. Tasks a wave runs in parallel are each developed from the wave's integrated parent and then stacked in task order (Task_2's pull request, then Task_3's on top of it), the later one merging the earlier forward. CI resolves library main, which carries the schema groundwork since 2026-09-21, so every pull request below Task_4 is red by construction and only the top of the stack is expected green. Later waves stack on top as their library dependency exists, and pin the exact library commit they validate against.
@@ -481,3 +482,8 @@ Every task is one pull request, and the pull requests form one linear stack for 
   - Carried to Task_6: eighteen rationale-category metric keys and `hub_expansion_relevant_hit_rate` are retired; sealed outputs keep their old names.
   - Carried to Task_9: calibrate at a library commit that honors numeric floors at root selection and shares only the room beyond them.
   - User approval: inside the approved plan. Record proposed: none.
+- 2026-10-16 Decision: the plan is amended for the library's design amendment (the v0.2 completion brief's section 4a, ratified 2026-10-16): the library replaces the pack, its sections and the per-cue floors with situations under one bound, so there is no floor to calibrate.
+  - Trigger / new insight: the owner's re-examination of the v0.2 recall design; the library's situated recall plan (`docs/coding-agent/plans/active/v0-2-situated-recall-plan.md` there) names the measurement this repository provides: a deterministic situation view against the behaviour before it, on the existing pressure cases, with topic-only and each-cue-removed controls, five measures reported separately, and cost at a years-sized store.
+  - Plan delta: Task_9 (cue-floor calibration) is replaced by the situation-view instrument; Task_6 is re-anchored to the library commit that closes v0.2 recall; Task_5 gains the step that moves the adapter off `pack` and forwards the one bound, and absorbs the held direction and due step (390e8694); the Goal and Definition of Done say what the measurements now inform. The before arm was captured on 2026-10-16 at library `af605e09` with the existing instrument (`.agent-work/worker/situated-recall-before-arm.md`; the controls gap note beside it is Task_9's input). The situated fixtures stand unchanged.
+  - User approval: the owner's ratified amendment sets the direction; this revision of an approved plan is reviewed before its tasks run.
+  - Record proposed: none.
