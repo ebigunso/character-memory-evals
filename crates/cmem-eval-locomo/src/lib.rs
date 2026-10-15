@@ -17,6 +17,9 @@
 //! `<sample_id>:qa:<one-based position>`. Effective QA IDs are unique across the file.
 //! `answer`, `category`, `speaker`, `img_url`, `blip_caption`, `query` and dates
 //! remain optional annotations. Raw dates are retained alongside normalized timestamps.
+//! The conventional runner uses the latest parseable source timestamp, inclusive,
+//! as the scene time for every QA. Official dates without an offset mean UTC.
+//! It rejects a conversation with no parseable timestamp before creating run state.
 //! QA `evidence` admits scalar references and arrays of scalars or objects with
 //! `dia_id`. References to absent turns do not reject the sample. Missing
 //! annotations do not determine abstention status.
