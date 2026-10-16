@@ -14,6 +14,8 @@ mod consolidation;
 mod obligations;
 #[path = "residuals.rs"]
 mod residuals;
+#[path = "situated_before.rs"]
+pub(super) mod situated_before;
 
 pub(super) async fn run_obligations(
     stores: &Path,

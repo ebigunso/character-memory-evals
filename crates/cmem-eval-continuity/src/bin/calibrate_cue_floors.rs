@@ -813,6 +813,7 @@ async fn run_calibration() -> Result<()> {
     let mut consolidation_only = false;
     let mut residuals_only = false;
     let mut obligations_only = false;
+    let mut situated_before_only = false;
     let mut anniversary_required = false;
     let mut timing_output = None;
     while let Some(flag) = args.next() {
@@ -821,13 +822,15 @@ async fn run_calibration() -> Result<()> {
                 "--slices-only"
                 | "--consolidation-only"
                 | "--residuals-only"
-                | "--obligations-only",
+                | "--obligations-only"
+                | "--situated-before-only",
             ) => {
                 ensure!(!slices_only, "choose one measurement subset");
                 slices_only = true;
                 consolidation_only = flag == "--consolidation-only";
                 residuals_only = flag == "--residuals-only";
                 obligations_only = flag == "--obligations-only";
+                situated_before_only = flag == "--situated-before-only";
             }
             Some("--require-anniversary") => anniversary_required = true,
             Some("--timings") => {
@@ -838,9 +841,22 @@ async fn run_calibration() -> Result<()> {
                 );
             }
             _ => anyhow::bail!(
-                "expected --slices-only, --consolidation-only, --residuals-only, --obligations-only, --require-anniversary or --timings <new.json>"
+                "expected --slices-only, --consolidation-only, --residuals-only, --obligations-only, --situated-before-only, --require-anniversary or --timings <new.json>"
             ),
         }
+    }
+    if situated_before_only {
+        ensure!(
+            !anniversary_required,
+            "anniversary witness is outside the added controls"
+        );
+        return Box::pin(time_and_obligations::situated_before::run(
+            Path::new(&output),
+            Path::new(
+                &timing_output.context("--situated-before-only requires --timings <new.json>")?,
+            ),
+        ))
+        .await;
     }
     ensure!(
         !(consolidation_only || residuals_only || obligations_only) || !anniversary_required,

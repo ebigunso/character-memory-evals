@@ -4,12 +4,12 @@ use consolidation::{belief, vector};
 use std::collections::BTreeSet;
 
 #[derive(Clone, Serialize)]
-struct ResidualFamily {
-    family: Family,
+pub(super) struct ResidualFamily {
+    pub(super) family: Family,
     observations: Vec<ObservationInput>,
 }
 
-fn familiar(config: &BenchmarkRunConfig) -> ResidualFamily {
+pub(super) fn familiar(config: &BenchmarkRunConfig) -> ResidualFamily {
     let mut family = empty("familiar-salient-remarks");
     for n in 0..8 {
         belief(
@@ -113,7 +113,7 @@ fn busy(config: &BenchmarkRunConfig) -> ResidualFamily {
     }
 }
 
-fn activity(config: &BenchmarkRunConfig) -> ResidualFamily {
+pub(super) fn activity(config: &BenchmarkRunConfig) -> ResidualFamily {
     let mut family = consolidation::activity_family(config);
     family.name = "activity-people-pressure".into();
     for n in 0..2 {

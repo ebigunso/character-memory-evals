@@ -1,0 +1,174 @@
+{
+  "status": "authored-gold",
+  "basis": "Authored stories and source links only; no retrieval output. Authored by evals-worker under the orchestrator ruling of 2026-10-15T20:43:57Z. Memberships use original external IDs; opposed runs use their recorded permutation. Companions of listed occasions belong to the same situation.",
+  "families": [
+    {
+      "family": "keyed-setting-office",
+      "probe": "six-people-with-office",
+      "situations": [
+        {
+          "name": "Person 0's cafe meeting preferences",
+          "memories": [
+            "belief-000",
+            "belief-001",
+            "belief-002",
+            "occasion-000",
+            "occasion-001",
+            "occasion-002"
+          ],
+          "reason": "The preferences concern this one person at the cafe; their source occasions supply the lived basis."
+        },
+        {
+          "name": "Person 1's cafe meeting preferences",
+          "memories": [
+            "belief-003",
+            "belief-004",
+            "belief-005",
+            "occasion-003",
+            "occasion-004",
+            "occasion-005"
+          ],
+          "reason": "The preferences concern this one person at the cafe; their source occasions supply the lived basis."
+        },
+        {
+          "name": "Person 2's cafe meeting preferences",
+          "memories": [
+            "belief-006",
+            "belief-007",
+            "belief-008",
+            "occasion-006",
+            "occasion-007",
+            "occasion-008"
+          ],
+          "reason": "The preferences concern this one person at the cafe; their source occasions supply the lived basis."
+        },
+        {
+          "name": "Person 3's cafe meeting preferences",
+          "memories": [
+            "belief-009",
+            "belief-010",
+            "belief-011",
+            "occasion-009",
+            "occasion-010",
+            "occasion-011"
+          ],
+          "reason": "The preferences concern this one person at the cafe; their source occasions supply the lived basis."
+        },
+        {
+          "name": "Person 4's cafe meeting preferences",
+          "memories": [
+            "belief-012",
+            "belief-013",
+            "belief-014",
+            "occasion-012",
+            "occasion-013",
+            "occasion-014"
+          ],
+          "reason": "The preferences concern this one person at the cafe; their source occasions supply the lived basis."
+        },
+        {
+          "name": "Person 5's cafe meeting preferences",
+          "memories": [
+            "belief-015",
+            "belief-016",
+            "belief-017",
+            "occasion-015",
+            "occasion-016",
+            "occasion-017"
+          ],
+          "reason": "The preferences concern this one person at the cafe; their source occasions supply the lived basis."
+        },
+        {
+          "name": "Office stationery routines",
+          "memories": [
+            "belief-018",
+            "belief-019",
+            "belief-020",
+            "belief-021",
+            "belief-022",
+            "belief-023",
+            "belief-024",
+            "belief-025",
+            "belief-026",
+            "belief-027",
+            "belief-028",
+            "belief-029",
+            "occasion-018",
+            "occasion-019",
+            "occasion-020",
+            "occasion-021",
+            "occasion-022",
+            "occasion-023",
+            "occasion-024",
+            "occasion-025",
+            "occasion-026",
+            "occasion-027",
+            "occasion-028",
+            "occasion-029"
+          ],
+          "reason": "These routines share office stationery work; their source occasions explain the routines."
+        },
+        {
+          "name": "Copper bell work at the office",
+          "memories": [
+            "belief-030",
+            "belief-031",
+            "belief-032",
+            "belief-033",
+            "belief-034",
+            "belief-035",
+            "belief-036",
+            "belief-037",
+            "occasion-030",
+            "occasion-031",
+            "occasion-032",
+            "occasion-033",
+            "occasion-034",
+            "occasion-035",
+            "occasion-036",
+            "occasion-037"
+          ],
+          "reason": "These reflections and their occasions concern the same copper bell work at the office."
+        }
+      ]
+    },
+    {
+      "family": "prospective-meeting",
+      "probe": "iris-rowan-loud",
+      "situations": [
+        {
+          "name": "My blue notebook promise to Iris",
+          "memories": [
+            "iris-outgoing",
+            "source-iris-outgoing"
+          ],
+          "reason": "This promise and its source occasion form one unfinished matter with its own direction, counterpart and object; other promises remain separate."
+        },
+        {
+          "name": "Iris's library receipt promise to me",
+          "memories": [
+            "iris-incoming",
+            "source-iris-incoming"
+          ],
+          "reason": "This promise and its source occasion form one unfinished matter with its own direction, counterpart and object; other promises remain separate."
+        },
+        {
+          "name": "My copper compass promise to Rowan",
+          "memories": [
+            "rowan-outgoing",
+            "source-rowan-outgoing"
+          ],
+          "reason": "This promise and its source occasion form one unfinished matter with its own direction, counterpart and object; other promises remain separate."
+        },
+        {
+          "name": "Rowan's parcel receipt promise to me",
+          "memories": [
+            "rowan-incoming",
+            "source-rowan-incoming"
+          ],
+          "reason": "This promise and its source occasion form one unfinished matter with its own direction, counterpart and object; other promises remain separate."
+        }
+      ]
+    }
+  ]
+}
