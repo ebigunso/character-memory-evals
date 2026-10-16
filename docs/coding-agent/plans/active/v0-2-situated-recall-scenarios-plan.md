@@ -426,6 +426,8 @@ Every task is one pull request, and the pull requests form one linear stack for 
   - Summary: salience on experiences, the `cued` assertion and pooled recall per reason entered the scenario language and the run (PR 58), closing the Wave 2 gap that recent high-salience episodes could not be authored; Task_8 and Task_5 build on it.
   - Validation evidence: recorded on PR 58; CI there is red only by the library-main construction noted below.
 
+- 2026-10-16: Task_10 done (9270f510 plus the recovery commit ea45f0bd on `feature/2026-10-16/situated-task10`; Tier D APPROVED). The before arm at library af605e09 now holds 142 rows per arm: ninety matched single-cue removals across seven families, the two label families, the one- and three-year synthetic stores, both identifier orders, A and B byte-identical (raw SHA256 2f51b83a...). Report `.agent-work/worker/situated-task10-report.md`; manifest and comparison beside it. Task_9 waits on the library's Task_2 tip.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-09-20 Decision: the scenario shape was redrawn before approval, after the decider asked for the dataset representation to be picked apart.
